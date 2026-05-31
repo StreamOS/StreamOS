@@ -1,29 +1,81 @@
 import { Activity, BadgeDollarSign, Clapperboard, Search } from "lucide-react";
 import { StatCard } from "@streamos/ui";
+import { dashboardStats, operatingPlan } from "@/data/dashboard";
 import { PlatformOverview } from "@/components/modules/PlatformOverview";
 import { RecentClips } from "@/components/modules/RecentClips";
 import { ViewerChart } from "@/components/modules/ViewerChart";
 
-const stats = [
-  { label: "Discovery score", value: "82", trend: "+9%", icon: Search },
-  { label: "Monthly revenue", value: "$18.4k", trend: "+14%", icon: BadgeDollarSign },
-  { label: "AI clips queued", value: "36", trend: "12 ready", icon: Clapperboard },
-  { label: "Live reach", value: "148k", trend: "+21%", icon: Activity }
-];
+const statIcons = [Search, BadgeDollarSign, Clapperboard, Activity];
 
-export default function DashboardPage() {
+type DashboardPageProps = {
+  searchParams?: Promise<{
+    error?: string;
+    platform?: string;
+    status?: string;
+  }>;
+};
+
+export default async function DashboardPage({
+  searchParams,
+}: DashboardPageProps) {
+  const params = await searchParams;
+
   return (
     <div className="space-y-6">
-      <header>
-        <p className="text-sm font-medium text-brand-700">Creator command center</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-normal text-slate-950">
-          StreamOS Dashboard
-        </h1>
+      {params?.platform === "twitch" && (
+        <TwitchConnectionNotice error={params.error} status={params.status} />
+      )}
+
+      <header className="grid gap-6 rounded-lg border border-white/10 bg-surface-900/85 p-6 shadow-[0_22px_70px_rgba(0,0,0,0.42)] xl:grid-cols-[minmax(0,1.1fr)_360px]">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
+            Creator command center
+          </p>
+          <h1 className="mt-3 max-w-3xl text-4xl font-semibold tracking-normal text-white md:text-5xl">
+            Aus deinem Stream wird ein kompletter Content- und Umsatz-Funnel.
+          </h1>
+          <p className="mt-4 max-w-2xl text-base leading-7 text-slate-400">
+            StreamOS buendelt Discoverability, Clip-Automatisierung,
+            Monetarisierung, Branding, Multi-Plattform-Management und Analytics
+            in einer operativen Creator-Oberflaeche.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <a href="/dashboard/clips" className="btn-primary">
+              VOD analysieren
+            </a>
+            <a href="/dashboard/analytics" className="btn-ghost">
+              Analytics pruefen
+            </a>
+          </div>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+          <div className="grid min-h-52 place-items-center rounded-lg border border-white/10 bg-[linear-gradient(120deg,rgba(155,92,255,.24),rgba(0,212,170,.12)),repeating-linear-gradient(90deg,rgba(255,255,255,.06)_0_1px,transparent_1px_38px)]">
+            <div className="h-0 w-0 border-y-[30px] border-l-[48px] border-y-transparent border-l-white/90 drop-shadow-[0_0_24px_rgba(155,92,255,.7)]" />
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+            <div className="rounded-lg border border-white/10 bg-surface-800 p-3">
+              <strong className="block text-xl text-white">36</strong>
+              <span className="text-xs text-slate-400">Clips</span>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-surface-800 p-3">
+              <strong className="block text-xl text-white">12</strong>
+              <span className="text-xs text-slate-400">Posts</span>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-surface-800 p-3">
+              <strong className="block text-xl text-white">4</strong>
+              <span className="text-xs text-slate-400">Sponsors</span>
+            </div>
+          </div>
+        </div>
       </header>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat) => (
-          <StatCard key={stat.label} {...stat} />
+        {dashboardStats.map((stat, index) => (
+          <StatCard
+            key={stat.label}
+            {...stat}
+            icon={statIcons[index] ?? Search}
+          />
         ))}
       </section>
 
@@ -32,7 +84,57 @@ export default function DashboardPage() {
         <PlatformOverview />
       </section>
 
+      <section className="card">
+        <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
+          AI Operating Plan
+        </p>
+        <h2 className="mt-2 text-lg font-semibold text-white">
+          Naechste Schritte
+        </h2>
+        <ul className="mt-4 grid gap-3 md:grid-cols-2">
+          {operatingPlan.map((task) => (
+            <li
+              key={task}
+              className="flex gap-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-300"
+            >
+              <span className="mt-1 h-2 w-2 rounded-full bg-signal-green shadow-[0_0_18px_rgba(0,212,170,.8)]" />
+              {task}
+            </li>
+          ))}
+        </ul>
+      </section>
+
       <RecentClips />
     </div>
+  );
+}
+
+function TwitchConnectionNotice({
+  error,
+  status,
+}: {
+  error?: string;
+  status?: string;
+}) {
+  if (status === "connected") {
+    return (
+      <section className="rounded-lg border border-signal-green/30 bg-signal-green/10 p-4 text-sm text-signal-green">
+        Twitch wurde verbunden. StreamOS kann den Kanal jetzt fuer Analytics und
+        Automatisierung nutzen.
+      </section>
+    );
+  }
+
+  const message =
+    error === "twitch-setup"
+      ? "Twitch OAuth ist noch nicht vollstaendig konfiguriert. Setze TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_REDIRECT_URI und APP_ENCRYPTION_KEY."
+      : error === "twitch-state"
+        ? "Twitch OAuth wurde aus Sicherheitsgruenden abgebrochen. Starte die Verbindung erneut."
+        : "Twitch konnte nicht verbunden werden. Pruefe OAuth-App, Redirect URI und Twitch-Konfiguration.";
+
+  return (
+    <section className="rounded-lg border border-signal-red/30 bg-signal-red/10 p-4 text-sm text-signal-red">
+      {message}
+    </section>
   );
 }

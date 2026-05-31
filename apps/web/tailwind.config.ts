@@ -9,14 +9,22 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          50: "#eff6ff",
-          500: "#2563eb",
-          700: "#1d4ed8"
+          50: "#f3efff",
+          500: "#9b5cff",
+          700: "#6f36d8"
         },
         surface: {
           50: "#f8fafc",
           100: "#f1f5f9",
-          900: "#0f172a"
+          800: "#171a23",
+          900: "#11131a",
+          950: "#090a0f"
+        },
+        signal: {
+          green: "#00d4aa",
+          red: "#ff4e6a",
+          gold: "#f5c842",
+          blue: "#48a4ff"
         }
       }
     }

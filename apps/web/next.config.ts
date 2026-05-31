@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "*.supabase.co" }
     ]
   },
-  transpilePackages: ["@streamos/ui", "@streamos/types"]
+  transpilePackages: ["@streamos/database", "@streamos/ui", "@streamos/types"]
 };
 
 export default nextConfig;

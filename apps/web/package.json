@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@streamos/database": "workspace:*",
     "@streamos/types": "workspace:*",
     "@streamos/ui": "workspace:*",
     "@supabase/ssr": "^0.6.1",

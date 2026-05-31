@@ -1,3 +1,4 @@
+import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Search } from "lucide-react";
 import { describe, expect, it } from "vitest";

@@ -1,5 +1,7 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import type { Database } from "@streamos/database";
+import { getSupabaseConfig } from "./config";
 
 export async function createClient() {
   const cookieStore = await cookies();
@@ -8,21 +10,24 @@ export async function createClient() {
     value: string;
     options?: Parameters<typeof cookieStore.set>[2];
   };
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const config = getSupabaseConfig();
 
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!config) {
     throw new Error("Missing server Supabase environment variables.");
   }
 
-  return createServerClient(supabaseUrl, supabaseAnonKey, {
+  return createServerClient<Database, "public", Database["public"]>(config.url, config.anonKey, {
     cookies: {
       getAll() {
         return cookieStore.getAll();
       },
       setAll(cookiesToSet: CookieToSet[]) {
         cookiesToSet.forEach(({ name, value, options }) => {
-          cookieStore.set(name, value, options);
+          try {
+            cookieStore.set(name, value, options);
+          } catch {
+            // Server Components cannot always mutate cookies. Server Actions and Route Handlers can.
+          }
         });
       }
     }
