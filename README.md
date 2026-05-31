@@ -83,6 +83,13 @@ The first platform connector lives in the web app route handlers:
 - `/api/platforms/twitch/connect`
 - `/api/platforms/twitch/callback`
 
+Connected Twitch accounts store encrypted access and refresh tokens in Supabase.
+The dashboard exposes a server-side token refresh action so expired access tokens
+can be renewed without exposing provider credentials to the browser.
+The first analytics sync is available from `/dashboard/analytics`; it reads
+Twitch channel, live stream, and follower count data, updates the linked channel,
+and writes a `metrics_snapshots` row.
+
 Configure these server-only values in `apps/web/.env.local`:
 
 ```bash

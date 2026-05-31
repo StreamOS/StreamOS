@@ -125,12 +125,22 @@ function TwitchConnectionNotice({
     );
   }
 
+  if (status === "refreshed") {
+    return (
+      <section className="rounded-lg border border-signal-green/30 bg-signal-green/10 p-4 text-sm text-signal-green">
+        Twitch Token wurde erneuert. Die Verbindung ist wieder aktiv.
+      </section>
+    );
+  }
+
   const message =
     error === "twitch-setup"
       ? "Twitch OAuth ist noch nicht vollstaendig konfiguriert. Setze TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_REDIRECT_URI und APP_ENCRYPTION_KEY."
       : error === "twitch-state"
         ? "Twitch OAuth wurde aus Sicherheitsgruenden abgebrochen. Starte die Verbindung erneut."
-        : "Twitch konnte nicht verbunden werden. Pruefe OAuth-App, Redirect URI und Twitch-Konfiguration.";
+        : error === "twitch-refresh"
+          ? "Twitch Token konnte nicht erneuert werden. Verbinde Twitch erneut, falls der Refresh Token abgelaufen oder widerrufen wurde."
+          : "Twitch konnte nicht verbunden werden. Pruefe OAuth-App, Redirect URI und Twitch-Konfiguration.";
 
   return (
     <section className="rounded-lg border border-signal-red/30 bg-signal-red/10 p-4 text-sm text-signal-red">

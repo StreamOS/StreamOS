@@ -13,6 +13,7 @@ export type PlatformSummary = {
   followers: string;
   status:
     | "Connected"
+    | "Expired"
     | "Not connected"
     | "OAuth pending"
     | "Beta connector"
@@ -20,6 +21,7 @@ export type PlatformSummary = {
   reach: string;
   actionHref?: string;
   actionLabel?: string;
+  canRefresh?: boolean;
 };
 
 export type ClipSummary = {

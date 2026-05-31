@@ -33,6 +33,8 @@ apps/web/src/
 - UI components stay presentational and reusable.
 - Feature modules own streamer workflows such as analytics, clips, monetization, SEO, and branding.
 - Integration clients live under `src/lib/integrations` and never expose provider secrets to browser code.
+- Provider analytics syncs should run in server actions, route handlers, backend
+  services, or workers, never in client components.
 - Database and API contracts live in shared packages where possible, especially `packages/types` and `packages/database`.
 
 ## Backend Responsibilities
@@ -72,6 +74,8 @@ Use REST route handlers or the API gateway for simple commands and webhooks:
 - `/api/platforms/callback`
 - `/api/platforms/twitch/connect`
 - `/api/platforms/twitch/callback`
+- Dashboard server action for Twitch token refresh
+- Dashboard server action for first Twitch analytics sync
 - `/api/metrics/sync`
 - `/api/clips/analyze`
 - `/api/webhooks/twitch`
@@ -83,6 +87,8 @@ Use realtime channels or server-sent events for live viewer counts, stream statu
 
 - Store provider secrets only in server-side environment variables.
 - Encrypt platform OAuth access and refresh tokens before writing them to Supabase.
+- Refresh provider access tokens on the server and rotate persisted refresh tokens
+  when providers return replacements.
 - Dashboard routes are protected in `apps/web/src/app/dashboard/layout.tsx` when Supabase is configured.
 - Supabase session cookies are refreshed in `apps/web/src/middleware.ts`.
 - Email confirmations are handled by `apps/web/src/app/auth/confirm/route.ts`; Supabase email templates must send `token_hash` links to `/auth/confirm`.

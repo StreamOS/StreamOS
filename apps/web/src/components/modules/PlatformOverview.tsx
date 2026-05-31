@@ -1,4 +1,5 @@
 import type { Tables } from "@streamos/database";
+import { refreshTwitchConnectionAction } from "@/app/dashboard/actions";
 import { platforms } from "@/data/dashboard";
 import type { PlatformSummary } from "@/data/dashboard";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -35,6 +36,16 @@ export async function PlatformOverview() {
                   {platform.actionLabel}
                 </a>
               )}
+              {platform.canRefresh && (
+                <form action={refreshTwitchConnectionAction}>
+                  <button
+                    className="btn-ghost px-3 py-1.5 text-xs"
+                    type="submit"
+                  >
+                    Token erneuern
+                  </button>
+                </form>
+              )}
             </div>
           </div>
         ))}
@@ -59,7 +70,7 @@ async function getPlatformSummaries(): Promise<PlatformSummary[]> {
   const [connectionsResult, channelsResult] = await Promise.all([
     supabase
       .from("platform_connections")
-      .select("platform, status, channel_id, connected_at")
+      .select("platform, status, channel_id, expires_at")
       .eq("creator_id", creator.id),
     supabase
       .from("channels")
@@ -77,7 +88,7 @@ async function getPlatformSummaries(): Promise<PlatformSummary[]> {
   >;
   type ConnectionSummary = Pick<
     Tables<"platform_connections">,
-    "channel_id" | "platform" | "status"
+    "channel_id" | "expires_at" | "platform" | "status"
   >;
   const channels = (channelsResult.data ?? []) as ChannelSummary[];
   const connections = (connectionsResult.data ?? []) as ConnectionSummary[];
@@ -98,16 +109,30 @@ async function getPlatformSummaries(): Promise<PlatformSummary[]> {
       ? channelsById.get(connection.channel_id)
       : undefined;
     const isConnected = connection.status === "connected";
+    const expiresAt = connection.expires_at
+      ? new Date(connection.expires_at).getTime()
+      : null;
+    const isExpired =
+      connection.status === "expired" ||
+      (expiresAt !== null && expiresAt <= Date.now());
+    const canRefresh = platform.id === "twitch";
 
     return {
       ...platform,
-      actionHref: isConnected ? undefined : platform.actionHref,
-      actionLabel: isConnected ? undefined : "Neu verbinden",
+      actionHref: isConnected && !isExpired ? undefined : platform.actionHref,
+      actionLabel: isConnected && !isExpired ? undefined : "Neu verbinden",
+      canRefresh,
       followers: channel
         ? `${formatFollowers(channel.follower_count)} followers`
         : "Kanal verbunden",
-      reach: channel?.display_name ?? "OAuth aktiv",
-      status: isConnected ? "Connected" : "OAuth pending",
+      reach: isExpired
+        ? "Token abgelaufen"
+        : (channel?.display_name ?? "OAuth aktiv"),
+      status: isExpired
+        ? "Expired"
+        : isConnected
+          ? "Connected"
+          : "OAuth pending",
     };
   });
 }

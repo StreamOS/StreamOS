@@ -1,4 +1,4 @@
-import { createCipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 const ENCRYPTION_VERSION = "v1";
 const KEY_BYTE_LENGTH = 32;
@@ -36,6 +36,26 @@ export function encryptSecret(value: string): string {
     authTag.toString("base64url"),
     ciphertext.toString("base64url"),
   ].join(":");
+}
+
+export function decryptSecret(payload: string): string {
+  const [version, iv, authTag, ciphertext] = payload.split(":");
+
+  if (version !== ENCRYPTION_VERSION || !iv || !authTag || !ciphertext) {
+    throw new Error("Invalid encrypted secret payload.");
+  }
+
+  const decipher = createDecipheriv(
+    "aes-256-gcm",
+    getEncryptionKey(),
+    Buffer.from(iv, "base64url"),
+  );
+  decipher.setAuthTag(Buffer.from(authTag, "base64url"));
+
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertext, "base64url")),
+    decipher.final(),
+  ]).toString("utf8");
 }
 
 function getEncryptionKey(): Buffer {
