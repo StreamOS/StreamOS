@@ -1,0 +1,21 @@
+{
+  "name": "streamos-monorepo",
+  "version": "0.1.0",
+  "description": "StreamOS monorepo for creator discoverability, monetization, automation, branding, multi-platform management, and analytics.",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "typecheck": "turbo typecheck",
+    "format": "prettier --check \"**/*.{ts,tsx,js,json,md,yml,yaml}\""
+  },
+  "devDependencies": {
+    "pnpm": "9.15.4",
+    "prettier": "^3.5.3",
+    "turbo": "^2.5.4",
+    "typescript": "^5.8.3"
+  }
+}
