@@ -11,7 +11,8 @@ const transcriptionQueue = process.env.REDIS_URL
 
 const app = createApp({ clipGenerationQueue, transcriptionQueue });
 const port = Number(process.env.PORT ?? 4000);
+const host = process.env.HOST || process.env.HOSTNAME || "0.0.0.0";
 
-app.listen(port, () => {
-  console.log(`api-gateway listening on ${port}`);
+app.listen(port, host, () => {
+  console.log(`api-gateway listening on ${host}:${port}`);
 });

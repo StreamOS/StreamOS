@@ -33,20 +33,25 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </div>
             <div>
               <div className="text-2xl font-semibold text-white">StreamOS</div>
-              <div className="text-sm text-slate-400">Creator Operating System</div>
+              <div className="text-sm text-slate-400">
+                Creator Operating System
+              </div>
             </div>
           </div>
         </div>
 
         {!configured && (
           <div className="mb-6 rounded-lg border border-signal-gold/30 bg-signal-gold/10 p-4 text-sm text-signal-gold">
-            Supabase ist lokal noch nicht konfiguriert. Fuellen Sie `NEXT_PUBLIC_SUPABASE_URL` und
-            `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `apps/web/.env.local`, dann sind Login und Dashboard-Schutz aktiv.
+            Supabase ist lokal noch nicht konfiguriert. Fuellen Sie
+            `NEXT_PUBLIC_SUPABASE_URL` und `NEXT_PUBLIC_SUPABASE_ANON_KEY` in
+            `apps/web/.env.local`, dann sind Login und Dashboard-Schutz aktiv.
           </div>
         )}
 
         {params.error && <StatusMessage type="error" value={params.error} />}
-        {params.message && <StatusMessage type="message" value={params.message} />}
+        {params.message && (
+          <StatusMessage type="message" value={params.message} />
+        )}
 
         <section className="grid gap-6 lg:grid-cols-2">
           <AuthPanel
@@ -77,7 +82,13 @@ type AuthPanelProps = {
   title: string;
 };
 
-function AuthPanel({ action, buttonLabel, description, includeName, title }: AuthPanelProps) {
+function AuthPanel({
+  action,
+  buttonLabel,
+  description,
+  includeName,
+  title,
+}: AuthPanelProps) {
   return (
     <form action={action} className="card">
       <h1 className="text-2xl font-semibold text-white">{title}</h1>
@@ -121,14 +132,24 @@ function AuthPanel({ action, buttonLabel, description, includeName, title }: Aut
   );
 }
 
-function StatusMessage({ type, value }: { type: "error" | "message"; value: string }) {
+function StatusMessage({
+  type,
+  value,
+}: {
+  type: "error" | "message";
+  value: string;
+}) {
   const copy: Record<string, string> = {
-    "check-email": "Bitte bestaetige deine Email-Adresse, bevor du dich einloggst.",
-    "confirmation-failed": "Email-Bestaetigung fehlgeschlagen oder Link abgelaufen.",
-    "invalid-email": "Diese Email-Adresse wird von Supabase nicht akzeptiert. Nutze eine echte, erreichbare Adresse.",
-    "invalid-credentials": "Login fehlgeschlagen. Bitte pruefe Email und Passwort.",
+    "check-email":
+      "Bitte bestaetige deine Email-Adresse, bevor du dich einloggst.",
+    "confirmation-failed":
+      "Email-Bestaetigung fehlgeschlagen oder Link abgelaufen.",
+    "invalid-email":
+      "Diese Email-Adresse wird von Supabase nicht akzeptiert. Nutze eine echte, erreichbare Adresse.",
+    "invalid-credentials":
+      "Login fehlgeschlagen. Bitte pruefe Email und Passwort.",
     "signup-failed": "Signup fehlgeschlagen. Bitte pruefe deine Eingaben.",
-    "supabase-not-configured": "Supabase ist noch nicht konfiguriert."
+    "supabase-not-configured": "Supabase ist noch nicht konfiguriert.",
   };
 
   const color =
@@ -136,5 +157,9 @@ function StatusMessage({ type, value }: { type: "error" | "message"; value: stri
       ? "border-signal-red/30 bg-signal-red/10 text-signal-red"
       : "border-signal-green/30 bg-signal-green/10 text-signal-green";
 
-  return <div className={`mb-6 rounded-lg border p-4 text-sm ${color}`}>{copy[value] ?? value}</div>;
+  return (
+    <div className={`mb-6 rounded-lg border p-4 text-sm ${color}`}>
+      {copy[value] ?? value}
+    </div>
+  );
 }

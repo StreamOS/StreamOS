@@ -7,7 +7,9 @@ import { ensureCreatorForUser } from "@/lib/supabase/creator";
 import { createClient } from "@/lib/supabase/server";
 
 function readCredentials(formData: FormData) {
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const email = String(formData.get("email") ?? "")
+    .trim()
+    .toLowerCase();
   const password = String(formData.get("password") ?? "");
 
   if (!email || !password) {
@@ -24,7 +26,10 @@ export async function signIn(formData: FormData) {
 
   const { email, password } = readCredentials(formData);
   const supabase = await createClient();
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
 
   if (error || !data.user) {
     redirect("/login?error=invalid-credentials");
@@ -42,7 +47,10 @@ export async function signUp(formData: FormData) {
   const { email, password } = readCredentials(formData);
   const displayName = String(formData.get("displayName") ?? "").trim();
   const headerStore = await headers();
-  const origin = headerStore.get("origin") ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const origin =
+    headerStore.get("origin") ??
+    process.env.NEXT_PUBLIC_APP_URL ??
+    "http://localhost:3000";
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signUp({
     email,
@@ -50,9 +58,9 @@ export async function signUp(formData: FormData) {
     options: {
       emailRedirectTo: `${origin}/auth/confirm`,
       data: {
-        name: displayName || email.split("@")[0]
-      }
-    }
+        name: displayName || email.split("@")[0],
+      },
+    },
   });
 
   if (error || !data.user) {

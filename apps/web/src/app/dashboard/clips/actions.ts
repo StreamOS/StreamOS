@@ -65,42 +65,46 @@ export async function startClipAnalysisAction(formData: FormData) {
   const queuePayload = buildClipGenerationQueuePayload({
     creatorId: creator.id,
     requestedBy: userId,
+    sourcePlatform: values.sourcePlatform,
     sourceUrl: values.sourceUrl,
     streamId: stream.id,
+    transcript: values.transcript,
   });
   const expectedQueueJobId = getClipGenerationQueueJobId(stream.id);
 
-  try {
-    const response = await fetch(new URL("/api/clips/generate", apiGatewayUrl), {
-      body: JSON.stringify(queuePayload),
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
+  await upsertContentJob({
+    patch: {
+      error_message: null,
+      payload: {
+        ...queuePayload,
+        category: values.category,
+        chat_activity: values.chatActivity,
       },
-      method: "POST",
-    });
+      queue_job_id: expectedQueueJobId,
+      result: null,
+      status: "pending",
+    },
+    streamId: stream.id,
+    supabase,
+    userId,
+  });
+
+  try {
+    const response = await fetch(
+      new URL("/api/clips/generate", apiGatewayUrl),
+      {
+        body: JSON.stringify(queuePayload),
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      },
+    );
 
     if (!response.ok) {
       throw new Error(`API gateway returned ${response.status}.`);
     }
-
-    const queuedJob = (await response.json()) as { queue_job_id?: string };
-    await upsertContentJob({
-      patch: {
-        error_message: null,
-        payload: {
-          ...queuePayload,
-          category: values.category,
-          chat_activity: values.chatActivity,
-        },
-        queue_job_id: queuedJob.queue_job_id ?? expectedQueueJobId,
-        result: null,
-        status: "pending",
-      },
-      streamId: stream.id,
-      supabase,
-      userId,
-    });
   } catch (error) {
     await upsertContentJob({
       patch: {

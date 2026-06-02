@@ -11,6 +11,7 @@ from schemas import (
     ClipAnalysisResponse,
     TranscriptionProcessRequest,
     TranscriptionProcessResponse,
+    TranscriptionSegment,
 )
 from settings import SettingsError, load_settings
 
@@ -27,6 +28,34 @@ class TranscriptionProcessor(Protocol):
         self, payload: TranscriptionProcessRequest
     ) -> TranscriptionProcessResponse:
         pass
+
+
+class E2EStubTranscriptionProcessor:
+    async def process_transcription(
+        self, payload: TranscriptionProcessRequest
+    ) -> TranscriptionProcessResponse:
+        return TranscriptionProcessResponse(
+            job_id=payload.job_id,
+            stream_id=payload.stream_id,
+            transcript="StreamOS local E2E transcript completed.",
+            segments=[
+                TranscriptionSegment(
+                    start=0.0,
+                    end=2.4,
+                    text="StreamOS local E2E transcript completed.",
+                )
+            ],
+            language=payload.language,
+            provider="streamos-e2e",
+            model="local-e2e-stub",
+        )
+
+
+class E2EFailingTranscriptionProcessor:
+    async def process_transcription(
+        self, payload: TranscriptionProcessRequest
+    ) -> TranscriptionProcessResponse:
+        raise ValueError(f"E2E forced transcription failure for job {payload.job_id}.")
 
 
 async def get_clip_analyzer() -> AsyncIterator[OpenAIClipAnalyzer]:
@@ -48,11 +77,19 @@ async def get_clip_analyzer() -> AsyncIterator[OpenAIClipAnalyzer]:
         await analyzer.aclose()
 
 
-async def get_transcription_processor() -> AsyncIterator[OpenAITranscriptionProcessor]:
+async def get_transcription_processor() -> AsyncIterator[TranscriptionProcessor]:
     try:
         settings = load_settings()
     except SettingsError as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
+
+    if settings.transcription_processor_mode == "stub":
+        yield E2EStubTranscriptionProcessor()
+        return
+
+    if settings.transcription_processor_mode == "fail":
+        yield E2EFailingTranscriptionProcessor()
+        return
 
     if not settings.openai_api_key:
         raise HTTPException(

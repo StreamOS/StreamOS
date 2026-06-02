@@ -12,11 +12,15 @@ describe("clip job contract", () => {
     formData.set("vodUrl", "https://www.twitch.tv/videos/123");
     formData.set("category", "Valorant");
     formData.set("chatActivity", "high");
+    formData.set("sourcePlatform", "twitch");
+    formData.set("transcript", "Final round comeback.");
 
     expect(parseClipAnalysisFormData(formData)).toEqual({
       category: "Valorant",
       chatActivity: "high",
+      sourcePlatform: "twitch",
       sourceUrl: "https://www.twitch.tv/videos/123",
+      transcript: "Final round comeback.",
     });
   });
 
@@ -24,6 +28,7 @@ describe("clip job contract", () => {
     const formData = new FormData();
     formData.set("vodUrl", "https://www.twitch.tv/videos/123");
     formData.set("chatActivity", "loud");
+    formData.set("transcript", "Final round comeback.");
 
     expect(parseClipAnalysisFormData(formData).chatActivity).toBe("medium");
   });
@@ -31,6 +36,7 @@ describe("clip job contract", () => {
   it("rejects non-http media URLs", () => {
     const formData = new FormData();
     formData.set("vodUrl", "file:///tmp/local.mp4");
+    formData.set("transcript", "Final round comeback.");
 
     expect(() => parseClipAnalysisFormData(formData)).toThrow(
       "VOD URL must use http or https.",
@@ -53,14 +59,18 @@ describe("clip job contract", () => {
       buildClipGenerationQueuePayload({
         creatorId: "creator-1",
         requestedBy: "user-1",
+        sourcePlatform: "twitch",
         sourceUrl: "https://cdn.example.com/vod.mp4",
         streamId: "stream-1",
+        transcript: "A strong opening hook.",
       }),
     ).toEqual({
       creator_id: "creator-1",
       requested_by: "user-1",
+      source_platform: "twitch",
       source_url: "https://cdn.example.com/vod.mp4",
       stream_id: "stream-1",
+      transcript: "A strong opening hook.",
     });
   });
 });

@@ -66,6 +66,23 @@ def test_settings_reject_public_openai_keys() -> None:
         )
 
 
+def test_transcription_e2e_mode_requires_explicit_guard() -> None:
+    with pytest.raises(SettingsError, match="STREAMOS_E2E_MODE=true"):
+        load_settings({"TRANSCRIPTION_PROCESSOR_MODE": "stub"})
+
+
+def test_transcription_e2e_mode_allows_stub_processor() -> None:
+    settings = load_settings(
+        {
+            "STREAMOS_E2E_MODE": "true",
+            "TRANSCRIPTION_PROCESSOR_MODE": "stub",
+        }
+    )
+
+    assert settings.streamos_e2e_mode is True
+    assert settings.transcription_processor_mode == "stub"
+
+
 def test_clip_analysis_endpoint_uses_server_side_analyzer() -> None:
     app.dependency_overrides[get_clip_analyzer] = StubClipAnalyzer
 
@@ -178,6 +195,7 @@ def test_openai_client_keeps_api_key_out_of_request_body() -> None:
     http_client = httpx.AsyncClient(transport=transport)
     analyzer = OpenAIClipAnalyzer(
         Settings(
+            streamos_e2e_mode=False,
             openai_api_key="sk-server",
             openai_model="gpt-4o",
             openai_title_model="gpt-4o-mini",
@@ -185,6 +203,7 @@ def test_openai_client_keeps_api_key_out_of_request_body() -> None:
             openai_base_url="https://api.openai.test/v1",
             openai_timeout_seconds=30,
             max_transcription_media_bytes=25_000_000,
+            transcription_processor_mode="openai",
         ),
         http_client=http_client,
     )
@@ -243,6 +262,7 @@ def test_openai_transcription_processor_downloads_media_and_calls_audio_endpoint
     http_client = httpx.AsyncClient(transport=transport)
     processor = OpenAITranscriptionProcessor(
         Settings(
+            streamos_e2e_mode=False,
             openai_api_key="sk-server",
             openai_model="gpt-4o",
             openai_title_model="gpt-4o-mini",
@@ -250,6 +270,7 @@ def test_openai_transcription_processor_downloads_media_and_calls_audio_endpoint
             openai_base_url="https://api.openai.test/v1",
             openai_timeout_seconds=30,
             max_transcription_media_bytes=25_000_000,
+            transcription_processor_mode="openai",
         ),
         http_client=http_client,
     )

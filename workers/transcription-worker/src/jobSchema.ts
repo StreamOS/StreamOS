@@ -1,7 +1,12 @@
 import type { TranscriptionTriggerJobData } from "@streamos/types";
 import { z } from "zod";
 
-export const STREAM_PLATFORMS = ["twitch", "youtube", "tiktok", "kick"] as const;
+export const STREAM_PLATFORMS = [
+  "twitch",
+  "youtube",
+  "tiktok",
+  "kick",
+] as const;
 export const TRANSCRIPTION_TRIGGER_JOB_NAME = "transcription.trigger";
 
 export const transcriptionTriggerJobDataSchema = z.object({

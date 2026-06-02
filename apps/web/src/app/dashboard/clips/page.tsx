@@ -24,8 +24,12 @@ export default async function ClipsPage({ searchParams }: ClipsPageProps) {
 
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">AI Clip Engine</p>
-          <h1 className="mt-2 text-3xl font-semibold text-white">VODs analysieren und Shortform-Pipeline steuern</h1>
+          <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
+            AI Clip Engine
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold text-white">
+            VODs analysieren und Shortform-Pipeline steuern
+          </h1>
         </div>
         <button className="btn-primary" form="clip-analysis-form" type="submit">
           Clip Analyse starten
@@ -37,7 +41,7 @@ export default async function ClipsPage({ searchParams }: ClipsPageProps) {
         className="card"
         id="clip-analysis-form"
       >
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-4">
           <label className="grid gap-2 text-sm font-semibold text-slate-300">
             VOD URL
             <input
@@ -47,6 +51,19 @@ export default async function ClipsPage({ searchParams }: ClipsPageProps) {
               required
               type="url"
             />
+          </label>
+          <label className="grid gap-2 text-sm font-semibold text-slate-300">
+            Plattform
+            <select
+              className="rounded-lg border border-white/10 bg-surface-900 px-3 py-2 text-white outline-none focus:border-signal-green"
+              defaultValue="twitch"
+              name="sourcePlatform"
+            >
+              <option value="twitch">Twitch</option>
+              <option value="youtube">YouTube</option>
+              <option value="tiktok">TikTok</option>
+              <option value="kick">Kick</option>
+            </select>
           </label>
           <label className="grid gap-2 text-sm font-semibold text-slate-300">
             Kategorie
@@ -70,6 +87,16 @@ export default async function ClipsPage({ searchParams }: ClipsPageProps) {
             </select>
           </label>
         </div>
+        <label className="mt-4 grid gap-2 text-sm font-semibold text-slate-300">
+          Transcript oder Highlight-Kontext
+          <textarea
+            className="min-h-36 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-signal-green"
+            maxLength={60000}
+            name="transcript"
+            placeholder="Paste den VOD-Transcript oder den relevanten Highlight-Abschnitt fuer die Clip-Analyse."
+            required
+          />
+        </label>
       </form>
 
       <ContentJobProgress initialJobs={jobs} userId={userId} />

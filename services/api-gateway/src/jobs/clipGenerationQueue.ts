@@ -13,8 +13,10 @@ export const DEFAULT_CLIP_GENERATION_QUEUE_NAME = "streamos-clip-generation";
 export const clipGenerationPayloadSchema = z.object({
   stream_id: z.string().trim().min(1),
   creator_id: z.string().trim().min(1).optional(),
-  source_url: z.string().url().optional(),
-  requested_by: z.string().trim().min(1).optional(),
+  source_platform: z.enum(["twitch", "youtube", "tiktok", "kick"]),
+  source_url: z.string().url(),
+  requested_by: z.string().trim().min(1),
+  transcript: z.string().trim().min(1).max(60_000),
 });
 
 export type ClipGenerationJobData = z.infer<typeof clipGenerationPayloadSchema>;

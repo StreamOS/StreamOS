@@ -26,7 +26,9 @@ export function RecentClips() {
                 </td>
                 <td className="px-4 py-3 text-slate-300">{clip.platform}</td>
                 <td className="px-4 py-3 text-slate-300">{clip.status}</td>
-                <td className="px-4 py-3 font-semibold text-signal-green">{clip.score}</td>
+                <td className="px-4 py-3 font-semibold text-signal-green">
+                  {clip.score}
+                </td>
               </tr>
             ))}
           </tbody>

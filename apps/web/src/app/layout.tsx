@@ -3,11 +3,12 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "StreamOS",
-  description: "AI operating layer for creator growth, monetization, automation, and analytics."
+  description:
+    "AI operating layer for creator growth, monetization, automation, and analytics.",
 };
 
 export default function RootLayout({
-  children
+  children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {

@@ -9,5 +9,8 @@ export function createClient() {
     throw new Error("Missing browser Supabase environment variables.");
   }
 
-  return createBrowserClient<Database, "public", Database["public"]>(config.url, config.anonKey);
+  return createBrowserClient<Database, "public", Database["public"]>(
+    config.url,
+    config.anonKey,
+  );
 }

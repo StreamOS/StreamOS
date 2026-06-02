@@ -7,5 +7,5 @@ type StreamState = {
 
 export const useStreamStore = create<StreamState>((set) => ({
   selectedPlatform: "all",
-  setSelectedPlatform: (platform) => set({ selectedPlatform: platform })
+  setSelectedPlatform: (platform) => set({ selectedPlatform: platform }),
 }));

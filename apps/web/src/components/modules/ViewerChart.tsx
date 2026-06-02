@@ -1,6 +1,13 @@
 "use client";
 
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { viewerTrend } from "@/data/dashboard";
 
 export function ViewerChart() {
@@ -12,10 +19,34 @@ export function ViewerChart() {
           <LineChart data={viewerTrend}>
             <XAxis dataKey="day" stroke="#94a3b8" />
             <YAxis stroke="#94a3b8" />
-            <Tooltip contentStyle={{ background: "#11131a", border: "1px solid rgba(255,255,255,.1)", color: "#fff" }} />
-            <Line type="monotone" dataKey="twitch" stroke="#9b5cff" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="youtube" stroke="#00d4aa" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="tiktok" stroke="#ff4e6a" strokeWidth={2} dot={false} />
+            <Tooltip
+              contentStyle={{
+                background: "#11131a",
+                border: "1px solid rgba(255,255,255,.1)",
+                color: "#fff",
+              }}
+            />
+            <Line
+              type="monotone"
+              dataKey="twitch"
+              stroke="#9b5cff"
+              strokeWidth={2}
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="youtube"
+              stroke="#00d4aa"
+              strokeWidth={2}
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="tiktok"
+              stroke="#ff4e6a"
+              strokeWidth={2}
+              dot={false}
+            />
           </LineChart>
         </ResponsiveContainer>
       </div>

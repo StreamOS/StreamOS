@@ -48,8 +48,12 @@ describe("api-gateway", () => {
       }
 
       const body = JSON.stringify({
-        stream_id: "stream-123",
         creator_id: "creator-1",
+        requested_by: USER_ID,
+        source_platform: "twitch",
+        source_url: "https://www.twitch.tv/videos/123",
+        stream_id: "stream-123",
+        transcript: "A clutch moment with a strong opening hook.",
       });
       const firstResponse = await fetch(
         `http://127.0.0.1:${address.port}/api/clips/generate`,

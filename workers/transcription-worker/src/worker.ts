@@ -51,7 +51,8 @@ export async function processTranscriptionJob(
 
     return result;
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
 
     await statusStore.update(jobId, payload, {
       error_message: errorMessage,

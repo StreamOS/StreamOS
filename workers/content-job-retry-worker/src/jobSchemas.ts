@@ -7,8 +7,10 @@ export const TRANSCRIPTION_TRIGGER_JOB_NAME = "transcription.trigger";
 export const clipGenerationPayloadSchema = z.object({
   stream_id: z.string().trim().min(1),
   creator_id: z.string().trim().min(1).optional(),
-  source_url: z.string().url().optional(),
-  requested_by: z.string().trim().min(1).optional(),
+  source_platform: z.enum(["twitch", "youtube", "tiktok", "kick"]),
+  source_url: z.string().url(),
+  requested_by: z.string().trim().min(1),
+  transcript: z.string().trim().min(1).max(60_000),
 });
 
 export type ClipGenerationJobData = z.infer<typeof clipGenerationPayloadSchema>;

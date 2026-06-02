@@ -13,10 +13,16 @@ const toneClasses = {
   violet: "text-brand-500 bg-brand-500/10 border-brand-500/20",
   emerald: "text-signal-green bg-signal-green/10 border-signal-green/20",
   rose: "text-signal-red bg-signal-red/10 border-signal-red/20",
-  amber: "text-signal-gold bg-signal-gold/10 border-signal-gold/20"
+  amber: "text-signal-gold bg-signal-gold/10 border-signal-gold/20",
 };
 
-export function StatCard({ label, value, trend, icon: Icon, tone = "violet" }: StatCardProps) {
+export function StatCard({
+  label,
+  value,
+  trend,
+  icon: Icon,
+  tone = "violet",
+}: StatCardProps) {
   return (
     <article className="card">
       <div className="flex items-center justify-between">

@@ -288,6 +288,27 @@ function getResultPreview(job: ContentJobRow): string {
     return job.result.transcript;
   }
 
+  if (
+    "virality_score" in job.result &&
+    typeof job.result.virality_score === "number"
+  ) {
+    const summary =
+      "repurpose_summary" in job.result &&
+      typeof job.result.repurpose_summary === "string"
+        ? job.result.repurpose_summary
+        : null;
+    const title =
+      "title_suggestions" in job.result &&
+      Array.isArray(job.result.title_suggestions) &&
+      typeof job.result.title_suggestions[0] === "string"
+        ? job.result.title_suggestions[0]
+        : null;
+
+    return [`Score ${job.result.virality_score}/100`, title, summary]
+      .filter(Boolean)
+      .join(" - ");
+  }
+
   return "Result stored";
 }
 

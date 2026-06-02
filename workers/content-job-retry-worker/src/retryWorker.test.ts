@@ -46,8 +46,10 @@ function createFailedClipJob(
     payload: {
       creator_id: USER_ID,
       requested_by: USER_ID,
+      source_platform: "twitch",
       source_url: "https://video.example.com/vod.mp4",
       stream_id: STREAM_ID,
+      transcript: "Huge comeback after a risky play in the final round.",
     },
     queue_job_id: "old-queue-job",
     retry_count: 0,

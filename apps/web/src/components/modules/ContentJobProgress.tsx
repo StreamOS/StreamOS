@@ -168,8 +168,14 @@ function JobRow({ job }: { job: ContentJobRow }) {
 }
 
 function getResultPreview(job: ContentJobRow): string {
-  if (!job.result || typeof job.result !== "object" || Array.isArray(job.result)) {
-    return job.status === "running" ? "Transkription laeuft..." : "Wartet auf Ergebnis";
+  if (
+    !job.result ||
+    typeof job.result !== "object" ||
+    Array.isArray(job.result)
+  ) {
+    return job.status === "running"
+      ? "Transkription laeuft..."
+      : "Wartet auf Ergebnis";
   }
 
   if ("error" in job.result && typeof job.result.error === "string") {
@@ -178,6 +184,27 @@ function getResultPreview(job: ContentJobRow): string {
 
   if ("transcript" in job.result && typeof job.result.transcript === "string") {
     return job.result.transcript;
+  }
+
+  if (
+    "virality_score" in job.result &&
+    typeof job.result.virality_score === "number"
+  ) {
+    const summary =
+      "repurpose_summary" in job.result &&
+      typeof job.result.repurpose_summary === "string"
+        ? job.result.repurpose_summary
+        : null;
+    const title =
+      "title_suggestions" in job.result &&
+      Array.isArray(job.result.title_suggestions) &&
+      typeof job.result.title_suggestions[0] === "string"
+        ? job.result.title_suggestions[0]
+        : null;
+
+    return [`Score ${job.result.virality_score}/100`, title, summary]
+      .filter(Boolean)
+      .join(" - ");
   }
 
   return "Ergebnis gespeichert";
@@ -193,6 +220,7 @@ function mergeJob(
 
   return [...nextJobs.values()].sort(
     (left, right) =>
-      new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
+      new Date(right.updated_at).getTime() -
+      new Date(left.updated_at).getTime(),
   );
 }
