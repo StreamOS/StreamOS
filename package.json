@@ -7,12 +7,23 @@
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
+    "e2e:jobs": "node scripts/e2e-content-jobs.cjs",
+    "e2e:jobs:local": "node scripts/e2e-content-jobs.cjs --env-file=.env.test",
+    "infra:down": "docker compose down",
+    "infra:logs": "docker compose logs -f redis api-gateway content-job-retry-worker",
+    "infra:ps": "docker compose ps",
+    "infra:up": "docker compose up -d redis api-gateway content-job-retry-worker",
     "lint": "turbo lint",
+    "python:version": "node scripts/with-python-312.cjs python --version",
     "test": "turbo test",
+    "test:automation": "node scripts/with-python-312.cjs python -m pytest services/automation-service",
     "typecheck": "turbo typecheck",
-    "format": "prettier --check \"**/*.{ts,tsx,js,json,md,yml,yaml}\""
+    "validate": "pnpm typecheck && pnpm test && pnpm test:automation && pnpm build",
+    "format": "prettier --check \"*.{json,md,yml,yaml}\" \"apps/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"docs/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"e2e/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"packages/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"scripts/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"services/api-gateway/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"workers/**/*.{ts,tsx,js,json,md,yml,yaml}\""
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^22.13.14",
     "pnpm": "9.15.4",
     "prettier": "^3.5.3",
     "turbo": "^2.5.4",

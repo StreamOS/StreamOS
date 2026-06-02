@@ -1,0 +1,66 @@
+name: streamos
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.api-gateway
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: "4000"
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_DEFAULT_NAME: streamos-media
+      CLIP_GENERATION_QUEUE_NAME: streamos-clip-generation
+      TRANSCRIPTION_QUEUE_NAME: streamos-transcription
+      STREAM_EVENT_WEBHOOK_SECRET: local-streamos-webhook-secret
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:4000/health'').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  content-job-retry-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.content-job-retry-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_DEFAULT_NAME: streamos-media
+      CLIP_GENERATION_QUEUE_NAME: streamos-clip-generation
+      TRANSCRIPTION_QUEUE_NAME: streamos-transcription
+      CONTENT_JOB_RETRY_WORKER_BATCH_SIZE: ${CONTENT_JOB_RETRY_WORKER_BATCH_SIZE:-25}
+      CONTENT_JOB_RETRY_WORKER_POLL_INTERVAL_MS: ${CONTENT_JOB_RETRY_WORKER_POLL_INTERVAL_MS:-60000}
+      CONTENT_JOB_RETRY_ATTEMPTS: ${CONTENT_JOB_RETRY_ATTEMPTS:-3}
+      CONTENT_JOB_RETRY_BACKOFF_MS: ${CONTENT_JOB_RETRY_BACKOFF_MS:-30000}
+      SUPABASE_URL: ${SUPABASE_DOCKER_URL:-${SUPABASE_URL:-}}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+
+volumes:
+  redis_data:

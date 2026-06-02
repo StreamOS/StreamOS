@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+.git
+.turbo
+.venv
+node_modules
+dist
+build
+.next
+coverage
+__pycache__
+.pytest_cache
+*.pyc
+*.pyo
+*.log

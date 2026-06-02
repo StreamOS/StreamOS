@@ -34,11 +34,20 @@ Install dependencies:
 pnpm install
 ```
 
+Python automation service checks require Python 3.12. The root validation
+uses `.venv` when available, or `STREAMOS_PYTHON` when you need to point at a
+specific Python 3.12 executable.
+
 Create local environment values:
 
 ```bash
 cp .env.example apps/web/.env.local
+cp .env.compose.example .env
 ```
+
+Fill the root `.env` with Supabase values from Supabase Dashboard -> Project
+Settings -> API before starting Compose. `SUPABASE_SERVICE_ROLE_KEY` is required
+only for server-side workers and must never be exposed in browser code.
 
 Start only the dashboard:
 
@@ -48,6 +57,59 @@ pnpm --filter @streamos/web dev
 
 The dashboard runs at `http://localhost:3000/dashboard`.
 
+Start the local queue infrastructure, API gateway, and retry worker:
+
+```bash
+pnpm infra:up
+pnpm infra:ps
+```
+
+This starts Redis at `localhost:6379` and the API gateway at
+`http://localhost:4000`, plus `content-job-retry-worker`. Compose reads
+`SUPABASE_URL`, optional `SUPABASE_DOCKER_URL`, and
+`SUPABASE_SERVICE_ROLE_KEY` from the selected env file for the retry worker.
+Use `SUPABASE_DOCKER_URL=http://host.docker.internal:54321` when the worker in
+Docker should call a Supabase CLI stack running on your host. The gateway and
+worker use the internal Compose Redis URL `redis://redis:6379/0`; Node services
+that run on your host should use `redis://localhost:6379/0`.
+
+Check the gateway health endpoint:
+
+```bash
+curl http://localhost:4000/health
+```
+
+Watch infrastructure logs:
+
+```bash
+pnpm infra:logs
+```
+
+Stop local infrastructure:
+
+```bash
+pnpm infra:down
+```
+
+The safe E2E path for jobs uses `.env.test` by default and blocks hosted
+Supabase URLs unless `--allow-hosted` is passed:
+
+```bash
+cp .env.test.example .env.test
+pnpm e2e:jobs
+```
+
+The retry worker scans failed `content_jobs`, claims eligible rows by
+`retry_count`, and requeues supported jobs with BullMQ `attempts=3` plus
+exponential backoff. `clip_scoring` jobs go back to
+`streamos-clip-generation`; `transcription` jobs go back to
+`streamos-transcription`.
+
+Manual retries from `/dashboard/jobs` keep the row in `failed`, clear
+`next_retry_at`, and raise `max_retries` when the previous retry budget is
+exhausted. The retry worker then claims the row, sets it back to `pending`, and
+the dashboard receives the status change through Supabase Realtime.
+
 Generate a local encryption key before storing platform OAuth tokens:
 
 ```bash
@@ -56,13 +118,63 @@ node -e "console.log('base64:' + require('crypto').randomBytes(32).toString('bas
 
 Set the generated value as `APP_ENCRYPTION_KEY` in `apps/web/.env.local`.
 
+## AI Provider Secrets
+
+OpenAI keys are server-only. Do not define `NEXT_PUBLIC_OPENAI_KEY` or
+`NEXT_PUBLIC_OPENAI_API_KEY` in any web environment. The Next.js app fails
+fast if either value is present.
+
+Configure AI provider credentials only for `services/automation-service`:
+
+```bash
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o
+OPENAI_TITLE_MODEL=gpt-4o-mini
+```
+
+Use `OPENAI_MODEL=gpt-4o` for complex clip analysis and repurposing tasks.
+Use `OPENAI_TITLE_MODEL=gpt-4o-mini` for low-latency title generation.
+
+Browser code should call StreamOS API routes or backend services. It must never
+call OpenAI directly.
+
 ## Validation
 
 ```bash
-pnpm typecheck
-pnpm test
-pnpm build
+pnpm validate
 ```
+
+`pnpm validate` runs TypeScript checks, workspace tests, the FastAPI automation
+service tests via `python -m pytest services/automation-service`, and the
+production build.
+
+## Deployment
+
+The production deployment topology is documented in
+[`docs/deployment.md`](docs/deployment.md):
+
+- `apps/web` deploys to Vercel as the Next.js App Router dashboard.
+- `services/api-gateway` deploys to Railway with `Dockerfile.api-gateway`.
+- `services/automation-service` deploys to Railway first, or Fly.io when GPU-backed Whisper becomes required.
+- `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.
+
+## Queue Backend
+
+The API gateway uses BullMQ for automation jobs. For Upstash Redis, configure
+the Redis protocol endpoint, not the REST endpoint:
+
+```bash
+REDIS_URL=rediss://default:password@host.upstash.io:6379
+CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
+TRANSCRIPTION_QUEUE_NAME=streamos-transcription
+STREAM_EVENT_WEBHOOK_SECRET=
+CONTENT_JOB_RETRY_ATTEMPTS=3
+CONTENT_JOB_RETRY_BACKOFF_MS=30000
+```
+
+`POST /api/webhooks/streams/ended` queues the first automation job,
+`transcription.trigger`. Re-sending the same `stream_id` reuses the same BullMQ
+`jobId`, so one ended stream cannot enqueue duplicate transcription work.
 
 ## Supabase Auth
 
@@ -105,5 +217,5 @@ Register the same redirect URI in the Twitch Developer Console. If Next.js falls
 ## Next Implementation Steps
 
 1. Add OAuth flows for Twitch, YouTube, TikTok, and Kick behind `services/api-gateway`.
-2. Add a queue backend such as Redis/BullMQ or managed queues for transcription and clip-generation jobs.
+2. Add BullMQ workers for transcription processing and clip generation.
 3. Move durable AI workflows into `services/automation-service` and keep browser-visible API keys out of client components.
