@@ -23,6 +23,7 @@ export async function startClipAnalysisAction(formData: FormData) {
   }
 
   const apiGatewayUrl = process.env.API_GATEWAY_URL?.trim();
+  const apiGatewaySecret = process.env.API_GATEWAY_SECRET?.trim();
 
   if (!apiGatewayUrl) {
     redirect("/dashboard/clips?error=api-gateway-not-configured");
@@ -97,6 +98,9 @@ export async function startClipAnalysisAction(formData: FormData) {
         cache: "no-store",
         headers: {
           "Content-Type": "application/json",
+          ...(apiGatewaySecret
+            ? { Authorization: `Bearer ${apiGatewaySecret}` }
+            : {}),
         },
         method: "POST",
       },

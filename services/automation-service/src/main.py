@@ -14,6 +14,7 @@ from schemas import (
     TranscriptionSegment,
 )
 from settings import SettingsError, load_settings
+from ssrf import UnsafeAssetUrlError
 
 app = FastAPI(title="StreamOS Automation Service", version="0.1.0")
 
@@ -134,6 +135,11 @@ async def process_transcription(
 ) -> TranscriptionProcessResponse:
     try:
         return await processor.process_transcription(payload)
+    except UnsafeAssetUrlError as error:
+        raise HTTPException(
+            status_code=400,
+            detail="Transcription asset URL is not allowed.",
+        ) from error
     except httpx.HTTPStatusError as error:
         raise HTTPException(
             status_code=502,

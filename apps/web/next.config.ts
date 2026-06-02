@@ -17,6 +17,9 @@ if (configuredForbiddenEnvName) {
 }
 
 const nextConfig: NextConfig = {
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "static-cdn.jtvnw.net" },

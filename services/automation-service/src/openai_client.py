@@ -1,5 +1,6 @@
 import json
 from typing import Any
+from urllib.parse import urljoin
 
 import httpx
 
@@ -11,6 +12,7 @@ from schemas import (
     TranscriptionSegment,
 )
 from settings import Settings
+from ssrf import HostnameResolver, UnsafeAssetUrlError, validate_public_https_url
 
 
 class OpenAIClipAnalyzer:
@@ -118,16 +120,17 @@ class OpenAITranscriptionProcessor:
         self,
         settings: Settings,
         http_client: httpx.AsyncClient | None = None,
+        asset_url_resolver: HostnameResolver | None = None,
     ) -> None:
         self.settings = settings
         self.http_client = http_client or httpx.AsyncClient(timeout=settings.openai_timeout_seconds)
         self._owns_client = http_client is None
+        self.asset_url_resolver = asset_url_resolver
 
     async def process_transcription(
         self, payload: TranscriptionProcessRequest
     ) -> TranscriptionProcessResponse:
-        media_response = await self.http_client.get(payload.asset_url, follow_redirects=True)
-        media_response.raise_for_status()
+        media_response = await self._download_media(payload.asset_url)
 
         media_bytes = media_response.content
         if len(media_bytes) > self.settings.max_transcription_media_bytes:
@@ -168,6 +171,37 @@ class OpenAITranscriptionProcessor:
             provider="openai",
             model=self.settings.openai_transcription_model,
         )
+
+    async def _download_media(self, asset_url: str) -> httpx.Response:
+        current_url = self._validate_asset_url(asset_url)
+
+        for _redirect_count in range(4):
+            response = await self.http_client.get(
+                str(current_url),
+                follow_redirects=False,
+            )
+
+            if not response.is_redirect:
+                response.raise_for_status()
+                return response
+
+            location = response.headers.get("location")
+            if not location:
+                raise UnsafeAssetUrlError(
+                    "Asset URL redirect did not include a Location header."
+                )
+
+            current_url = self._validate_asset_url(
+                urljoin(str(current_url), location)
+            )
+
+        raise UnsafeAssetUrlError("Asset URL followed too many redirects.")
+
+    def _validate_asset_url(self, asset_url: str) -> httpx.URL:
+        if self.asset_url_resolver is None:
+            return validate_public_https_url(asset_url)
+
+        return validate_public_https_url(asset_url, resolver=self.asset_url_resolver)
 
     async def aclose(self) -> None:
         if self._owns_client:

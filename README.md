@@ -178,6 +178,10 @@ REDIS_URL=rediss://default:password@host.upstash.io:6379
 CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
 CLIP_WORKER_CONCURRENCY=1
+API_GATEWAY_SECRET=
+API_GATEWAY_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+API_GATEWAY_RATE_LIMIT_MAX=120
+API_GATEWAY_RATE_LIMIT_WINDOW_MS=60000
 STREAM_EVENT_WEBHOOK_SECRET=
 CONTENT_JOB_RETRY_ATTEMPTS=3
 CONTENT_JOB_RETRY_BACKOFF_MS=30000
@@ -186,6 +190,10 @@ CONTENT_JOB_RETRY_BACKOFF_MS=30000
 `POST /api/webhooks/streams/ended` queues the first automation job,
 `transcription.trigger`. Re-sending the same `stream_id` reuses the same BullMQ
 `jobId`, so one ended stream cannot enqueue duplicate transcription work.
+In production, `services/api-gateway` fails startup unless both
+`API_GATEWAY_SECRET` and `STREAM_EVENT_WEBHOOK_SECRET` are set. App-facing
+gateway routes accept `Authorization: Bearer $API_GATEWAY_SECRET`; external
+webhooks use `X-StreamOS-Webhook-Secret`.
 
 ## Supabase Auth
 

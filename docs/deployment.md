@@ -47,6 +47,7 @@ TWITCH_CLIENT_SECRET=
 TWITCH_REDIRECT_URI=https://app.streamos.example/api/platforms/twitch/callback
 TWITCH_SCOPES=user:read:email
 API_GATEWAY_URL=https://streamos-api-gateway.up.railway.app
+API_GATEWAY_SECRET=
 ```
 
 Do not set `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_OPENAI_KEY`, or `NEXT_PUBLIC_OPENAI_API_KEY` in the Vercel browser-facing app unless a server route explicitly needs the server-only value.
@@ -77,11 +78,24 @@ QUEUE_DEFAULT_NAME=streamos-media
 CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
 CLIP_WORKER_CONCURRENCY=2
+API_GATEWAY_SECRET=
+API_GATEWAY_ALLOWED_ORIGINS=https://app.streamos.example
+API_GATEWAY_RATE_LIMIT_MAX=120
+API_GATEWAY_RATE_LIMIT_WINDOW_MS=60000
 STREAM_EVENT_WEBHOOK_SECRET=
 RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 ```
 
 Use `/health` as the Railway healthcheck path. The endpoint must return HTTP 200 before Railway sends traffic to the new deployment.
+
+Security model:
+
+- `/health` is public and not rate-limited so Railway healthchecks remain reliable.
+- App-facing `/api/*` routes require `Authorization: Bearer $API_GATEWAY_SECRET` or `X-StreamOS-API-Secret`.
+- External stream webhooks require `X-StreamOS-Webhook-Secret: $STREAM_EVENT_WEBHOOK_SECRET`.
+- `API_GATEWAY_SECRET` and `STREAM_EVENT_WEBHOOK_SECRET` are mandatory when `NODE_ENV=production`; the service fails during startup if either is missing.
+- CORS allows only `API_GATEWAY_ALLOWED_ORIGINS`; server-to-server calls without an `Origin` header are allowed.
+- Rate limits are fixed-window per client IP, method, and URL. Start with `120` requests per `60000` ms and tighten per endpoint once production traffic is measured.
 
 Validation:
 

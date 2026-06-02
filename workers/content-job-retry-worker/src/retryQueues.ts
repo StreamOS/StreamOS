@@ -3,9 +3,9 @@ import type { TranscriptionTriggerJobData } from "@streamos/types";
 
 import type {
   ClipGenerationJobData,
+  CLIP_GENERATION_JOB_NAME,
   TRANSCRIPTION_TRIGGER_JOB_NAME,
 } from "./jobSchemas.js";
-import { CLIP_GENERATION_JOB_NAME } from "./jobSchemas.js";
 import { createRedisConnectionOptions } from "./redisConnection.js";
 
 export type RetryQueueJob =

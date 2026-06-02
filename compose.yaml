@@ -29,6 +29,10 @@ services:
       QUEUE_DEFAULT_NAME: streamos-media
       CLIP_GENERATION_QUEUE_NAME: streamos-clip-generation
       TRANSCRIPTION_QUEUE_NAME: streamos-transcription
+      API_GATEWAY_SECRET: ${API_GATEWAY_SECRET:-local-api-gateway-secret}
+      API_GATEWAY_ALLOWED_ORIGINS: ${API_GATEWAY_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      API_GATEWAY_RATE_LIMIT_MAX: ${API_GATEWAY_RATE_LIMIT_MAX:-120}
+      API_GATEWAY_RATE_LIMIT_WINDOW_MS: ${API_GATEWAY_RATE_LIMIT_WINDOW_MS:-60000}
       STREAM_EVENT_WEBHOOK_SECRET: ${STREAM_EVENT_WEBHOOK_SECRET:-local-streamos-webhook-secret}
     ports:
       - "4000:4000"

@@ -28,6 +28,125 @@ describe("api-gateway", () => {
     }
   });
 
+  it("requires production app and webhook secrets at startup", () => {
+    expect(() =>
+      createApp({
+        nodeEnv: "production",
+        streamEventWebhookSecret: "webhook-secret",
+      }),
+    ).toThrow("API_GATEWAY_SECRET is required in production.");
+
+    expect(() =>
+      createApp({
+        apiGatewaySecret: "gateway-secret",
+        nodeEnv: "production",
+      }),
+    ).toThrow("STREAM_EVENT_WEBHOOK_SECRET is required in production.");
+  });
+
+  it("allows configured CORS origins and blocks unknown origins", async () => {
+    const app = createApp({
+      allowedOrigins: ["https://app.streamos.test"],
+    });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const allowedResponse = await fetch(
+        `http://127.0.0.1:${address.port}/health`,
+        {
+          headers: { origin: "https://app.streamos.test" },
+        },
+      );
+      const blockedResponse = await fetch(
+        `http://127.0.0.1:${address.port}/health`,
+        {
+          headers: { origin: "https://evil.example" },
+        },
+      );
+      const blockedBody = await blockedResponse.json();
+
+      expect(allowedResponse.status).toBe(200);
+      expect(allowedResponse.headers.get("access-control-allow-origin")).toBe(
+        "https://app.streamos.test",
+      );
+      expect(blockedResponse.status).toBe(403);
+      expect(blockedBody.error).toBe("origin_not_allowed");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("requires the API gateway secret when configured", async () => {
+    const app = createApp({
+      apiGatewaySecret: "gateway-secret",
+    });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const rejectedResponse = await fetch(
+        `http://127.0.0.1:${address.port}/api/platforms`,
+      );
+      const acceptedResponse = await fetch(
+        `http://127.0.0.1:${address.port}/api/platforms`,
+        {
+          headers: { authorization: "Bearer gateway-secret" },
+        },
+      );
+      const rejectedBody = await rejectedResponse.json();
+      const acceptedBody = await acceptedResponse.json();
+
+      expect(rejectedResponse.status).toBe(401);
+      expect(rejectedBody.error).toBe("invalid_api_gateway_secret");
+      expect(acceptedResponse.status).toBe(200);
+      expect(acceptedBody.platforms).toContain("twitch");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("rate limits API routes", async () => {
+    const app = createApp({
+      apiGatewaySecret: "gateway-secret",
+      rateLimit: {
+        maxRequests: 1,
+        windowMs: 60_000,
+      },
+    });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const url = `http://127.0.0.1:${address.port}/api/platforms`;
+      const firstResponse = await fetch(url, {
+        headers: { authorization: "Bearer gateway-secret" },
+      });
+      const secondResponse = await fetch(url, {
+        headers: { authorization: "Bearer gateway-secret" },
+      });
+      const secondBody = await secondResponse.json();
+
+      expect(firstResponse.status).toBe(200);
+      expect(secondResponse.status).toBe(429);
+      expect(secondBody.error).toBe("rate_limit_exceeded");
+    } finally {
+      server.close();
+    }
+  });
+
   it("queues clip generation idempotently by stream_id", async () => {
     const jobIds = new Set<string>();
     const clipGenerationQueue: ClipGenerationQueue = {
