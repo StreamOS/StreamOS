@@ -1,0 +1,270 @@
+import asyncio
+import json
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+
+from main import app, get_clip_analyzer, get_transcription_processor
+from openai_client import OpenAIClipAnalyzer, OpenAITranscriptionProcessor
+from schemas import (
+    ClipAnalysisRequest,
+    ClipAnalysisResponse,
+    TranscriptionProcessRequest,
+    TranscriptionProcessResponse,
+    TranscriptionSegment,
+)
+from settings import Settings, SettingsError, load_settings
+
+
+class StubClipAnalyzer:
+    async def analyze_clip(self, payload: ClipAnalysisRequest) -> ClipAnalysisResponse:
+        return ClipAnalysisResponse(
+            asset_id=payload.asset_id,
+            source_platform=payload.source_platform,
+            virality_score=84,
+            recommended_formats=["shorts", "tiktok"],
+            highlights=["Strong opening hook"],
+            title_suggestions=["This Stream Moment Changed Everything"],
+            repurpose_summary="A high-energy clip suitable for short-form distribution.",
+            provider="test",
+        )
+
+
+class StubTranscriptionProcessor:
+    async def process_transcription(
+        self, payload: TranscriptionProcessRequest
+    ) -> TranscriptionProcessResponse:
+        return TranscriptionProcessResponse(
+            job_id=payload.job_id,
+            stream_id=payload.stream_id,
+            transcript="A clean test transcript.",
+            segments=[
+                TranscriptionSegment(start=0.0, end=1.5, text="A clean test transcript.")
+            ],
+            language=payload.language,
+            provider="test",
+            model="gpt-4o-transcribe",
+        )
+
+
+def test_settings_reject_public_openai_keys() -> None:
+    with pytest.raises(SettingsError, match="NEXT_PUBLIC_OPENAI_KEY"):
+        load_settings(
+            {
+                "NEXT_PUBLIC_OPENAI_KEY": "sk-client-leak",
+                "OPENAI_API_KEY": "sk-server",
+            }
+        )
+
+
+def test_clip_analysis_endpoint_uses_server_side_analyzer() -> None:
+    app.dependency_overrides[get_clip_analyzer] = StubClipAnalyzer
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/clips/analyze",
+                json={
+                    "asset_id": "clip-123",
+                    "source_platform": "twitch",
+                    "transcript": "Huge comeback after a risky play in the final round.",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "asset_id": "clip-123",
+        "source_platform": "twitch",
+        "virality_score": 84,
+        "recommended_formats": ["shorts", "tiktok"],
+        "highlights": ["Strong opening hook"],
+        "title_suggestions": ["This Stream Moment Changed Everything"],
+        "repurpose_summary": "A high-energy clip suitable for short-form distribution.",
+        "provider": "test",
+    }
+
+
+def test_transcription_endpoint_uses_server_side_processor() -> None:
+    app.dependency_overrides[get_transcription_processor] = StubTranscriptionProcessor
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/transcriptions/process",
+                json={
+                    "job_id": "job-123",
+                    "stream_id": "stream-123",
+                    "source_platform": "twitch",
+                    "asset_url": "https://cdn.example.com/audio.mp4",
+                    "language": "en",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "job_id": "job-123",
+        "stream_id": "stream-123",
+        "transcript": "A clean test transcript.",
+        "segments": [{"start": 0.0, "end": 1.5, "text": "A clean test transcript."}],
+        "language": "en",
+        "provider": "test",
+        "model": "gpt-4o-transcribe",
+    }
+
+
+def test_missing_server_openai_key_returns_503(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("NEXT_PUBLIC_OPENAI_KEY", raising=False)
+    monkeypatch.delenv("NEXT_PUBLIC_OPENAI_API_KEY", raising=False)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/clips/analyze",
+            json={
+                "asset_id": "clip-123",
+                "source_platform": "twitch",
+                "transcript": "A clean testing transcript.",
+            },
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "OPENAI_API_KEY is required in automation-service for server-side AI calls."
+    )
+
+
+def test_openai_client_keeps_api_key_out_of_request_body() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        body = request.content.decode("utf-8")
+
+        assert request.headers["Authorization"] == "Bearer sk-server"
+        assert "sk-server" not in body
+
+        return httpx.Response(
+            status_code=200,
+            json={
+                "output_text": json.dumps(
+                    {
+                        "virality_score": 91,
+                        "recommended_formats": ["shorts", "reel"],
+                        "highlights": ["Unexpected clutch moment"],
+                        "title_suggestions": ["The Clutch Nobody Saw Coming"],
+                        "repurpose_summary": "Lead with the comeback and cut for mobile pacing.",
+                    }
+                )
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.AsyncClient(transport=transport)
+    analyzer = OpenAIClipAnalyzer(
+        Settings(
+            openai_api_key="sk-server",
+            openai_model="gpt-4o",
+            openai_title_model="gpt-4o-mini",
+            openai_transcription_model="gpt-4o-transcribe",
+            openai_base_url="https://api.openai.test/v1",
+            openai_timeout_seconds=30,
+            max_transcription_media_bytes=25_000_000,
+        ),
+        http_client=http_client,
+    )
+
+    async def run_analysis() -> ClipAnalysisResponse:
+        try:
+            return await analyzer.analyze_clip(
+                ClipAnalysisRequest(
+                    asset_id="clip-123",
+                    source_platform="twitch",
+                    transcript="A creator lands an unexpected clutch play.",
+                )
+            )
+        finally:
+            await http_client.aclose()
+
+    result = asyncio.run(run_analysis())
+
+    assert len(requests) == 1
+    assert requests[0].url == "https://api.openai.test/v1/responses"
+    assert result.provider == "openai"
+    assert result.virality_score == 91
+
+
+def test_openai_transcription_processor_downloads_media_and_calls_audio_endpoint() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+
+        if request.url == "https://cdn.example.com/audio.mp4":
+            return httpx.Response(
+                status_code=200,
+                headers={"content-type": "audio/mp4"},
+                content=b"fake-audio-bytes",
+            )
+
+        assert request.url == "https://api.openai.test/v1/audio/transcriptions"
+        assert request.headers["Authorization"] == "Bearer sk-server"
+
+        return httpx.Response(
+            status_code=200,
+            json={
+                "text": "Creator says hello.",
+                "segments": [
+                    {
+                        "start": 0.0,
+                        "end": 1.2,
+                        "text": "Creator says hello.",
+                    }
+                ],
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.AsyncClient(transport=transport)
+    processor = OpenAITranscriptionProcessor(
+        Settings(
+            openai_api_key="sk-server",
+            openai_model="gpt-4o",
+            openai_title_model="gpt-4o-mini",
+            openai_transcription_model="gpt-4o-transcribe",
+            openai_base_url="https://api.openai.test/v1",
+            openai_timeout_seconds=30,
+            max_transcription_media_bytes=25_000_000,
+        ),
+        http_client=http_client,
+    )
+
+    async def run_transcription() -> TranscriptionProcessResponse:
+        try:
+            return await processor.process_transcription(
+                TranscriptionProcessRequest(
+                    job_id="job-123",
+                    stream_id="stream-123",
+                    source_platform="twitch",
+                    asset_url="https://cdn.example.com/audio.mp4",
+                    language="en",
+                )
+            )
+        finally:
+            await http_client.aclose()
+
+    result = asyncio.run(run_transcription())
+
+    assert [str(request.url) for request in requests] == [
+        "https://cdn.example.com/audio.mp4",
+        "https://api.openai.test/v1/audio/transcriptions",
+    ]
+    assert result.transcript == "Creator says hello."
+    assert result.segments == [
+        TranscriptionSegment(start=0.0, end=1.2, text="Creator says hello.")
+    ]
+    assert result.model == "gpt-4o-transcribe"

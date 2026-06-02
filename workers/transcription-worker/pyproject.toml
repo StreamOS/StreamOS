@@ -1,8 +1,0 @@
-[project]
-name = "streamos-transcription-worker"
-version = "0.1.0"
-description = "Async transcription worker for StreamOS media ingestion."
-requires-python = ">=3.11"
-dependencies = [
-  "pydantic>=2.10.0"
-]
