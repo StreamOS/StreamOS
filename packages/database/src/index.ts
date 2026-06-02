@@ -1,4 +1,16 @@
-export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
+
+export type ContentJobStatus = "pending" | "running" | "done" | "failed";
+export type ContentJobType =
+  | "transcription"
+  | "clip_scoring"
+  | "title_generation";
 
 export type Database = {
   public: {
@@ -6,7 +18,7 @@ export type Database = {
       creators: {
         Row: {
           id: string;
-          owner_id: string;
+          user_id: string;
           display_name: string;
           handle: string | null;
           niche: string | null;
@@ -15,7 +27,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
-          owner_id: string;
+          user_id: string;
           display_name: string;
           handle?: string | null;
           niche?: string | null;
@@ -24,7 +36,7 @@ export type Database = {
         };
         Update: {
           id?: string;
-          owner_id?: string;
+          user_id?: string;
           display_name?: string;
           handle?: string | null;
           niche?: string | null;
@@ -36,6 +48,7 @@ export type Database = {
       channels: {
         Row: {
           id: string;
+          user_id: string;
           creator_id: string;
           platform: Database["public"]["Enums"]["stream_platform"];
           external_channel_id: string | null;
@@ -47,6 +60,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
+          user_id: string;
           creator_id: string;
           platform: Database["public"]["Enums"]["stream_platform"];
           external_channel_id?: string | null;
@@ -58,6 +72,7 @@ export type Database = {
         };
         Update: {
           id?: string;
+          user_id?: string;
           creator_id?: string;
           platform?: Database["public"]["Enums"]["stream_platform"];
           external_channel_id?: string | null;
@@ -69,16 +84,60 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "channels_creator_id_fkey";
-            columns: ["creator_id"];
+            foreignKeyName: "channels_creator_user_fkey";
+            columns: ["creator_id", "user_id"];
             referencedRelation: "creators";
-            referencedColumns: ["id"];
-          }
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
+      streams: {
+        Row: {
+          id: string;
+          user_id: string;
+          channel_id: string;
+          platform_stream_id: string;
+          started_at: string | null;
+          ended_at: string | null;
+          title: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          channel_id: string;
+          platform_stream_id: string;
+          started_at?: string | null;
+          ended_at?: string | null;
+          title?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          channel_id?: string;
+          platform_stream_id?: string;
+          started_at?: string | null;
+          ended_at?: string | null;
+          title?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "streams_channel_user_fkey";
+            columns: ["channel_id", "user_id"];
+            referencedRelation: "channels";
+            referencedColumns: ["id", "user_id"];
+          },
         ];
       };
       platform_connections: {
         Row: {
           id: string;
+          user_id: string;
           creator_id: string;
           channel_id: string | null;
           platform: Database["public"]["Enums"]["stream_platform"];
@@ -94,6 +153,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
+          user_id: string;
           creator_id: string;
           channel_id?: string | null;
           platform: Database["public"]["Enums"]["stream_platform"];
@@ -109,6 +169,7 @@ export type Database = {
         };
         Update: {
           id?: string;
+          user_id?: string;
           creator_id?: string;
           channel_id?: string | null;
           platform?: Database["public"]["Enums"]["stream_platform"];
@@ -124,22 +185,23 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "platform_connections_channel_id_fkey";
-            columns: ["channel_id"];
+            foreignKeyName: "platform_connections_channel_user_fkey";
+            columns: ["channel_id", "user_id"];
             referencedRelation: "channels";
-            referencedColumns: ["id"];
+            referencedColumns: ["id", "user_id"];
           },
           {
-            foreignKeyName: "platform_connections_creator_id_fkey";
-            columns: ["creator_id"];
+            foreignKeyName: "platform_connections_creator_user_fkey";
+            columns: ["creator_id", "user_id"];
             referencedRelation: "creators";
-            referencedColumns: ["id"];
-          }
+            referencedColumns: ["id", "user_id"];
+          },
         ];
       };
       metrics_snapshots: {
         Row: {
           id: string;
+          user_id: string;
           creator_id: string;
           channel_id: string;
           platform: Database["public"]["Enums"]["stream_platform"];
@@ -154,6 +216,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
+          user_id: string;
           creator_id: string;
           channel_id: string;
           platform: Database["public"]["Enums"]["stream_platform"];
@@ -168,6 +231,7 @@ export type Database = {
         };
         Update: {
           id?: string;
+          user_id?: string;
           creator_id?: string;
           channel_id?: string;
           platform?: Database["public"]["Enums"]["stream_platform"];
@@ -182,17 +246,78 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "metrics_snapshots_channel_id_fkey";
-            columns: ["channel_id"];
+            foreignKeyName: "metrics_snapshots_channel_user_fkey";
+            columns: ["channel_id", "user_id"];
             referencedRelation: "channels";
-            referencedColumns: ["id"];
+            referencedColumns: ["id", "user_id"];
           },
           {
-            foreignKeyName: "metrics_snapshots_creator_id_fkey";
-            columns: ["creator_id"];
+            foreignKeyName: "metrics_snapshots_creator_user_fkey";
+            columns: ["creator_id", "user_id"];
             referencedRelation: "creators";
-            referencedColumns: ["id"];
-          }
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
+      content_jobs: {
+        Row: {
+          id: string;
+          user_id: string;
+          stream_id: string | null;
+          queue_job_id: string | null;
+          job_type: ContentJobType;
+          status: ContentJobStatus;
+          payload: Json;
+          result: Json | null;
+          error_message: string | null;
+          retry_count: number;
+          max_retries: number;
+          last_retried_at: string | null;
+          next_retry_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          stream_id?: string | null;
+          queue_job_id?: string | null;
+          job_type: ContentJobType;
+          status?: ContentJobStatus;
+          payload?: Json;
+          result?: Json | null;
+          error_message?: string | null;
+          retry_count?: number;
+          max_retries?: number;
+          last_retried_at?: string | null;
+          next_retry_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          stream_id?: string | null;
+          queue_job_id?: string | null;
+          job_type?: ContentJobType;
+          status?: ContentJobStatus;
+          payload?: Json;
+          result?: Json | null;
+          error_message?: string | null;
+          retry_count?: number;
+          max_retries?: number;
+          last_retried_at?: string | null;
+          next_retry_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_jobs_stream_user_fkey";
+            columns: ["stream_id", "user_id"];
+            referencedRelation: "streams";
+            referencedColumns: ["id", "user_id"];
+          },
         ];
       };
     };
@@ -212,6 +337,9 @@ export type Database = {
   };
 };
 
-export type Tables<T extends keyof Database["public"]["Tables"]> = Database["public"]["Tables"][T]["Row"];
-export type Inserts<T extends keyof Database["public"]["Tables"]> = Database["public"]["Tables"][T]["Insert"];
-export type Updates<T extends keyof Database["public"]["Tables"]> = Database["public"]["Tables"][T]["Update"];
+export type Tables<T extends keyof Database["public"]["Tables"]> =
+  Database["public"]["Tables"][T]["Row"];
+export type Inserts<T extends keyof Database["public"]["Tables"]> =
+  Database["public"]["Tables"][T]["Insert"];
+export type Updates<T extends keyof Database["public"]["Tables"]> =
+  Database["public"]["Tables"][T]["Update"];

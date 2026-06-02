@@ -64,7 +64,7 @@ Entities planned next:
 - `brand_assets`
 - `monetization_events`
 
-Use row-level security in Supabase for tenant isolation. Service-role keys must remain server-only.
+Use `user_id` on every Supabase table plus row-level security policies scoped to `user_id = auth.uid()` for tenant isolation. Service-role keys must remain server-only.
 
 ## API Strategy
 
@@ -94,15 +94,16 @@ Use realtime channels or server-sent events for live viewer counts, stream statu
 - Email confirmations are handled by `apps/web/src/app/auth/confirm/route.ts`; Supabase email templates must send `token_hash` links to `/auth/confirm`.
 - Validate all webhook signatures before processing events.
 - Encrypt or vault refresh tokens.
-- Apply Supabase row-level security to all tenant-owned tables.
+- Apply Supabase row-level security to all tenant-owned tables, and require `user_id` on every table from the initial migration onward.
 - Add integration tests for API endpoints before production rollout.
 
 ## Validation
 
-Expected checks for TypeScript work:
+Expected checks before shipping changes:
 
 ```bash
-pnpm typecheck
-pnpm test
-pnpm build
+pnpm validate
 ```
+
+The root validation includes `python -m pytest services/automation-service` for
+the FastAPI automation service and requires Python 3.12.

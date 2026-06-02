@@ -14,12 +14,18 @@ Initial schema:
 
 - `creators`
 - `channels`
+- `streams`
 - `platform_connections`
 - `metrics_snapshots`
+- `content_jobs`
 
 ## Security Model
 
-All tenant-owned tables have row-level security enabled. Rows are scoped through `creators.owner_id = auth.uid()`.
+Every tenant-owned table has a required `user_id` column, row-level security enabled, and policies scoped to `user_id = auth.uid()`. Child tables keep their domain foreign keys, but composite tenant foreign keys prevent cross-user `creator_id` or `channel_id` links.
+
+`content_jobs.queue_job_id` links BullMQ job attempts to durable database state.
+Workers write it with the Supabase service role, while user-facing access remains
+scoped through `user_id` RLS policies.
 
 Provider OAuth tokens must be encrypted or vaulted before being written to `platform_connections.access_token_ciphertext` or `platform_connections.refresh_token_ciphertext`. Do not store plaintext provider tokens.
 
