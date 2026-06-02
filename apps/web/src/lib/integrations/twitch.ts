@@ -287,11 +287,13 @@ export async function persistTwitchConnection({
   supabase,
   token,
   twitchUser,
+  userId,
 }: {
   creatorId: string;
   supabase: StreamOSSupabaseClient;
   token: TwitchTokenResponse;
   twitchUser: TwitchUser;
+  userId: string;
 }) {
   const now = new Date();
   const expiresAt = new Date(
@@ -301,6 +303,7 @@ export async function persistTwitchConnection({
   const existingChannel = await supabase
     .from("channels")
     .select("id")
+    .eq("user_id", userId)
     .eq("creator_id", creatorId)
     .eq("platform", "twitch")
     .eq("external_channel_id", twitchUser.id)
@@ -322,12 +325,14 @@ export async function persistTwitchConnection({
     external_channel_id: twitchUser.id,
     follower_count: 0,
     platform: "twitch",
+    user_id: userId,
   };
 
   const channelResult = existingChannel.data
     ? await supabase
         .from("channels")
         .update(channelPayload as never)
+        .eq("user_id", userId)
         .eq("id", existingChannelData?.id ?? "")
         .select("id")
         .single()
@@ -348,6 +353,7 @@ export async function persistTwitchConnection({
   const existingConnection = await supabase
     .from("platform_connections")
     .select("id")
+    .eq("user_id", userId)
     .eq("creator_id", creatorId)
     .eq("platform", "twitch")
     .eq("provider_account_id", twitchUser.id)
@@ -377,12 +383,14 @@ export async function persistTwitchConnection({
       : null,
     scopes: token.scope ?? [],
     status: "connected",
+    user_id: userId,
   };
 
   const connectionResult = existingConnection.data
     ? await supabase
         .from("platform_connections")
         .update(connectionPayload as never)
+        .eq("user_id", userId)
         .eq("id", existingConnectionData?.id ?? "")
     : await supabase
         .from("platform_connections")
@@ -397,14 +405,17 @@ export async function refreshTwitchConnection({
   config,
   creatorId,
   supabase,
+  userId,
 }: {
   config: TwitchOAuthConfig;
   creatorId: string;
   supabase: StreamOSSupabaseClient;
+  userId: string;
 }) {
   const connectionResult = await supabase
     .from("platform_connections")
     .select("id, refresh_token_ciphertext, scopes")
+    .eq("user_id", userId)
     .eq("creator_id", creatorId)
     .eq("platform", "twitch")
     .order("connected_at", { ascending: false })
@@ -439,6 +450,7 @@ export async function refreshTwitchConnection({
       await supabase
         .from("platform_connections")
         .update({ status: "expired" } as never)
+        .eq("user_id", userId)
         .eq("id", connection.id);
     }
 
@@ -459,6 +471,7 @@ export async function refreshTwitchConnection({
   const updateResult = await supabase
     .from("platform_connections")
     .update(connectionPayload as never)
+    .eq("user_id", userId)
     .eq("id", connection.id);
 
   if (updateResult.error) {
@@ -475,15 +488,18 @@ export async function syncTwitchAnalytics({
   config,
   creatorId,
   supabase,
+  userId,
 }: {
   config: TwitchOAuthConfig;
   creatorId: string;
   supabase: StreamOSSupabaseClient;
+  userId: string;
 }) {
   const { accessToken, connection } = await getUsableTwitchConnection({
     config,
     creatorId,
     supabase,
+    userId,
   });
 
   if (!connection.channel_id) {
@@ -508,6 +524,7 @@ export async function syncTwitchAnalytics({
   const channelResult = await supabase
     .from("channels")
     .update(channelUpdate as never)
+    .eq("user_id", userId)
     .eq("id", connection.channel_id);
 
   if (channelResult.error) {
@@ -524,6 +541,7 @@ export async function syncTwitchAnalytics({
       ...snapshot.rawPayload,
       synced_at: capturedAt,
     },
+    user_id: userId,
     viewer_count: snapshot.viewerCount,
     watch_time_minutes: 0,
     revenue_cents: 0,
@@ -549,12 +567,18 @@ async function getUsableTwitchConnection({
   config,
   creatorId,
   supabase,
+  userId,
 }: {
   config: TwitchOAuthConfig;
   creatorId: string;
   supabase: StreamOSSupabaseClient;
+  userId: string;
 }) {
-  let connection = await getLatestTwitchConnection({ creatorId, supabase });
+  let connection = await getLatestTwitchConnection({
+    creatorId,
+    supabase,
+    userId,
+  });
 
   if (!connection) {
     throw new Error("No Twitch connection found.");
@@ -567,8 +591,12 @@ async function getUsableTwitchConnection({
     connection.status === "expired" || expiresAt <= Date.now() + 60_000;
 
   if (isExpired) {
-    await refreshTwitchConnection({ config, creatorId, supabase });
-    connection = await getLatestTwitchConnection({ creatorId, supabase });
+    await refreshTwitchConnection({ config, creatorId, supabase, userId });
+    connection = await getLatestTwitchConnection({
+      creatorId,
+      supabase,
+      userId,
+    });
   }
 
   if (!connection?.access_token_ciphertext) {
@@ -584,15 +612,18 @@ async function getUsableTwitchConnection({
 async function getLatestTwitchConnection({
   creatorId,
   supabase,
+  userId,
 }: {
   creatorId: string;
   supabase: StreamOSSupabaseClient;
+  userId: string;
 }) {
   const connectionResult = await supabase
     .from("platform_connections")
     .select(
       "id, channel_id, provider_account_id, access_token_ciphertext, refresh_token_ciphertext, expires_at, status",
     )
+    .eq("user_id", userId)
     .eq("creator_id", creatorId)
     .eq("platform", "twitch")
     .order("connected_at", { ascending: false })

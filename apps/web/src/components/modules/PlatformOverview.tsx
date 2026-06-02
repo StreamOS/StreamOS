@@ -71,10 +71,12 @@ async function getPlatformSummaries(): Promise<PlatformSummary[]> {
     supabase
       .from("platform_connections")
       .select("platform, status, channel_id, expires_at")
+      .eq("user_id", data.user.id)
       .eq("creator_id", creator.id),
     supabase
       .from("channels")
       .select("id, platform, display_name, follower_count, connected_at")
+      .eq("user_id", data.user.id)
       .eq("creator_id", creator.id),
   ]);
 

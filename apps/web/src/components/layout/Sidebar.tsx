@@ -1,11 +1,20 @@
-import { BarChart3, Clapperboard, CreditCard, LayoutDashboard, Palette, RadioTower } from "lucide-react";
+import {
+  BarChart3,
+  Clapperboard,
+  CreditCard,
+  LayoutDashboard,
+  ListChecks,
+  Palette,
+  RadioTower,
+} from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { label: "Clips", href: "/dashboard/clips", icon: Clapperboard },
+  { label: "Jobs", href: "/dashboard/jobs", icon: ListChecks },
   { label: "Monetization", href: "/dashboard/monetization", icon: CreditCard },
-  { label: "Branding", href: "/dashboard/branding", icon: Palette }
+  { label: "Branding", href: "/dashboard/branding", icon: Palette },
 ];
 
 type SidebarProps = {
@@ -17,7 +26,7 @@ type SidebarProps = {
 export function Sidebar({
   creatorName = "Demo Workspace",
   creatorNiche = "NovaPlays / Tactical FPS & Community Challenges",
-  signOutAction
+  signOutAction,
 }: SidebarProps) {
   return (
     <aside className="border-r border-white/10 bg-surface-950/90 backdrop-blur lg:fixed lg:inset-y-0 lg:left-0 lg:w-72">
@@ -51,7 +60,9 @@ export function Sidebar({
         </nav>
         <div className="mt-auto rounded-lg border border-white/10 bg-white/5 p-4">
           <div className="text-sm font-semibold text-white">{creatorName}</div>
-          <p className="mt-1 text-xs leading-5 text-slate-400">{creatorNiche}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">
+            {creatorNiche}
+          </p>
           {signOutAction && (
             <form action={signOutAction} className="mt-4">
               <button className="btn-ghost w-full" type="submit">

@@ -39,6 +39,7 @@ export async function refreshTwitchConnectionAction() {
       config,
       creatorId: creator.id,
       supabase,
+      userId: data.user.id,
     });
   } catch {
     refreshFailed = true;
@@ -79,6 +80,7 @@ export async function syncTwitchAnalyticsAction() {
       config,
       creatorId: creator.id,
       supabase,
+      userId: data.user.id,
     });
   } catch {
     syncFailed = true;

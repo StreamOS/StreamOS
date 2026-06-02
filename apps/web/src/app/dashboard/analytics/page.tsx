@@ -78,6 +78,7 @@ async function getAnalyticsPlatforms(): Promise<PlatformSummary[]> {
   const metricsResult = await supabase
     .from("metrics_snapshots")
     .select("platform, viewer_count, follower_count, captured_at")
+    .eq("user_id", data.user.id)
     .eq("creator_id", creator.id)
     .eq("platform", "twitch")
     .order("captured_at", { ascending: false })

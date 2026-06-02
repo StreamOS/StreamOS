@@ -9,7 +9,7 @@ export async function ensureCreatorForUser(supabase: SupabaseServerClient, user:
   const existing = await supabase
     .from("creators")
     .select("id, display_name, handle, niche")
-    .eq("owner_id", user.id)
+    .eq("user_id", user.id)
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -25,7 +25,7 @@ export async function ensureCreatorForUser(supabase: SupabaseServerClient, user:
   const displayName = user.user_metadata.name || user.email?.split("@")[0] || "StreamOS Creator";
   const creatorInsert: Inserts<"creators"> = {
     display_name: displayName,
-    owner_id: user.id
+    user_id: user.id
   };
 
   const created = await supabase

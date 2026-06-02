@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
       supabase,
       token,
       twitchUser,
+      userId: data.user.id,
     });
 
     dashboardUrl.searchParams.set("platform", "twitch");
