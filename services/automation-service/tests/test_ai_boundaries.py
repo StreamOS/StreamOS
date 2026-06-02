@@ -3,7 +3,6 @@ import json
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from main import app, get_clip_analyzer, get_transcription_processor
 from openai_client import OpenAIClipAnalyzer, OpenAITranscriptionProcessor
@@ -15,6 +14,15 @@ from schemas import (
     TranscriptionSegment,
 )
 from settings import Settings, SettingsError, load_settings
+
+
+async def post_json(path: str, payload: dict[str, object]) -> httpx.Response:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+    ) as client:
+        return await client.post(path, json=payload)
 
 
 class StubClipAnalyzer:
@@ -62,15 +70,16 @@ def test_clip_analysis_endpoint_uses_server_side_analyzer() -> None:
     app.dependency_overrides[get_clip_analyzer] = StubClipAnalyzer
 
     try:
-        with TestClient(app) as client:
-            response = client.post(
+        response = asyncio.run(
+            post_json(
                 "/clips/analyze",
-                json={
+                {
                     "asset_id": "clip-123",
                     "source_platform": "twitch",
                     "transcript": "Huge comeback after a risky play in the final round.",
                 },
             )
+        )
     finally:
         app.dependency_overrides.clear()
 
@@ -91,10 +100,10 @@ def test_transcription_endpoint_uses_server_side_processor() -> None:
     app.dependency_overrides[get_transcription_processor] = StubTranscriptionProcessor
 
     try:
-        with TestClient(app) as client:
-            response = client.post(
+        response = asyncio.run(
+            post_json(
                 "/transcriptions/process",
-                json={
+                {
                     "job_id": "job-123",
                     "stream_id": "stream-123",
                     "source_platform": "twitch",
@@ -102,6 +111,7 @@ def test_transcription_endpoint_uses_server_side_processor() -> None:
                     "language": "en",
                 },
             )
+        )
     finally:
         app.dependency_overrides.clear()
 
@@ -122,15 +132,16 @@ def test_missing_server_openai_key_returns_503(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.delenv("NEXT_PUBLIC_OPENAI_KEY", raising=False)
     monkeypatch.delenv("NEXT_PUBLIC_OPENAI_API_KEY", raising=False)
 
-    with TestClient(app) as client:
-        response = client.post(
+    response = asyncio.run(
+        post_json(
             "/clips/analyze",
-            json={
+            {
                 "asset_id": "clip-123",
                 "source_platform": "twitch",
                 "transcript": "A clean testing transcript.",
             },
         )
+    )
 
     assert response.status_code == 503
     assert response.json()["detail"] == (

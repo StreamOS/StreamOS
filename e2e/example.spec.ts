@@ -1,18 +1,21 @@
 import { test, expect } from '@playwright/test';
 
-test('has title', async ({ page }) => {
-  await page.goto('https://playwright.dev/');
+test('redirects the app shell to the StreamOS dashboard', async ({ page }) => {
+  await page.goto('/');
 
-  // Expect a title "to contain" a substring.
-  await expect(page).toHaveTitle(/Playwright/);
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page).toHaveTitle('StreamOS');
+  await expect(page.getByRole('heading', { name: /content- und umsatz-funnel/i })).toBeVisible();
+  await expect(page.getByRole('navigation').getByRole('link', { name: 'Analytics' })).toBeVisible();
 });
 
-test('get started link', async ({ page }) => {
-  await page.goto('https://playwright.dev/');
+test('navigates from the dashboard to the clip workflow', async ({ page }) => {
+  await page.goto('/dashboard');
 
-  // Click the get started link.
-  await page.getByRole('link', { name: 'Get started' }).click();
+  await page.getByRole('link', { name: 'VOD analysieren' }).click();
 
-  // Expects page to have a heading with the name of Installation.
-  await expect(page.getByRole('heading', { name: 'Installation' })).toBeVisible();
+  await expect(page).toHaveURL(/\/dashboard\/clips$/);
+  await expect(page.getByRole('heading', { name: /vods analysieren/i })).toBeVisible();
+  await expect(page.getByLabel('VOD URL')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clip Analyse starten' })).toBeVisible();
 });

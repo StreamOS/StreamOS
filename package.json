@@ -16,6 +16,7 @@
     "lint": "turbo lint",
     "python:version": "node scripts/with-python-312.cjs python --version",
     "test": "turbo test",
+    "test:e2e": "playwright test",
     "test:automation": "node scripts/with-python-312.cjs python -m pytest services/automation-service",
     "typecheck": "turbo typecheck",
     "validate": "pnpm typecheck && pnpm test && pnpm test:automation && pnpm build",
