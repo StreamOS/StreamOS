@@ -56,6 +56,7 @@ export function createSupabaseJobStatusStore({
       await writeJson(fetchFn, contentJobsEndpoint, headers, {
         error_message: patch.error_message ?? null,
         job_type: "transcription",
+        next_retry_at: null,
         payload,
         queue_job_id: jobId,
         result: patch.result ?? null,

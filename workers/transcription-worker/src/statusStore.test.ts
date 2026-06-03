@@ -51,6 +51,7 @@ describe("createSupabaseJobStatusStore", () => {
     const [, init] = fetchFn.mock.calls[0]!;
     expect(JSON.parse(String(init?.body))).toMatchObject({
       job_type: "transcription",
+      next_retry_at: null,
       payload,
       queue_job_id: "queue-job-1",
       result: {

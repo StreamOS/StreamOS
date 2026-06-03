@@ -244,6 +244,7 @@ async function upsertContentJob({
   if (existing.data) {
     const updatePayload: Updates<"content_jobs"> = {
       error_message: patch.error_message,
+      next_retry_at: null,
       payload: patch.payload as Json,
       result: patch.result as Json | null,
       status: patch.status,
@@ -264,6 +265,7 @@ async function upsertContentJob({
   const insertPayload: Inserts<"content_jobs"> = {
     error_message: patch.error_message,
     job_type: "clip_scoring",
+    next_retry_at: null,
     payload: patch.payload,
     queue_job_id: patch.queue_job_id,
     result: patch.result,
