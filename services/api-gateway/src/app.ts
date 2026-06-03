@@ -108,12 +108,10 @@ function isProduction(nodeEnv: string | undefined) {
 function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
   const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
   const apiGatewaySecret = (
-    options.apiGatewaySecret ??
-    process.env.API_GATEWAY_SECRET
+    options.apiGatewaySecret ?? process.env.API_GATEWAY_SECRET
   )?.trim();
   const streamEventWebhookSecret = (
-    options.streamEventWebhookSecret ??
-    process.env.STREAM_EVENT_WEBHOOK_SECRET
+    options.streamEventWebhookSecret ?? process.env.STREAM_EVENT_WEBHOOK_SECRET
   )?.trim();
   const envAllowedOrigins = parseCommaSeparatedEnv(
     process.env.API_GATEWAY_ALLOWED_ORIGINS,
@@ -293,10 +291,10 @@ export function createApp(options: CreateAppOptions = {}): Express {
     "/api/platforms",
     requireAppApiSecret(securityConfig.apiGatewaySecret),
     (_request, response) => {
-    response.status(200).json({
-      platforms: ["twitch", "youtube", "tiktok", "kick"],
-      next: "Implement OAuth state handling and encrypted token storage.",
-    });
+      response.status(200).json({
+        platforms: ["twitch", "youtube", "tiktok", "kick"],
+        next: "Implement OAuth state handling and encrypted token storage.",
+      });
     },
   );
 

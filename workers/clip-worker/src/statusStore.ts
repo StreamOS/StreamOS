@@ -162,10 +162,7 @@ async function writeJsonReturningFirst<T extends { id: string }>(
 
   const responseBody = (await response.json()) as unknown;
 
-  if (
-    !Array.isArray(responseBody) ||
-    typeof responseBody[0]?.id !== "string"
-  ) {
+  if (!Array.isArray(responseBody) || typeof responseBody[0]?.id !== "string") {
     throw new Error(`Supabase ${endpoint.pathname} did not return a row id.`);
   }
 
@@ -336,10 +333,11 @@ function isClipAnalysisResult(
 }
 
 function normalizeExportFormat(format: string) {
-  return format.trim().toLowerCase().replaceAll(/[^a-z0-9]+/g, "_").replaceAll(
-    /^_|_$/g,
-    "",
-  );
+  return format
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, "_")
+    .replaceAll(/^_|_$/g, "");
 }
 
 function inferTargetPlatform(format: string) {
