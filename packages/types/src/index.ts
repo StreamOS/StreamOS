@@ -53,6 +53,33 @@ export type ClipStatus =
   | "failed"
   | "published";
 export type ClipExportStatus = ClipStatus;
+export type BrandAssetType =
+  | "overlay"
+  | "alert"
+  | "logo"
+  | "banner"
+  | "panel"
+  | "emote"
+  | "color_palette"
+  | "typography"
+  | "scene";
+export type BrandAssetStatus = "draft" | "active" | "archived";
+export type MonetizationEventType =
+  | "subscription"
+  | "membership"
+  | "donation"
+  | "bits"
+  | "ad_revenue"
+  | "merch_sale"
+  | "sponsorship"
+  | "affiliate"
+  | "other";
+export type MonetizationEventStatus =
+  | "pending"
+  | "confirmed"
+  | "disputed"
+  | "refunded"
+  | "failed";
 
 export type TranscriptionSegment = {
   end: number;
@@ -198,6 +225,46 @@ export type ClipExport = {
   status: ClipExportStatus;
   renderUrl: string | null;
   publishedUrl: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BrandAsset = {
+  id: string;
+  userId: string;
+  creatorId: string | null;
+  channelId: string | null;
+  assetType: BrandAssetType;
+  status: BrandAssetStatus;
+  name: string;
+  description: string | null;
+  storageBucket: string | null;
+  storagePath: string | null;
+  publicUrl: string | null;
+  config: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MonetizationEvent = {
+  id: string;
+  userId: string;
+  creatorId: string | null;
+  channelId: string | null;
+  streamId: string | null;
+  platform: StreamPlatform | null;
+  eventType: MonetizationEventType;
+  status: MonetizationEventStatus;
+  source: string;
+  externalEventId: string | null;
+  amountCents: number;
+  currency: string;
+  quantity: number;
+  payerHandle: string | null;
+  sponsorName: string | null;
+  occurredAt: string;
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
