@@ -40,16 +40,20 @@ class InMemoryDedupeQueue implements ClipGenerationQueue {
 
 describe("clipGenerationQueue", () => {
   const basePayload = {
-    creator_id: "creator-1",
-    requested_by: "user-1",
+    creator_id: "22222222-2222-4222-8222-222222222222",
+    requested_by: "11111111-1111-4111-8111-111111111111",
     source_platform: "twitch" as const,
     source_url: "https://www.twitch.tv/videos/123",
     transcript: "A clutch moment with a strong opening hook.",
   };
 
   it("derives stable BullMQ job IDs from stream_id", () => {
-    const firstJobId = getClipGenerationJobId("stream-123");
-    const secondJobId = getClipGenerationJobId("stream-123");
+    const firstJobId = getClipGenerationJobId(
+      "33333333-3333-4333-8333-333333333333",
+    );
+    const secondJobId = getClipGenerationJobId(
+      "33333333-3333-4333-8333-333333333333",
+    );
 
     expect(firstJobId).toBe(secondJobId);
     expect(firstJobId).toMatch(/^clip-generation-/);
@@ -61,11 +65,11 @@ describe("clipGenerationQueue", () => {
 
     const first = await enqueueClipGenerationJob(queue, {
       ...basePayload,
-      stream_id: "stream-123",
+      stream_id: "33333333-3333-4333-8333-333333333333",
     });
     const second = await enqueueClipGenerationJob(queue, {
       ...basePayload,
-      stream_id: "stream-123",
+      stream_id: "33333333-3333-4333-8333-333333333333",
     });
 
     expect(first.jobId).toBe(second.jobId);
@@ -78,12 +82,12 @@ describe("clipGenerationQueue", () => {
 
     await enqueueClipGenerationJob(queue, {
       ...basePayload,
-      stream_id: "stream-123",
+      stream_id: "33333333-3333-4333-8333-333333333333",
     });
     await enqueueClipGenerationJob(queue, {
       ...basePayload,
       source_url: "https://www.twitch.tv/videos/456",
-      stream_id: "stream-456",
+      stream_id: "44444444-4444-4444-8444-444444444444",
     });
 
     expect(queue.jobs.size).toBe(2);

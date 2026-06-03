@@ -167,11 +167,11 @@ describe("api-gateway", () => {
       }
 
       const body = JSON.stringify({
-        creator_id: "creator-1",
+        creator_id: CREATOR_ID,
         requested_by: USER_ID,
         source_platform: "twitch",
         source_url: "https://www.twitch.tv/videos/123",
-        stream_id: "stream-123",
+        stream_id: STREAM_ID,
         transcript: "A clutch moment with a strong opening hook.",
       });
       const firstResponse = await fetch(

@@ -54,11 +54,63 @@ describe("processTranscriptionJob", () => {
       expect.objectContaining({ stream_id: STREAM_ID, user_id: USER_ID }),
       {
         result: {
+          model: "gpt-4o-transcribe",
+          provider: "openai",
           segments: [{ end: 1.5, start: 0, text: "A clean transcript." }],
           transcript: "A clean transcript.",
         },
         status: "done",
       },
+    );
+  });
+
+  it("queues clip generation after a successful transcription", async () => {
+    const statusStore = {
+      update: vi.fn().mockResolvedValue(undefined),
+    };
+    const clipGenerationQueue = {
+      add: vi.fn().mockResolvedValue({ id: "clip-job-1" }),
+    };
+    const automationClient = {
+      processTranscription: vi.fn().mockResolvedValue({
+        job_id: "job-1",
+        language: "en",
+        model: "gpt-4o-transcribe",
+        provider: "openai",
+        segments: [{ end: 1.5, start: 0, text: "A clean transcript." }],
+        stream_id: STREAM_ID,
+        transcript: "A clean transcript.",
+      }),
+    };
+
+    await processTranscriptionJob(
+      {
+        id: "job-1",
+        data: {
+          user_id: USER_ID,
+          language: "en",
+          platform: "twitch",
+          stream_id: STREAM_ID,
+          trigger: "stream_ended",
+          vod_asset_url: "https://cdn.example.com/audio.mp4",
+        },
+      },
+      { automationClient, clipGenerationQueue, statusStore },
+    );
+
+    expect(clipGenerationQueue.add).toHaveBeenCalledWith(
+      "clip.generate",
+      {
+        requested_by: USER_ID,
+        source_platform: "twitch",
+        source_url: "https://cdn.example.com/audio.mp4",
+        stream_id: STREAM_ID,
+        transcript: "A clean transcript.",
+      },
+      expect.objectContaining({
+        attempts: 3,
+        jobId: `clip-generation-${STREAM_ID}`,
+      }),
     );
   });
 

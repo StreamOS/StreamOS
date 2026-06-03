@@ -1,3 +1,4 @@
+import type { ClipGenerationJobData } from "@streamos/types";
 import type { JobsOptions } from "bullmq";
 import { Queue } from "bullmq";
 import { z } from "zod";
@@ -7,19 +8,19 @@ import {
   getDeterministicJobId,
 } from "./redisConnection.js";
 
+export type { ClipGenerationJobData };
+
 export const CLIP_GENERATION_JOB_NAME = "clip.generate";
 export const DEFAULT_CLIP_GENERATION_QUEUE_NAME = "streamos-clip-generation";
 
 export const clipGenerationPayloadSchema = z.object({
-  stream_id: z.string().trim().min(1),
-  creator_id: z.string().trim().min(1).optional(),
+  stream_id: z.string().uuid(),
+  creator_id: z.string().uuid().optional(),
   source_platform: z.enum(["twitch", "youtube", "tiktok", "kick"]),
   source_url: z.string().url(),
-  requested_by: z.string().trim().min(1),
+  requested_by: z.string().uuid(),
   transcript: z.string().trim().min(1).max(60_000),
-});
-
-export type ClipGenerationJobData = z.infer<typeof clipGenerationPayloadSchema>;
+}) satisfies z.ZodType<ClipGenerationJobData, z.ZodTypeDef, unknown>;
 
 export type ClipGenerationQueueJob = {
   id?: string | number;

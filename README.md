@@ -209,10 +209,18 @@ Also allow your local and deployed app URLs in Supabase Auth URL configuration.
 
 ## Twitch OAuth
 
-The first platform connector lives in the web app route handlers:
+The first platform connector intentionally lives in the web app server
+boundary:
 
 - `/api/platforms/twitch/connect`
 - `/api/platforms/twitch/callback`
+
+This is a documented exception to the long-term gateway direction. Twitch uses
+the Supabase SSR session from HTTP-only Next.js cookies, persists through the
+RLS-scoped anon client, and encrypts provider tokens before writing to
+Supabase. Do not move this flow to `services/api-gateway` until the gateway has
+a signed user-session hand-off from `apps/web`, a tenant-safe Supabase client
+strategy, and integration coverage for callback success and failure paths.
 
 Connected Twitch accounts store encrypted access and refresh tokens in Supabase.
 The dashboard exposes a server-side token refresh action so expired access tokens
@@ -235,6 +243,6 @@ Register the same redirect URI in the Twitch Developer Console. If Next.js falls
 
 ## Next Implementation Steps
 
-1. Add OAuth flows for Twitch, YouTube, TikTok, and Kick behind `services/api-gateway`.
+1. Add OAuth flows for YouTube, TikTok, and Kick behind `services/api-gateway`.
 2. Add BullMQ workers for transcription processing and clip generation.
 3. Move durable AI workflows into `services/automation-service` and keep browser-visible API keys out of client components.

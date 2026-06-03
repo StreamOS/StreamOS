@@ -9,6 +9,8 @@ export type StreamPlatform = (typeof STREAM_PLATFORMS)[number];
 
 export const TRANSCRIPTION_TRIGGER_JOB_NAME = "transcription.trigger";
 export const DEFAULT_TRANSCRIPTION_QUEUE_NAME = "streamos-transcription";
+export const CLIP_GENERATION_JOB_NAME = "clip.generate";
+export const DEFAULT_CLIP_GENERATION_QUEUE_NAME = "streamos-clip-generation";
 
 export type TranscriptionTriggerJobData = {
   user_id: string;
@@ -22,12 +24,35 @@ export type TranscriptionTriggerJobData = {
   trigger: "stream_ended";
 };
 
+export type ClipGenerationJobData = {
+  stream_id: string;
+  creator_id?: string;
+  requested_by: string;
+  source_platform: StreamPlatform;
+  source_url: string;
+  transcript: string;
+};
+
 export type ConnectionStatus = "connected" | "expired" | "revoked" | "pending";
 export type ContentJobType =
   | "transcription"
   | "clip_scoring"
   | "title_generation";
 export type ContentJobStatus = "pending" | "running" | "done" | "failed";
+export type VodAssetStatus =
+  | "ingested"
+  | "transcribing"
+  | "transcribed"
+  | "failed";
+export type StreamHighlightSource = "transcript" | "clip_scoring" | "manual";
+export type ClipStatus =
+  | "draft"
+  | "queued"
+  | "rendering"
+  | "ready"
+  | "failed"
+  | "published";
+export type ClipExportStatus = ClipStatus;
 
 export type TranscriptionSegment = {
   end: number;
@@ -94,6 +119,86 @@ export type Stream = {
   startedAt: string | null;
   endedAt: string | null;
   title: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type VodAsset = {
+  id: string;
+  userId: string;
+  streamId: string;
+  platform: StreamPlatform;
+  sourceUrl: string;
+  externalAssetId: string | null;
+  status: VodAssetStatus;
+  durationSeconds: number | null;
+  ingestedAt: string;
+  transcribedAt: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StreamTranscript = {
+  id: string;
+  userId: string;
+  streamId: string;
+  vodAssetId: string | null;
+  language: string;
+  provider: string;
+  model: string;
+  transcriptText: string;
+  segments: TranscriptionSegment[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StreamHighlight = {
+  id: string;
+  userId: string;
+  streamId: string;
+  transcriptId: string | null;
+  sourceQueueJobId: string | null;
+  source: StreamHighlightSource;
+  rank: number;
+  score: number | null;
+  title: string | null;
+  summary: string;
+  sourceStartSeconds: number | null;
+  sourceEndSeconds: number | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Clip = {
+  id: string;
+  userId: string;
+  streamId: string;
+  highlightId: string | null;
+  sourceQueueJobId: string | null;
+  title: string;
+  description: string | null;
+  sourceUrl: string | null;
+  sourceStartSeconds: number | null;
+  sourceEndSeconds: number | null;
+  viralityScore: number | null;
+  status: ClipStatus;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ClipExport = {
+  id: string;
+  userId: string;
+  clipId: string;
+  targetPlatform: StreamPlatform | null;
+  exportFormat: string;
+  status: ClipExportStatus;
+  renderUrl: string | null;
+  publishedUrl: string | null;
+  metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 };

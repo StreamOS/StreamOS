@@ -76,7 +76,7 @@ describe("createSupabaseJobStatusStore", () => {
     await expect(
       store.update("queue-job-1", payload, { status: "running" }),
     ).rejects.toThrow(
-      "Supabase content_jobs update failed with 404: missing table",
+      "Supabase /rest/v1/content_jobs write failed with 404: missing table",
     );
   });
 });

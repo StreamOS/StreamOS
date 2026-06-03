@@ -4,18 +4,21 @@ This document defines the production deployment topology for the StreamOS monore
 
 ## Target Topology
 
-| Path                               | Runtime               | Platform                                                       | Purpose                                                   |
-| ---------------------------------- | --------------------- | -------------------------------------------------------------- | --------------------------------------------------------- |
-| `apps/web`                         | Next.js App Router    | Vercel                                                         | Dashboard, auth surfaces, server route handlers           |
-| `services/api-gateway`             | Node.js               | Railway                                                        | Public API gateway, webhook ingress, BullMQ job producers |
-| `services/automation-service`      | FastAPI               | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                   |
-| `workers/transcription-worker`     | Node.js BullMQ Worker | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI    |
-| `workers/content-job-retry-worker` | Node.js BullMQ Worker | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into BullMQ      |
+| Path                               | Runtime               | Platform                                                       | Purpose                                                                     |
+| ---------------------------------- | --------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `apps/web`                         | Next.js App Router    | Vercel                                                         | Dashboard, auth surfaces, Twitch OAuth server handlers                      |
+| `services/api-gateway`             | Node.js               | Railway                                                        | Public API gateway, non-Twitch OAuth, webhook ingress, BullMQ job producers |
+| `services/automation-service`      | FastAPI               | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                                     |
+| `workers/transcription-worker`     | Node.js BullMQ Worker | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI                      |
+| `workers/content-job-retry-worker` | Node.js BullMQ Worker | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into BullMQ                        |
 
 ## Service Boundaries
 
 - Browser code must call the Next.js app or `services/api-gateway`; it must not call AI providers directly.
-- `services/api-gateway` is the public backend entrypoint for external webhooks and app-facing backend APIs.
+- `services/api-gateway` is the public backend entrypoint for external webhooks, app-facing backend APIs, and new non-Twitch platform OAuth flows.
+- Twitch OAuth remains in `apps/web` route handlers and dashboard server actions
+  until the gateway owns a signed Supabase user-session hand-off and
+  tenant-safe encrypted token persistence.
 - `services/automation-service` should use private Railway networking in production. Do not call it from browser code or Vercel client bundles; only Railway services/workers in the same project/environment should call it.
 - `workers/transcription-worker` owns BullMQ consumption, calls `services/automation-service`, and writes job status to Supabase.
 - `workers/content-job-retry-worker` owns retry orchestration for failed `content_jobs`; it uses the Supabase service-role key server-side and requeues only supported job payloads. Row-level `content_jobs.max_retries` is the source of truth for retry budget, including manual retries from the dashboard.
@@ -52,6 +55,11 @@ API_GATEWAY_SECRET=
 
 Do not set `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_OPENAI_KEY`, or `NEXT_PUBLIC_OPENAI_API_KEY` in the Vercel browser-facing app unless a server route explicitly needs the server-only value.
 
+`TWITCH_CLIENT_SECRET` stays in Vercel only for the documented Twitch OAuth
+server-route exception. It must never be exposed with a `NEXT_PUBLIC_*` prefix.
+YouTube, TikTok, and Kick provider secrets should be configured on the API
+gateway when those OAuth flows are implemented there.
+
 `API_GATEWAY_URL` must be public because Vercel functions are outside the Railway private network. The Automation Service remains private and is reached by Railway workers, not by Vercel.
 
 ## Railway: `services/api-gateway`
@@ -85,6 +93,10 @@ API_GATEWAY_RATE_LIMIT_WINDOW_MS=60000
 STREAM_EVENT_WEBHOOK_SECRET=
 RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 ```
+
+Twitch OAuth variables are not required in the API gateway while the Twitch flow
+remains in `apps/web`. Add provider-specific OAuth variables here only for
+gateway-owned flows.
 
 Use `/health` as the Railway healthcheck path. The endpoint must return HTTP 200 before Railway sends traffic to the new deployment.
 

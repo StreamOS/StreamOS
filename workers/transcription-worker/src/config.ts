@@ -1,7 +1,9 @@
 export const DEFAULT_TRANSCRIPTION_QUEUE_NAME = "streamos-transcription";
+export const DEFAULT_CLIP_GENERATION_QUEUE_NAME = "streamos-clip-generation";
 
 export type WorkerConfig = {
   automationServiceUrl: string;
+  clipGenerationQueueName: string;
   concurrency: number;
   queueName: string;
   redisUrl: string;
@@ -40,6 +42,9 @@ export function loadWorkerConfig(
 ): WorkerConfig {
   return {
     automationServiceUrl: requireEnv(source, "AUTOMATION_SERVICE_URL"),
+    clipGenerationQueueName:
+      source.CLIP_GENERATION_QUEUE_NAME?.trim() ||
+      DEFAULT_CLIP_GENERATION_QUEUE_NAME,
     concurrency: parseConcurrency(source.TRANSCRIPTION_WORKER_CONCURRENCY),
     queueName:
       source.TRANSCRIPTION_QUEUE_NAME?.trim() ||
