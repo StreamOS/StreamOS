@@ -6,6 +6,27 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 const STREAM_ID = "22222222-2222-4222-8222-222222222222";
 const OTHER_STREAM_ID = "33333333-3333-4333-8333-333333333333";
 
+function createJob({
+  attempts = 1,
+  attemptsMade = 0,
+  data,
+  id,
+}: {
+  attempts?: number;
+  attemptsMade?: number;
+  data: Record<string, unknown>;
+  id: string;
+}) {
+  return {
+    attemptsMade,
+    data,
+    id,
+    opts: {
+      attempts,
+    },
+  };
+}
+
 describe("processTranscriptionJob", () => {
   it("marks a valid BullMQ transcription job as completed", async () => {
     const statusStore = {
@@ -25,7 +46,7 @@ describe("processTranscriptionJob", () => {
 
     await expect(
       processTranscriptionJob(
-        {
+        createJob({
           id: "job-1",
           data: {
             user_id: USER_ID,
@@ -35,7 +56,7 @@ describe("processTranscriptionJob", () => {
             trigger: "stream_ended",
             vod_asset_url: "https://cdn.example.com/audio.mp4",
           },
-        },
+        }),
         { automationClient, statusStore },
       ),
     ).resolves.toMatchObject({
@@ -66,6 +87,7 @@ describe("processTranscriptionJob", () => {
 
   it("queues clip generation after a successful transcription", async () => {
     const statusStore = {
+      enqueueClipGeneration: vi.fn().mockResolvedValue(undefined),
       update: vi.fn().mockResolvedValue(undefined),
     };
     const clipGenerationQueue = {
@@ -84,7 +106,7 @@ describe("processTranscriptionJob", () => {
     };
 
     await processTranscriptionJob(
-      {
+      createJob({
         id: "job-1",
         data: {
           user_id: USER_ID,
@@ -94,7 +116,7 @@ describe("processTranscriptionJob", () => {
           trigger: "stream_ended",
           vod_asset_url: "https://cdn.example.com/audio.mp4",
         },
-      },
+      }),
       { automationClient, clipGenerationQueue, statusStore },
     );
 
@@ -112,6 +134,16 @@ describe("processTranscriptionJob", () => {
         jobId: `clip-generation-${STREAM_ID}`,
       }),
     );
+    expect(statusStore.enqueueClipGeneration).toHaveBeenCalledWith(
+      `clip-generation-${STREAM_ID}`,
+      {
+        requested_by: USER_ID,
+        source_platform: "twitch",
+        source_url: "https://cdn.example.com/audio.mp4",
+        stream_id: STREAM_ID,
+        transcript: "A clean transcript.",
+      },
+    );
   });
 
   it("marks the job as failed when automation-service fails", async () => {
@@ -126,7 +158,7 @@ describe("processTranscriptionJob", () => {
 
     await expect(
       processTranscriptionJob(
-        {
+        createJob({
           id: "job-2",
           data: {
             user_id: USER_ID,
@@ -136,7 +168,7 @@ describe("processTranscriptionJob", () => {
             trigger: "stream_ended",
             vod_asset_url: "https://cdn.example.com/audio.webm",
           },
-        },
+        }),
         { automationClient, statusStore },
       ),
     ).rejects.toThrow("automation unavailable");
@@ -150,6 +182,46 @@ describe("processTranscriptionJob", () => {
           error: "automation unavailable",
         },
         status: "failed",
+      },
+    );
+  });
+
+  it("keeps the job pending while BullMQ still has attempts left", async () => {
+    const statusStore = {
+      update: vi.fn().mockResolvedValue(undefined),
+    };
+    const automationClient = {
+      processTranscription: vi
+        .fn()
+        .mockRejectedValue(new Error("temporary automation failure")),
+    };
+
+    await expect(
+      processTranscriptionJob(
+        createJob({
+          attempts: 3,
+          attemptsMade: 0,
+          id: "job-3",
+          data: {
+            user_id: USER_ID,
+            language: "auto",
+            platform: "youtube",
+            stream_id: OTHER_STREAM_ID,
+            trigger: "stream_ended",
+            vod_asset_url: "https://cdn.example.com/audio.webm",
+          },
+        }),
+        { automationClient, statusStore },
+      ),
+    ).rejects.toThrow("temporary automation failure");
+
+    expect(statusStore.update).toHaveBeenLastCalledWith(
+      "job-3",
+      expect.objectContaining({ stream_id: OTHER_STREAM_ID, user_id: USER_ID }),
+      {
+        error_message: "temporary automation failure",
+        result: undefined,
+        status: "pending",
       },
     );
   });

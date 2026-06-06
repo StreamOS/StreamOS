@@ -50,7 +50,7 @@ const clipGenerationJobOptions: JobsOptions = {
 };
 
 export async function processTranscriptionJob(
-  job: Pick<Job, "data" | "id">,
+  job: Pick<Job, "attemptsMade" | "data" | "id" | "opts">,
   {
     automationClient,
     clipGenerationQueue,
@@ -86,33 +86,37 @@ export async function processTranscriptionJob(
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
+    const hasRemainingAttempts = hasRemainingBullMqAttempts(job);
 
     await statusStore.update(jobId, payload, {
       error_message: errorMessage,
-      result: {
-        error: errorMessage,
-      },
-      status: "failed",
+      result: hasRemainingAttempts
+        ? undefined
+        : {
+            error: errorMessage,
+          },
+      status: hasRemainingAttempts ? "pending" : "failed",
     });
     throw error;
   }
 
   if (clipGenerationQueue) {
-    await clipGenerationQueue.add(
-      CLIP_GENERATION_JOB_NAME,
-      {
-        creator_id: payload.creator_id,
-        requested_by: payload.user_id,
-        source_platform: payload.platform,
-        source_url: payload.vod_asset_url,
-        stream_id: payload.stream_id,
-        transcript: result.transcript,
-      },
-      {
-        ...clipGenerationJobOptions,
-        jobId: getClipGenerationJobId(payload.stream_id),
-      },
-    );
+    const clipPayload: ClipGenerationJobData = {
+      creator_id: payload.creator_id,
+      requested_by: payload.user_id,
+      source_platform: payload.platform,
+      source_url: payload.vod_asset_url,
+      stream_id: payload.stream_id,
+      transcript: result.transcript,
+    };
+    const clipJobId = getClipGenerationJobId(payload.stream_id);
+
+    await clipGenerationQueue.add(CLIP_GENERATION_JOB_NAME, clipPayload, {
+      ...clipGenerationJobOptions,
+      jobId: clipJobId,
+    });
+
+    await statusStore.enqueueClipGeneration?.(clipJobId, clipPayload);
   }
 
   return result;
@@ -120,4 +124,15 @@ export async function processTranscriptionJob(
 
 function getClipGenerationJobId(streamId: string) {
   return `clip-generation-${streamId}`;
+}
+
+function hasRemainingBullMqAttempts(
+  job: Pick<Job, "attemptsMade" | "opts">,
+): boolean {
+  const attempts =
+    typeof job.opts.attempts === "number" && job.opts.attempts > 0
+      ? job.opts.attempts
+      : 1;
+
+  return job.attemptsMade + 1 < attempts;
 }

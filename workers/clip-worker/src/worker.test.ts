@@ -14,6 +14,27 @@ const jobData = {
   transcript: "Huge comeback after a risky play in the final round.",
 };
 
+function createJob({
+  attempts = 1,
+  attemptsMade = 0,
+  data,
+  id,
+}: {
+  attempts?: number;
+  attemptsMade?: number;
+  data: Record<string, unknown>;
+  id: string;
+}) {
+  return {
+    attemptsMade,
+    data,
+    id,
+    opts: {
+      attempts,
+    },
+  };
+}
+
 describe("processClipGenerationJob", () => {
   it("marks a valid BullMQ clip job as completed", async () => {
     const statusStore = {
@@ -34,10 +55,10 @@ describe("processClipGenerationJob", () => {
 
     await expect(
       processClipGenerationJob(
-        {
+        createJob({
           id: "clip-job-1",
           data: jobData,
-        },
+        }),
         { automationClient, statusStore },
       ),
     ).resolves.toMatchObject({
@@ -87,10 +108,10 @@ describe("processClipGenerationJob", () => {
 
     await expect(
       processClipGenerationJob(
-        {
+        createJob({
           id: "clip-job-2",
           data: jobData,
-        },
+        }),
         { automationClient, statusStore },
       ),
     ).rejects.toThrow("automation unavailable");
@@ -104,6 +125,39 @@ describe("processClipGenerationJob", () => {
           error: "automation unavailable",
         },
         status: "failed",
+      },
+    );
+  });
+
+  it("keeps the job pending while BullMQ still has attempts left", async () => {
+    const statusStore = {
+      update: vi.fn().mockResolvedValue(undefined),
+    };
+    const automationClient = {
+      analyzeClip: vi
+        .fn()
+        .mockRejectedValue(new Error("temporary automation failure")),
+    };
+
+    await expect(
+      processClipGenerationJob(
+        createJob({
+          attempts: 3,
+          attemptsMade: 0,
+          id: "clip-job-3",
+          data: jobData,
+        }),
+        { automationClient, statusStore },
+      ),
+    ).rejects.toThrow("temporary automation failure");
+
+    expect(statusStore.update).toHaveBeenLastCalledWith(
+      "clip-job-3",
+      expect.objectContaining({ stream_id: STREAM_ID, requested_by: USER_ID }),
+      {
+        error_message: "temporary automation failure",
+        result: undefined,
+        status: "pending",
       },
     );
   });

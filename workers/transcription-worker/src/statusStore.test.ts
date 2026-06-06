@@ -64,6 +64,49 @@ describe("createSupabaseJobStatusStore", () => {
     });
   });
 
+  it("upserts the downstream clip job as pending by deterministic queue_job_id", async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    const store = createSupabaseJobStatusStore({
+      fetchFn,
+      serviceRoleKey: "service-role-key",
+      supabaseUrl: "https://project.supabase.co",
+    });
+
+    await store.enqueueClipGeneration?.("clip-generation-stream-1", {
+      requested_by: USER_ID,
+      source_platform: "twitch",
+      source_url: "https://cdn.example.com/audio.mp4",
+      stream_id: STREAM_ID,
+      transcript: "Ready.",
+    });
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      new URL(
+        "/rest/v1/content_jobs?on_conflict=queue_job_id",
+        "https://project.supabase.co",
+      ),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Prefer: "resolution=merge-duplicates,return=minimal",
+        }),
+      }),
+    );
+
+    const [, init] = fetchFn.mock.calls[0]!;
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      job_type: "clip_scoring",
+      next_retry_at: null,
+      queue_job_id: "clip-generation-stream-1",
+      result: null,
+      status: "pending",
+      stream_id: STREAM_ID,
+      user_id: USER_ID,
+    });
+  });
+
   it("throws when the Supabase REST write fails", async () => {
     const fetchFn = vi
       .fn<typeof fetch>()

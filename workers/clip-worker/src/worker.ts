@@ -18,7 +18,7 @@ export type ProcessClipGenerationJobOptions = {
 };
 
 export async function processClipGenerationJob(
-  job: Pick<Job, "data" | "id">,
+  job: Pick<Job, "attemptsMade" | "data" | "id" | "opts">,
   { automationClient, statusStore }: ProcessClipGenerationJobOptions,
 ): Promise<AutomationClipAnalysisResponse> {
   const payload = clipGenerationJobDataSchema.parse(job.data);
@@ -51,14 +51,28 @@ export async function processClipGenerationJob(
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
+    const hasRemainingAttempts = hasRemainingBullMqAttempts(job);
 
     await statusStore.update(jobId, payload, {
       error_message: errorMessage,
-      result: {
-        error: errorMessage,
-      },
-      status: "failed",
+      result: hasRemainingAttempts
+        ? undefined
+        : {
+            error: errorMessage,
+          },
+      status: hasRemainingAttempts ? "pending" : "failed",
     });
     throw error;
   }
+}
+
+function hasRemainingBullMqAttempts(
+  job: Pick<Job, "attemptsMade" | "opts">,
+): boolean {
+  const attempts =
+    typeof job.opts.attempts === "number" && job.opts.attempts > 0
+      ? job.opts.attempts
+      : 1;
+
+  return job.attemptsMade + 1 < attempts;
 }

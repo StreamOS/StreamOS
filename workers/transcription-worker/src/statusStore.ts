@@ -1,4 +1,5 @@
 import type {
+  ClipGenerationJobData,
   ContentJobStatus,
   TranscriptionTriggerJobData,
 } from "@streamos/types";
@@ -10,6 +11,10 @@ export type ContentJobPatch = {
 };
 
 export type JobStatusStore = {
+  enqueueClipGeneration?(
+    jobId: string,
+    payload: ClipGenerationJobData,
+  ): Promise<void>;
   update(
     jobId: string,
     payload: TranscriptionTriggerJobData,
@@ -53,18 +58,19 @@ export function createSupabaseJobStatusStore({
       payload: TranscriptionTriggerJobData,
       patch: ContentJobPatch,
     ): Promise<void> {
-      await writeJson(fetchFn, contentJobsEndpoint, headers, {
-        error_message: patch.error_message ?? null,
-        job_type: "transcription",
-        next_retry_at: null,
-        payload,
-        queue_job_id: jobId,
-        result: patch.result ?? null,
-        status: patch.status,
-        stream_id: payload.stream_id,
-        updated_at: new Date().toISOString(),
-        user_id: payload.user_id,
-      });
+      await writeJson(
+        fetchFn,
+        contentJobsEndpoint,
+        headers,
+        buildContentJobWrite({
+          jobId,
+          jobType: "transcription",
+          payload,
+          patch,
+          streamId: payload.stream_id,
+          userId: payload.user_id,
+        }),
+      );
 
       await writeJson(fetchFn, vodAssetsEndpoint, headers, {
         metadata: {
@@ -94,6 +100,54 @@ export function createSupabaseJobStatusStore({
         });
       }
     },
+
+    async enqueueClipGeneration(
+      jobId: string,
+      payload: ClipGenerationJobData,
+    ): Promise<void> {
+      await writeJson(
+        fetchFn,
+        contentJobsEndpoint,
+        headers,
+        buildContentJobWrite({
+          jobId,
+          jobType: "clip_scoring",
+          payload,
+          patch: { status: "pending" },
+          streamId: payload.stream_id,
+          userId: payload.requested_by,
+        }),
+      );
+    },
+  };
+}
+
+function buildContentJobWrite({
+  jobId,
+  jobType,
+  payload,
+  patch,
+  streamId,
+  userId,
+}: {
+  jobId: string;
+  jobType: "clip_scoring" | "transcription";
+  payload: Record<string, unknown>;
+  patch: ContentJobPatch;
+  streamId: string;
+  userId: string;
+}) {
+  return {
+    error_message: patch.error_message ?? null,
+    job_type: jobType,
+    next_retry_at: null,
+    payload,
+    queue_job_id: jobId,
+    result: patch.result ?? null,
+    status: patch.status,
+    stream_id: streamId,
+    updated_at: new Date().toISOString(),
+    user_id: userId,
   };
 }
 

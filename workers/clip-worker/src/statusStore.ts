@@ -66,18 +66,16 @@ export function createSupabaseJobStatusStore({
       payload: ClipGenerationJobData,
       patch: ContentJobPatch,
     ): Promise<void> {
-      await writeJson(fetchFn, contentJobsEndpoint, minimalHeaders, {
-        error_message: patch.error_message ?? null,
-        job_type: "clip_scoring",
-        next_retry_at: null,
-        payload,
-        queue_job_id: jobId,
-        result: patch.result ?? null,
-        status: patch.status,
-        stream_id: payload.stream_id,
-        updated_at: new Date().toISOString(),
-        user_id: payload.requested_by,
-      });
+      await writeJson(
+        fetchFn,
+        contentJobsEndpoint,
+        minimalHeaders,
+        buildContentJobWrite({
+          jobId,
+          payload,
+          patch,
+        }),
+      );
 
       if (patch.status === "done" && isClipAnalysisResult(patch.result)) {
         const transcriptId = await findTranscriptId(
@@ -119,6 +117,29 @@ export function createSupabaseJobStatusStore({
         });
       }
     },
+  };
+}
+
+function buildContentJobWrite({
+  jobId,
+  payload,
+  patch,
+}: {
+  jobId: string;
+  payload: ClipGenerationJobData;
+  patch: ContentJobPatch;
+}) {
+  return {
+    error_message: patch.error_message ?? null,
+    job_type: "clip_scoring",
+    next_retry_at: null,
+    payload,
+    queue_job_id: jobId,
+    result: patch.result ?? null,
+    status: patch.status,
+    stream_id: payload.stream_id,
+    updated_at: new Date().toISOString(),
+    user_id: payload.requested_by,
   };
 }
 
