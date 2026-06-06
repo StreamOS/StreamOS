@@ -38,6 +38,7 @@ export type BrandAssetStatus = "draft" | "active" | "archived";
 export type MonetizationEventType =
   | "subscription"
   | "membership"
+  | "tip"
   | "donation"
   | "bits"
   | "ad_revenue"
@@ -48,9 +49,11 @@ export type MonetizationEventType =
 export type MonetizationEventStatus =
   | "pending"
   | "confirmed"
+  | "void"
   | "disputed"
   | "refunded"
   | "failed";
+export type MonetizationSummaryPeriod = "daily" | "weekly";
 
 export type Database = {
   public: {
@@ -731,19 +734,25 @@ export type Database = {
           id: string;
           user_id: string;
           creator_id: string | null;
-          channel_id: string | null;
+          channel_id: string;
           stream_id: string | null;
           platform: Database["public"]["Enums"]["stream_platform"] | null;
+          provider: Database["public"]["Enums"]["stream_platform"];
           event_type: MonetizationEventType;
           status: MonetizationEventStatus;
           source: string;
           external_event_id: string | null;
+          provider_event_id: string | null;
+          raw_event_id: string | null;
+          raw_payload: Json;
+          attribution: Json;
           amount_cents: number;
           currency: string;
           quantity: number;
           payer_handle: string | null;
           sponsor_name: string | null;
           occurred_at: string;
+          ingested_at: string;
           metadata: Json;
           created_at: string;
           updated_at: string;
@@ -752,19 +761,25 @@ export type Database = {
           id?: string;
           user_id: string;
           creator_id?: string | null;
-          channel_id?: string | null;
+          channel_id: string;
           stream_id?: string | null;
           platform?: Database["public"]["Enums"]["stream_platform"] | null;
+          provider: Database["public"]["Enums"]["stream_platform"];
           event_type: MonetizationEventType;
           status?: MonetizationEventStatus;
           source: string;
           external_event_id?: string | null;
+          provider_event_id?: string | null;
+          raw_event_id?: string | null;
+          raw_payload?: Json;
+          attribution?: Json;
           amount_cents: number;
           currency?: string;
           quantity?: number;
           payer_handle?: string | null;
           sponsor_name?: string | null;
           occurred_at?: string;
+          ingested_at?: string;
           metadata?: Json;
           created_at?: string;
           updated_at?: string;
@@ -773,19 +788,25 @@ export type Database = {
           id?: string;
           user_id?: string;
           creator_id?: string | null;
-          channel_id?: string | null;
+          channel_id?: string;
           stream_id?: string | null;
           platform?: Database["public"]["Enums"]["stream_platform"] | null;
+          provider?: Database["public"]["Enums"]["stream_platform"];
           event_type?: MonetizationEventType;
           status?: MonetizationEventStatus;
           source?: string;
           external_event_id?: string | null;
+          provider_event_id?: string | null;
+          raw_event_id?: string | null;
+          raw_payload?: Json;
+          attribution?: Json;
           amount_cents?: number;
           currency?: string;
           quantity?: number;
           payer_handle?: string | null;
           sponsor_name?: string | null;
           occurred_at?: string;
+          ingested_at?: string;
           metadata?: Json;
           created_at?: string;
           updated_at?: string;
@@ -811,12 +832,102 @@ export type Database = {
           },
         ];
       };
+      monetization_summaries: {
+        Row: {
+          id: string;
+          user_id: string;
+          creator_id: string | null;
+          channel_id: string;
+          provider: Database["public"]["Enums"]["stream_platform"];
+          period: MonetizationSummaryPeriod;
+          period_start: string;
+          period_end: string;
+          currency: string;
+          gross_amount_cents: number;
+          net_amount_cents: number;
+          event_count: number;
+          subscription_count: number;
+          tip_count: number;
+          donation_count: number;
+          ad_revenue_count: number;
+          sponsorship_count: number;
+          merch_sale_count: number;
+          metadata: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          creator_id?: string | null;
+          channel_id: string;
+          provider: Database["public"]["Enums"]["stream_platform"];
+          period: MonetizationSummaryPeriod;
+          period_start: string;
+          period_end: string;
+          currency?: string;
+          gross_amount_cents?: number;
+          net_amount_cents?: number;
+          event_count?: number;
+          subscription_count?: number;
+          tip_count?: number;
+          donation_count?: number;
+          ad_revenue_count?: number;
+          sponsorship_count?: number;
+          merch_sale_count?: number;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          creator_id?: string | null;
+          channel_id?: string;
+          provider?: Database["public"]["Enums"]["stream_platform"];
+          period?: MonetizationSummaryPeriod;
+          period_start?: string;
+          period_end?: string;
+          currency?: string;
+          gross_amount_cents?: number;
+          net_amount_cents?: number;
+          event_count?: number;
+          subscription_count?: number;
+          tip_count?: number;
+          donation_count?: number;
+          ad_revenue_count?: number;
+          sponsorship_count?: number;
+          merch_sale_count?: number;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "monetization_summaries_creator_user_fkey";
+            columns: ["creator_id", "user_id"];
+            referencedRelation: "creators";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "monetization_summaries_channel_user_fkey";
+            columns: ["channel_id", "user_id"];
+            referencedRelation: "channels";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
     };
     Views: {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      get_monetization_dashboard: {
+        Args: {
+          p_period: string;
+        };
+        Returns: Json;
+      };
     };
     Enums: {
       connection_status: "connected" | "expired" | "revoked" | "pending";

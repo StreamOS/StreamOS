@@ -234,24 +234,33 @@ pnpm --filter @streamos/content-job-retry-worker build
 
 ## Production Checks
 
-Run these before promoting a deployment:
+Run the rollout gate before promoting a deployment. This is mandatory for
+release candidates because it combines tenant security validation, API Gateway
+integration tests, signed-webhook tests, the transcription E2E path, and
+service health checks in one ordered command.
 
 ```bash
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
-python -m pytest services/automation-service
+pnpm rollout:check -- --env-file=.env.test
 ```
 
-Smoke-test deployed services:
+For a deployed release candidate, run the gate from an environment that can
+reach the private Automation Service URL, for example a Railway shell in the
+same project/environment:
 
 ```bash
-curl https://streamos-api-gateway.up.railway.app/health
-node scripts/check-deployment.cjs \
+pnpm rollout:check -- \
+  --env-file=.env \
+  --skip-docker \
+  --allow-hosted-e2e \
   --api-gateway-url=https://streamos-api-gateway.up.railway.app \
   --automation-service-url=http://automation-service.railway.internal:8000 \
   --expect-private-automation
 ```
 
-Run the private Automation Service check from a Railway shell or another Railway service in the same project/environment. It cannot succeed from a local shell or Vercel because Railway private networking is not public internet.
+Do not promote when `rollout:check` fails. `--skip-docker` is only valid when
+the target services are already running, and `--allow-hosted-e2e` must only be
+used intentionally because the transcription E2E creates disposable Supabase
+rows via the service-role key.
+
+The private Automation Service check cannot succeed from a local shell or
+Vercel because Railway private networking is not public internet.

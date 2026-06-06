@@ -48,6 +48,20 @@ Expected result:
 - `content_jobs.result.transcript` contains the deterministic local E2E
   transcript.
 
+## Rollout Gate
+
+Before promoting a release candidate, run the bundled rollout gate instead of
+calling this E2E helper manually:
+
+```bash
+pnpm rollout:check -- --env-file=.env.test
+```
+
+For deployed services, run the same gate with `--skip-docker`,
+`--allow-hosted-e2e`, and the deployed API Gateway URL. This keeps the signed
+webhook trigger, BullMQ worker consumption, Supabase `content_jobs` write, and
+service health checks mandatory for rollout.
+
 ## Failure Path
 
 ```bash

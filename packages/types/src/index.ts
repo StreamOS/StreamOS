@@ -67,6 +67,7 @@ export type BrandAssetStatus = "draft" | "active" | "archived";
 export type MonetizationEventType =
   | "subscription"
   | "membership"
+  | "tip"
   | "donation"
   | "bits"
   | "ad_revenue"
@@ -77,9 +78,11 @@ export type MonetizationEventType =
 export type MonetizationEventStatus =
   | "pending"
   | "confirmed"
+  | "void"
   | "disputed"
   | "refunded"
   | "failed";
+export type MonetizationSummaryPeriod = "daily" | "weekly";
 
 export type TranscriptionSegment = {
   end: number;
@@ -252,19 +255,48 @@ export type MonetizationEvent = {
   id: string;
   userId: string;
   creatorId: string | null;
-  channelId: string | null;
+  channelId: string;
   streamId: string | null;
-  platform: StreamPlatform | null;
+  provider: StreamPlatform;
   eventType: MonetizationEventType;
   status: MonetizationEventStatus;
   source: string;
   externalEventId: string | null;
+  providerEventId: string | null;
+  rawEventId: string | null;
   amountCents: number;
   currency: string;
   quantity: number;
   payerHandle: string | null;
   sponsorName: string | null;
   occurredAt: string;
+  ingestedAt: string;
+  rawPayload: Record<string, unknown>;
+  attribution: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MonetizationSummary = {
+  id: string;
+  userId: string;
+  creatorId: string | null;
+  channelId: string;
+  provider: StreamPlatform;
+  period: MonetizationSummaryPeriod;
+  periodStart: string;
+  periodEnd: string;
+  currency: string;
+  grossAmountCents: number;
+  netAmountCents: number;
+  eventCount: number;
+  subscriptionCount: number;
+  tipCount: number;
+  donationCount: number;
+  adRevenueCount: number;
+  sponsorshipCount: number;
+  merchSaleCount: number;
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;

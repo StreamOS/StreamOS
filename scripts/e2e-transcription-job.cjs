@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { execFileSync, spawnSync } = require("node:child_process");
+const { createHmac, randomUUID } = require("node:crypto");
 const { existsSync, readFileSync } = require("node:fs");
 
 const DEFAULT_API_GATEWAY_URL = "http://localhost:4000";
@@ -406,24 +407,35 @@ async function seedStreamGraph(env, userId) {
 }
 
 async function triggerTranscription({ apiGatewayUrl, env, graph, userId }) {
+  const body = JSON.stringify({
+    channel_id: graph.channelId,
+    creator_id: graph.creatorId,
+    ended_at: new Date().toISOString(),
+    language: "en",
+    platform: "twitch",
+    stream_id: graph.streamId,
+    user_id: userId,
+    vod_asset_url: graph.vodAssetUrl,
+  });
+  const webhookSecret =
+    env.STREAM_EVENT_WEBHOOK_SECRET ?? DEFAULT_STREAM_EVENT_WEBHOOK_SECRET;
+  const eventId = randomUUID();
+  const timestamp = new Date().toISOString();
+  const signature = `sha256=${createHmac("sha256", webhookSecret)
+    .update(eventId)
+    .update(timestamp)
+    .update(body)
+    .digest("hex")}`;
+
   const response = await fetch(
     new URL("/api/webhooks/streams/ended", apiGatewayUrl),
     {
-      body: JSON.stringify({
-        channel_id: graph.channelId,
-        creator_id: graph.creatorId,
-        ended_at: new Date().toISOString(),
-        language: "en",
-        platform: "twitch",
-        stream_id: graph.streamId,
-        user_id: userId,
-        vod_asset_url: graph.vodAssetUrl,
-      }),
+      body,
       headers: {
         "Content-Type": "application/json",
-        "x-streamos-webhook-secret":
-          env.STREAM_EVENT_WEBHOOK_SECRET ??
-          DEFAULT_STREAM_EVENT_WEBHOOK_SECRET,
+        "x-streamos-event-id": eventId,
+        "x-streamos-signature": signature,
+        "x-streamos-timestamp": timestamp,
       },
       method: "POST",
     },
