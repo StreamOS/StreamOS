@@ -49,6 +49,12 @@ jobs:
       - name: ESLint
         run: pnpm lint
 
+      - name: Database security validation
+        run: pnpm db:validate-security
+
+      - name: Gateway integration and webhook tests
+        run: pnpm test:gateway
+
       - name: Unit and integration tests
         run: pnpm test
 
