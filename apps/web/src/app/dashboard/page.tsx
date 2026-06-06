@@ -3,6 +3,7 @@ import { StatCard } from "@streamos/ui";
 import { dashboardStats, operatingPlan } from "@/data/dashboard";
 import { PlatformOverview } from "@/components/modules/PlatformOverview";
 import { RecentClips } from "@/components/modules/RecentClips";
+import { TwitchAnalyticsSnapshotCard } from "@/components/modules/TwitchAnalyticsSnapshotCard";
 import { ViewerChart } from "@/components/modules/ViewerChart";
 
 const statIcons = [Search, BadgeDollarSign, Clapperboard, Activity];
@@ -84,6 +85,8 @@ export default async function DashboardPage({
         <PlatformOverview />
       </section>
 
+      <TwitchAnalyticsSnapshotCard />
+
       <section className="card">
         <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
           AI Operating Plan
@@ -116,11 +119,21 @@ function TwitchConnectionNotice({
   error?: string;
   status?: string;
 }) {
-  if (status === "connected") {
+  if (status === "connected" || status === "connected-synced") {
     return (
       <section className="rounded-lg border border-signal-green/30 bg-signal-green/10 p-4 text-sm text-signal-green">
-        Twitch wurde verbunden. StreamOS kann den Kanal jetzt fuer Analytics und
-        Automatisierung nutzen.
+        {status === "connected-synced"
+          ? "Twitch wurde verbunden und der erste Analytics-Snapshot wurde gespeichert."
+          : "Twitch wurde verbunden. StreamOS kann den Kanal jetzt fuer Analytics und Automatisierung nutzen."}
+      </section>
+    );
+  }
+
+  if (status === "connected-sync-pending") {
+    return (
+      <section className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-200">
+        Twitch wurde verbunden. Der erste Analytics-Sync konnte noch nicht
+        abgeschlossen werden; starte ihn im Dashboard erneut.
       </section>
     );
   }

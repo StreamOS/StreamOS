@@ -11,6 +11,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   type ContentJobRow,
+  type ContentJobsRealtimeStatus,
+  fetchContentJobsSnapshot,
   subscribeToContentJobs,
 } from "@/lib/supabase/realtime";
 
@@ -67,6 +69,8 @@ export function ContentJobsLiveList({
 }: ContentJobsLiveListProps) {
   const [jobs, setJobs] = useState(initialJobs);
   const [filter, setFilter] = useState<JobStatusFilter>("all");
+  const [realtimeStatus, setRealtimeStatus] =
+    useState<ContentJobsRealtimeStatus>("connecting");
 
   useEffect(() => {
     setJobs(initialJobs);
@@ -82,8 +86,42 @@ export function ContentJobsLiveList({
       onChange: (updatedJob) => {
         setJobs((currentJobs) => mergeJob(currentJobs, updatedJob));
       },
+      onStatus: setRealtimeStatus,
     });
   }, [userId]);
+
+  useEffect(() => {
+    if (!userId || realtimeStatus === "subscribed") {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const subscribedUserId = userId;
+
+    async function refreshSnapshot() {
+      try {
+        const snapshot = await fetchContentJobsSnapshot({
+          userId: subscribedUserId,
+        });
+
+        if (!cancelled) {
+          setJobs(snapshot);
+        }
+      } catch {
+        // Keep the last known jobs; the visible realtime badge already shows degraded state.
+      }
+    }
+
+    void refreshSnapshot();
+    const intervalId = window.setInterval(() => {
+      void refreshSnapshot();
+    }, 15_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [realtimeStatus, userId]);
 
   const counts = useMemo(() => getJobCounts(jobs), [jobs]);
   const filteredJobs = useMemo(
@@ -96,9 +134,10 @@ export function ContentJobsLiveList({
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-white">Live Job Queue</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            {jobs.length} Jobs synchronisiert
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-400">
+            <span>{jobs.length} Jobs synchronisiert</span>
+            <RealtimeBadge status={realtimeStatus} />
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
@@ -157,6 +196,24 @@ export function ContentJobsLiveList({
         </div>
       </div>
     </section>
+  );
+}
+
+function RealtimeBadge({ status }: { status: ContentJobsRealtimeStatus }) {
+  const isLive = status === "subscribed";
+  const label = isLive ? "Realtime live" : "Polling fallback";
+
+  return (
+    <span
+      className={
+        isLive
+          ? "rounded-full border border-signal-green/20 bg-signal-green/10 px-2 py-0.5 text-xs font-medium text-signal-green"
+          : "rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-0.5 text-xs font-medium text-amber-200"
+      }
+      title={`Supabase Realtime status: ${status}`}
+    >
+      {label}
+    </span>
   );
 }
 

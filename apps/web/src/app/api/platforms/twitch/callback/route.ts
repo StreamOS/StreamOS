@@ -4,6 +4,7 @@ import {
   fetchTwitchUser,
   getTwitchOAuthConfig,
   persistTwitchConnection,
+  syncTwitchAnalytics,
   TWITCH_OAUTH_STATE_COOKIE,
 } from "@/lib/integrations/twitch";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
@@ -51,7 +52,18 @@ export async function GET(request: NextRequest) {
     });
 
     dashboardUrl.searchParams.set("platform", "twitch");
-    dashboardUrl.searchParams.set("status", "connected");
+
+    try {
+      await syncTwitchAnalytics({
+        config,
+        creatorId: creator.id,
+        supabase,
+        userId: data.user.id,
+      });
+      dashboardUrl.searchParams.set("status", "connected-synced");
+    } catch {
+      dashboardUrl.searchParams.set("status", "connected-sync-pending");
+    }
   } catch {
     dashboardUrl.searchParams.set("platform", "twitch");
     dashboardUrl.searchParams.set("error", "twitch-callback");
