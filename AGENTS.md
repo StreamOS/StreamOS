@@ -79,6 +79,14 @@ python -m pytest services/automation-service
 - PR body must include: **What changed**, **Why**, **Testing Done**
 - Never commit secrets, migration rollbacks, or direct `main` pushes
 
+## Git & Commit Rules
+
+- Use Conventional Commits: `<type>(<scope>): <description>`
+- Scopes: web | api | automation | ui | worker | config | ci
+- Never commit: .env\*, node_modules/, .venv/, dist/, .next/
+- One commit per workspace scope when changes are cross-cutting
+- Run `pnpm typecheck` before any commit
+
 ## Next Implementation Priorities
 
 1. OAuth flows for YouTube, TikTok, Kick (behind `services/api-gateway`)
