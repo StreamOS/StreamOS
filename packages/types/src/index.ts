@@ -147,9 +147,17 @@ export type ClipGenerationJobData = {
 export type ConnectionStatus = "connected" | "expired" | "revoked" | "pending";
 export type ContentJobType =
   | "transcription"
+  | "repurposing"
   | "clip_scoring"
   | "title_generation";
-export type ContentJobStatus = "pending" | "running" | "done" | "failed";
+export type ContentJobStatus =
+  | "pending"
+  | "running"
+  | "processing"
+  | "done"
+  | "completed"
+  | "failed"
+  | "cancelled";
 export type VodAssetStatus =
   | "ingested"
   | "transcribing"
