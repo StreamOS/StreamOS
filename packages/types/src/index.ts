@@ -305,10 +305,15 @@ export type Stream = {
   id: string;
   userId: string;
   channelId: string;
+  provider: StreamPlatform;
+  streamId: string;
   platformStreamId: string;
   startedAt: string | null;
   endedAt: string | null;
   title: string | null;
+  gameName: string | null;
+  viewerPeak: number | null;
+  status: "live" | "updated" | "ended" | "published";
   peakViewers: number | null;
   averageViewers: number | null;
   createdAt: string;
@@ -472,6 +477,7 @@ export type ContentJob = {
   id: string;
   userId: string;
   streamId: string | null;
+  channelId: string | null;
   queueJobId: string | null;
   jobType: ContentJobType;
   type: ContentJobType;
