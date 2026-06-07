@@ -1,7 +1,7 @@
 import { Queue, type JobsOptions } from "bullmq";
 import { Redis } from "ioredis";
 
-export const STREAM_JOB_QUEUE_NAME = "streamos-stream-jobs";
+export const STREAM_JOB_QUEUE_NAME = "streamos-media";
 
 export const STREAMOS_JOB_TYPES = [
   "stream.online",
@@ -20,7 +20,9 @@ export type StreamOSJob = {
   type: StreamOSJobType;
   provider: StreamProvider;
   channelId: string;
+  enqueuedAt?: string;
   streamId?: string;
+  userId?: string;
   videoId?: string;
   title?: string;
   gameName?: string;
@@ -119,6 +121,7 @@ export function getStreamJobQueue(options?: {
   const connection = createRedisConnection(redisUrl);
   const queue = new Queue<StreamOSJob, void, StreamOSJobType>(
     options?.queueName ??
+      process.env.QUEUE_DEFAULT_NAME?.trim() ??
       process.env.STREAM_JOB_QUEUE_NAME?.trim() ??
       STREAM_JOB_QUEUE_NAME,
     {
