@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@streamos/utils": "workspace:*",
     "@hookform/resolvers": "^5.4.0",
     "@streamos/database": "workspace:*",
     "@streamos/queue": "workspace:*",
