@@ -22,7 +22,9 @@ class OpenAIClipAnalyzer:
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self.settings = settings
-        self.http_client = http_client or httpx.AsyncClient(timeout=settings.openai_timeout_seconds)
+        self.http_client = http_client or httpx.AsyncClient(
+            timeout=settings.openai_timeout_seconds
+        )
         self._owns_client = http_client is None
 
     async def analyze_clip(self, payload: ClipAnalysisRequest) -> ClipAnalysisResponse:
@@ -71,7 +73,11 @@ class OpenAIClipAnalyzer:
                                 "repurpose_summary",
                             ],
                             "properties": {
-                                "virality_score": {"type": "integer", "minimum": 1, "maximum": 100},
+                                "virality_score": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 100,
+                                },
                                 "recommended_formats": {
                                     "type": "array",
                                     "minItems": 1,
@@ -123,7 +129,9 @@ class OpenAITranscriptionProcessor:
         asset_url_resolver: HostnameResolver | None = None,
     ) -> None:
         self.settings = settings
-        self.http_client = http_client or httpx.AsyncClient(timeout=settings.openai_timeout_seconds)
+        self.http_client = http_client or httpx.AsyncClient(
+            timeout=settings.openai_timeout_seconds
+        )
         self._owns_client = http_client is None
         self.asset_url_resolver = asset_url_resolver
 
@@ -151,7 +159,9 @@ class OpenAITranscriptionProcessor:
                 "file": (
                     _filename_from_url(payload.asset_url),
                     media_bytes,
-                    media_response.headers.get("content-type", "application/octet-stream"),
+                    media_response.headers.get(
+                        "content-type", "application/octet-stream"
+                    ),
                 )
             },
         )
@@ -191,9 +201,7 @@ class OpenAITranscriptionProcessor:
                     "Asset URL redirect did not include a Location header."
                 )
 
-            current_url = self._validate_asset_url(
-                urljoin(str(current_url), location)
-            )
+            current_url = self._validate_asset_url(urljoin(str(current_url), location))
 
         raise UnsafeAssetUrlError("Asset URL followed too many redirects.")
 
@@ -230,7 +238,7 @@ def _filename_from_url(asset_url: str) -> str:
 
 
 def _extract_transcription_segments(
-    response_payload: dict[str, Any]
+    response_payload: dict[str, Any],
 ) -> list[TranscriptionSegment]:
     segments = response_payload.get("segments")
 

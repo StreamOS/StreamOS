@@ -4,7 +4,6 @@ from collections.abc import Callable, Iterable
 
 import httpx
 
-
 HostnameResolver = Callable[
     [str],
     Iterable[ipaddress.IPv4Address | ipaddress.IPv6Address],

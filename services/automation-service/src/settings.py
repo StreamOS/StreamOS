@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from os import environ
 from typing import Mapping
 
-
 FORBIDDEN_CLIENT_AI_ENV_NAMES = (
     "NEXT_PUBLIC_OPENAI_KEY",
     "NEXT_PUBLIC_OPENAI_API_KEY",
@@ -59,9 +58,9 @@ def load_settings(source: Mapping[str, str] | None = None) -> Settings:
         )
 
     e2e_mode = values.get("STREAMOS_E2E_MODE", "").strip().lower() == "true"
-    transcription_processor_mode = values.get(
-        "TRANSCRIPTION_PROCESSOR_MODE", "openai"
-    ).strip().lower() or "openai"
+    transcription_processor_mode = (
+        values.get("TRANSCRIPTION_PROCESSOR_MODE", "openai").strip().lower() or "openai"
+    )
 
     if transcription_processor_mode not in {"openai", "stub", "fail"}:
         raise SettingsError(
@@ -83,7 +82,9 @@ def load_settings(source: Mapping[str, str] | None = None) -> Settings:
             "OPENAI_TRANSCRIPTION_MODEL", "gpt-4o-transcribe"
         ).strip()
         or "gpt-4o-transcribe",
-        openai_base_url=values.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
+        openai_base_url=values.get(
+            "OPENAI_BASE_URL", "https://api.openai.com/v1"
+        ).rstrip("/"),
         openai_timeout_seconds=parsed_timeout_seconds,
         max_transcription_media_bytes=parsed_max_media_bytes,
         transcription_processor_mode=transcription_processor_mode,

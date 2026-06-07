@@ -50,7 +50,9 @@ class StubTranscriptionProcessor:
             stream_id=payload.stream_id,
             transcript="A clean test transcript.",
             segments=[
-                TranscriptionSegment(start=0.0, end=1.5, text="A clean test transcript.")
+                TranscriptionSegment(
+                    start=0.0, end=1.5, text="A clean test transcript."
+                )
             ],
             language=payload.language,
             provider="test",
@@ -154,7 +156,9 @@ def test_transcription_endpoint_uses_server_side_processor() -> None:
 
 
 def test_transcription_endpoint_returns_400_for_unsafe_asset_url() -> None:
-    app.dependency_overrides[get_transcription_processor] = UnsafeUrlTranscriptionProcessor
+    app.dependency_overrides[get_transcription_processor] = (
+        UnsafeUrlTranscriptionProcessor
+    )
 
     try:
         response = asyncio.run(
@@ -260,7 +264,9 @@ def test_openai_client_keeps_api_key_out_of_request_body() -> None:
     assert result.virality_score == 91
 
 
-def test_openai_transcription_processor_downloads_media_and_calls_audio_endpoint() -> None:
+def test_openai_transcription_processor_downloads_media_and_calls_audio_endpoint() -> (
+    None
+):
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -305,9 +311,7 @@ def test_openai_transcription_processor_downloads_media_and_calls_audio_endpoint
             transcription_processor_mode="openai",
         ),
         http_client=http_client,
-        asset_url_resolver=lambda _hostname: [
-            ipaddress.ip_address("93.184.216.34")
-        ],
+        asset_url_resolver=lambda _hostname: [ipaddress.ip_address("93.184.216.34")],
     )
 
     async def run_transcription() -> TranscriptionProcessResponse:
@@ -337,7 +341,9 @@ def test_openai_transcription_processor_downloads_media_and_calls_audio_endpoint
     assert result.model == "gpt-4o-transcribe"
 
 
-def test_openai_transcription_processor_rejects_private_asset_url_before_download() -> None:
+def test_openai_transcription_processor_rejects_private_asset_url_before_download() -> (
+    None
+):
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -410,9 +416,7 @@ def test_openai_transcription_processor_rejects_private_redirect_targets() -> No
             transcription_processor_mode="openai",
         ),
         http_client=http_client,
-        asset_url_resolver=lambda _hostname: [
-            ipaddress.ip_address("93.184.216.34")
-        ],
+        asset_url_resolver=lambda _hostname: [ipaddress.ip_address("93.184.216.34")],
     )
 
     async def run_transcription() -> None:

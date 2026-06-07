@@ -123,15 +123,15 @@ async def analyze_clip(
             detail=f"OpenAI request failed with status {error.response.status_code}.",
         ) from error
     except (httpx.HTTPError, ValueError, KeyError, ValidationError) as error:
-        raise HTTPException(status_code=502, detail="OpenAI clip analysis failed.") from error
+        raise HTTPException(
+            status_code=502, detail="OpenAI clip analysis failed."
+        ) from error
 
 
 @app.post("/transcriptions/process", response_model=TranscriptionProcessResponse)
 async def process_transcription(
     payload: TranscriptionProcessRequest,
-    processor: Annotated[
-        TranscriptionProcessor, Depends(get_transcription_processor)
-    ],
+    processor: Annotated[TranscriptionProcessor, Depends(get_transcription_processor)],
 ) -> TranscriptionProcessResponse:
     try:
         return await processor.process_transcription(payload)
@@ -146,4 +146,6 @@ async def process_transcription(
             detail=f"Transcription request failed with status {error.response.status_code}.",
         ) from error
     except (httpx.HTTPError, ValueError, KeyError, ValidationError) as error:
-        raise HTTPException(status_code=502, detail="OpenAI transcription failed.") from error
+        raise HTTPException(
+            status_code=502, detail="OpenAI transcription failed."
+        ) from error
