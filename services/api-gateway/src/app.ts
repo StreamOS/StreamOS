@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import express from "express";
 import type { Express, NextFunction, Request, Response } from "express";
 import helmet from "helmet";
+import { Redis } from "ioredis";
 import { ZodError } from "zod";
 
 import {
@@ -18,7 +19,14 @@ import {
   createOAuthRouter,
   type CreateOAuthRouterOptions,
 } from "./oauth/routes.js";
+import {
+  InMemoryDeduplicationClient,
+  type RedisDeduplicationClient,
+} from "./lib/deduplication.js";
+import { attachRawBodyMiddleware } from "./middleware/raw-body.js";
 import { createAuthHandoffRouter } from "./routes/auth/handoff.js";
+import { createAutomationCallbackRouter } from "./routes/callbacks/automation.js";
+import { createRoutes } from "./routes/index.js";
 import { createProviderWebhookRouter } from "./webhooks/providerRoutes.js";
 import type { ProviderWebhookDispatcher } from "./webhooks/providerEvents.js";
 import { dispatchStreamOSJob } from "@streamos/queue";
@@ -36,7 +44,9 @@ type CreateAppOptions = {
   streamEventWebhookSecret?: string;
   transcriptionQueue?: TranscriptionQueue;
   twitchEventSubSecret?: string;
+  webhookDeduplicationClient?: RedisDeduplicationClient;
   webhookNow?: () => number;
+  youtubeWebhookSecret?: string;
   youtubeWebSubSecret?: string;
   youtubeWebSubVerifyToken?: string;
 };
@@ -54,6 +64,7 @@ type SecurityConfig = {
   streamEventWebhookSecret: string | undefined;
   twitchEventSubSecret: string | undefined;
   webhookNow: () => number;
+  youtubeWebhookSecret: string | undefined;
   youtubeWebSubSecret: string | undefined;
   youtubeWebSubVerifyToken: string | undefined;
 };
@@ -150,8 +161,13 @@ function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
     process.env.TWITCH_EVENTSUB_SECRET ??
     process.env.TWITCH_WEBHOOK_SECRET
   )?.trim();
+  const youtubeWebhookSecret = (
+    options.youtubeWebhookSecret ?? process.env.YOUTUBE_WEBHOOK_SECRET
+  )?.trim();
   const youtubeWebSubSecret = (
-    options.youtubeWebSubSecret ?? process.env.YOUTUBE_WEBSUB_SECRET
+    options.youtubeWebSubSecret ??
+    process.env.YOUTUBE_WEBHOOK_SECRET ??
+    process.env.YOUTUBE_WEBSUB_SECRET
   )?.trim();
   const youtubeWebSubVerifyToken = (
     options.youtubeWebSubVerifyToken ?? process.env.YOUTUBE_WEBSUB_VERIFY_TOKEN
@@ -197,13 +213,11 @@ function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
   }
 
   if (isProduction(nodeEnv) && !twitchEventSubSecret) {
-    throw new Error(
-      "TWITCH_EVENTSUB_SECRET or TWITCH_WEBHOOK_SECRET is required in production.",
-    );
+    throw new Error("TWITCH_EVENTSUB_SECRET is required in production.");
   }
 
-  if (isProduction(nodeEnv) && !youtubeWebSubSecret) {
-    throw new Error("YOUTUBE_WEBSUB_SECRET is required in production.");
+  if (isProduction(nodeEnv) && !youtubeWebhookSecret && !youtubeWebSubSecret) {
+    throw new Error("YOUTUBE_WEBHOOK_SECRET is required in production.");
   }
 
   if (
@@ -232,17 +246,18 @@ function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
     twitchEventSubSecret.length < MIN_PRODUCTION_SECRET_LENGTH
   ) {
     throw new Error(
-      "TWITCH_EVENTSUB_SECRET or TWITCH_WEBHOOK_SECRET must be at least 24 characters in production.",
+      "TWITCH_EVENTSUB_SECRET must be at least 24 characters in production.",
     );
   }
 
   if (
     isProduction(nodeEnv) &&
-    youtubeWebSubSecret &&
-    youtubeWebSubSecret.length < MIN_PRODUCTION_SECRET_LENGTH
+    (youtubeWebhookSecret ?? youtubeWebSubSecret) &&
+    (youtubeWebhookSecret ?? youtubeWebSubSecret)!.length <
+      MIN_PRODUCTION_SECRET_LENGTH
   ) {
     throw new Error(
-      "YOUTUBE_WEBSUB_SECRET must be at least 24 characters in production.",
+      "YOUTUBE_WEBHOOK_SECRET must be at least 24 characters in production.",
     );
   }
 
@@ -269,6 +284,7 @@ function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
     streamEventWebhookSecret,
     twitchEventSubSecret,
     webhookNow: options.webhookNow ?? Date.now,
+    youtubeWebhookSecret,
     youtubeWebSubSecret,
     youtubeWebSubVerifyToken,
   };
@@ -509,10 +525,43 @@ function createRateLimitMiddleware(config: RateLimitConfig) {
   };
 }
 
+function createDefaultDeduplicationClient(): RedisDeduplicationClient {
+  const redisUrl = process.env.REDIS_URL?.trim();
+
+  if (!redisUrl) {
+    return new InMemoryDeduplicationClient();
+  }
+
+  const redis = new Redis(redisUrl, {
+    enableReadyCheck: true,
+    lazyConnect: true,
+    maxRetriesPerRequest: null,
+  });
+
+  return {
+    async set(key, value, mode, ttlMode, ttlSeconds) {
+      const result = await redis.call(
+        "SET",
+        key,
+        value,
+        mode,
+        ttlMode,
+        String(ttlSeconds),
+      );
+
+      return result === "OK" ? "OK" : null;
+    },
+  };
+}
+
 export function createApp(options: CreateAppOptions = {}): Express {
   const app = express();
   const securityConfig = resolveSecurityConfig(options);
   const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
+  const providerWebhookDispatcher =
+    options.providerWebhookDispatcher ?? dispatchStreamOSJob;
+  const deduplicationClient =
+    options.webhookDeduplicationClient ?? createDefaultDeduplicationClient();
 
   if (
     isProduction(nodeEnv) &&
@@ -526,17 +575,47 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.set("trust proxy", 1);
   app.use(helmet());
   app.use(createCorsMiddleware(securityConfig.allowedOrigins));
-  app.use("/api", createRateLimitMiddleware(securityConfig.rateLimit));
+  app.use(
+    "/webhooks",
+    createRateLimitMiddleware({
+      enabled: securityConfig.rateLimit.enabled,
+      maxRequests: 500,
+      windowMs: 60_000,
+    }),
+  );
+  app.use(
+    "/api/webhooks",
+    createRateLimitMiddleware({
+      enabled: securityConfig.rateLimit.enabled,
+      maxRequests: 500,
+      windowMs: 60_000,
+    }),
+  );
+  attachRawBodyMiddleware(app);
+  app.use(
+    createRoutes({
+      deduplicationClient,
+      dispatcher: providerWebhookDispatcher,
+      now: securityConfig.webhookNow,
+      twitchWebhookSecret: securityConfig.streamEventWebhookSecret,
+      youtubeWebhookSecret:
+        securityConfig.youtubeWebhookSecret ??
+        securityConfig.youtubeWebSubSecret,
+    }),
+  );
   app.use(
     "/api/webhooks",
     createProviderWebhookRouter({
-      dispatcher: options.providerWebhookDispatcher ?? dispatchStreamOSJob,
+      dispatcher: providerWebhookDispatcher,
       now: securityConfig.webhookNow,
       twitchEventSubSecret: securityConfig.twitchEventSubSecret,
-      youtubeWebSubSecret: securityConfig.youtubeWebSubSecret,
+      youtubeWebSubSecret:
+        securityConfig.youtubeWebhookSecret ??
+        securityConfig.youtubeWebSubSecret,
       youtubeWebSubVerifyToken: securityConfig.youtubeWebSubVerifyToken,
     }),
   );
+  app.use("/api", createRateLimitMiddleware(securityConfig.rateLimit));
   app.use(
     express.json({
       limit: "1mb",
@@ -559,6 +638,12 @@ export function createApp(options: CreateAppOptions = {}): Express {
       repository: options.oauth?.repository,
       stateStore: options.oauth?.stateStore,
       now: securityConfig.webhookNow,
+    }),
+  );
+  app.use(
+    "/api/callbacks/automation",
+    createAutomationCallbackRouter({
+      apiGatewaySecret: securityConfig.apiGatewaySecret,
     }),
   );
 

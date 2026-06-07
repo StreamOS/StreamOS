@@ -5,8 +5,9 @@ import { createApp } from "../app.js";
 import type { ProviderWebhookEvent } from "./providerEvents.js";
 
 const NOW = new Date("2026-06-06T10:00:00.000Z");
+const STREAM_EVENT_WEBHOOK_SECRET = "test-stream-event-webhook-secret-123";
 const TWITCH_EVENTSUB_SECRET = "test-twitch-eventsub-secret-123";
-const YOUTUBE_WEBSUB_SECRET = "test-youtube-websub-secret-123";
+const YOUTUBE_WEBHOOK_SECRET = "test-youtube-webhook-secret-123";
 
 function createTwitchEventSubHeaders({
   body,
@@ -35,7 +36,7 @@ function createTwitchEventSubHeaders({
   };
 }
 
-function createWebSubSignature(body: string, secret = YOUTUBE_WEBSUB_SECRET) {
+function createWebSubSignature(body: string, secret = YOUTUBE_WEBHOOK_SECRET) {
   return `sha1=${createHmac("sha1", secret).update(body).digest("hex")}`;
 }
 
@@ -49,7 +50,7 @@ async function withServer<T>(
     },
     twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
     webhookNow: () => NOW.getTime(),
-    youtubeWebSubSecret: YOUTUBE_WEBSUB_SECRET,
+    youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
     youtubeWebSubVerifyToken: "youtube-verify-token",
   });
   const server = app.listen(0);
@@ -68,6 +69,100 @@ async function withServer<T>(
 }
 
 describe("provider webhook routes", () => {
+  it("serves the production Twitch webhook path with STREAM_EVENT_WEBHOOK_SECRET", async () => {
+    const events: ProviderWebhookEvent[] = [];
+    const app = createApp({
+      providerWebhookDispatcher: async (event) => {
+        events.push(event);
+      },
+      streamEventWebhookSecret: STREAM_EVENT_WEBHOOK_SECRET,
+      twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+      webhookNow: () => NOW.getTime(),
+      youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+    });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const body = JSON.stringify({ challenge: "top-level-twitch-challenge" });
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/webhooks/twitch`,
+        {
+          body,
+          headers: {
+            "content-type": "application/json",
+            ...createTwitchEventSubHeaders({
+              body,
+              messageType: "webhook_callback_verification",
+              secret: STREAM_EVENT_WEBHOOK_SECRET,
+            }),
+          },
+          method: "POST",
+        },
+      );
+      const text = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/plain");
+      expect(text).toBe("top-level-twitch-challenge");
+      expect(events).toEqual([]);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("serves the production YouTube verification path and rejects non-YouTube topics", async () => {
+    const app = createApp({
+      streamEventWebhookSecret: STREAM_EVENT_WEBHOOK_SECRET,
+      twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+      webhookNow: () => NOW.getTime(),
+      youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+    });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const validUrl = new URL(
+        `http://127.0.0.1:${address.port}/webhooks/youtube`,
+      );
+      validUrl.searchParams.set("hub.mode", "subscribe");
+      validUrl.searchParams.set(
+        "hub.topic",
+        "https://www.youtube.com/feeds/videos.xml?channel_id=youtube-channel-1",
+      );
+      validUrl.searchParams.set("hub.challenge", "youtube-challenge-token");
+
+      const invalidUrl = new URL(
+        `http://127.0.0.1:${address.port}/webhooks/youtube`,
+      );
+      invalidUrl.searchParams.set("hub.mode", "subscribe");
+      invalidUrl.searchParams.set(
+        "hub.topic",
+        "https://evil.example/feeds/videos.xml?channel_id=youtube-channel-1",
+      );
+      invalidUrl.searchParams.set("hub.challenge", "bad-topic");
+
+      const validResponse = await fetch(validUrl);
+      const invalidResponse = await fetch(invalidUrl);
+
+      expect(validResponse.status).toBe(200);
+      expect(await validResponse.text()).toBe("youtube-challenge-token");
+      expect(invalidResponse.status).toBe(400);
+    } finally {
+      server.close();
+    }
+  });
+
   it("responds to Twitch EventSub verification challenges as plain text", async () => {
     const events: ProviderWebhookEvent[] = [];
 

@@ -10,7 +10,7 @@ const STREAM_ID = "33333333-3333-4333-8333-333333333333";
 const API_SECRET = "test-api-gateway-secret-123";
 const WEBHOOK_SECRET = "test-stream-webhook-secret-123";
 const TWITCH_EVENTSUB_SECRET = "test-twitch-eventsub-secret-123";
-const YOUTUBE_WEBSUB_SECRET = "test-youtube-websub-secret-123";
+const YOUTUBE_WEBHOOK_SECRET = "test-youtube-webhook-secret-123";
 const WEBHOOK_NOW = new Date("2026-06-06T10:00:00.000Z");
 
 function createClipGenerationQueue(): ClipGenerationQueue {
@@ -103,9 +103,7 @@ describe("api-gateway", () => {
         streamEventWebhookSecret: WEBHOOK_SECRET,
         transcriptionQueue: createTranscriptionQueue(),
       }),
-    ).toThrow(
-      "TWITCH_EVENTSUB_SECRET or TWITCH_WEBHOOK_SECRET is required in production.",
-    );
+    ).toThrow("TWITCH_EVENTSUB_SECRET is required in production.");
 
     expect(() =>
       createApp({
@@ -117,7 +115,7 @@ describe("api-gateway", () => {
         transcriptionQueue: createTranscriptionQueue(),
         twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
       }),
-    ).toThrow("YOUTUBE_WEBSUB_SECRET is required in production.");
+    ).toThrow("YOUTUBE_WEBHOOK_SECRET is required in production.");
 
     expect(() =>
       createApp({
@@ -128,7 +126,7 @@ describe("api-gateway", () => {
         streamEventWebhookSecret: WEBHOOK_SECRET,
         transcriptionQueue: createTranscriptionQueue(),
         twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
-        youtubeWebSubSecret: YOUTUBE_WEBSUB_SECRET,
+        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
       }),
     ).toThrow(
       "API_GATEWAY_SECRET must be at least 24 characters in production.",
@@ -142,7 +140,7 @@ describe("api-gateway", () => {
         streamEventWebhookSecret: WEBHOOK_SECRET,
         transcriptionQueue: createTranscriptionQueue(),
         twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
-        youtubeWebSubSecret: YOUTUBE_WEBSUB_SECRET,
+        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
       }),
     ).toThrow(
       "API_GATEWAY_ALLOWED_ORIGINS or NEXT_PUBLIC_APP_URL is required in production.",
@@ -157,7 +155,7 @@ describe("api-gateway", () => {
         streamEventWebhookSecret: WEBHOOK_SECRET,
         transcriptionQueue: createTranscriptionQueue(),
         twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
-        youtubeWebSubSecret: YOUTUBE_WEBSUB_SECRET,
+        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
       }),
     ).toThrow("Wildcard CORS origins are not allowed in production.");
 
@@ -171,7 +169,7 @@ describe("api-gateway", () => {
         streamEventWebhookSecret: WEBHOOK_SECRET,
         transcriptionQueue: createTranscriptionQueue(),
         twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
-        youtubeWebSubSecret: YOUTUBE_WEBSUB_SECRET,
+        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
       }),
     ).toThrow("API Gateway rate limiting cannot be disabled in production.");
 
@@ -182,7 +180,7 @@ describe("api-gateway", () => {
         nodeEnv: "production",
         streamEventWebhookSecret: WEBHOOK_SECRET,
         twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
-        youtubeWebSubSecret: YOUTUBE_WEBSUB_SECRET,
+        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
       }),
     ).toThrow("REDIS_URL is required in production for API Gateway queues.");
   });
