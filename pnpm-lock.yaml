@@ -405,9 +405,15 @@ importers:
       "@streamos/types":
         specifier: workspace:*
         version: link:../../packages/types
+      "@streamos/utils":
+        specifier: workspace:*
+        version: link:../../packages/utils
       bullmq:
         specifier: ^5.77.7
         version: 5.77.7
+      ioredis:
+        specifier: ^5.8.2
+        version: 5.10.1
       zod:
         specifier: ^3.24.2
         version: 3.25.76
