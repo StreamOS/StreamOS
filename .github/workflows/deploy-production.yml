@@ -1,0 +1,333 @@
+name: CD - Production Deployment
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      deploy_backend_services:
+        description: Deploy Railway backend services and workers
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  deployments: write
+
+concurrency:
+  group: production-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "9.15.4"
+  VERCEL_CLI_VERSION: "52.2.0"
+  RAILWAY_CLI_VERSION: "4.58.0"
+  RAILWAY_ENVIRONMENT: production
+  SUPABASE_CLI_VERSION: "2.102.0"
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: ci
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      url: ${{ steps.release.outputs.url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create release from Conventional Commits
+        id: release
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { execSync } = require("node:child_process");
+
+            function run(command) {
+              return execSync(command, { encoding: "utf8" }).trim();
+            }
+
+            let previousTag = "";
+            try {
+              previousTag = run("git describe --tags --abbrev=0");
+            } catch {
+              core.info("No previous release tag found; generating changelog from all commits.");
+            }
+
+            const range = previousTag ? `${previousTag}..HEAD` : "HEAD";
+            const rawSubjects = run(`git log ${range} --pretty=format:%s`);
+            const subjects = rawSubjects ? rawSubjects.split("\n").filter(Boolean) : [];
+
+            const groups = {
+              feat: [],
+              fix: [],
+              refactor: [],
+              perf: [],
+              security: [],
+              docs: [],
+              chore: [],
+              other: [],
+            };
+
+            for (const subject of subjects) {
+              const match = subject.match(/^([a-z]+)(?:\([^)]+\))?!?:\s+(.+)$/);
+              const type = match?.[1] ?? "other";
+              const text = match?.[2] ?? subject;
+              const key = Object.hasOwn(groups, type) ? type : "other";
+              groups[key].push(text);
+            }
+
+            const shortSha = context.sha.slice(0, 7);
+            const date = new Date().toISOString().slice(0, 10);
+            const runAttempt = process.env.GITHUB_RUN_ATTEMPT ?? "1";
+            const tag = `v${date}.${context.runNumber}.${runAttempt}`;
+            const title = `StreamOS ${tag}`;
+            const sections = [
+              ["Features", groups.feat],
+              ["Fixes", groups.fix],
+              ["Performance", groups.perf],
+              ["Security", groups.security],
+              ["Refactors", groups.refactor],
+              ["Documentation", groups.docs],
+              ["Maintenance", groups.chore],
+              ["Other Changes", groups.other],
+            ];
+            const body = [
+              `Automated production release for commit \`${shortSha}\`.`,
+              "",
+              previousTag ? `Changes since \`${previousTag}\`.` : "Initial release changelog.",
+              "",
+              ...sections.flatMap(([heading, entries]) =>
+                entries.length > 0
+                  ? [`## ${heading}`, "", ...entries.map((entry) => `- ${entry}`), ""]
+                  : [],
+              ),
+            ].join("\n");
+
+            await github.rest.git.createRef({
+              owner,
+              repo,
+              ref: `refs/tags/${tag}`,
+              sha: context.sha,
+            });
+
+            const { data: release } = await github.rest.repos.createRelease({
+              owner,
+              repo,
+              tag_name: tag,
+              name: title,
+              body,
+              draft: false,
+              prerelease: false,
+              target_commitish: context.sha,
+            });
+
+            core.setOutput("tag", tag);
+            core.setOutput("url", release.html_url);
+
+  deploy-railway:
+    name: Deploy ${{ matrix.service }} to Railway production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: ci
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_backend_services }}
+    environment:
+      name: production
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - automation-service
+          - clip-worker
+          - transcription-worker
+          - content-job-retry-worker
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@${RAILWAY_CLI_VERSION}
+
+      - name: Deploy Railway service
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        run: railway up --ci --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --service "${{ matrix.service }}"
+
+  deploy-web:
+    name: Deploy frontend to Vercel production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs:
+      - ci
+      - release
+      - deploy-railway
+    if: ${{ always() && needs.ci.result == 'success' && needs.release.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Cache Node modules and Vercel build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pnpm-store
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+            apps/web/.next/cache
+            apps/web/.vercel/cache
+          key: ${{ runner.os }}-vercel-production-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**/*', 'apps/web/package.json', 'apps/web/next.config.ts') }}
+          restore-keys: |
+            ${{ runner.os }}-vercel-production-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@${VERCEL_CLI_VERSION}
+
+      - name: Pull Vercel production environment
+        working-directory: apps/web
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=production --token="${VERCEL_TOKEN}"
+
+      - name: Build Vercel production output
+        working-directory: apps/web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --prod --token="${VERCEL_TOKEN}"
+
+      - name: Deploy prebuilt production
+        id: deploy
+        working-directory: apps/web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          deployment_url="$(vercel deploy --prebuilt --prod --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
+          echo "url=${deployment_url}" >> "${GITHUB_OUTPUT}"
+          echo "Production frontend URL: ${deployment_url}" >> "${GITHUB_STEP_SUMMARY}"
+
+  migrate-supabase:
+    name: Apply Supabase production migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs:
+      - deploy-web
+      - deploy-railway
+    if: ${{ always() && needs.deploy-web.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+    environment:
+      name: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Push Supabase migrations
+        working-directory: packages/database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_PRODUCTION }}
+        run: supabase db push --db-url "${SUPABASE_DB_URL}"
+
+  notify:
+    name: Deployment notification
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - release
+      - deploy-web
+      - deploy-railway
+      - migrate-supabase
+    if: always()
+
+    steps:
+      - name: Write GitHub deployment summary
+        env:
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+          RELEASE_URL: ${{ needs.release.outputs.url }}
+          WEB_URL: ${{ needs.deploy-web.outputs.url }}
+          RAILWAY_RESULT: ${{ needs.deploy-railway.result }}
+          MIGRATION_RESULT: ${{ needs.migrate-supabase.result }}
+        run: |
+          {
+            echo "## StreamOS Production Deployment"
+            echo ""
+            echo "- Release: [${RELEASE_TAG}](${RELEASE_URL})"
+            echo "- Frontend: ${WEB_URL}"
+            echo "- Railway services: ${RAILWAY_RESULT}"
+            echo "- Supabase migrations: ${MIGRATION_RESULT}"
+            echo "- Commit: ${GITHUB_SHA::7}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Send Discord notification
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+          RELEASE_URL: ${{ needs.release.outputs.url }}
+          WEB_URL: ${{ needs.deploy-web.outputs.url }}
+        run: |
+          if [ -z "${DISCORD_WEBHOOK_URL}" ]; then
+            echo "DISCORD_WEBHOOK_URL is not configured; skipping Discord notification."
+            exit 0
+          fi
+
+          payload="$(jq -n \
+            --arg tag "${RELEASE_TAG}" \
+            --arg release_url "${RELEASE_URL}" \
+            --arg web_url "${WEB_URL}" \
+            --arg sha "${GITHUB_SHA::7}" \
+            '{content: ("StreamOS production deployed: " + $tag + "\nRelease: " + $release_url + "\nFrontend: " + $web_url + "\nCommit: `" + $sha + "`")}' \
+          )"
+
+          curl --fail --silent --show-error \
+            -H "Content-Type: application/json" \
+            -d "${payload}" \
+            "${DISCORD_WEBHOOK_URL}"

@@ -1,0 +1,218 @@
+name: CD - Staging Deployment
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+    inputs:
+      deploy_backend_services:
+        description: Deploy Railway backend services and workers
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  deployments: write
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: staging-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "9.15.4"
+  VERCEL_CLI_VERSION: "52.2.0"
+  RAILWAY_CLI_VERSION: "4.58.0"
+  RAILWAY_ENVIRONMENT: staging
+  SUPABASE_CLI_VERSION: "2.102.0"
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  deploy-web:
+    name: Deploy frontend to Vercel staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: ci
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Cache Node modules and Vercel build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pnpm-store
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+            apps/web/.next/cache
+            apps/web/.vercel/cache
+          key: ${{ runner.os }}-vercel-staging-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**/*', 'apps/web/package.json', 'apps/web/next.config.ts') }}
+          restore-keys: |
+            ${{ runner.os }}-vercel-staging-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@${VERCEL_CLI_VERSION}
+
+      - name: Pull Vercel preview environment
+        working-directory: apps/web
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=preview --token="${VERCEL_TOKEN}"
+
+      - name: Build Vercel preview output
+        working-directory: apps/web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --token="${VERCEL_TOKEN}"
+
+      - name: Deploy prebuilt preview
+        id: deploy
+        working-directory: apps/web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          deployment_url="$(vercel deploy --prebuilt --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
+          echo "url=${deployment_url}" >> "${GITHUB_OUTPUT}"
+          echo "Staging frontend URL: ${deployment_url}" >> "${GITHUB_STEP_SUMMARY}"
+
+  deploy-railway:
+    name: Deploy ${{ matrix.service }} to Railway staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: ci
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_backend_services }}
+    environment:
+      name: staging
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - automation-service
+          - clip-worker
+          - transcription-worker
+          - content-job-retry-worker
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@${RAILWAY_CLI_VERSION}
+
+      - name: Deploy Railway service
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
+        run: railway up --ci --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --service "${{ matrix.service }}"
+
+  migrate-supabase:
+    name: Apply Supabase staging migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs:
+      - deploy-web
+      - deploy-railway
+    if: ${{ always() && needs.deploy-web.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+    environment:
+      name: staging
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Push Supabase migrations
+        working-directory: packages/database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_STAGING }}
+        run: supabase db push --db-url "${SUPABASE_DB_URL}"
+
+  comment-pr:
+    name: Comment deployment URL on PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - deploy-web
+      - deploy-railway
+      - migrate-supabase
+    if: ${{ always() && needs.deploy-web.result == 'success' && needs.migrate-supabase.result == 'success' }}
+
+    steps:
+      - name: Comment on associated pull request
+        uses: actions/github-script@v9
+        env:
+          DEPLOYMENT_URL: ${{ needs.deploy-web.outputs.url }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner,
+              repo,
+              commit_sha: context.sha,
+            });
+
+            if (pulls.length === 0) {
+              core.info("No associated pull request found for this staging deployment.");
+              return;
+            }
+
+            const body = [
+              "## StreamOS Staging Deployment",
+              "",
+              `- Frontend: ${process.env.DEPLOYMENT_URL}`,
+              "- Railway services: staging deploy completed",
+              "- Supabase migrations: staging database updated",
+              `- Commit: \`${context.sha.slice(0, 7)}\``,
+            ].join("\n");
+
+            for (const pull of pulls) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pull.number,
+                body,
+              });
+            }
