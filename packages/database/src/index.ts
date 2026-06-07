@@ -6,9 +6,17 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
-export type ContentJobStatus = "pending" | "running" | "done" | "failed";
+export type ContentJobStatus =
+  | "cancelled"
+  | "completed"
+  | "done"
+  | "failed"
+  | "pending"
+  | "processing"
+  | "running";
 export type ContentJobType =
   | "transcription"
+  | "repurposing"
   | "clip_scoring"
   | "title_generation";
 export type VodAssetStatus =
@@ -454,6 +462,8 @@ export type Database = {
           max_retries: number;
           last_retried_at: string | null;
           next_retry_at: string | null;
+          started_at: string | null;
+          completed_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -473,6 +483,8 @@ export type Database = {
           max_retries?: number;
           last_retried_at?: string | null;
           next_retry_at?: string | null;
+          started_at?: string | null;
+          completed_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -492,6 +504,8 @@ export type Database = {
           max_retries?: number;
           last_retried_at?: string | null;
           next_retry_at?: string | null;
+          started_at?: string | null;
+          completed_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
