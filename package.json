@@ -29,7 +29,7 @@
     "test:e2e": "playwright test",
     "test:automation": "pnpm test:fastapi",
     "typecheck": "turbo typecheck",
-    "validate": "pnpm lint && pnpm db:validate-security && pnpm typecheck && pnpm test && pnpm test:gateway && pnpm test:fastapi && pnpm build",
+    "validate": "pnpm lint && pnpm turbo run lint typecheck test build && pnpm db:validate-security && pnpm test:fastapi",
     "format": "prettier --check \"*.{json,md,yml,yaml}\" \"apps/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"docs/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"e2e/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"packages/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"scripts/**/*.{ts,tsx,js,cjs,json,md,yml,yaml}\" \"services/api-gateway/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"workers/**/*.{ts,tsx,js,json,md,yml,yaml}\""
   },
   "lint-staged": {

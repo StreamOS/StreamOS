@@ -91,12 +91,20 @@ API_GATEWAY_ALLOWED_ORIGINS=https://app.streamos.example
 API_GATEWAY_RATE_LIMIT_MAX=120
 API_GATEWAY_RATE_LIMIT_WINDOW_MS=60000
 STREAM_EVENT_WEBHOOK_SECRET=
+APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+YOUTUBE_CLIENT_ID=
+YOUTUBE_CLIENT_SECRET=
+YOUTUBE_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/youtube/callback
+YOUTUBE_SCOPES=https://www.googleapis.com/auth/youtube.readonly
 RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 ```
 
 Twitch OAuth variables are not required in the API gateway while the Twitch flow
-remains in `apps/web`. Add provider-specific OAuth variables here only for
-gateway-owned flows.
+remains in `apps/web`. YouTube is gateway-owned and must use the API Gateway
+callback URL shown above; TikTok and Kick variables should be added here when
+those flows are implemented.
 
 Use `/health` as the Railway healthcheck path. The endpoint must return HTTP 200 before Railway sends traffic to the new deployment.
 
@@ -105,6 +113,9 @@ Security model:
 - `/health` is public and not rate-limited so Railway healthchecks remain reliable.
 - App-facing `/api/*` routes require `Authorization: Bearer $API_GATEWAY_SECRET` or `X-StreamOS-API-Secret`.
 - External stream webhooks require `X-StreamOS-Webhook-Secret: $STREAM_EVENT_WEBHOOK_SECRET`.
+- YouTube OAuth connect requests require a short-lived `handoff` token signed
+  with `API_GATEWAY_SECRET`; callbacks validate one-time state plus PKCE before
+  encrypted token persistence.
 - `API_GATEWAY_SECRET` and `STREAM_EVENT_WEBHOOK_SECRET` are mandatory when `NODE_ENV=production`; the service fails during startup if either is missing.
 - CORS allows only `API_GATEWAY_ALLOWED_ORIGINS`; server-to-server calls without an `Origin` header are allowed.
 - Rate limits are fixed-window per client IP, method, and URL. Start with `120` requests per `60000` ms and tighten per endpoint once production traffic is measured.

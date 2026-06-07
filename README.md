@@ -47,7 +47,8 @@ cp .env.compose.example .env
 
 Fill the root `.env` with Supabase values from Supabase Dashboard -> Project
 Settings -> API before starting Compose. `SUPABASE_SERVICE_ROLE_KEY` is required
-only for server-side workers and must never be exposed in browser code.
+for server-side workers and server route handlers that read or write encrypted
+platform tokens; it must never be exposed in browser code.
 
 Start only the dashboard:
 
@@ -126,7 +127,9 @@ Generate a local encryption key before storing platform OAuth tokens:
 node -e "console.log('base64:' + require('crypto').randomBytes(32).toString('base64'))"
 ```
 
-Set the generated value as `APP_ENCRYPTION_KEY` in `apps/web/.env.local`.
+Set the generated value as `APP_ENCRYPTION_KEY` in the server runtime that owns
+the provider flow. Today that means `apps/web/.env.local` for Twitch and the
+API gateway environment for YouTube.
 
 ## AI Provider Secrets
 
@@ -168,6 +171,29 @@ The production deployment topology is documented in
 - `services/automation-service` deploys to Railway first, or Fly.io when GPU-backed Whisper becomes required.
 - `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.
 
+### Required GitHub Secrets
+
+Set these values in GitHub repository or environment secrets before enabling
+the CI/CD workflows:
+
+```bash
+VERCEL_TOKEN=
+VERCEL_ORG_ID=
+VERCEL_PROJECT_ID=
+RAILWAY_PROJECT_ID=
+RAILWAY_TOKEN_STAGING=
+RAILWAY_TOKEN_PRODUCTION=
+SUPABASE_DB_URL_STAGING=
+SUPABASE_DB_URL_PRODUCTION=
+DISCORD_WEBHOOK_URL=
+```
+
+`DISCORD_WEBHOOK_URL` is optional; when it is not configured, production
+deployment notifications are still written to the GitHub Actions job summary.
+Use GitHub Environments named `staging` and `production` for environment-scoped
+secrets and enable required reviewers on `production` to enforce manual approval
+before production deploy and migration jobs run.
+
 ## Queue Backend
 
 The API gateway uses BullMQ for automation jobs. For Upstash Redis, configure
@@ -199,13 +225,23 @@ webhooks use `X-StreamOS-Webhook-Secret`.
 
 The dashboard uses Supabase SSR auth. The initial schema migration must be applied before using login/signup.
 
-For hosted Supabase email confirmations, set the Confirm signup email template link to:
+Signup and password-reset redirects use the SSR callback route:
+
+```text
+/auth/callback
+```
+
+For hosted Supabase email confirmations with a custom token-hash template, set
+the Confirm signup email template link to:
 
 ```html
 {{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email
 ```
 
-Also allow your local and deployed app URLs in Supabase Auth URL configuration.
+`/auth/confirm` is intentionally limited to signup email confirmation tokens.
+Also allow your local and deployed `/auth/callback` and `/auth/confirm` URLs in
+Supabase Auth URL configuration. The manual local Inbucket test plan is in
+`docs/auth-email-confirmation-test-plan.md`.
 
 ## Twitch OAuth
 
@@ -216,11 +252,12 @@ boundary:
 - `/api/platforms/twitch/callback`
 
 This is a documented exception to the long-term gateway direction. Twitch uses
-the Supabase SSR session from HTTP-only Next.js cookies, persists through the
-RLS-scoped anon client, and encrypts provider tokens before writing to
-Supabase. Do not move this flow to `services/api-gateway` until the gateway has
-a signed user-session hand-off from `apps/web`, a tenant-safe Supabase client
-strategy, and integration coverage for callback success and failure paths.
+the Supabase SSR session from HTTP-only Next.js cookies to verify the user, then
+uses a server-only service-role client for encrypted `platform_connections`
+token reads and writes. Do not move this flow to `services/api-gateway` until
+the gateway has a signed user-session hand-off from `apps/web`, a tenant-safe
+Supabase client strategy, and integration coverage for callback success and
+failure paths.
 
 Connected Twitch accounts store encrypted access and refresh tokens in Supabase.
 The dashboard exposes a server-side token refresh action so expired access tokens
@@ -237,12 +274,49 @@ TWITCH_CLIENT_SECRET=
 TWITCH_REDIRECT_URI=http://localhost:3000/api/platforms/twitch/callback
 TWITCH_SCOPES=user:read:email
 APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 ```
 
 Register the same redirect URI in the Twitch Developer Console. If Next.js falls back to another local port, update both `TWITCH_REDIRECT_URI` and the Twitch app settings to match.
 
+## YouTube OAuth
+
+YouTube is the first non-Twitch OAuth flow owned by `services/api-gateway`:
+
+- `GET /api/auth/youtube/connect?handoff=<signed-token>`
+- `GET /api/auth/youtube/callback`
+
+The `handoff` query value is a short-lived HMAC token signed with
+`API_GATEWAY_SECRET`. It carries only `user_id`, `creator_id`, optional
+`return_to`, and `exp`; provider tokens never pass through the browser. The
+gateway stores a one-time `state` plus PKCE `code_verifier`, redirects to
+Google, exchanges the callback code with PKCE, fetches the authenticated
+YouTube channel profile, encrypts access and refresh tokens with
+`APP_ENCRYPTION_KEY`, and upserts `channels` plus `platform_connections`.
+
+Configure these server-only values in the API gateway environment:
+
+```bash
+YOUTUBE_CLIENT_ID=
+YOUTUBE_CLIENT_SECRET=
+YOUTUBE_REDIRECT_URI=http://localhost:4000/api/auth/youtube/callback
+YOUTUBE_SCOPES=https://www.googleapis.com/auth/youtube.readonly
+APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+API_GATEWAY_SECRET=
+```
+
+Register the same redirect URI in Google Cloud Console. Run the gateway OAuth
+tests with:
+
+```bash
+pnpm --filter @streamos/api-gateway test
+```
+
 ## Next Implementation Steps
 
-1. Add OAuth flows for YouTube, TikTok, and Kick behind `services/api-gateway`.
+1. Add TikTok and Kick OAuth behind `services/api-gateway` using the YouTube
+   gateway pattern.
 2. Add BullMQ workers for transcription processing and clip generation.
 3. Move durable AI workflows into `services/automation-service` and keep browser-visible API keys out of client components.
