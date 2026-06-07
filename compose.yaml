@@ -34,6 +34,8 @@ services:
       API_GATEWAY_RATE_LIMIT_MAX: ${API_GATEWAY_RATE_LIMIT_MAX:-120}
       API_GATEWAY_RATE_LIMIT_WINDOW_MS: ${API_GATEWAY_RATE_LIMIT_WINDOW_MS:-60000}
       STREAM_EVENT_WEBHOOK_SECRET: ${STREAM_EVENT_WEBHOOK_SECRET:-local-streamos-webhook-secret}
+      TWITCH_EVENTSUB_SECRET: ${TWITCH_EVENTSUB_SECRET:-local-twitch-eventsub-secret}
+      YOUTUBE_WEBHOOK_SECRET: ${YOUTUBE_WEBHOOK_SECRET:-local-youtube-webhook-secret}
     ports:
       - "4000:4000"
     healthcheck:
