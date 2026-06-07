@@ -5,6 +5,12 @@ import type {
   Tables,
   Updates,
 } from "@streamos/database";
+import {
+  getTwitchAppAccessToken,
+  registerEventSubSubscriptions,
+  type TwitchEventSubRegisteredSubscription,
+  type TwitchEventSubRegistrationResult,
+} from "@streamos/twitch-eventsub";
 import { decryptSecret, encryptSecret } from "@/lib/security/encryption";
 import type { createClient } from "@/lib/supabase/server";
 
@@ -17,7 +23,7 @@ const TWITCH_CHANNELS_URL = "https://api.twitch.tv/helix/channels";
 const TWITCH_STREAMS_URL = "https://api.twitch.tv/helix/streams";
 const TWITCH_CHANNEL_FOLLOWERS_URL =
   "https://api.twitch.tv/helix/channels/followers";
-const DEFAULT_TWITCH_SCOPES = ["user:read:email"];
+const DEFAULT_TWITCH_SCOPES = ["user:read:email", "moderator:read:followers"];
 
 type TwitchOAuthConfig = {
   clientId: string;
@@ -100,6 +106,7 @@ type TwitchAnalyticsSnapshot = {
 };
 
 type StreamOSSupabaseClient = Awaited<ReturnType<typeof createClient>>;
+type JsonRecord = { [key: string]: Json | undefined };
 
 class TwitchTokenRefreshError extends Error {
   constructor(
@@ -130,6 +137,25 @@ export function getTwitchOAuthConfig(origin: string): TwitchOAuthConfig {
     clientSecret,
     redirectUri,
     scopes,
+  };
+}
+
+export function getTwitchEventSubConfig(): {
+  callbackUrl: string;
+  secret: string;
+} {
+  const publicUrl = process.env.STREAMOS_PUBLIC_URL?.trim();
+  const secret = (
+    process.env.TWITCH_EVENTSUB_SECRET ?? process.env.TWITCH_WEBHOOK_SECRET
+  )?.trim();
+
+  if (!publicUrl || !secret) {
+    throw new Error("Missing Twitch EventSub environment variables.");
+  }
+
+  return {
+    callbackUrl: `${publicUrl.replace(/\/+$/, "")}/api/webhooks/twitch/eventsub`,
+    secret,
   };
 }
 
@@ -380,6 +406,11 @@ export async function persistTwitchConnection({
     expires_at: expiresAt,
     platform: "twitch",
     provider_account_id: twitchUser.id,
+    provider_profile: {
+      display_name: twitchUser.display_name || twitchUser.login,
+      handle: twitchUser.login,
+      view_count: twitchUser.view_count ?? 0,
+    },
     refresh_token_ciphertext: token.refresh_token
       ? encryptSecret(token.refresh_token)
       : null,
@@ -394,13 +425,66 @@ export async function persistTwitchConnection({
         .update(connectionPayload as never)
         .eq("user_id", userId)
         .eq("id", existingConnectionData?.id ?? "")
+        .select("id")
+        .single()
     : await connectionSupabase
         .from("platform_connections")
-        .insert(connectionPayload as never);
+        .insert(connectionPayload as never)
+        .select("id")
+        .single();
 
   if (connectionResult.error) {
     throw connectionResult.error;
   }
+
+  const connectionData = connectionResult.data as Pick<
+    Database["public"]["Tables"]["platform_connections"]["Row"],
+    "id"
+  >;
+
+  return {
+    channelId: channelData.id,
+    connectionId: connectionData.id,
+    expiresAt,
+  };
+}
+
+export async function registerTwitchEventSubForConnection({
+  broadcasterId,
+  config,
+  connectionId,
+  connectionSupabase,
+  userId,
+}: {
+  broadcasterId: string;
+  config: TwitchOAuthConfig;
+  connectionId: string;
+  connectionSupabase: StreamOSSupabaseClient;
+  userId: string;
+}): Promise<TwitchEventSubRegistrationResult> {
+  const eventSubConfig = getTwitchEventSubConfig();
+  const appAccessToken = await getTwitchAppAccessToken({
+    config: {
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+    },
+  });
+  const result = await registerEventSubSubscriptions({
+    appAccessToken,
+    broadcasterId,
+    callbackUrl: eventSubConfig.callbackUrl,
+    clientId: config.clientId,
+    secret: eventSubConfig.secret,
+  });
+
+  await persistTwitchEventSubMetadata({
+    connectionId,
+    connectionSupabase,
+    result,
+    userId,
+  });
+
+  return result;
 }
 
 export async function refreshTwitchConnection({
@@ -652,6 +736,75 @@ async function getLatestTwitchConnection({
     | "refresh_token_ciphertext"
     | "status"
   > | null;
+}
+
+async function persistTwitchEventSubMetadata({
+  connectionId,
+  connectionSupabase,
+  result,
+  userId,
+}: {
+  connectionId: string;
+  connectionSupabase: StreamOSSupabaseClient;
+  result: TwitchEventSubRegistrationResult;
+  userId: string;
+}) {
+  const connectionResult = await connectionSupabase
+    .from("platform_connections")
+    .select("metadata")
+    .eq("user_id", userId)
+    .eq("id", connectionId)
+    .single();
+
+  if (connectionResult.error) {
+    throw connectionResult.error;
+  }
+
+  const connection = connectionResult.data as Pick<
+    Tables<"platform_connections">,
+    "metadata"
+  >;
+  const metadata = toJsonRecord(connection.metadata);
+
+  const updateResult = await connectionSupabase
+    .from("platform_connections")
+    .update({
+      metadata: {
+        ...metadata,
+        eventsub: {
+          failed: result.failed,
+          registered_at: result.registeredAt,
+          subscription_ids: result.created,
+          subscriptions: serializeEventSubSubscriptions(result.subscriptions),
+        },
+      },
+    } as never)
+    .eq("user_id", userId)
+    .eq("id", connectionId);
+
+  if (updateResult.error) {
+    throw updateResult.error;
+  }
+}
+
+function serializeEventSubSubscriptions(
+  subscriptions: TwitchEventSubRegisteredSubscription[],
+): Json[] {
+  return subscriptions.map((subscription) => ({
+    condition: subscription.condition,
+    id: subscription.id,
+    status: subscription.status ?? null,
+    type: subscription.type,
+    version: subscription.version,
+  }));
+}
+
+function toJsonRecord(value: Json | null | undefined): JsonRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return value as JsonRecord;
 }
 
 async function fetchTwitchApi<TPayload>(

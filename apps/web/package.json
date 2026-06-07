@@ -12,8 +12,11 @@
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
     "@streamos/database": "workspace:*",
+    "@streamos/queue": "workspace:*",
+    "@streamos/twitch-eventsub": "workspace:*",
     "@streamos/types": "workspace:*",
     "@streamos/ui": "workspace:*",
+    "@streamos/youtube-websub": "workspace:*",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.49.4",
     "clsx": "^2.1.1",

@@ -4,6 +4,7 @@ import {
   fetchTwitchUser,
   getTwitchOAuthConfig,
   persistTwitchConnection,
+  registerTwitchEventSubForConnection,
   syncTwitchAnalytics,
   TWITCH_OAUTH_STATE_COOKIE,
 } from "@/lib/integrations/twitch";
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest) {
     const twitchUser = await fetchTwitchUser(config, token.access_token);
     const creator = await ensureCreatorForUser(supabase, data.user);
 
-    await persistTwitchConnection({
+    const connection = await persistTwitchConnection({
       connectionSupabase: serviceSupabase,
       creatorId: creator.id,
       supabase,
@@ -61,6 +62,25 @@ export async function GET(request: NextRequest) {
       twitchUser,
       userId: data.user.id,
     });
+
+    try {
+      await registerTwitchEventSubForConnection({
+        broadcasterId: twitchUser.id,
+        config,
+        connectionId: connection.connectionId,
+        connectionSupabase: serviceSupabase,
+        userId: data.user.id,
+      });
+    } catch (error) {
+      console.error(
+        "Twitch EventSub registration failed after OAuth connect.",
+        {
+          error,
+          twitchUserId: twitchUser.id,
+          userId: data.user.id,
+        },
+      );
+    }
 
     dashboardUrl.searchParams.set("platform", "twitch");
 
