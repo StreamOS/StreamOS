@@ -3,14 +3,27 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
 }
 
 body {
   background:
     linear-gradient(135deg, rgba(155, 92, 255, 0.12), transparent 34%),
-    linear-gradient(215deg, rgba(0, 212, 170, 0.08), transparent 28%),
-    #090a0f;
+    linear-gradient(215deg, rgba(0, 212, 170, 0.08), transparent 28%), #090a0f;
+  color: #f4f2fa;
+}
+
+html.light body {
+  background:
+    linear-gradient(135deg, rgba(155, 92, 255, 0.12), transparent 34%),
+    linear-gradient(215deg, rgba(0, 212, 170, 0.08), transparent 28%), #f8fafc;
+  color: #111827;
+}
+
+html.dark body {
+  background:
+    linear-gradient(135deg, rgba(155, 92, 255, 0.12), transparent 34%),
+    linear-gradient(215deg, rgba(0, 212, 170, 0.08), transparent 28%), #090a0f;
   color: #f4f2fa;
 }
 
@@ -25,5 +38,11 @@ body {
 
   .btn-ghost {
     @apply inline-flex min-h-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white;
+  }
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
   }
 }

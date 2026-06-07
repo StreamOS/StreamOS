@@ -1,6 +1,14 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { signOut } from "../(auth)/actions";
+import { DashboardAuthProvider } from "./DashboardAuthContext";
+import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { TopHeader } from "@/components/layout/TopHeader";
+import {
+  isSupabaseEmailConfirmed,
+  toDashboardAuthUser,
+} from "@/lib/auth/dashboard";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import {
   ensureCreatorForUser,
@@ -24,12 +32,20 @@ export default async function DashboardLayout({
           creatorName="Demo Workspace"
           creatorNiche="Supabase noch nicht konfiguriert"
         />
-        <main className="lg:pl-72">
-          <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-            <SupabaseSetupNotice />
-            {children}
-          </div>
-        </main>
+        <div className="transition-[padding] duration-300 lg:pl-[var(--dashboard-sidebar-width,15rem)]">
+          <TopHeader
+            displayName="Demo Workspace"
+            userEmail={null}
+            userId="demo"
+          />
+          <main>
+            <div className="mx-auto max-w-7xl px-4 pb-28 pt-6 sm:px-6 md:pb-6 lg:px-8">
+              <SupabaseSetupNotice />
+              {children}
+            </div>
+          </main>
+        </div>
+        <MobileBottomNav />
       </div>
     );
   }
@@ -38,8 +54,20 @@ export default async function DashboardLayout({
   const { data, error } = await supabase.auth.getUser();
 
   if (error || !data.user) {
-    redirect("/login");
+    redirect("/auth/login");
   }
+
+  if (!isSupabaseEmailConfirmed(data.user)) {
+    redirect("/auth/verify-email");
+  }
+
+  const headerStore = await headers();
+  const pathname = headerStore.get("x-streamos-pathname") ?? "/dashboard";
+  const isOnboardingRoute =
+    pathname === "/dashboard/onboarding" ||
+    pathname.startsWith("/dashboard/onboarding/") ||
+    pathname === "/onboarding/profile" ||
+    pathname.startsWith("/onboarding/");
 
   let creator: CreatorWorkspace | null = null;
   let creatorError: string | null = null;
@@ -53,22 +81,44 @@ export default async function DashboardLayout({
         : "Creator Bootstrap fehlgeschlagen.";
   }
 
+  const onboardingComplete = creator?.onboarding_completed === true;
+
+  if (!onboardingComplete && !isOnboardingRoute) {
+    redirect("/onboarding/profile");
+  }
+
   return (
-    <div className="min-h-screen">
-      <Sidebar
-        creatorName={
-          creator?.display_name ?? data.user.email ?? "StreamOS Creator"
-        }
-        creatorNiche={creator?.niche ?? "Workspace bereit"}
-        signOutAction={signOut}
-      />
-      <main className="lg:pl-72">
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-          {creatorError && <CreatorBootstrapNotice message={creatorError} />}
-          {children}
+    <DashboardAuthProvider user={toDashboardAuthUser(data.user)}>
+      <div className="min-h-screen">
+        <Sidebar
+          creatorName={
+            creator?.display_name ?? data.user.email ?? "StreamOS Creator"
+          }
+          creatorNiche={creator?.niche ?? "Workspace bereit"}
+          signOutAction={signOut}
+        />
+        <div className="transition-[padding] duration-300 lg:pl-[var(--dashboard-sidebar-width,15rem)]">
+          <TopHeader
+            avatarUrl={creator?.avatar_url}
+            displayName={
+              creator?.display_name ?? data.user.email ?? "StreamOS Creator"
+            }
+            signOutAction={signOut}
+            userEmail={data.user.email ?? null}
+            userId={data.user.id}
+          />
+          <main>
+            <div className="mx-auto max-w-7xl px-4 pb-28 pt-6 sm:px-6 md:pb-6 lg:px-8">
+              {creatorError && (
+                <CreatorBootstrapNotice message={creatorError} />
+              )}
+              {children}
+            </div>
+          </main>
         </div>
-      </main>
-    </div>
+        <MobileBottomNav />
+      </div>
+    </DashboardAuthProvider>
   );
 }
 

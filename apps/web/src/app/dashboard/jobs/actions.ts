@@ -4,6 +4,7 @@ import type { Tables, Updates } from "@streamos/database";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export async function requestContentJobRetryAction(formData: FormData) {
@@ -18,6 +19,7 @@ export async function requestContentJobRetryAction(formData: FormData) {
   }
 
   const supabase = await createClient();
+  const serviceSupabase = createServiceRoleClient();
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
   if (userError || !userData.user) {
@@ -58,14 +60,14 @@ export async function requestContentJobRetryAction(formData: FormData) {
     next_retry_at: null,
     updated_at: new Date().toISOString(),
   };
-  const { error: updateError } = await supabase
+  const { error: serviceUpdateError } = await serviceSupabase
     .from("content_jobs")
     .update(updatePayload as never)
     .eq("id", job.id)
     .eq("user_id", userData.user.id)
     .eq("status", "failed");
 
-  if (updateError) {
+  if (serviceUpdateError) {
     redirect("/dashboard/jobs?error=retry-update-failed");
   }
 

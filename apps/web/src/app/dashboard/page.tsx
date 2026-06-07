@@ -5,6 +5,7 @@ import { PlatformOverview } from "@/components/modules/PlatformOverview";
 import { RecentClips } from "@/components/modules/RecentClips";
 import { TwitchAnalyticsSnapshotCard } from "@/components/modules/TwitchAnalyticsSnapshotCard";
 import { ViewerChart } from "@/components/modules/ViewerChart";
+import { GatewayConnectButton } from "./components/GatewayConnectButton";
 
 const statIcons = [Search, BadgeDollarSign, Clapperboard, Activity];
 
@@ -47,6 +48,7 @@ export default async function DashboardPage({
             <a href="/dashboard/analytics" className="btn-ghost">
               Analytics pruefen
             </a>
+            <GatewayConnectButton />
           </div>
         </div>
         <div className="rounded-lg border border-white/10 bg-white/5 p-4">

@@ -5,8 +5,10 @@ import type { createClient } from "./server";
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 export type CreatorWorkspace = Pick<
   Tables<"creators">,
-  "display_name" | "handle" | "id" | "niche"
->;
+  "display_name" | "handle" | "id" | "niche" | "onboarding_completed"
+> & {
+  avatar_url?: string | null;
+};
 
 export async function ensureCreatorForUser(
   supabase: SupabaseServerClient,
@@ -14,7 +16,7 @@ export async function ensureCreatorForUser(
 ): Promise<CreatorWorkspace> {
   const existing = await supabase
     .from("creators")
-    .select("id, display_name, handle, niche")
+    .select("id, avatar_url, display_name, handle, niche, onboarding_completed")
     .eq("user_id", user.id)
     .order("created_at", { ascending: true })
     .limit(1)
@@ -38,7 +40,7 @@ export async function ensureCreatorForUser(
   const created = await supabase
     .from("creators")
     .insert(creatorInsert as never)
-    .select("id, display_name, handle, niche")
+    .select("id, avatar_url, display_name, handle, niche, onboarding_completed")
     .single();
 
   if (created.error) {

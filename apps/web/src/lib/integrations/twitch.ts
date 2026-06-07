@@ -285,10 +285,12 @@ export async function fetchTwitchAnalyticsSnapshot(
 export async function persistTwitchConnection({
   creatorId,
   supabase,
+  connectionSupabase = supabase,
   token,
   twitchUser,
   userId,
 }: {
+  connectionSupabase?: StreamOSSupabaseClient;
   creatorId: string;
   supabase: StreamOSSupabaseClient;
   token: TwitchTokenResponse;
@@ -350,7 +352,7 @@ export async function persistTwitchConnection({
     Database["public"]["Tables"]["channels"]["Row"],
     "id"
   >;
-  const existingConnection = await supabase
+  const existingConnection = await connectionSupabase
     .from("platform_connections")
     .select("id")
     .eq("user_id", userId)
@@ -387,12 +389,12 @@ export async function persistTwitchConnection({
   };
 
   const connectionResult = existingConnection.data
-    ? await supabase
+    ? await connectionSupabase
         .from("platform_connections")
         .update(connectionPayload as never)
         .eq("user_id", userId)
         .eq("id", existingConnectionData?.id ?? "")
-    : await supabase
+    : await connectionSupabase
         .from("platform_connections")
         .insert(connectionPayload as never);
 
@@ -405,14 +407,16 @@ export async function refreshTwitchConnection({
   config,
   creatorId,
   supabase,
+  connectionSupabase = supabase,
   userId,
 }: {
+  connectionSupabase?: StreamOSSupabaseClient;
   config: TwitchOAuthConfig;
   creatorId: string;
   supabase: StreamOSSupabaseClient;
   userId: string;
 }) {
-  const connectionResult = await supabase
+  const connectionResult = await connectionSupabase
     .from("platform_connections")
     .select("id, refresh_token_ciphertext, scopes")
     .eq("user_id", userId)
@@ -447,7 +451,7 @@ export async function refreshTwitchConnection({
       error instanceof TwitchTokenRefreshError &&
       [400, 401].includes(error.status)
     ) {
-      await supabase
+      await connectionSupabase
         .from("platform_connections")
         .update({ status: "expired" } as never)
         .eq("user_id", userId)
@@ -468,7 +472,7 @@ export async function refreshTwitchConnection({
     status: "connected",
   };
 
-  const updateResult = await supabase
+  const updateResult = await connectionSupabase
     .from("platform_connections")
     .update(connectionPayload as never)
     .eq("user_id", userId)
@@ -488,17 +492,21 @@ export async function syncTwitchAnalytics({
   config,
   creatorId,
   supabase,
+  connectionSupabase = supabase,
+  metricsSupabase = connectionSupabase,
   userId,
 }: {
+  connectionSupabase?: StreamOSSupabaseClient;
   config: TwitchOAuthConfig;
   creatorId: string;
+  metricsSupabase?: StreamOSSupabaseClient;
   supabase: StreamOSSupabaseClient;
   userId: string;
 }) {
   const { accessToken, connection } = await getUsableTwitchConnection({
     config,
+    supabase: connectionSupabase,
     creatorId,
-    supabase,
     userId,
   });
 
@@ -547,7 +555,7 @@ export async function syncTwitchAnalytics({
     revenue_cents: 0,
   };
 
-  const metricsResult = await supabase
+  const metricsResult = await metricsSupabase
     .from("metrics_snapshots")
     .insert(metricsPayload as never);
 

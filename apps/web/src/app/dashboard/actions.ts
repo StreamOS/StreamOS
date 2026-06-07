@@ -9,6 +9,7 @@ import {
 } from "@/lib/integrations/twitch";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
+import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export async function refreshTwitchConnectionAction() {
@@ -33,9 +34,11 @@ export async function refreshTwitchConnectionAction() {
 
   try {
     const creator = await ensureCreatorForUser(supabase, data.user);
+    const serviceSupabase = createServiceRoleClient();
     const config = getTwitchOAuthConfig(origin);
 
     await refreshTwitchConnection({
+      connectionSupabase: serviceSupabase,
       config,
       creatorId: creator.id,
       supabase,
@@ -74,11 +77,14 @@ export async function syncTwitchAnalyticsAction() {
 
   try {
     const creator = await ensureCreatorForUser(supabase, data.user);
+    const serviceSupabase = createServiceRoleClient();
     const config = getTwitchOAuthConfig(origin);
 
     await syncTwitchAnalytics({
+      connectionSupabase: serviceSupabase,
       config,
       creatorId: creator.id,
+      metricsSupabase: serviceSupabase,
       supabase,
       userId: data.user.id,
     });

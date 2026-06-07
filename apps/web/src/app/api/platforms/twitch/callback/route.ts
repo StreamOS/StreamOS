@@ -8,12 +8,18 @@ import {
   TWITCH_OAUTH_STATE_COOKIE,
 } from "@/lib/integrations/twitch";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
+import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
+const TWITCH_OAUTH_NEXT_COOKIE = "streamos_twitch_oauth_next";
+
 export async function GET(request: NextRequest) {
-  const dashboardUrl = new URL("/dashboard", request.url);
+  const nextPath = getSafeNextPath(
+    request.cookies.get(TWITCH_OAUTH_NEXT_COOKIE)?.value,
+  );
+  const dashboardUrl = new URL(nextPath, request.url);
   const code = request.nextUrl.searchParams.get("code");
   const returnedState = request.nextUrl.searchParams.get("state");
   const storedState = request.cookies.get(TWITCH_OAUTH_STATE_COOKIE)?.value;
@@ -30,10 +36,14 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = await createClient();
+  const serviceSupabase = createServiceRoleClient();
   const { data, error } = await supabase.auth.getUser();
 
   if (error || !data.user) {
-    const loginUrl = new URL("/login", request.url);
+    const loginUrl = new URL("/auth/login", request.url);
+    loginUrl.searchParams.set("error", "unauthorized");
+    loginUrl.searchParams.set("next", nextPath);
+
     return redirectAndClearState(loginUrl);
   }
 
@@ -44,6 +54,7 @@ export async function GET(request: NextRequest) {
     const creator = await ensureCreatorForUser(supabase, data.user);
 
     await persistTwitchConnection({
+      connectionSupabase: serviceSupabase,
       creatorId: creator.id,
       supabase,
       token,
@@ -55,8 +66,10 @@ export async function GET(request: NextRequest) {
 
     try {
       await syncTwitchAnalytics({
+        connectionSupabase: serviceSupabase,
         config,
         creatorId: creator.id,
+        metricsSupabase: serviceSupabase,
         supabase,
         userId: data.user.id,
       });
@@ -75,5 +88,14 @@ export async function GET(request: NextRequest) {
 function redirectAndClearState(url: URL) {
   const response = NextResponse.redirect(url);
   response.cookies.delete(TWITCH_OAUTH_STATE_COOKIE);
+  response.cookies.delete(TWITCH_OAUTH_NEXT_COOKIE);
   return response;
+}
+
+function getSafeNextPath(value: string | undefined) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return "/dashboard";
+  }
+
+  return value;
 }

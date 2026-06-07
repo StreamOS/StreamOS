@@ -11,6 +11,7 @@ import {
 } from "./jobContract";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
+import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
@@ -38,6 +39,7 @@ export async function startClipAnalysisAction(formData: FormData) {
   }
 
   const supabase = await createClient();
+  const serviceSupabase = createServiceRoleClient();
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
   if (userError || !userData.user) {
@@ -86,7 +88,7 @@ export async function startClipAnalysisAction(formData: FormData) {
       status: "pending",
     },
     streamId: stream.id,
-    supabase,
+    supabase: serviceSupabase,
     userId,
   });
 
@@ -131,7 +133,7 @@ export async function startClipAnalysisAction(formData: FormData) {
         status: "failed",
       },
       streamId: stream.id,
-      supabase,
+      supabase: serviceSupabase,
       userId,
     });
     revalidatePath("/dashboard/clips");
