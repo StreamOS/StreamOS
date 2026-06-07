@@ -14,16 +14,30 @@ import {
   streamEndedPayloadSchema,
   type TranscriptionQueue,
 } from "./jobs/transcriptionQueue.js";
+import {
+  createOAuthRouter,
+  type CreateOAuthRouterOptions,
+} from "./oauth/routes.js";
+import { createAuthHandoffRouter } from "./routes/auth/handoff.js";
+import { createProviderWebhookRouter } from "./webhooks/providerRoutes.js";
+import type { ProviderWebhookDispatcher } from "./webhooks/providerEvents.js";
 
 type CreateAppOptions = {
   allowedOrigins?: string[];
   apiGatewaySecret?: string;
   clipGenerationQueue?: ClipGenerationQueue;
   nodeEnv?: string;
+  oauth?: Partial<
+    Pick<CreateOAuthRouterOptions, "fetchImpl" | "repository" | "stateStore">
+  >;
+  providerWebhookDispatcher?: ProviderWebhookDispatcher;
   rateLimit?: Partial<RateLimitConfig>;
   streamEventWebhookSecret?: string;
   transcriptionQueue?: TranscriptionQueue;
+  twitchEventSubSecret?: string;
   webhookNow?: () => number;
+  youtubeWebSubSecret?: string;
+  youtubeWebSubVerifyToken?: string;
 };
 
 type RateLimitConfig = {
@@ -37,7 +51,10 @@ type SecurityConfig = {
   apiGatewaySecret: string | undefined;
   rateLimit: RateLimitConfig;
   streamEventWebhookSecret: string | undefined;
+  twitchEventSubSecret: string | undefined;
   webhookNow: () => number;
+  youtubeWebSubSecret: string | undefined;
+  youtubeWebSubVerifyToken: string | undefined;
 };
 
 type RawBodyRequest = Request & {
@@ -127,6 +144,17 @@ function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
   const streamEventWebhookSecret = (
     options.streamEventWebhookSecret ?? process.env.STREAM_EVENT_WEBHOOK_SECRET
   )?.trim();
+  const twitchEventSubSecret = (
+    options.twitchEventSubSecret ??
+    process.env.TWITCH_EVENTSUB_SECRET ??
+    process.env.TWITCH_WEBHOOK_SECRET
+  )?.trim();
+  const youtubeWebSubSecret = (
+    options.youtubeWebSubSecret ?? process.env.YOUTUBE_WEBSUB_SECRET
+  )?.trim();
+  const youtubeWebSubVerifyToken = (
+    options.youtubeWebSubVerifyToken ?? process.env.YOUTUBE_WEBSUB_VERIFY_TOKEN
+  )?.trim();
   const envAllowedOrigins = parseCommaSeparatedEnv(
     process.env.API_GATEWAY_ALLOWED_ORIGINS,
   );
@@ -167,6 +195,16 @@ function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
     throw new Error("STREAM_EVENT_WEBHOOK_SECRET is required in production.");
   }
 
+  if (isProduction(nodeEnv) && !twitchEventSubSecret) {
+    throw new Error(
+      "TWITCH_EVENTSUB_SECRET or TWITCH_WEBHOOK_SECRET is required in production.",
+    );
+  }
+
+  if (isProduction(nodeEnv) && !youtubeWebSubSecret) {
+    throw new Error("YOUTUBE_WEBSUB_SECRET is required in production.");
+  }
+
   if (
     isProduction(nodeEnv) &&
     apiGatewaySecret &&
@@ -184,6 +222,26 @@ function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
   ) {
     throw new Error(
       "STREAM_EVENT_WEBHOOK_SECRET must be at least 24 characters in production.",
+    );
+  }
+
+  if (
+    isProduction(nodeEnv) &&
+    twitchEventSubSecret &&
+    twitchEventSubSecret.length < MIN_PRODUCTION_SECRET_LENGTH
+  ) {
+    throw new Error(
+      "TWITCH_EVENTSUB_SECRET or TWITCH_WEBHOOK_SECRET must be at least 24 characters in production.",
+    );
+  }
+
+  if (
+    isProduction(nodeEnv) &&
+    youtubeWebSubSecret &&
+    youtubeWebSubSecret.length < MIN_PRODUCTION_SECRET_LENGTH
+  ) {
+    throw new Error(
+      "YOUTUBE_WEBSUB_SECRET must be at least 24 characters in production.",
     );
   }
 
@@ -208,7 +266,10 @@ function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
     apiGatewaySecret,
     rateLimit,
     streamEventWebhookSecret,
+    twitchEventSubSecret,
     webhookNow: options.webhookNow ?? Date.now,
+    youtubeWebSubSecret,
+    youtubeWebSubVerifyToken,
   };
 }
 
@@ -251,6 +312,8 @@ function createCorsMiddleware(allowedOrigins: string[]) {
         "Twitch-Eventsub-Message-Id",
         "Twitch-Eventsub-Message-Signature",
         "Twitch-Eventsub-Message-Timestamp",
+        "Twitch-Eventsub-Message-Type",
+        "X-Hub-Signature",
       ].join(", "),
     );
     response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -462,6 +525,17 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.set("trust proxy", 1);
   app.use(helmet());
   app.use(createCorsMiddleware(securityConfig.allowedOrigins));
+  app.use("/api", createRateLimitMiddleware(securityConfig.rateLimit));
+  app.use(
+    "/api/webhooks",
+    createProviderWebhookRouter({
+      dispatcher: options.providerWebhookDispatcher,
+      now: securityConfig.webhookNow,
+      twitchEventSubSecret: securityConfig.twitchEventSubSecret,
+      youtubeWebSubSecret: securityConfig.youtubeWebSubSecret,
+      youtubeWebSubVerifyToken: securityConfig.youtubeWebSubVerifyToken,
+    }),
+  );
   app.use(
     express.json({
       limit: "1mb",
@@ -475,7 +549,17 @@ export function createApp(options: CreateAppOptions = {}): Express {
     response.status(200).json({ service: "api-gateway", status: "ok" });
   });
 
-  app.use("/api", createRateLimitMiddleware(securityConfig.rateLimit));
+  app.use("/auth", createAuthHandoffRouter());
+  app.use(
+    "/api/auth",
+    createOAuthRouter({
+      apiGatewaySecret: securityConfig.apiGatewaySecret,
+      fetchImpl: options.oauth?.fetchImpl,
+      repository: options.oauth?.repository,
+      stateStore: options.oauth?.stateStore,
+      now: securityConfig.webhookNow,
+    }),
+  );
 
   app.get(
     "/api/platforms",
@@ -483,7 +567,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
     (_request, response) => {
       response.status(200).json({
         platforms: ["twitch", "youtube", "tiktok", "kick"],
-        next: "Implement OAuth state handling and encrypted token storage.",
+        next: "YouTube OAuth is available at /api/auth/youtube/connect.",
       });
     },
   );
