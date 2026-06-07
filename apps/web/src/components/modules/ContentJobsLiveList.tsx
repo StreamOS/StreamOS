@@ -35,6 +35,11 @@ const statusMeta = {
     icon: Loader2,
     label: "Processing",
   },
+  processing: {
+    className: "border-signal-gold/30 bg-signal-gold/10 text-signal-gold",
+    icon: Loader2,
+    label: "Processing",
+  },
   failed: {
     className: "border-signal-red/30 bg-signal-red/10 text-signal-red",
     icon: AlertTriangle,
@@ -44,6 +49,16 @@ const statusMeta = {
     className: "border-signal-green/30 bg-signal-green/10 text-signal-green",
     icon: CheckCircle2,
     label: "Done",
+  },
+  completed: {
+    className: "border-signal-green/30 bg-signal-green/10 text-signal-green",
+    icon: CheckCircle2,
+    label: "Completed",
+  },
+  cancelled: {
+    className: "border-slate-500/30 bg-slate-500/10 text-slate-300",
+    icon: AlertTriangle,
+    label: "Cancelled",
   },
 } as const satisfies Record<
   ContentJobRow["status"],
@@ -252,7 +267,7 @@ function JobRow({
         >
           <Icon
             aria-hidden="true"
-            className={`h-4 w-4 ${job.status === "running" ? "animate-spin" : ""}`}
+            className={`h-4 w-4 ${isProcessingStatus(job.status) ? "animate-spin" : ""}`}
           />
           {meta.label}
         </span>
@@ -303,10 +318,10 @@ function RetryButton() {
 
 function getJobCounts(jobs: ContentJobRow[]) {
   return {
-    done: jobs.filter((job) => job.status === "done").length,
+    done: jobs.filter((job) => isDoneStatus(job.status)).length,
     failed: jobs.filter((job) => job.status === "failed").length,
     pending: jobs.filter((job) => job.status === "pending").length,
-    processing: jobs.filter((job) => job.status === "running").length,
+    processing: jobs.filter((job) => isProcessingStatus(job.status)).length,
   };
 }
 
@@ -334,7 +349,9 @@ function getResultPreview(job: ContentJobRow): string {
     typeof job.result !== "object" ||
     Array.isArray(job.result)
   ) {
-    return job.status === "running" ? "Processing..." : "Waiting for result";
+    return isProcessingStatus(job.status)
+      ? "Processing..."
+      : "Waiting for result";
   }
 
   if ("error" in job.result && typeof job.result.error === "string") {
@@ -375,10 +392,22 @@ function matchesFilter(job: ContentJobRow, filter: JobStatusFilter): boolean {
   }
 
   if (filter === "processing") {
-    return job.status === "running";
+    return isProcessingStatus(job.status);
+  }
+
+  if (filter === "done") {
+    return isDoneStatus(job.status);
   }
 
   return job.status === filter;
+}
+
+function isProcessingStatus(status: ContentJobRow["status"]): boolean {
+  return status === "running" || status === "processing";
+}
+
+function isDoneStatus(status: ContentJobRow["status"]): boolean {
+  return status === "done" || status === "completed";
 }
 
 function mergeJob(

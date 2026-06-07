@@ -23,15 +23,30 @@ const statusMeta = {
     icon: Loader2,
     label: "Running",
   },
+  processing: {
+    className: "border-signal-gold/30 bg-signal-gold/10 text-signal-gold",
+    icon: Loader2,
+    label: "Processing",
+  },
   done: {
     className: "border-signal-green/30 bg-signal-green/10 text-signal-green",
     icon: CheckCircle2,
     label: "Done",
   },
+  completed: {
+    className: "border-signal-green/30 bg-signal-green/10 text-signal-green",
+    icon: CheckCircle2,
+    label: "Completed",
+  },
   failed: {
     className: "border-signal-red/30 bg-signal-red/10 text-signal-red",
     icon: AlertTriangle,
     label: "Failed",
+  },
+  cancelled: {
+    className: "border-slate-500/30 bg-slate-500/10 text-slate-300",
+    icon: AlertTriangle,
+    label: "Cancelled",
   },
 } as const satisfies Record<
   ContentJobRow["status"],
@@ -67,9 +82,9 @@ export function ContentJobProgress({
 
   const counts = useMemo(
     () => ({
-      done: jobs.filter((job) => job.status === "done").length,
+      done: jobs.filter((job) => isDoneStatus(job.status)).length,
       failed: jobs.filter((job) => job.status === "failed").length,
-      running: jobs.filter((job) => job.status === "running").length,
+      running: jobs.filter((job) => isProcessingStatus(job.status)).length,
     }),
     [jobs],
   );
@@ -147,7 +162,7 @@ function JobRow({ job }: { job: ContentJobRow }) {
           className={`inline-flex min-h-8 items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-semibold ${meta.className}`}
         >
           <Icon
-            className={`h-4 w-4 ${job.status === "running" ? "animate-spin" : ""}`}
+            className={`h-4 w-4 ${isProcessingStatus(job.status) ? "animate-spin" : ""}`}
             aria-hidden="true"
           />
           {meta.label}
@@ -173,7 +188,7 @@ function getResultPreview(job: ContentJobRow): string {
     typeof job.result !== "object" ||
     Array.isArray(job.result)
   ) {
-    return job.status === "running"
+    return isProcessingStatus(job.status)
       ? "Transkription laeuft..."
       : "Wartet auf Ergebnis";
   }
@@ -208,6 +223,14 @@ function getResultPreview(job: ContentJobRow): string {
   }
 
   return "Ergebnis gespeichert";
+}
+
+function isProcessingStatus(status: ContentJobRow["status"]): boolean {
+  return status === "running" || status === "processing";
+}
+
+function isDoneStatus(status: ContentJobRow["status"]): boolean {
+  return status === "done" || status === "completed";
 }
 
 function mergeJob(
