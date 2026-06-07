@@ -67,12 +67,21 @@ importers:
       "@streamos/database":
         specifier: workspace:*
         version: link:../../packages/database
+      "@streamos/queue":
+        specifier: workspace:*
+        version: link:../../packages/queue
+      "@streamos/twitch-eventsub":
+        specifier: workspace:*
+        version: link:../../packages/twitch-eventsub
       "@streamos/types":
         specifier: workspace:*
         version: link:../../packages/types
       "@streamos/ui":
         specifier: workspace:*
         version: link:../../packages/ui
+      "@streamos/youtube-websub":
+        specifier: workspace:*
+        version: link:../../packages/youtube-websub
       "@supabase/ssr":
         specifier: ^0.6.1
         version: 0.6.1(@supabase/supabase-js@2.106.2)
@@ -164,6 +173,37 @@ importers:
         specifier: workspace:*
         version: link:../types
 
+  packages/queue:
+    dependencies:
+      bullmq:
+        specifier: ^5.77.7
+        version: 5.77.7
+      ioredis:
+        specifier: ^5.8.2
+        version: 5.10.1
+    devDependencies:
+      "@streamos/config":
+        specifier: workspace:*
+        version: link:../config
+      "@types/node":
+        specifier: ^22.13.14
+        version: 22.19.19
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
+  packages/twitch-eventsub:
+    devDependencies:
+      "@streamos/config":
+        specifier: workspace:*
+        version: link:../config
+      "@types/node":
+        specifier: ^22.13.14
+        version: 22.19.19
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
   packages/types: {}
 
   packages/ui:
@@ -182,11 +222,29 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
+  packages/youtube-websub:
+    devDependencies:
+      "@streamos/config":
+        specifier: workspace:*
+        version: link:../config
+      "@types/node":
+        specifier: ^22.13.14
+        version: 22.19.19
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
   services/api-gateway:
     dependencies:
+      "@streamos/queue":
+        specifier: workspace:*
+        version: link:../../packages/queue
       "@streamos/types":
         specifier: workspace:*
         version: link:../../packages/types
+      "@streamos/youtube-websub":
+        specifier: workspace:*
+        version: link:../../packages/youtube-websub
       bullmq:
         specifier: ^5.77.7
         version: 5.77.7
@@ -286,6 +344,37 @@ importers:
       vitest:
         specifier: ^3.0.9
         version: 3.2.4(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)(yaml@2.9.0)
+
+  workers/stream-job-worker:
+    dependencies:
+      "@streamos/queue":
+        specifier: workspace:*
+        version: link:../../packages/queue
+      "@supabase/supabase-js":
+        specifier: ^2.49.4
+        version: 2.106.2
+      bullmq:
+        specifier: ^5.77.7
+        version: 5.77.7
+      ioredis:
+        specifier: ^5.8.2
+        version: 5.10.1
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      "@streamos/config":
+        specifier: workspace:*
+        version: link:../../packages/config
+      "@types/node":
+        specifier: ^22.13.14
+        version: 22.19.19
+      tsx:
+        specifier: ^4.19.3
+        version: 4.22.4
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
 
   workers/transcription-worker:
     dependencies:
