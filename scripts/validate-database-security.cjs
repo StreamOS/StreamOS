@@ -26,6 +26,7 @@ const tenantTables = [
   "brand_assets",
   "monetization_events",
   "monetization_summaries",
+  "youtube_websub_subscriptions",
 ];
 
 const platformConnectionReadableColumns = [
@@ -58,6 +59,7 @@ const authenticatedReadOnlyTables = [
   "clip_exports",
   "monetization_events",
   "monetization_summaries",
+  "youtube_websub_subscriptions",
 ];
 
 const authenticatedReadOnlyWritePolicies = {
@@ -80,6 +82,11 @@ const authenticatedReadOnlyWritePolicies = {
     delete: "Monetization summaries can be deleted by their user",
     insert: "Monetization summaries can be inserted by their user",
     update: "Monetization summaries can be updated by their user",
+  },
+  youtube_websub_subscriptions: {
+    delete: "YouTube WebSub subscriptions can be deleted by their user",
+    insert: "YouTube WebSub subscriptions can be inserted by their user",
+    update: "YouTube WebSub subscriptions can be updated by their user",
   },
   stream_transcripts: {
     delete: "Stream transcripts can be deleted by their user",
@@ -116,6 +123,7 @@ const compositeTenantConstraints = [
   "monetization_events_stream_user_fkey",
   "monetization_summaries_creator_user_fkey",
   "monetization_summaries_channel_user_fkey",
+  "youtube_websub_subscriptions_connection_user_fkey",
 ];
 
 const migrationFiles = fs

@@ -189,10 +189,15 @@ export type Database = {
           id: string;
           user_id: string;
           channel_id: string;
+          provider: Database["public"]["Enums"]["stream_platform"];
+          stream_id: string;
           platform_stream_id: string;
           started_at: string | null;
           ended_at: string | null;
           title: string | null;
+          game_name: string | null;
+          viewer_peak: number | null;
+          status: string;
           peak_viewers: number | null;
           average_viewers: number | null;
           created_at: string;
@@ -202,10 +207,15 @@ export type Database = {
           id?: string;
           user_id: string;
           channel_id: string;
+          provider?: Database["public"]["Enums"]["stream_platform"];
+          stream_id?: string;
           platform_stream_id: string;
           started_at?: string | null;
           ended_at?: string | null;
           title?: string | null;
+          game_name?: string | null;
+          viewer_peak?: number | null;
+          status?: string;
           peak_viewers?: number | null;
           average_viewers?: number | null;
           created_at?: string;
@@ -215,10 +225,15 @@ export type Database = {
           id?: string;
           user_id?: string;
           channel_id?: string;
+          provider?: Database["public"]["Enums"]["stream_platform"];
+          stream_id?: string;
           platform_stream_id?: string;
           started_at?: string | null;
           ended_at?: string | null;
           title?: string | null;
+          game_name?: string | null;
+          viewer_peak?: number | null;
+          status?: string;
           peak_viewers?: number | null;
           average_viewers?: number | null;
           created_at?: string;
@@ -242,6 +257,7 @@ export type Database = {
           platform: Database["public"]["Enums"]["stream_platform"];
           provider_account_id: string;
           provider_profile: Json;
+          metadata: Json;
           access_token_ciphertext: string | null;
           refresh_token_ciphertext: string | null;
           scopes: string[];
@@ -259,6 +275,7 @@ export type Database = {
           platform: Database["public"]["Enums"]["stream_platform"];
           provider_account_id: string;
           provider_profile?: Json;
+          metadata?: Json;
           access_token_ciphertext?: string | null;
           refresh_token_ciphertext?: string | null;
           scopes?: string[];
@@ -276,6 +293,7 @@ export type Database = {
           platform?: Database["public"]["Enums"]["stream_platform"];
           provider_account_id?: string;
           provider_profile?: Json;
+          metadata?: Json;
           access_token_ciphertext?: string | null;
           refresh_token_ciphertext?: string | null;
           scopes?: string[];
@@ -296,6 +314,61 @@ export type Database = {
             foreignKeyName: "platform_connections_creator_user_fkey";
             columns: ["creator_id", "user_id"];
             referencedRelation: "creators";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
+      youtube_websub_subscriptions: {
+        Row: {
+          id: string;
+          user_id: string;
+          channel_connection_id: string;
+          youtube_channel_id: string;
+          topic_url: string;
+          status: string;
+          lease_seconds: number;
+          subscribed_at: string;
+          expires_at: string;
+          last_renewed_at: string | null;
+          failed_renewals: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          channel_connection_id: string;
+          youtube_channel_id: string;
+          topic_url: string;
+          status?: string;
+          lease_seconds: number;
+          subscribed_at?: string;
+          expires_at: string;
+          last_renewed_at?: string | null;
+          failed_renewals?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          channel_connection_id?: string;
+          youtube_channel_id?: string;
+          topic_url?: string;
+          status?: string;
+          lease_seconds?: number;
+          subscribed_at?: string;
+          expires_at?: string;
+          last_renewed_at?: string | null;
+          failed_renewals?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "youtube_websub_subscriptions_connection_user_fkey";
+            columns: ["channel_connection_id", "user_id"];
+            referencedRelation: "platform_connections";
             referencedColumns: ["id", "user_id"];
           },
         ];
@@ -369,6 +442,7 @@ export type Database = {
           id: string;
           user_id: string;
           stream_id: string | null;
+          channel_id: string | null;
           queue_job_id: string | null;
           job_type: ContentJobType;
           type: ContentJobType;
@@ -387,6 +461,7 @@ export type Database = {
           id?: string;
           user_id: string;
           stream_id?: string | null;
+          channel_id?: string | null;
           queue_job_id?: string | null;
           job_type: ContentJobType;
           type?: ContentJobType;
@@ -405,6 +480,7 @@ export type Database = {
           id?: string;
           user_id?: string;
           stream_id?: string | null;
+          channel_id?: string | null;
           queue_job_id?: string | null;
           job_type?: ContentJobType;
           type?: ContentJobType;
@@ -420,6 +496,12 @@ export type Database = {
           updated_at?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "content_jobs_channel_user_fkey";
+            columns: ["channel_id", "user_id"];
+            referencedRelation: "channels";
+            referencedColumns: ["id", "user_id"];
+          },
           {
             foreignKeyName: "content_jobs_stream_user_fkey";
             columns: ["stream_id", "user_id"];
@@ -1007,7 +1089,13 @@ export type Database = {
       };
     };
     Enums: {
-      connection_status: "connected" | "expired" | "revoked" | "pending";
+      connection_status:
+        | "connected"
+        | "degraded"
+        | "disconnected"
+        | "expired"
+        | "pending"
+        | "revoked";
       stream_platform: "twitch" | "youtube" | "tiktok" | "kick";
     };
     CompositeTypes: {
