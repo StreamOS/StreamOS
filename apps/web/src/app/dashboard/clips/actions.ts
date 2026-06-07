@@ -15,7 +15,7 @@ import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
-type ChannelRow = Pick<Tables<"channels">, "id">;
+type ChannelRow = Pick<Tables<"channels">, "id" | "platform">;
 type StreamRow = Pick<Tables<"streams">, "id">;
 
 export async function startClipAnalysisAction(formData: FormData) {
@@ -61,6 +61,7 @@ export async function startClipAnalysisAction(formData: FormData) {
   const stream = await ensureStreamForVod({
     category: values.category,
     channelId: channel.id,
+    provider: channel.platform,
     sourceUrl: values.sourceUrl,
     supabase,
     userId,
@@ -155,7 +156,7 @@ async function getPrimaryChannel({
 }): Promise<ChannelRow | null> {
   const result = await supabase
     .from("channels")
-    .select("id")
+    .select("id,platform")
     .eq("user_id", userId)
     .eq("creator_id", creatorId)
     .order("connected_at", { ascending: false })
@@ -173,12 +174,14 @@ async function getPrimaryChannel({
 async function ensureStreamForVod({
   category,
   channelId,
+  provider,
   sourceUrl,
   supabase,
   userId,
 }: {
   category: string | null;
   channelId: string;
+  provider: ChannelRow["platform"];
   sourceUrl: string;
   supabase: SupabaseServerClient;
   userId: string;
@@ -203,6 +206,7 @@ async function ensureStreamForVod({
   const payload: Inserts<"streams"> = {
     channel_id: channelId,
     platform_stream_id: platformStreamId,
+    provider,
     title: category ? `${category} VOD analysis` : "VOD analysis",
     user_id: userId,
   };
