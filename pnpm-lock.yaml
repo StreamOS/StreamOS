@@ -79,6 +79,9 @@ importers:
       "@streamos/ui":
         specifier: workspace:*
         version: link:../../packages/ui
+      "@streamos/utils":
+        specifier: workspace:*
+        version: link:../../packages/utils
       "@streamos/youtube-websub":
         specifier: workspace:*
         version: link:../../packages/youtube-websub
@@ -222,6 +225,18 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
+  packages/utils:
+    devDependencies:
+      "@streamos/config":
+        specifier: workspace:*
+        version: link:../config
+      "@types/node":
+        specifier: ^22.13.14
+        version: 22.19.19
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
   packages/youtube-websub:
     devDependencies:
       "@streamos/config":
@@ -257,6 +272,9 @@ importers:
       helmet:
         specifier: ^8.1.0
         version: 8.2.0
+      ioredis:
+        specifier: ^5.8.2
+        version: 5.10.1
       jose:
         specifier: ^6.2.3
         version: 6.2.3
@@ -294,9 +312,15 @@ importers:
       "@streamos/types":
         specifier: workspace:*
         version: link:../../packages/types
+      "@streamos/utils":
+        specifier: workspace:*
+        version: link:../../packages/utils
       bullmq:
         specifier: ^5.77.7
         version: 5.77.7
+      ioredis:
+        specifier: ^5.8.2
+        version: 5.10.1
       zod:
         specifier: ^3.24.2
         version: 3.25.76
