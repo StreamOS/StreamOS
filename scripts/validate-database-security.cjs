@@ -11,6 +11,7 @@ const migrationsDir = path.join(
 );
 
 const tenantTables = [
+  "user_profiles",
   "creators",
   "channels",
   "platform_connections",
@@ -26,6 +27,71 @@ const tenantTables = [
   "monetization_events",
   "monetization_summaries",
 ];
+
+const platformConnectionReadableColumns = [
+  "id",
+  "user_id",
+  "creator_id",
+  "channel_id",
+  "platform",
+  "provider_account_id",
+  "scopes",
+  "expires_at",
+  "connected_at",
+  "status",
+  "created_at",
+  "updated_at",
+];
+
+const contentJobClientInsertColumns = [
+  "user_id",
+  "stream_id",
+  "queue_job_id",
+  "job_type",
+  "payload",
+];
+
+const authenticatedReadOnlyTables = [
+  "metrics_snapshots",
+  "vod_assets",
+  "stream_transcripts",
+  "clip_exports",
+  "monetization_events",
+  "monetization_summaries",
+];
+
+const authenticatedReadOnlyWritePolicies = {
+  clip_exports: {
+    delete: "Clip exports can be deleted by their user",
+    insert: "Clip exports can be inserted by their user",
+    update: "Clip exports can be updated by their user",
+  },
+  metrics_snapshots: {
+    delete: "Metrics snapshots can be deleted by their user",
+    insert: "Metrics snapshots can be inserted by their user",
+    update: "Metrics snapshots can be updated by their user",
+  },
+  monetization_events: {
+    delete: "Monetization events can be deleted by their user",
+    insert: "Monetization events can be inserted by their user",
+    update: "Monetization events can be updated by their user",
+  },
+  monetization_summaries: {
+    delete: "Monetization summaries can be deleted by their user",
+    insert: "Monetization summaries can be inserted by their user",
+    update: "Monetization summaries can be updated by their user",
+  },
+  stream_transcripts: {
+    delete: "Stream transcripts can be deleted by their user",
+    insert: "Stream transcripts can be inserted by their user",
+    update: "Stream transcripts can be updated by their user",
+  },
+  vod_assets: {
+    delete: "VOD assets can be deleted by their user",
+    insert: "VOD assets can be inserted by their user",
+    update: "VOD assets can be updated by their user",
+  },
+};
 
 const compositeTenantConstraints = [
   "channels_creator_user_fkey",
@@ -75,6 +141,20 @@ const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const hasPattern = (pattern) => pattern.test(normalizedSql);
 
+const lastPatternIndex = (pattern) => {
+  const flags = pattern.flags.includes("g")
+    ? pattern.flags
+    : `${pattern.flags}g`;
+  const globalPattern = new RegExp(pattern.source, flags);
+  let lastIndex = -1;
+
+  for (const match of normalizedSql.matchAll(globalPattern)) {
+    lastIndex = match.index ?? lastIndex;
+  }
+
+  return lastIndex;
+};
+
 const assertPattern = (condition, message) => {
   if (!condition) {
     failures.push(message);
@@ -88,6 +168,60 @@ const policyRegex = (table, action, bodyPattern) =>
     )}\\s+for\\s+${action}\\s+to\\s+authenticated\\s+${bodyPattern}`,
     "i",
   );
+
+const columnGrantRegex = (table, action, columns, role) =>
+  new RegExp(
+    `grant\\s+${action}\\s*\\(\\s*${columns
+      .map(escapeRegex)
+      .join("\\s*,\\s*")}\\s*\\)\\s+on\\s+public\\.${escapeRegex(
+      table,
+    )}\\s+to\\s+${escapeRegex(role)}`,
+    "i",
+  );
+
+const droppedPolicyRegex = (table, policyName) =>
+  new RegExp(
+    `drop\\s+policy\\s+if\\s+exists\\s+"${escapeRegex(
+      policyName,
+    )}"\\s+on\\s+public\\.${escapeRegex(table)}`,
+    "i",
+  );
+
+const namedWritePolicyRegex = (table, policyName, action) =>
+  new RegExp(
+    `create\\s+policy\\s+"${escapeRegex(
+      policyName,
+    )}"\\s+on\\s+public\\.${escapeRegex(
+      table,
+    )}\\s+for\\s+${action}\\s+to\\s+authenticated`,
+    "i",
+  );
+
+const tableCrudGrantRegex = (table) =>
+  new RegExp(
+    `grant\\s+select\\s*,\\s*insert\\s*,\\s*update\\s*,\\s*delete\\s+on\\s+public\\.${escapeRegex(
+      table,
+    )}\\s+to\\s+authenticated`,
+    "i",
+  );
+
+const authenticatedUserScope =
+  "auth\\.uid\\s*\\(\\s*\\)\\s+is\\s+not\\s+null\\s+and\\s+user_id\\s*=\\s*auth\\.uid\\s*\\(\\s*\\)";
+
+const monetizationProviderEventGlobalIndexRegex = new RegExp(
+  "create\\s+unique\\s+index\\s+(?:if\\s+not\\s+exists\\s+)?monetization_events_provider_event_unique_idx\\s+on\\s+public\\.monetization_events\\s*\\(\\s*provider\\s*,\\s*provider_event_id\\s*\\)\\s+where\\s+provider_event_id\\s+is\\s+not\\s+null",
+  "i",
+);
+
+const monetizationProviderEventScopedIndexRegex = new RegExp(
+  "create\\s+unique\\s+index\\s+(?:if\\s+not\\s+exists\\s+)?monetization_events_provider_event_unique_idx\\s+on\\s+public\\.monetization_events\\s*\\(\\s*user_id\\s*,\\s*provider\\s*,\\s*provider_event_id\\s*\\)\\s+where\\s+provider_event_id\\s+is\\s+not\\s+null",
+  "i",
+);
+
+const monetizationProviderEventDropIndexRegex = new RegExp(
+  "drop\\s+index\\s+if\\s+exists\\s+(?:public\\.)?monetization_events_provider_event_unique_idx",
+  "i",
+);
 
 for (const table of tenantTables) {
   const tableName = escapeRegex(table);
@@ -127,54 +261,228 @@ for (const table of tenantTables) {
       policyRegex(
         table,
         "select",
-        "using\\s*\\(\\s*user_id\\s*=\\s*\\(\\s*select\\s+auth\\.uid\\s*\\(\\s*\\)\\s*\\)\\s*\\)",
+        `using\\s*\\(\\s*${authenticatedUserScope}\\s*\\)`,
       ),
     ),
-    `${table}: SELECT policy must be scoped to user_id = auth.uid()`,
+    `${table}: SELECT policy must explicitly check auth.uid() is not null and user_id = auth.uid()`,
   );
 
-  assertPattern(
-    hasPattern(
-      policyRegex(
-        table,
-        "insert",
-        "with\\s+check\\s*\\(\\s*user_id\\s*=\\s*\\(\\s*select\\s+auth\\.uid\\s*\\(\\s*\\)\\s*\\)\\s*\\)",
+  if (table === "platform_connections") {
+    assertPattern(
+      hasPattern(
+        new RegExp(
+          `drop\\s+policy\\s+if\\s+exists\\s+"platform connections can be inserted by their user"\\s+on\\s+public\\.${tableName}`,
+          "i",
+        ),
       ),
-    ),
-    `${table}: INSERT policy must check user_id = auth.uid()`,
-  );
+      `${table}: authenticated INSERT policy must be dropped; writes are server-side only`,
+    );
 
-  assertPattern(
-    hasPattern(
-      policyRegex(
-        table,
-        "update",
-        "using\\s*\\(\\s*user_id\\s*=\\s*\\(\\s*select\\s+auth\\.uid\\s*\\(\\s*\\)\\s*\\)\\s*\\)\\s*with\\s+check\\s*\\(\\s*user_id\\s*=\\s*\\(\\s*select\\s+auth\\.uid\\s*\\(\\s*\\)\\s*\\)\\s*\\)",
+    assertPattern(
+      hasPattern(
+        new RegExp(
+          `drop\\s+policy\\s+if\\s+exists\\s+"platform connections can be updated by their user"\\s+on\\s+public\\.${tableName}`,
+          "i",
+        ),
       ),
-    ),
-    `${table}: UPDATE policy must include USING and WITH CHECK user scope`,
-  );
+      `${table}: authenticated UPDATE policy must be dropped; writes are server-side only`,
+    );
 
-  assertPattern(
-    hasPattern(
-      policyRegex(
-        table,
-        "delete",
-        "using\\s*\\(\\s*user_id\\s*=\\s*\\(\\s*select\\s+auth\\.uid\\s*\\(\\s*\\)\\s*\\)\\s*\\)",
+    assertPattern(
+      hasPattern(
+        new RegExp(
+          `drop\\s+policy\\s+if\\s+exists\\s+"platform connections can be deleted by their user"\\s+on\\s+public\\.${tableName}`,
+          "i",
+        ),
       ),
-    ),
-    `${table}: DELETE policy must be scoped to user_id = auth.uid()`,
-  );
+      `${table}: authenticated DELETE policy must be dropped; writes are server-side only`,
+    );
 
-  assertPattern(
-    hasPattern(
-      new RegExp(
-        `grant\\s+select\\s*,\\s*insert\\s*,\\s*update\\s*,\\s*delete\\s+on\\s+public\\.${tableName}\\s+to\\s+authenticated`,
-        "i",
+    assertPattern(
+      hasPattern(
+        new RegExp(
+          `revoke\\s+select\\s*,\\s*insert\\s*,\\s*update\\s*,\\s*delete\\s+on\\s+public\\.${tableName}\\s+from\\s+authenticated`,
+          "i",
+        ),
       ),
-    ),
-    `${table}: authenticated role is missing explicit CRUD grants`,
-  );
+      `${table}: authenticated role must have table-level CRUD revoked`,
+    );
+
+    assertPattern(
+      hasPattern(
+        columnGrantRegex(
+          table,
+          "select",
+          platformConnectionReadableColumns,
+          "authenticated",
+        ),
+      ),
+      `${table}: authenticated SELECT grant must use explicit non-token columns`,
+    );
+  } else if (table === "content_jobs") {
+    const updatePolicyName = "Content jobs can be updated by their user";
+    const deletePolicyName = "Content jobs can be deleted by their user";
+
+    assertPattern(
+      hasPattern(
+        policyRegex(
+          table,
+          "insert",
+          `with\\s+check\\s*\\(\\s*${authenticatedUserScope}\\s*\\)`,
+        ),
+      ),
+      `${table}: INSERT policy must explicitly check auth.uid() is not null and user_id = auth.uid()`,
+    );
+
+    assertPattern(
+      hasPattern(droppedPolicyRegex(table, updatePolicyName)),
+      `${table}: authenticated UPDATE policy must be dropped; status/result/retry writes are service-side only`,
+    );
+
+    assertPattern(
+      hasPattern(droppedPolicyRegex(table, deletePolicyName)),
+      `${table}: authenticated DELETE policy must be dropped; job state is service-side only`,
+    );
+
+    assertPattern(
+      lastPatternIndex(droppedPolicyRegex(table, updatePolicyName)) >
+        lastPatternIndex(
+          namedWritePolicyRegex(table, updatePolicyName, "update"),
+        ),
+      `${table}: final UPDATE policy state must be dropped`,
+    );
+
+    assertPattern(
+      lastPatternIndex(droppedPolicyRegex(table, deletePolicyName)) >
+        lastPatternIndex(
+          namedWritePolicyRegex(table, deletePolicyName, "delete"),
+        ),
+      `${table}: final DELETE policy state must be dropped`,
+    );
+
+    assertPattern(
+      lastPatternIndex(
+        new RegExp(
+          `revoke\\s+insert\\s*,\\s*update\\s*,\\s*delete\\s+on\\s+public\\.${tableName}\\s+from\\s+authenticated`,
+          "i",
+        ),
+      ) > lastPatternIndex(tableCrudGrantRegex(table)),
+      `${table}: authenticated table-level write grants must be revoked after earlier CRUD grants`,
+    );
+
+    assertPattern(
+      hasPattern(
+        columnGrantRegex(
+          table,
+          "insert",
+          contentJobClientInsertColumns,
+          "authenticated",
+        ),
+      ),
+      `${table}: authenticated INSERT grant must exclude status/result/retry columns`,
+    );
+
+    assertPattern(
+      hasPattern(
+        new RegExp(
+          `grant\\s+select\\s+on\\s+public\\.${tableName}\\s+to\\s+authenticated`,
+          "i",
+        ),
+      ),
+      `${table}: authenticated role must keep explicit SELECT grant`,
+    );
+  } else if (authenticatedReadOnlyTables.includes(table)) {
+    const writePolicies = authenticatedReadOnlyWritePolicies[table];
+    const policyActions = ["insert", "update", "delete"];
+
+    assertPattern(
+      hasPattern(droppedPolicyRegex(table, writePolicies.insert)),
+      `${table}: authenticated INSERT policy must be dropped; writes are service-side only`,
+    );
+
+    assertPattern(
+      hasPattern(droppedPolicyRegex(table, writePolicies.update)),
+      `${table}: authenticated UPDATE policy must be dropped; writes are service-side only`,
+    );
+
+    assertPattern(
+      hasPattern(droppedPolicyRegex(table, writePolicies.delete)),
+      `${table}: authenticated DELETE policy must be dropped; writes are service-side only`,
+    );
+
+    for (const action of policyActions) {
+      const policyName = writePolicies[action];
+      const lastCreateIndex = lastPatternIndex(
+        namedWritePolicyRegex(table, policyName, action),
+      );
+      const lastDropIndex = lastPatternIndex(
+        droppedPolicyRegex(table, policyName),
+      );
+
+      assertPattern(
+        lastDropIndex > lastCreateIndex,
+        `${table}: final ${action.toUpperCase()} policy state must be dropped`,
+      );
+    }
+
+    assertPattern(
+      lastPatternIndex(
+        new RegExp(
+          `revoke\\s+insert\\s*,\\s*update\\s*,\\s*delete\\s+on\\s+public\\.${tableName}\\s+from\\s+authenticated`,
+          "i",
+        ),
+      ) > lastPatternIndex(tableCrudGrantRegex(table)),
+      `${table}: authenticated table-level write grants must be revoked after earlier CRUD grants`,
+    );
+
+    assertPattern(
+      hasPattern(
+        new RegExp(
+          `grant\\s+select\\s+on\\s+public\\.${tableName}\\s+to\\s+authenticated`,
+          "i",
+        ),
+      ),
+      `${table}: authenticated role must keep explicit read-only SELECT grant`,
+    );
+  } else {
+    assertPattern(
+      hasPattern(
+        policyRegex(
+          table,
+          "insert",
+          `with\\s+check\\s*\\(\\s*${authenticatedUserScope}\\s*\\)`,
+        ),
+      ),
+      `${table}: INSERT policy must explicitly check auth.uid() is not null and user_id = auth.uid()`,
+    );
+
+    assertPattern(
+      hasPattern(
+        policyRegex(
+          table,
+          "update",
+          `using\\s*\\(\\s*${authenticatedUserScope}\\s*\\)\\s*with\\s+check\\s*\\(\\s*${authenticatedUserScope}\\s*\\)`,
+        ),
+      ),
+      `${table}: UPDATE policy must include explicit USING and WITH CHECK authenticated user scope`,
+    );
+
+    assertPattern(
+      hasPattern(
+        policyRegex(
+          table,
+          "delete",
+          `using\\s*\\(\\s*${authenticatedUserScope}\\s*\\)`,
+        ),
+      ),
+      `${table}: DELETE policy must explicitly check auth.uid() is not null and user_id = auth.uid()`,
+    );
+
+    assertPattern(
+      hasPattern(tableCrudGrantRegex(table)),
+      `${table}: authenticated role is missing explicit CRUD grants`,
+    );
+  }
 
   assertPattern(
     hasPattern(
@@ -210,6 +518,18 @@ for (const constraint of compositeTenantConstraints) {
     `${constraint}: composite tenant foreign key must include user_id`,
   );
 }
+
+assertPattern(
+  lastPatternIndex(monetizationProviderEventDropIndexRegex) >
+    lastPatternIndex(monetizationProviderEventGlobalIndexRegex),
+  "monetization_events: global provider/provider_event_id unique index must be dropped",
+);
+
+assertPattern(
+  lastPatternIndex(monetizationProviderEventScopedIndexRegex) >
+    lastPatternIndex(monetizationProviderEventDropIndexRegex),
+  "monetization_events: provider/provider_event_id unique index must be tenant-scoped by leading user_id",
+);
 
 if (failures.length > 0) {
   console.error("Database security validation failed:");

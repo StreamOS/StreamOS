@@ -18,12 +18,14 @@ export type VodAssetStatus =
   | "failed";
 export type StreamHighlightSource = "transcript" | "clip_scoring" | "manual";
 export type ClipStatus =
+  | "pending"
   | "draft"
   | "queued"
   | "rendering"
   | "ready"
   | "failed"
   | "published";
+export type ClipExportStatus = Exclude<ClipStatus, "pending">;
 export type BrandAssetType =
   | "overlay"
   | "alert"
@@ -58,31 +60,79 @@ export type MonetizationSummaryPeriod = "daily" | "weekly";
 export type Database = {
   public: {
     Tables: {
-      creators: {
+      user_profiles: {
         Row: {
           id: string;
           user_id: string;
+          email: string | null;
           display_name: string;
-          handle: string | null;
-          niche: string | null;
+          avatar_url: string | null;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
           user_id: string;
-          display_name: string;
-          handle?: string | null;
-          niche?: string | null;
+          email?: string | null;
+          display_name?: string;
+          avatar_url?: string | null;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
           user_id?: string;
+          email?: string | null;
           display_name?: string;
+          avatar_url?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      creators: {
+        Row: {
+          id: string;
+          user_id: string;
+          email: string | null;
+          display_name: string;
+          avatar_url: string | null;
+          bio: string | null;
+          handle: string | null;
+          niche: string | null;
+          primary_language: "DE" | "EN" | "Other";
+          onboarding_step: number;
+          onboarding_completed: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          email?: string | null;
+          display_name: string;
+          avatar_url?: string | null;
+          bio?: string | null;
           handle?: string | null;
           niche?: string | null;
+          primary_language?: "DE" | "EN" | "Other";
+          onboarding_step?: number;
+          onboarding_completed?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          email?: string | null;
+          display_name?: string;
+          avatar_url?: string | null;
+          bio?: string | null;
+          handle?: string | null;
+          niche?: string | null;
+          primary_language?: "DE" | "EN" | "Other";
+          onboarding_step?: number;
+          onboarding_completed?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -143,6 +193,8 @@ export type Database = {
           started_at: string | null;
           ended_at: string | null;
           title: string | null;
+          peak_viewers: number | null;
+          average_viewers: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -154,6 +206,8 @@ export type Database = {
           started_at?: string | null;
           ended_at?: string | null;
           title?: string | null;
+          peak_viewers?: number | null;
+          average_viewers?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -165,6 +219,8 @@ export type Database = {
           started_at?: string | null;
           ended_at?: string | null;
           title?: string | null;
+          peak_viewers?: number | null;
+          average_viewers?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -185,6 +241,7 @@ export type Database = {
           channel_id: string | null;
           platform: Database["public"]["Enums"]["stream_platform"];
           provider_account_id: string;
+          provider_profile: Json;
           access_token_ciphertext: string | null;
           refresh_token_ciphertext: string | null;
           scopes: string[];
@@ -201,6 +258,7 @@ export type Database = {
           channel_id?: string | null;
           platform: Database["public"]["Enums"]["stream_platform"];
           provider_account_id: string;
+          provider_profile?: Json;
           access_token_ciphertext?: string | null;
           refresh_token_ciphertext?: string | null;
           scopes?: string[];
@@ -217,6 +275,7 @@ export type Database = {
           channel_id?: string | null;
           platform?: Database["public"]["Enums"]["stream_platform"];
           provider_account_id?: string;
+          provider_profile?: Json;
           access_token_ciphertext?: string | null;
           refresh_token_ciphertext?: string | null;
           scopes?: string[];
@@ -249,6 +308,7 @@ export type Database = {
           channel_id: string;
           platform: Database["public"]["Enums"]["stream_platform"];
           captured_at: string;
+          captured_hour: string;
           viewer_count: number;
           follower_count: number;
           watch_time_minutes: number;
@@ -264,6 +324,7 @@ export type Database = {
           channel_id: string;
           platform: Database["public"]["Enums"]["stream_platform"];
           captured_at?: string;
+          captured_hour?: string;
           viewer_count?: number;
           follower_count?: number;
           watch_time_minutes?: number;
@@ -279,6 +340,7 @@ export type Database = {
           channel_id?: string;
           platform?: Database["public"]["Enums"]["stream_platform"];
           captured_at?: string;
+          captured_hour?: string;
           viewer_count?: number;
           follower_count?: number;
           watch_time_minutes?: number;
@@ -309,6 +371,7 @@ export type Database = {
           stream_id: string | null;
           queue_job_id: string | null;
           job_type: ContentJobType;
+          type: ContentJobType;
           status: ContentJobStatus;
           payload: Json;
           result: Json | null;
@@ -326,6 +389,7 @@ export type Database = {
           stream_id?: string | null;
           queue_job_id?: string | null;
           job_type: ContentJobType;
+          type?: ContentJobType;
           status?: ContentJobStatus;
           payload?: Json;
           result?: Json | null;
@@ -343,6 +407,7 @@ export type Database = {
           stream_id?: string | null;
           queue_job_id?: string | null;
           job_type?: ContentJobType;
+          type?: ContentJobType;
           status?: ContentJobStatus;
           payload?: Json;
           result?: Json | null;
@@ -550,9 +615,13 @@ export type Database = {
           title: string;
           description: string | null;
           source_url: string | null;
+          clip_url: string | null;
+          thumbnail_url: string | null;
           source_start_seconds: number | null;
           source_end_seconds: number | null;
           virality_score: number | null;
+          viral_score: number | null;
+          duration_seconds: number | null;
           status: ClipStatus;
           metadata: Json;
           created_at: string;
@@ -567,9 +636,13 @@ export type Database = {
           title: string;
           description?: string | null;
           source_url?: string | null;
+          clip_url?: string | null;
+          thumbnail_url?: string | null;
           source_start_seconds?: number | null;
           source_end_seconds?: number | null;
           virality_score?: number | null;
+          viral_score?: number | null;
+          duration_seconds?: number | null;
           status?: ClipStatus;
           metadata?: Json;
           created_at?: string;
@@ -584,9 +657,13 @@ export type Database = {
           title?: string;
           description?: string | null;
           source_url?: string | null;
+          clip_url?: string | null;
+          thumbnail_url?: string | null;
           source_start_seconds?: number | null;
           source_end_seconds?: number | null;
           virality_score?: number | null;
+          viral_score?: number | null;
+          duration_seconds?: number | null;
           status?: ClipStatus;
           metadata?: Json;
           created_at?: string;
@@ -616,7 +693,7 @@ export type Database = {
             | Database["public"]["Enums"]["stream_platform"]
             | null;
           export_format: string;
-          status: ClipStatus;
+          status: ClipExportStatus;
           render_url: string | null;
           published_url: string | null;
           metadata: Json;
@@ -631,7 +708,7 @@ export type Database = {
             | Database["public"]["Enums"]["stream_platform"]
             | null;
           export_format: string;
-          status?: ClipStatus;
+          status?: ClipExportStatus;
           render_url?: string | null;
           published_url?: string | null;
           metadata?: Json;
@@ -646,7 +723,7 @@ export type Database = {
             | Database["public"]["Enums"]["stream_platform"]
             | null;
           export_format?: string;
-          status?: ClipStatus;
+          status?: ClipExportStatus;
           render_url?: string | null;
           published_url?: string | null;
           metadata?: Json;
