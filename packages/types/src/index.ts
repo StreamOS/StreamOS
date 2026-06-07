@@ -1,3 +1,95 @@
+export const AUTH_ERROR_CODES = [
+  "callback_exchange_failed",
+  "confirmation_failed",
+  "invalid_credentials",
+  "invalid_email",
+  "missing_callback_params",
+  "password_mismatch",
+  "password_reset_failed",
+  "password_update_failed",
+  "profile_bootstrap_failed",
+  "reset_session_required",
+  "session_expired",
+  "signup_failed",
+  "supabase_not_configured",
+  "unauthorized",
+] as const;
+
+export type AuthErrorCode = (typeof AUTH_ERROR_CODES)[number];
+
+export type AuthError = {
+  code: AuthErrorCode;
+  message: string;
+  status: number;
+};
+
+export type AuthMessageCode =
+  | "check_email"
+  | "email_confirmed"
+  | "password_reset_sent"
+  | "password_updated";
+
+export type UserProfile = {
+  id: string;
+  userId: string;
+  email: string | null;
+  displayName: string;
+  avatarUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DashboardAuthUser = {
+  id: string;
+  email: string | null;
+  emailConfirmedAt: string | null;
+  profileCreated: boolean;
+};
+
+export const SUPPORTED_PROVIDERS = [
+  "twitch",
+  "youtube",
+  "tiktok",
+  "kick",
+] as const;
+
+export type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
+
+export type MetricsSnapshot = {
+  user_id: string;
+  channel_id: string;
+  provider: SupportedProvider;
+  snapshot_at: string;
+  followers: number | null;
+  views: number | null;
+  subscribers: number | null;
+  peak_viewers: number | null;
+  data: Record<string, unknown>;
+};
+
+export type MetricsSyncRequest = {
+  providers: SupportedProvider[];
+};
+
+export type MetricsSyncErrorCode =
+  | "CONNECTION_NOT_FOUND"
+  | "DB_WRITE_FAILED"
+  | "PROVIDER_FETCH_FAILED"
+  | "RATE_LIMITED"
+  | "TOKEN_DECRYPT_FAILED"
+  | "TOKEN_REFRESH_FAILED";
+
+export type MetricsSyncFailure = {
+  provider: SupportedProvider;
+  reason: string;
+  code: MetricsSyncErrorCode;
+};
+
+export type MetricsSyncResponse = {
+  synced: SupportedProvider[];
+  failed: MetricsSyncFailure[];
+};
+
 export const STREAM_PLATFORMS = [
   "twitch",
   "youtube",
@@ -6,6 +98,25 @@ export const STREAM_PLATFORMS = [
 ] as const;
 
 export type StreamPlatform = (typeof STREAM_PLATFORMS)[number];
+
+export const CREATOR_PRIMARY_LANGUAGES = ["DE", "EN", "Other"] as const;
+
+export type CreatorPrimaryLanguage = (typeof CREATOR_PRIMARY_LANGUAGES)[number];
+
+export type OnboardingStep = 0 | 1 | 2 | 3;
+
+export type CreatorProfile = {
+  id: string;
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  bio: string | null;
+  primaryLanguage: CreatorPrimaryLanguage;
+  onboardingStep: OnboardingStep;
+  onboardingCompleted: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export const TRANSCRIPTION_TRIGGER_JOB_NAME = "transcription.trigger";
 export const DEFAULT_TRANSCRIPTION_QUEUE_NAME = "streamos-transcription";
@@ -46,13 +157,14 @@ export type VodAssetStatus =
   | "failed";
 export type StreamHighlightSource = "transcript" | "clip_scoring" | "manual";
 export type ClipStatus =
+  | "pending"
   | "draft"
   | "queued"
   | "rendering"
   | "ready"
   | "failed"
   | "published";
-export type ClipExportStatus = ClipStatus;
+export type ClipExportStatus = Exclude<ClipStatus, "pending">;
 export type BrandAssetType =
   | "overlay"
   | "alert"
@@ -128,6 +240,54 @@ export type PlatformConnection = {
   status: ConnectionStatus;
 };
 
+export type OAuthProvider = Exclude<StreamPlatform, "twitch">;
+
+export type OAuthErrorCode =
+  | "invalid_state"
+  | "oauth_exchange_failed"
+  | "oauth_setup_missing"
+  | "provider_not_supported"
+  | "token_persistence_failed"
+  | "user_handoff_invalid";
+
+export type OAuthProviderProfile = {
+  provider: OAuthProvider;
+  providerAccountId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  handle: string | null;
+  followerCount: number;
+};
+
+export type OAuthConnectionResult = {
+  channelId: string;
+  connectionId: string;
+  expiresAt: string | null;
+  profile: OAuthProviderProfile;
+  scopes: string[];
+};
+
+export type GatewayHandoffTokenClaims = {
+  creator_id: string;
+  user_id: string;
+  userid: string;
+};
+
+export type GatewayConnectResponse = {
+  gateway_url: string;
+  handoff_token: string;
+};
+
+export type GatewayHandoffSessionResponse = {
+  expires_in: number;
+  gateway_session_token: string;
+};
+
+export type GatewayHandoffErrorCode =
+  | "handoff_invalid"
+  | "handoff_missing"
+  | "handoff_setup_missing";
+
 export type CreatorMetric = {
   id: string;
   creatorId: string;
@@ -149,6 +309,8 @@ export type Stream = {
   startedAt: string | null;
   endedAt: string | null;
   title: string | null;
+  peakViewers: number | null;
+  averageViewers: number | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -210,9 +372,13 @@ export type Clip = {
   title: string;
   description: string | null;
   sourceUrl: string | null;
+  clipUrl: string | null;
+  thumbnailUrl: string | null;
   sourceStartSeconds: number | null;
   sourceEndSeconds: number | null;
   viralityScore: number | null;
+  viralScore: number | null;
+  durationSeconds: number | null;
   status: ClipStatus;
   metadata: Record<string, unknown>;
   createdAt: string;
@@ -308,6 +474,7 @@ export type ContentJob = {
   streamId: string | null;
   queueJobId: string | null;
   jobType: ContentJobType;
+  type: ContentJobType;
   status: ContentJobStatus;
   payload: Record<string, unknown>;
   result:
