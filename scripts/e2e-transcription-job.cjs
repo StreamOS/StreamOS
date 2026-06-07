@@ -332,22 +332,34 @@ function getRunId() {
 
 async function seedStreamGraph(env, userId) {
   const runId = getRunId();
-  const creatorRows = await supabaseFetch({
-    body: {
-      display_name: `StreamOS E2E Creator ${runId}`,
-      handle: `e2e-${runId}`,
-      niche: "Local E2E",
-      owner_id: userId,
-      user_id: userId,
-    },
+  const existingCreatorRows = await supabaseFetch({
     env,
-    method: "POST",
     path: "/rest/v1/creators",
     query: {
       select: "id",
+      user_id: `eq.${userId}`,
     },
   });
-  const creatorId = creatorRows[0]?.id;
+  let creatorId = existingCreatorRows[0]?.id;
+
+  if (!creatorId) {
+    const creatorRows = await supabaseFetch({
+      body: {
+        display_name: `StreamOS E2E Creator ${runId}`,
+        handle: `e2e-${runId}`,
+        niche: "Local E2E",
+        owner_id: userId,
+        user_id: userId,
+      },
+      env,
+      method: "POST",
+      path: "/rest/v1/creators",
+      query: {
+        select: "id",
+      },
+    });
+    creatorId = creatorRows[0]?.id;
+  }
 
   if (!creatorId) {
     throw new Error("Unable to seed creator for transcription E2E.");
@@ -380,6 +392,7 @@ async function seedStreamGraph(env, userId) {
     body: {
       channel_id: channelId,
       ended_at: new Date().toISOString(),
+      provider: "twitch",
       platform_stream_id: `e2e-transcription-${runId}`,
       started_at: new Date(Date.now() - 15 * 60_000).toISOString(),
       title: "StreamOS Transcription E2E",
