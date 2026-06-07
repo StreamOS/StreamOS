@@ -1,31 +1,17 @@
 import { XMLParser } from "fast-xml-parser";
+import type {
+  StreamOSJob,
+  StreamOSJobType,
+  StreamProvider,
+} from "@streamos/queue";
 
-export type ProviderWebhookEventType =
-  | "stream.online"
-  | "stream.offline"
-  | "channel.update"
-  | "video.published";
-
-export type ProviderWebhookEvent = {
-  id: string;
-  provider: "twitch" | "youtube";
-  type: ProviderWebhookEventType;
-  channelId: string;
-  streamId?: string;
-  videoId?: string;
-  title?: string;
-  categoryName?: string;
-  startedAt?: string;
-  endedAt?: string;
-  publishedAt?: string;
-  updatedAt?: string;
-  raw: Record<string, unknown>;
-  receivedAt: string;
-};
+export type ProviderWebhookEventType = StreamOSJobType;
+export type ProviderWebhookEvent = StreamOSJob;
+export type ProviderWebhookProvider = StreamProvider;
 
 export type ProviderWebhookDispatcher = (
   event: ProviderWebhookEvent,
-) => Promise<void>;
+) => Promise<unknown>;
 
 type TwitchEventSubPayload = {
   subscription?: {
@@ -136,7 +122,7 @@ export function normalizeTwitchNotification({
       type: "channel.update",
       channelId,
       title: asString(event.title),
-      categoryName: asString(event.category_name),
+      gameName: asString(event.category_name),
       raw: event,
       receivedAt,
     };

@@ -1,6 +1,7 @@
 import type { Request, Response, Router } from "express";
 import express from "express";
 import type { OAuthErrorCode, OAuthProvider } from "@streamos/types";
+import { subscribe } from "@streamos/youtube-websub";
 
 import { assertEncryptionConfigured, encryptSecret } from "./encryption.js";
 import { verifyOAuthHandoffToken } from "./handoff.js";
@@ -256,6 +257,16 @@ export function createOAuthRouter({
       return;
     }
 
+    if (provider === "youtube") {
+      await registerInitialYouTubeWebSub({
+        channelId: tokenResult.profile.providerAccountId,
+        connectionId: result.connectionId,
+        fetchImpl,
+        repository: getRepository({ fetchImpl, repository }),
+        userId: storedState.userId,
+      });
+    }
+
     response.status(200).json({
       data: {
         channel_id: result.channelId,
@@ -270,6 +281,40 @@ export function createOAuthRouter({
   });
 
   return router;
+}
+
+async function registerInitialYouTubeWebSub({
+  channelId,
+  connectionId,
+  fetchImpl,
+  repository,
+  userId,
+}: {
+  channelId: string;
+  connectionId: string;
+  fetchImpl: typeof fetch;
+  repository: OAuthConnectionRepository;
+  userId: string;
+}): Promise<void> {
+  if (!repository.recordYouTubeWebSubSubscription) {
+    return;
+  }
+
+  try {
+    const subscription = await subscribe(channelId, { fetchImpl });
+    await repository.recordYouTubeWebSubSubscription({
+      connectionId,
+      subscription,
+      userId,
+      youtubeChannelId: channelId,
+    });
+  } catch (error) {
+    console.error("YouTube WebSub registration failed after OAuth connect.", {
+      channelId,
+      error,
+      userId,
+    });
+  }
 }
 
 function getQueryValue(request: Request, key: string): string | undefined {

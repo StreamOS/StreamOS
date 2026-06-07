@@ -21,6 +21,7 @@ import {
 import { createAuthHandoffRouter } from "./routes/auth/handoff.js";
 import { createProviderWebhookRouter } from "./webhooks/providerRoutes.js";
 import type { ProviderWebhookDispatcher } from "./webhooks/providerEvents.js";
+import { dispatchStreamOSJob } from "@streamos/queue";
 
 type CreateAppOptions = {
   allowedOrigins?: string[];
@@ -529,7 +530,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use(
     "/api/webhooks",
     createProviderWebhookRouter({
-      dispatcher: options.providerWebhookDispatcher,
+      dispatcher: options.providerWebhookDispatcher ?? dispatchStreamOSJob,
       now: securityConfig.webhookNow,
       twitchEventSubSecret: securityConfig.twitchEventSubSecret,
       youtubeWebSubSecret: securityConfig.youtubeWebSubSecret,

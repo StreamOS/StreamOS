@@ -86,6 +86,13 @@ function getQueryString(value: unknown): string | null {
   return null;
 }
 
+function getQueryInteger(value: unknown): number | null {
+  const rawValue = getQueryString(value);
+  const parsed = rawValue ? Number.parseInt(rawValue, 10) : NaN;
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 async function dispatchIfConfigured({
   dispatcher,
   event,
@@ -215,18 +222,30 @@ export function createProviderWebhookRouter({
         return;
       }
 
-      try {
-        const event = normalizeTwitchNotification({
-          eventId: messageId,
-          payload: body,
-          receivedAt: getReceivedAt(now),
-        });
-
-        if (!event) {
-          response.status(202).json({ received: true, handled: false });
-          return;
+      const event = (() => {
+        try {
+          return normalizeTwitchNotification({
+            eventId: messageId,
+            payload: body,
+            receivedAt: getReceivedAt(now),
+          });
+        } catch {
+          response.status(422).json({
+            error: "invalid_twitch_eventsub_notification",
+            message: "Twitch EventSub notification payload is incomplete.",
+          });
+          return undefined;
         }
+      })();
 
+      if (!event) {
+        if (!response.headersSent) {
+          response.status(202).json({ received: true, handled: false });
+        }
+        return;
+      }
+
+      try {
         const dispatched = await dispatchIfConfigured({ dispatcher, event });
 
         response.status(202).json({
@@ -236,9 +255,9 @@ export function createProviderWebhookRouter({
           event_type: event.type,
         });
       } catch {
-        response.status(422).json({
-          error: "invalid_twitch_eventsub_notification",
-          message: "Twitch EventSub notification payload is incomplete.",
+        response.status(503).json({
+          error: "stream_job_dispatch_failed",
+          message: "StreamOS job could not be queued.",
         });
       }
     },
@@ -249,6 +268,7 @@ export function createProviderWebhookRouter({
     const topic = getQueryString(request.query["hub.topic"]);
     const challenge = getQueryString(request.query["hub.challenge"]);
     const verifyToken = getQueryString(request.query["hub.verify_token"]);
+    const leaseSeconds = getQueryInteger(request.query["hub.lease_seconds"]);
 
     if (mode !== "subscribe" && mode !== "unsubscribe") {
       response.status(400).json({
@@ -280,6 +300,13 @@ export function createProviderWebhookRouter({
     }
 
     response.status(200).type("text/plain").send(challenge);
+
+    void updateYouTubeWebSubChallengeTracking({
+      leaseSeconds,
+      mode,
+      now,
+      topic,
+    });
   });
 
   router.post(
@@ -351,4 +378,257 @@ export function createProviderWebhookRouter({
   );
 
   return router;
+}
+
+async function updateYouTubeWebSubChallengeTracking({
+  leaseSeconds,
+  mode,
+  now,
+  topic,
+}: {
+  leaseSeconds: number | null;
+  mode: "subscribe" | "unsubscribe";
+  now: () => number;
+  topic: string;
+}): Promise<void> {
+  const supabaseUrl =
+    process.env.SUPABASE_URL?.trim() ??
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return;
+  }
+
+  try {
+    const rows = await queryYouTubeWebSubRows({
+      serviceRoleKey,
+      supabaseUrl,
+      topic,
+    });
+    const verifiedAt = new Date(now());
+    const resolvedLeaseSeconds = leaseSeconds ?? 864_000;
+    const expiresAt = new Date(
+      verifiedAt.getTime() + resolvedLeaseSeconds * 1000,
+    ).toISOString();
+    const subscribedAt = verifiedAt.toISOString();
+    const status = mode === "subscribe" ? "active" : "unsubscribed";
+
+    await patchSupabaseRows({
+      filter: `topic_url=eq.${topic}`,
+      payload: {
+        expires_at: expiresAt,
+        failed_renewals: 0,
+        lease_seconds: resolvedLeaseSeconds,
+        status,
+        subscribed_at: subscribedAt,
+      },
+      serviceRoleKey,
+      supabaseUrl,
+      table: "youtube_websub_subscriptions",
+    });
+
+    await Promise.all(
+      rows.map((row) =>
+        updatePlatformConnectionWebSubMetadata({
+          connectionId: row.channel_connection_id,
+          serviceRoleKey,
+          status,
+          subscriptionPatch: {
+            expiresAt,
+            leaseSeconds: resolvedLeaseSeconds,
+            status,
+            subscribedAt,
+            topicUrl: topic,
+          },
+          supabaseUrl,
+        }),
+      ),
+    );
+  } catch (error) {
+    console.error("YouTube WebSub challenge tracking update failed.", {
+      error,
+      topic,
+    });
+  }
+}
+
+async function queryYouTubeWebSubRows({
+  serviceRoleKey,
+  supabaseUrl,
+  topic,
+}: {
+  serviceRoleKey: string;
+  supabaseUrl: string;
+  topic: string;
+}): Promise<{ channel_connection_id: string }[]> {
+  const url = new URL("/rest/v1/youtube_websub_subscriptions", supabaseUrl);
+  url.searchParams.set("topic_url", `eq.${topic}`);
+  url.searchParams.set("select", "channel_connection_id");
+
+  const response = await fetch(url, {
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `YouTube WebSub tracking lookup failed with status ${response.status}.`,
+    );
+  }
+
+  return (await response.json()) as { channel_connection_id: string }[];
+}
+
+async function updatePlatformConnectionWebSubMetadata({
+  connectionId,
+  serviceRoleKey,
+  status,
+  subscriptionPatch,
+  supabaseUrl,
+}: {
+  connectionId: string;
+  serviceRoleKey: string;
+  status: "active" | "unsubscribed";
+  subscriptionPatch: {
+    expiresAt: string;
+    leaseSeconds: number;
+    status: string;
+    subscribedAt: string;
+    topicUrl: string;
+  };
+  supabaseUrl: string;
+}): Promise<void> {
+  const metadata = await getPlatformConnectionMetadata({
+    connectionId,
+    serviceRoleKey,
+    supabaseUrl,
+  });
+  const websub = toJsonRecord(metadata.websub);
+  const subscriptions = Array.isArray(websub.subscriptions)
+    ? websub.subscriptions.map((subscription) =>
+        isMatchingSubscription(subscription, subscriptionPatch.topicUrl)
+          ? {
+              ...toJsonRecord(subscription),
+              ...subscriptionPatch,
+            }
+          : subscription,
+      )
+    : [];
+
+  if (
+    !subscriptions.some((subscription) =>
+      isMatchingSubscription(subscription, subscriptionPatch.topicUrl),
+    )
+  ) {
+    subscriptions.push(subscriptionPatch);
+  }
+
+  await patchSupabaseRows({
+    filter: `id=eq.${connectionId}`,
+    payload: {
+      metadata: {
+        ...metadata,
+        websub: {
+          ...websub,
+          failedRenewals: 0,
+          lastRenewedAt:
+            status === "active"
+              ? subscriptionPatch.subscribedAt
+              : (websub.lastRenewedAt ?? null),
+          subscriptions,
+        },
+      },
+    },
+    serviceRoleKey,
+    supabaseUrl,
+    table: "platform_connections",
+  });
+}
+
+async function getPlatformConnectionMetadata({
+  connectionId,
+  serviceRoleKey,
+  supabaseUrl,
+}: {
+  connectionId: string;
+  serviceRoleKey: string;
+  supabaseUrl: string;
+}): Promise<Record<string, unknown>> {
+  const url = new URL("/rest/v1/platform_connections", supabaseUrl);
+  url.searchParams.set("id", `eq.${connectionId}`);
+  url.searchParams.set("select", "metadata");
+  url.searchParams.set("limit", "1");
+
+  const response = await fetch(url, {
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Platform connection metadata lookup failed with status ${response.status}.`,
+    );
+  }
+
+  const rows = (await response.json()) as { metadata?: unknown }[];
+  return toJsonRecord(rows[0]?.metadata);
+}
+
+async function patchSupabaseRows({
+  filter,
+  payload,
+  serviceRoleKey,
+  supabaseUrl,
+  table,
+}: {
+  filter: string;
+  payload: Record<string, unknown>;
+  serviceRoleKey: string;
+  supabaseUrl: string;
+  table: string;
+}): Promise<void> {
+  const url = new URL(`/rest/v1/${table}`, supabaseUrl);
+  const separatorIndex = filter.indexOf("=");
+  const key = filter.slice(0, separatorIndex);
+  const value = filter.slice(separatorIndex + 1);
+
+  if (separatorIndex < 1 || !value) {
+    throw new Error("Supabase patch filter is invalid.");
+  }
+
+  url.searchParams.set(key, value);
+
+  const response = await fetch(url, {
+    body: JSON.stringify(payload),
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    method: "PATCH",
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Supabase ${table} patch failed with status ${response.status}.`,
+    );
+  }
+}
+
+function isMatchingSubscription(value: unknown, topicUrl: string): boolean {
+  return toJsonRecord(value).topicUrl === topicUrl;
+}
+
+function toJsonRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return value as Record<string, unknown>;
 }
