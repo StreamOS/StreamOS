@@ -11,7 +11,7 @@ import { SUPPORTED_PROVIDERS } from "@streamos/types";
 import type { Inserts, Json, Tables, Updates } from "@streamos/database";
 
 import { decryptToken, encryptToken } from "@/lib/crypto";
-import { getKickChannelMetrics } from "@/lib/integrations/kick-metrics";
+import { getKickChannelMetricsWithCachedToken } from "@/lib/integrations/kick-metrics";
 import {
   normalizeKick,
   normalizeTikTok,
@@ -177,14 +177,17 @@ async function syncProvider({
 
   assertConnectionSyncable(connection, provider);
 
-  const accessToken = await getUsableAccessToken({
-    connection,
-    provider,
-    requestUrl,
-    serviceSupabase,
-    signal,
-    userId,
-  });
+  const accessToken =
+    provider === "kick"
+      ? ""
+      : await getUsableAccessToken({
+          connection,
+          provider,
+          requestUrl,
+          serviceSupabase,
+          signal,
+          userId,
+        });
 
   if (!connection.channel_id) {
     throw new ProviderSyncError(
@@ -633,9 +636,10 @@ async function fetchAndNormalizeMetrics({
     }
 
     return normalizeKick(
-      await getKickChannelMetrics(accessToken, getKickChannelSlug(connection), {
-        signal,
-      }),
+      await getKickChannelMetricsWithCachedToken(
+        getKickChannelSlug(connection),
+        { signal },
+      ),
       context,
     );
   } catch (error) {

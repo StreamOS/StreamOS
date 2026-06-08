@@ -52,7 +52,7 @@ import {
 } from "./providers/youtube.js";
 
 export const SUPPORTED_OAUTH_PROVIDERS = ["youtube", "tiktok", "kick"] as const;
-const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const OAUTH_STATE_TTL_MS = 5 * 60 * 1000;
 
 export type CreateOAuthRouterOptions = {
   allowedOrigins?: string[];

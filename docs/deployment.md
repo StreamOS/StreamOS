@@ -106,7 +106,8 @@ TIKTOK_SCOPES=user.info.basic
 KICK_CLIENT_ID=
 KICK_CLIENT_SECRET=
 KICK_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/kick/callback
-KICK_SCOPES=user:read channel:read
+KICK_SCOPES=user:read channel:read events:subscribe channel:follow channel:subscription
+KICK_WEBHOOK_SECRET=
 RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 ```
 

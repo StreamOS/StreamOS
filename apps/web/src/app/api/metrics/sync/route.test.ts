@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   createServiceRoleClient: vi.fn(),
   decryptToken: vi.fn(),
   encryptToken: vi.fn(),
-  getKickChannelMetrics: vi.fn(),
+  getKickChannelMetricsWithCachedToken: vi.fn(),
   getTikTokChannelMetrics: vi.fn(),
   getTwitchChannelMetrics: vi.fn(),
   getYouTubeChannelMetrics: vi.fn(),
@@ -30,7 +30,8 @@ vi.mock("@/lib/crypto", () => ({
 }));
 
 vi.mock("@/lib/integrations/kick-metrics", () => ({
-  getKickChannelMetrics: mocks.getKickChannelMetrics,
+  getKickChannelMetricsWithCachedToken:
+    mocks.getKickChannelMetricsWithCachedToken,
 }));
 
 vi.mock("@/lib/integrations/tiktok-metrics", () => ({

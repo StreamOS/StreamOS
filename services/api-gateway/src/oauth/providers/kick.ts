@@ -4,7 +4,13 @@ export const KICK_AUTHORIZE_URL = "https://id.kick.com/oauth/authorize";
 export const KICK_TOKEN_URL = "https://id.kick.com/oauth/token";
 export const KICK_CHANNELS_URL = "https://api.kick.com/public/v1/channels";
 
-const DEFAULT_KICK_SCOPES = ["user:read", "channel:read"];
+const DEFAULT_KICK_SCOPES = [
+  "user:read",
+  "channel:read",
+  "events:subscribe",
+  "channel:follow",
+  "channel:subscription",
+];
 
 export type KickOAuthConfig = {
   clientId: string;

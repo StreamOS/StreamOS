@@ -93,7 +93,8 @@ function createSuccessfulProviderFetch() {
         access_token: "kick-access-token",
         expires_in: 3600,
         refresh_token: "kick-refresh-token",
-        scope: "user:read channel:read",
+        scope:
+          "user:read channel:read events:subscribe channel:follow channel:subscription",
         token_type: "Bearer",
       });
     }
@@ -157,7 +158,8 @@ describe("Kick OAuth gateway routes", () => {
     process.env.KICK_CLIENT_SECRET = "kick-client-secret";
     process.env.KICK_REDIRECT_URI =
       "http://127.0.0.1:4000/api/auth/kick/callback";
-    process.env.KICK_SCOPES = "user:read channel:read";
+    process.env.KICK_SCOPES =
+      "user:read channel:read events:subscribe channel:follow channel:subscription";
   });
 
   afterEach(() => {
@@ -182,6 +184,7 @@ describe("Kick OAuth gateway routes", () => {
       expect(stateStore.saved).toHaveLength(1);
       expect(stateStore.saved[0]).toMatchObject({
         creatorId: CREATOR_ID,
+        expiresAt: NOW + 300_000,
         provider: "kick",
         returnTo: "/dashboard/platforms",
         userId: USER_ID,
@@ -197,8 +200,57 @@ describe("Kick OAuth gateway routes", () => {
         "S256",
       );
       expect(authorizeUrl.searchParams.get("scope")).toBe(
-        "user:read channel:read",
+        "user:read channel:read events:subscribe channel:follow channel:subscription",
       );
+    } finally {
+      server.close();
+    }
+  });
+
+  it("rejects connect requests with missing or expired handoff tokens", async () => {
+    const app = createApp({
+      apiGatewaySecret: API_SECRET,
+      oauth: { repository: new RecordingOAuthRepository() },
+      rateLimit: { enabled: false },
+      webhookNow: () => NOW,
+    });
+    const server = createServer(app);
+    const expiredHandoffToken = createOAuthHandoffToken(
+      {
+        creator_id: CREATOR_ID,
+        exp: NOW - 1,
+        return_to: "/dashboard/platforms",
+        user_id: USER_ID,
+      },
+      API_SECRET,
+    );
+
+    try {
+      const missingHandoffResponse = await fetch(
+        server.url("/api/auth/kick/connect"),
+        { redirect: "manual" },
+      );
+      const expiredHandoffResponse = await fetch(
+        server.url(
+          `/api/auth/kick/connect?handoff=${encodeURIComponent(expiredHandoffToken)}`,
+        ),
+        { redirect: "manual" },
+      );
+
+      expect(missingHandoffResponse.status).toBe(401);
+      await expect(missingHandoffResponse.json()).resolves.toMatchObject({
+        error: {
+          code: "user_handoff_invalid",
+        },
+        success: false,
+      });
+      expect(expiredHandoffResponse.status).toBe(401);
+      await expect(expiredHandoffResponse.json()).resolves.toMatchObject({
+        error: {
+          code: "user_handoff_invalid",
+        },
+        success: false,
+      });
     } finally {
       server.close();
     }
@@ -256,7 +308,13 @@ describe("Kick OAuth gateway routes", () => {
           provider: "kick",
           providerAccountId: "98765",
         },
-        scopes: ["user:read", "channel:read"],
+        scopes: [
+          "user:read",
+          "channel:read",
+          "events:subscribe",
+          "channel:follow",
+          "channel:subscription",
+        ],
         userId: USER_ID,
       });
     } finally {

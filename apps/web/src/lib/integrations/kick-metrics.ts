@@ -1,5 +1,8 @@
 export const KICK_CHANNEL_METRICS_URL =
   "https://api.kick.com/public/v1/channels";
+export const KICK_TOKEN_URL = "https://id.kick.com/oauth/token";
+
+const TOKEN_EXPIRY_BUFFER_SECONDS = 60;
 
 export type KickCategory = {
   id: string | null;
@@ -34,6 +37,17 @@ type KickChannelsResponse = {
   message?: string;
 };
 
+type KickTokenResponse = {
+  access_token?: string;
+  expires_in?: number;
+  token_type?: string;
+};
+
+interface KickTokenCache {
+  accessToken: string;
+  expiresAt: number;
+}
+
 type KickChannelPayload = {
   active_subscribers_count?: number | string | null;
   banner_picture?: string | null;
@@ -50,37 +64,168 @@ type KickMetricsOptions = {
   signal?: AbortSignal;
 };
 
+// Next.js route handlers run single-threaded per warm function isolate.
+let tokenCache: KickTokenCache | null = null;
+
+export async function getKickAccessToken(): Promise<string> {
+  const now = Date.now();
+
+  if (tokenCache && tokenCache.expiresAt > now) {
+    logKickTokenCacheEvent("HIT");
+    return tokenCache.accessToken;
+  }
+
+  logKickTokenCacheEvent("MISS");
+
+  const clientId = process.env.KICK_CLIENT_ID?.trim();
+  const clientSecret = process.env.KICK_CLIENT_SECRET?.trim();
+
+  if (!clientId || !clientSecret) {
+    throw new Error("Kick OAuth client credentials are not configured.");
+  }
+
+  const response = await fetch(KICK_TOKEN_URL, {
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "client_credentials",
+    }),
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Kick token request failed with status ${response.status}.`,
+    );
+  }
+
+  const payload = (await response.json()) as KickTokenResponse;
+  const accessToken = payload.access_token?.trim();
+
+  if (!accessToken) {
+    throw new Error("Kick token response did not include an access token.");
+  }
+
+  tokenCache = {
+    accessToken,
+    expiresAt:
+      now +
+      Math.max((payload.expires_in ?? 0) - TOKEN_EXPIRY_BUFFER_SECONDS, 0) *
+        1000,
+  };
+
+  return accessToken;
+}
+
+export async function getKickChannelMetricsWithCachedToken(
+  channelSlug: string,
+  options: KickMetricsOptions = {},
+): Promise<KickMetricsRaw> {
+  const normalizedSlug = normalizeKickChannelSlug(channelSlug);
+  const response = await fetchKickChannelMetricsResponse(
+    await getKickAccessToken(),
+    normalizedSlug,
+    options,
+  );
+
+  if (response.status !== 401) {
+    return parseKickChannelMetricsResponse(response, normalizedSlug);
+  }
+
+  evictKickAccessTokenCache();
+
+  const retryResponse = await fetchKickChannelMetricsResponse(
+    await getKickAccessToken(),
+    normalizedSlug,
+    options,
+  );
+
+  if (retryResponse.status === 401) {
+    throw new Error("Kick API: unauthorized after token refresh");
+  }
+
+  return parseKickChannelMetricsResponse(retryResponse, normalizedSlug);
+}
+
+export function clearKickAccessTokenCacheForTest(): void {
+  tokenCache = null;
+}
+
 export async function getKickChannelMetrics(
   accessToken: string,
   channelSlug: string,
   options: KickMetricsOptions = {},
 ): Promise<KickMetricsRaw> {
-  const normalizedSlug = channelSlug.trim().replace(/^@/, "");
-
-  if (!normalizedSlug) {
-    throw new Error("Kick channel slug is required for metrics sync.");
-  }
-
+  const normalizedSlug = normalizeKickChannelSlug(channelSlug);
   const token = accessToken.trim();
 
   if (!token) {
     throw new Error("Kick access token is required for metrics sync.");
   }
 
+  return parseKickChannelMetricsResponse(
+    await fetchKickChannelMetricsResponse(token, normalizedSlug, options),
+    normalizedSlug,
+  );
+}
+
+function evictKickAccessTokenCache(): void {
+  tokenCache = null;
+}
+
+function logKickTokenCacheEvent(result: "HIT" | "MISS"): void {
+  if (process.env.NODE_ENV === "test") {
+    return;
+  }
+
+  console.log(
+    JSON.stringify({
+      event: "kick_access_token_cache",
+      level: "debug",
+      result,
+      service: "web",
+    }),
+  );
+}
+
+function normalizeKickChannelSlug(channelSlug: string): string {
+  const normalizedSlug = channelSlug.trim().replace(/^@/, "");
+
+  if (!normalizedSlug) {
+    throw new Error("Kick channel slug is required for metrics sync.");
+  }
+
+  return normalizedSlug;
+}
+
+async function fetchKickChannelMetricsResponse(
+  accessToken: string,
+  normalizedSlug: string,
+  options: KickMetricsOptions,
+): Promise<Response> {
   const url = new URL(KICK_CHANNEL_METRICS_URL);
   url.searchParams.append("slug", normalizedSlug);
 
   const headers: HeadersInit = {
     Accept: "application/json",
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${accessToken}`,
   };
 
-  const response = await (options.fetchImpl ?? fetch)(url, {
+  return (options.fetchImpl ?? fetch)(url, {
     cache: "no-store",
     headers,
     signal: options.signal,
   });
+}
 
+async function parseKickChannelMetricsResponse(
+  response: Response,
+  normalizedSlug: string,
+): Promise<KickMetricsRaw> {
   if (response.status === 400) {
     throw new Error("Kick metrics request rejected the channel slug.");
   }
