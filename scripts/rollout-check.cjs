@@ -14,7 +14,9 @@ function parseArgs(argv) {
   };
 
   for (const arg of argv) {
-    if (arg === "--allow-hosted-e2e") {
+    if (arg === "--") {
+      continue;
+    } else if (arg === "--allow-hosted-e2e") {
       options.allowHostedE2e = true;
     } else if (arg.startsWith("--api-gateway-url=")) {
       options.apiGatewayUrl = arg.slice("--api-gateway-url=".length).trim();
@@ -86,9 +88,11 @@ Options:
 
 function run(command, args, label) {
   console.log(`\n==> ${label}`);
+  const needsWindowsShell =
+    process.platform === "win32" && /\.(?:cmd|bat)$/i.test(command);
   const result = spawnSync(command, args, {
     encoding: "utf8",
-    shell: process.platform === "win32",
+    shell: needsWindowsShell,
     stdio: "inherit",
   });
 
