@@ -225,7 +225,14 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
-  packages/types: {}
+  packages/types:
+    devDependencies:
+      "@streamos/config":
+        specifier: workspace:*
+        version: link:../config
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
 
   packages/ui:
     dependencies:
