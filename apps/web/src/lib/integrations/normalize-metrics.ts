@@ -69,10 +69,11 @@ export function normalizeKick(
   return createSnapshot({
     context,
     data: raw,
-    followers: raw.followers ?? null,
+    // Kick public/v1 channels does not expose follower counts.
+    followers: null,
     peakViewers: raw.livestream?.viewer_count ?? null,
     provider: "kick",
-    subscribers: null,
+    subscribers: raw.activeSubscribers ?? null,
     views: null,
   });
 }

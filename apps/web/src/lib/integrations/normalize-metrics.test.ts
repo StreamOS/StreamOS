@@ -96,22 +96,46 @@ describe("normalize metrics", () => {
     });
   });
 
-  it("normalizes Kick stub metrics with null fields", () => {
+  it("normalizes Kick metrics with subscriber and live viewer data", () => {
     const snapshot = normalizeKick(
       {
-        _stub: true,
+        activeSubscribers: 150,
+        category: {
+          id: "15",
+          name: "Just Chatting",
+          slug: "just-chatting",
+          thumbnailUrl: "https://kick.com/categories/just-chatting.jpg",
+        },
+        channelId: "668",
         channelSlug: "creator",
-        followers: null,
-        livestream: null,
+        displayName: "Creator",
+        isLive: true,
+        livestream: {
+          category: {
+            id: "15",
+            name: "Just Chatting",
+            slug: "just-chatting",
+            thumbnailUrl: "https://kick.com/categories/just-chatting.jpg",
+          },
+          id: null,
+          is_live: true,
+          session_title: "Live coding on Kick",
+          slug: null,
+          started_at: "2026-06-06T12:00:00Z",
+          thumbnail_url: "https://stream.kick.com/thumb.jpg",
+          viewer_count: 88,
+        },
+        title: "Live coding on Kick",
+        username: "creator",
       },
       context,
     );
 
     expect(snapshot).toMatchObject({
       followers: null,
-      peak_viewers: null,
+      peak_viewers: 88,
       provider: "kick",
-      subscribers: null,
+      subscribers: 150,
       views: null,
     });
   });

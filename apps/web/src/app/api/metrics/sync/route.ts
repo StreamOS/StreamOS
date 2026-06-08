@@ -27,6 +27,7 @@ import { createClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 
 const REQUEST_TIMEOUT_MS = 25_000;
+const MAX_REQUEST_BODY_BYTES = 4_096;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const TOKEN_REFRESH_LEEWAY_MS = 60_000;
 const YOUTUBE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -71,19 +72,16 @@ class ProviderSyncError extends Error {
 }
 
 export async function POST(request: NextRequest) {
-  const parsedBody = await readRequestBody(request);
-
-  if (!parsedBody.ok) {
+  if (hasOversizedBody(request)) {
     return NextResponse.json(
       {
-        error: "Request body must be { providers: SupportedProvider[] }.",
-        code: "INVALID_REQUEST",
+        error: "Request body exceeds the metrics sync size limit.",
+        code: "REQUEST_TOO_LARGE",
       },
-      { status: 400 },
+      { status: 413 },
     );
   }
 
-  const providers = [...new Set(parsedBody.value.providers)];
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), REQUEST_TIMEOUT_MS);
 
@@ -101,6 +99,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const parsedBody = await readRequestBody(request);
+
+    if (!parsedBody.ok) {
+      const isTooLarge = parsedBody.code === "REQUEST_TOO_LARGE";
+
+      return NextResponse.json(
+        {
+          error: isTooLarge
+            ? "Request body exceeds the metrics sync size limit."
+            : "Request body must be { providers: SupportedProvider[] }.",
+          code: parsedBody.code,
+        },
+        { status: isTooLarge ? 413 : 400 },
+      );
+    }
+
+    const providers = [...new Set(parsedBody.value.providers)];
     const serviceSupabase = createServiceRoleClient();
     const results = await Promise.allSettled(
       providers.map((provider) =>
@@ -116,6 +131,12 @@ export async function POST(request: NextRequest) {
 
     const response = buildSyncResponse(providers, results);
     const hasFailures = response.failed.length > 0;
+
+    logMetricsSyncAudit({
+      providers,
+      response,
+      userId: data.user.id,
+    });
 
     return NextResponse.json(response, { status: hasFailures ? 207 : 200 });
   } catch (error) {
@@ -153,6 +174,9 @@ async function syncProvider({
     serviceSupabase,
     userId,
   });
+
+  assertConnectionSyncable(connection, provider);
+
   const accessToken = await getUsableAccessToken({
     connection,
     provider,
@@ -235,6 +259,21 @@ async function getLatestConnection({
   return result.data as PlatformConnection;
 }
 
+function assertConnectionSyncable(
+  connection: PlatformConnection,
+  provider: SupportedProvider,
+) {
+  if (connection.status === "connected" || connection.status === "expired") {
+    return;
+  }
+
+  throw new ProviderSyncError(
+    provider,
+    "CONNECTION_NOT_FOUND",
+    `The latest ${provider} connection is not syncable.`,
+  );
+}
+
 async function getUsableAccessToken({
   connection,
   provider,
@@ -258,9 +297,7 @@ async function getUsableAccessToken({
     );
   }
 
-  const expiresAt = connection.expires_at
-    ? new Date(connection.expires_at).getTime()
-    : Number.POSITIVE_INFINITY;
+  const expiresAt = parseExpiresAtMs(connection.expires_at);
   const shouldRefresh =
     connection.status === "expired" ||
     expiresAt <= Date.now() + TOKEN_REFRESH_LEEWAY_MS;
@@ -429,9 +466,10 @@ async function refreshTwitchAccessToken(
     refresh_token?: string;
     scope?: string[];
   };
+  const accessToken = parseRefreshedAccessToken("twitch", payload.access_token);
 
   return {
-    accessToken: payload.access_token,
+    accessToken,
     expiresAt: secondsFromNowToIso(payload.expires_in),
     refreshToken: payload.refresh_token ?? null,
     scopes: payload.scope ?? null,
@@ -483,9 +521,13 @@ async function refreshYouTubeAccessToken(
     refresh_token?: string;
     scope?: string;
   };
+  const accessToken = parseRefreshedAccessToken(
+    "youtube",
+    payload.access_token,
+  );
 
   return {
-    accessToken: payload.access_token,
+    accessToken,
     expiresAt: secondsFromNowToIso(payload.expires_in),
     refreshToken: payload.refresh_token ?? null,
     scopes: payload.scope?.trim().split(/\s+/).filter(Boolean) ?? null,
@@ -537,9 +579,10 @@ async function refreshTikTokAccessToken(
     refresh_token?: string;
     scope?: string;
   };
+  const accessToken = parseRefreshedAccessToken("tiktok", payload.access_token);
 
   return {
-    accessToken: payload.access_token,
+    accessToken,
     expiresAt: secondsFromNowToIso(payload.expires_in),
     refreshToken: payload.refresh_token ?? null,
     scopes: payload.scope?.trim().split(/\s+/).filter(Boolean) ?? null,
@@ -590,7 +633,9 @@ async function fetchAndNormalizeMetrics({
     }
 
     return normalizeKick(
-      await getKickChannelMetrics(accessToken, getKickChannelSlug(connection)),
+      await getKickChannelMetrics(accessToken, getKickChannelSlug(connection), {
+        signal,
+      }),
       context,
     );
   } catch (error) {
@@ -637,6 +682,9 @@ function toMetricsSnapshotInsert(
 function enforceRateLimit(userId: string, provider: SupportedProvider) {
   const key = `sync:${userId}:${provider}`;
   const now = Date.now();
+
+  pruneRateLimitStore(now);
+
   const lastSyncAt = rateLimitStore.get(key);
 
   if (lastSyncAt && now - lastSyncAt < RATE_LIMIT_WINDOW_MS) {
@@ -648,6 +696,14 @@ function enforceRateLimit(userId: string, provider: SupportedProvider) {
   }
 
   rateLimitStore.set(key, now);
+}
+
+function pruneRateLimitStore(now: number) {
+  for (const [key, syncedAt] of rateLimitStore.entries()) {
+    if (now - syncedAt >= RATE_LIMIT_WINDOW_MS) {
+      rateLimitStore.delete(key);
+    }
+  }
 }
 
 function buildSyncResponse(
@@ -695,15 +751,67 @@ function toSyncFailure(
 async function readRequestBody(
   request: NextRequest,
 ): Promise<
-  { ok: true; value: MetricsSyncRequest } | { ok: false; value: null }
+  | { ok: true; value: MetricsSyncRequest }
+  | { code: "INVALID_REQUEST" | "REQUEST_TOO_LARGE"; ok: false; value: null }
 > {
-  const body = (await request.json().catch(() => null)) as unknown;
+  const rawBody = await readRequestText(request);
+
+  if (!rawBody.ok) {
+    return rawBody;
+  }
+
+  let body: unknown;
+
+  try {
+    body = JSON.parse(rawBody.value) as unknown;
+  } catch {
+    body = null;
+  }
 
   if (!isMetricsSyncRequest(body)) {
-    return { ok: false, value: null };
+    return { code: "INVALID_REQUEST", ok: false, value: null };
   }
 
   return { ok: true, value: body };
+}
+
+async function readRequestText(
+  request: NextRequest,
+): Promise<
+  | { ok: true; value: string }
+  | { code: "INVALID_REQUEST" | "REQUEST_TOO_LARGE"; ok: false; value: null }
+> {
+  const reader = request.body?.getReader();
+
+  if (!reader) {
+    return { code: "INVALID_REQUEST", ok: false, value: null };
+  }
+
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let rawBody = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    bytesRead += value.byteLength;
+
+    if (bytesRead > MAX_REQUEST_BODY_BYTES) {
+      await reader.cancel();
+
+      return { code: "REQUEST_TOO_LARGE", ok: false, value: null };
+    }
+
+    rawBody += decoder.decode(value, { stream: true });
+  }
+
+  rawBody += decoder.decode();
+
+  return { ok: true, value: rawBody };
 }
 
 function isMetricsSyncRequest(value: unknown): value is MetricsSyncRequest {
@@ -736,12 +844,55 @@ function getCapturedHourIso(value: string): string {
   return date.toISOString();
 }
 
+function parseExpiresAtMs(value: string | null): number {
+  if (!value) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const parsed = new Date(value).getTime();
+
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseRefreshedAccessToken(
+  provider: SupportedProvider,
+  value: string | undefined,
+): string {
+  const accessToken = value?.trim();
+
+  if (!accessToken) {
+    throw new ProviderSyncError(
+      provider,
+      "TOKEN_REFRESH_FAILED",
+      `${provider} token refresh response did not include an access token.`,
+    );
+  }
+
+  return accessToken;
+}
+
 function secondsFromNowToIso(expiresIn: number | undefined): string | null {
-  if (!expiresIn) {
+  if (
+    typeof expiresIn !== "number" ||
+    !Number.isFinite(expiresIn) ||
+    expiresIn <= 0
+  ) {
     return null;
   }
 
   return new Date(Date.now() + expiresIn * 1000).toISOString();
+}
+
+function hasOversizedBody(request: NextRequest): boolean {
+  const contentLength = request.headers.get("content-length");
+
+  if (!contentLength) {
+    return false;
+  }
+
+  const parsed = Number.parseInt(contentLength, 10);
+
+  return Number.isFinite(parsed) && parsed > MAX_REQUEST_BODY_BYTES;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -758,6 +909,34 @@ function logMetricsSyncError(error: unknown) {
       error: error instanceof Error ? error.message : "Unknown error",
       event: "metrics_sync_failed",
       service: "web",
+    }),
+  );
+}
+
+function logMetricsSyncAudit({
+  providers,
+  response,
+  userId,
+}: {
+  providers: SupportedProvider[];
+  response: MetricsSyncResponse;
+  userId: string;
+}) {
+  if (process.env.NODE_ENV === "test") {
+    return;
+  }
+
+  console.info(
+    JSON.stringify({
+      event: "metrics_sync_completed",
+      failed: response.failed.map((failure) => ({
+        code: failure.code,
+        provider: failure.provider,
+      })),
+      providers,
+      service: "web",
+      synced: response.synced,
+      user_id: userId,
     }),
   );
 }
