@@ -51,32 +51,15 @@ on public.content_jobs(user_id, status);
 create index if not exists content_jobs_status_retry_count_idx
 on public.content_jobs(status, retry_count);
 
+revoke insert, update, delete on public.content_jobs from authenticated;
+
 grant insert (
   user_id,
   stream_id,
-  channel_id,
   queue_job_id,
   job_type,
-  "type",
-  status,
-  payload,
-  retry_count,
-  max_retries,
-  started_at,
-  completed_at
+  payload
 ) on public.content_jobs to authenticated;
 
-grant update (
-  status,
-  result,
-  error_message,
-  retry_count,
-  max_retries,
-  last_retried_at,
-  next_retry_at,
-  started_at,
-  completed_at,
-  updated_at
-) on public.content_jobs to authenticated;
-
+grant select on public.content_jobs to authenticated;
 grant all on public.content_jobs to service_role;
