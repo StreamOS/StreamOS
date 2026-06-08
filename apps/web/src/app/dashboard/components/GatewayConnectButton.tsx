@@ -1,14 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import type { GatewayConnectResponse } from "@streamos/types";
+import type { GatewayConnectResponse, OAuthProvider } from "@streamos/types";
 
 type GatewayConnectError = {
   code?: string;
   error?: string;
 };
 
-export function GatewayConnectButton() {
+type GatewayConnectButtonProps = {
+  className?: string;
+  label?: string;
+  pendingLabel?: string;
+  provider?: OAuthProvider;
+};
+
+export function GatewayConnectButton({
+  className = "btn-primary disabled:cursor-not-allowed disabled:opacity-60",
+  label = "Gateway verbinden",
+  pendingLabel = "Verbinde...",
+  provider = "youtube",
+}: GatewayConnectButtonProps) {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -17,7 +29,10 @@ export function GatewayConnectButton() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/gateway-connect", {
+      const handoffUrl = new URL("/api/gateway-connect", window.location.href);
+      handoffUrl.searchParams.set("provider", provider);
+
+      const response = await fetch(handoffUrl, {
         cache: "no-store",
         credentials: "same-origin",
       });
@@ -33,13 +48,7 @@ export function GatewayConnectButton() {
       }
 
       const payload = (await response.json()) as GatewayConnectResponse;
-      const handoffUrl = new URL(
-        "/api/auth/youtube/connect",
-        payload.gateway_url,
-      );
-      handoffUrl.searchParams.set("handoff", payload.handoff_token);
-
-      window.location.href = handoffUrl.toString();
+      window.location.href = payload.connect_url;
     } catch (connectError) {
       setError(
         connectError instanceof Error
@@ -53,12 +62,12 @@ export function GatewayConnectButton() {
   return (
     <div className="flex flex-col items-start gap-2">
       <button
-        className="btn-primary disabled:cursor-not-allowed disabled:opacity-60"
+        className={className}
         disabled={isLoading}
         onClick={handleConnect}
         type="button"
       >
-        {isLoading ? "Verbinde..." : "Connect to Gateway"}
+        {isLoading ? pendingLabel : label}
       </button>
       {error && (
         <p className="max-w-sm text-sm text-signal-red" role="alert">

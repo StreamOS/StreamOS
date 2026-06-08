@@ -282,8 +282,10 @@ export type GatewayHandoffTokenClaims = {
 };
 
 export type GatewayConnectResponse = {
+  connect_url: string;
   gateway_url: string;
   handoff_token: string;
+  provider: OAuthProvider;
 };
 
 export type GatewayHandoffSessionResponse = {

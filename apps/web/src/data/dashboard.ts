@@ -1,4 +1,4 @@
-import type { StreamPlatform } from "@streamos/types";
+import type { OAuthProvider, StreamPlatform } from "@streamos/types";
 
 export type DashboardStat = {
   label: string;
@@ -22,6 +22,7 @@ export type PlatformSummary = {
   actionHref?: string;
   actionLabel?: string;
   canRefresh?: boolean;
+  gatewayProvider?: OAuthProvider;
 };
 
 export type ClipSummary = {
@@ -69,23 +70,29 @@ export const platforms: PlatformSummary[] = [
   {
     id: "youtube",
     name: "YouTube",
-    followers: "42.8k",
-    status: "Connected",
-    reach: "28%",
+    followers: "Ready",
+    status: "Not connected",
+    reach: "Gateway OAuth",
+    actionLabel: "Verbinden",
+    gatewayProvider: "youtube",
   },
   {
     id: "tiktok",
     name: "TikTok",
-    followers: "118.4k",
-    status: "OAuth pending",
-    reach: "24%",
+    followers: "Ready",
+    status: "Not connected",
+    reach: "Gateway OAuth",
+    actionLabel: "Verbinden",
+    gatewayProvider: "tiktok",
   },
   {
     id: "kick",
     name: "Kick",
-    followers: "9.7k",
-    status: "Beta connector",
-    reach: "6%",
+    followers: "Ready",
+    status: "Not connected",
+    reach: "Gateway OAuth",
+    actionLabel: "Verbinden",
+    gatewayProvider: "kick",
   },
 ];
 

@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import type { GatewayConnectResponse } from "@streamos/types";
+import type { GatewayConnectResponse, OAuthProvider } from "@streamos/types";
 
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
 import { createClient } from "@/lib/supabase/server";
@@ -8,14 +9,25 @@ import { createClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 
 const HANDOFF_TTL_MS = 60_000;
+const GATEWAY_OAUTH_PROVIDERS = ["youtube", "tiktok", "kick"] as const;
 
 type ErrorResponse = {
   code: string;
   error: string;
 };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const provider = getGatewayOAuthProvider(request);
+
+    if (!provider) {
+      return jsonError(
+        "provider_not_supported",
+        "Gateway OAuth provider is not supported.",
+        400,
+      );
+    }
+
     const supabase = await createClient();
     const { data, error } = await supabase.auth.getUser();
 
@@ -58,9 +70,18 @@ export async function GET() {
       apiGatewaySecret,
     );
 
+    const normalizedGatewayUrl = gatewayUrl.replace(/\/+$/, "");
+    const connectUrl = new URL(
+      `/api/auth/${provider}/connect`,
+      normalizedGatewayUrl,
+    );
+    connectUrl.searchParams.set("handoff", handoffToken);
+
     const response: GatewayConnectResponse = {
-      gateway_url: gatewayUrl.replace(/\/+$/, ""),
+      connect_url: connectUrl.toString(),
+      gateway_url: normalizedGatewayUrl,
       handoff_token: handoffToken,
+      provider,
     };
 
     return NextResponse.json(response, { status: 200 });
@@ -73,6 +94,16 @@ export async function GET() {
       500,
     );
   }
+}
+
+function getGatewayOAuthProvider(request: NextRequest): OAuthProvider | null {
+  const provider = request.nextUrl.searchParams.get("provider") ?? "youtube";
+
+  return isGatewayOAuthProvider(provider) ? provider : null;
+}
+
+function isGatewayOAuthProvider(value: string): value is OAuthProvider {
+  return GATEWAY_OAUTH_PROVIDERS.includes(value as OAuthProvider);
 }
 
 function jsonError(code: string, error: string, status: number) {

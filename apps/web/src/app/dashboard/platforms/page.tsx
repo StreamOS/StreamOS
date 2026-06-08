@@ -6,6 +6,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
 import { createClient } from "@/lib/supabase/server";
 import type { Tables } from "@streamos/database";
+import { GatewayConnectButton } from "../components/GatewayConnectButton";
 
 export default async function PlatformsPage() {
   const platformSummaries = await getPlatformSummaries();
@@ -66,6 +67,14 @@ export default async function PlatformsPage() {
                 >
                   {platform.actionLabel}
                 </a>
+              )}
+              {platform.gatewayProvider && platform.actionLabel && (
+                <GatewayConnectButton
+                  className="btn-primary px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+                  label={platform.actionLabel}
+                  pendingLabel="Verbinde..."
+                  provider={platform.gatewayProvider}
+                />
               )}
               {platform.canRefresh && (
                 <form action={refreshTwitchConnectionAction}>
