@@ -633,6 +633,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use(
     "/api/auth",
     createOAuthRouter({
+      allowedOrigins: securityConfig.allowedOrigins,
       apiGatewaySecret: securityConfig.apiGatewaySecret,
       fetchImpl: options.oauth?.fetchImpl,
       repository: options.oauth?.repository,
@@ -653,7 +654,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
     (_request, response) => {
       response.status(200).json({
         platforms: ["twitch", "youtube", "tiktok", "kick"],
-        next: "YouTube OAuth is available at /api/auth/youtube/connect.",
+        next: "Gateway OAuth is available at /api/auth/:provider/connect for youtube, tiktok, and kick.",
       });
     },
   );

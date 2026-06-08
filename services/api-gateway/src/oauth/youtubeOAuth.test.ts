@@ -48,11 +48,12 @@ function createServer(app: ReturnType<typeof createApp>) {
   };
 }
 
-function createHandoffToken() {
+function createHandoffToken(returnTo?: string) {
   return createOAuthHandoffToken(
     {
       creator_id: CREATOR_ID,
       exp: NOW + 60_000,
+      return_to: returnTo,
       user_id: USER_ID,
     },
     API_SECRET,
@@ -110,6 +111,7 @@ describe("YouTube OAuth gateway routes", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
+    delete process.env.REDIS_URL;
     process.env.APP_ENCRYPTION_KEY = `base64:${randomBytes(32).toString("base64")}`;
     process.env.YOUTUBE_CLIENT_ID = "youtube-client-id";
     process.env.YOUTUBE_CLIENT_SECRET = "youtube-client-secret";
@@ -164,9 +166,73 @@ describe("YouTube OAuth gateway routes", () => {
     }
   });
 
-  it("exchanges a valid callback and persists encrypted YouTube tokens", async () => {
+  it("exchanges a valid callback, persists encrypted YouTube tokens, and redirects to return_to", async () => {
     const repository = new RecordingOAuthRepository();
     const { fetchImpl, tokenExchangeBodies } = createSuccessfulProviderFetch();
+    const app = createApp({
+      allowedOrigins: ["https://app.streamos.test"],
+      apiGatewaySecret: API_SECRET,
+      oauth: { fetchImpl, repository },
+      rateLimit: { enabled: false },
+      webhookNow: () => NOW,
+    });
+    const server = createServer(app);
+
+    try {
+      const connectResponse = await fetch(
+        server.url(
+          `/api/auth/youtube/connect?handoff=${encodeURIComponent(
+            createHandoffToken("https://app.streamos.test/dashboard/platforms"),
+          )}`,
+        ),
+        { redirect: "manual" },
+      );
+      const authorizeUrl = new URL(
+        connectResponse.headers.get("location") ?? "",
+      );
+      const state = authorizeUrl.searchParams.get("state");
+
+      const callbackResponse = await fetch(
+        server.url(`/api/auth/youtube/callback?code=auth-code&state=${state}`),
+        { redirect: "manual" },
+      );
+
+      expect(callbackResponse.status).toBe(302);
+      expect(callbackResponse.headers.get("location")).toBe(
+        "https://app.streamos.test/dashboard/platforms",
+      );
+
+      expect(tokenExchangeBodies).toHaveLength(1);
+      expect(tokenExchangeBodies[0]?.get("code_verifier")).toBeTruthy();
+      expect(repository.persisted).toHaveLength(1);
+      expect(repository.persisted[0]?.accessTokenCiphertext).not.toBe(
+        "youtube-access-token",
+      );
+      expect(repository.persisted[0]?.refreshTokenCiphertext).not.toBe(
+        "youtube-refresh-token",
+      );
+      expect(repository.persisted[0]).toMatchObject({
+        creatorId: CREATOR_ID,
+        profile: {
+          avatarUrl: "https://yt.example/avatar.jpg",
+          displayName: "StreamOS Channel",
+          followerCount: 12345,
+          handle: "@streamos",
+          provider: "youtube",
+          providerAccountId: "UCstreamos",
+        },
+        provider: "youtube",
+        scopes: ["https://www.googleapis.com/auth/youtube.readonly"],
+        userId: USER_ID,
+      });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("redirects to the default success target when return_to is missing", async () => {
+    const repository = new RecordingOAuthRepository();
+    const { fetchImpl } = createSuccessfulProviderFetch();
     const app = createApp({
       apiGatewaySecret: API_SECRET,
       oauth: { fetchImpl, repository },
@@ -189,46 +255,59 @@ describe("YouTube OAuth gateway routes", () => {
 
       const callbackResponse = await fetch(
         server.url(`/api/auth/youtube/callback?code=auth-code&state=${state}`),
+        { redirect: "manual" },
       );
-      const body = await callbackResponse.json();
 
-      expect(callbackResponse.status).toBe(200);
-      expect(body.success).toBe(true);
-      expect(body.data).toMatchObject({
-        channel_id: "channel-row-1",
-        connection_id: "connection-row-1",
-        provider: "youtube",
-        profile: {
-          avatarUrl: "https://yt.example/avatar.jpg",
-          displayName: "StreamOS Channel",
-          followerCount: 12345,
-          handle: "@streamos",
-          provider: "youtube",
-          providerAccountId: "UCstreamos",
-        },
-      });
-
-      expect(tokenExchangeBodies).toHaveLength(1);
-      expect(tokenExchangeBodies[0]?.get("code_verifier")).toBeTruthy();
-      expect(repository.persisted).toHaveLength(1);
-      expect(repository.persisted[0]?.accessTokenCiphertext).not.toBe(
-        "youtube-access-token",
+      expect(callbackResponse.status).toBe(302);
+      expect(callbackResponse.headers.get("location")).toBe(
+        "/dashboard/integrations",
       );
-      expect(repository.persisted[0]?.refreshTokenCiphertext).not.toBe(
-        "youtube-refresh-token",
-      );
-      expect(repository.persisted[0]).toMatchObject({
-        creatorId: CREATOR_ID,
-        provider: "youtube",
-        scopes: ["https://www.googleapis.com/auth/youtube.readonly"],
-        userId: USER_ID,
-      });
     } finally {
       server.close();
     }
   });
 
-  it("rejects callbacks with missing or invalid state", async () => {
+  it("blocks unsafe return_to targets and redirects to the default success target", async () => {
+    const repository = new RecordingOAuthRepository();
+    const { fetchImpl } = createSuccessfulProviderFetch();
+    const app = createApp({
+      allowedOrigins: ["https://app.streamos.test"],
+      apiGatewaySecret: API_SECRET,
+      oauth: { fetchImpl, repository },
+      rateLimit: { enabled: false },
+      webhookNow: () => NOW,
+    });
+    const server = createServer(app);
+
+    try {
+      const connectResponse = await fetch(
+        server.url(
+          `/api/auth/youtube/connect?handoff=${encodeURIComponent(
+            createHandoffToken("https://evil.example/phishing"),
+          )}`,
+        ),
+        { redirect: "manual" },
+      );
+      const authorizeUrl = new URL(
+        connectResponse.headers.get("location") ?? "",
+      );
+      const state = authorizeUrl.searchParams.get("state");
+
+      const callbackResponse = await fetch(
+        server.url(`/api/auth/youtube/callback?code=auth-code&state=${state}`),
+        { redirect: "manual" },
+      );
+
+      expect(callbackResponse.status).toBe(302);
+      expect(callbackResponse.headers.get("location")).toBe(
+        "/dashboard/integrations",
+      );
+    } finally {
+      server.close();
+    }
+  });
+
+  it("redirects callbacks with missing or invalid state to the YouTube error target", async () => {
     const app = createApp({
       apiGatewaySecret: API_SECRET,
       oauth: { repository: new RecordingOAuthRepository() },
@@ -240,23 +319,27 @@ describe("YouTube OAuth gateway routes", () => {
     try {
       const missingStateResponse = await fetch(
         server.url("/api/auth/youtube/callback?code=auth-code"),
+        { redirect: "manual" },
       );
       const invalidStateResponse = await fetch(
         server.url("/api/auth/youtube/callback?code=auth-code&state=wrong"),
+        { redirect: "manual" },
       );
-      const missingBody = await missingStateResponse.json();
-      const invalidBody = await invalidStateResponse.json();
 
-      expect(missingStateResponse.status).toBe(400);
-      expect(invalidStateResponse.status).toBe(400);
-      expect(missingBody.error.code).toBe("invalid_state");
-      expect(invalidBody.error.code).toBe("invalid_state");
+      expect(missingStateResponse.status).toBe(302);
+      expect(invalidStateResponse.status).toBe(302);
+      expect(missingStateResponse.headers.get("location")).toBe(
+        "/dashboard/integrations?error=youtube_connect_failed",
+      );
+      expect(invalidStateResponse.headers.get("location")).toBe(
+        "/dashboard/integrations?error=youtube_connect_failed",
+      );
     } finally {
       server.close();
     }
   });
 
-  it("returns oauth_exchange_failed when the provider callback contains an error", async () => {
+  it("redirects to the YouTube error target when the provider callback contains an error", async () => {
     const app = createApp({
       apiGatewaySecret: API_SECRET,
       oauth: { repository: new RecordingOAuthRepository() },
@@ -281,12 +364,13 @@ describe("YouTube OAuth gateway routes", () => {
         server.url(
           `/api/auth/youtube/callback?error=access_denied&state=${state}`,
         ),
+        { redirect: "manual" },
       );
-      const body = await response.json();
 
-      expect(response.status).toBe(400);
-      expect(body.success).toBe(false);
-      expect(body.error.code).toBe("oauth_exchange_failed");
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(
+        "/dashboard/integrations?error=youtube_connect_failed",
+      );
     } finally {
       server.close();
     }

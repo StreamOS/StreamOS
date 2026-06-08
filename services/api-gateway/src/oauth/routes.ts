@@ -1,6 +1,10 @@
 import type { Request, Response, Router } from "express";
 import express from "express";
-import type { OAuthErrorCode, OAuthProvider } from "@streamos/types";
+import type {
+  OAuthErrorCode,
+  OAuthProvider,
+  OAuthProviderProfile,
+} from "@streamos/types";
 import { subscribe } from "@streamos/youtube-websub";
 
 import { assertEncryptionConfigured, encryptSecret } from "./encryption.js";
@@ -16,10 +20,29 @@ import {
   type PersistOAuthConnectionInput,
 } from "./repository.js";
 import {
+  resolveOAuthErrorRedirect,
+  resolveOAuthRedirectTarget,
+} from "./redirects.js";
+import {
+  createDefaultOAuthStateStore,
   hasMatchingState,
-  MemoryOAuthStateStore,
   type OAuthStateStore,
 } from "./stateStore.js";
+import {
+  createKickAuthorizeUrl,
+  exchangeKickCode,
+  fetchKickChannelProfile,
+  getKickOAuthConfig,
+  normalizeKickScopes,
+} from "./providers/kick.js";
+import {
+  createTikTokAuthorizeUrl,
+  createTikTokPkceChallenge,
+  exchangeTikTokCode,
+  fetchTikTokUserProfile,
+  getTikTokOAuthConfig,
+  normalizeTikTokScopes,
+} from "./providers/tiktok.js";
 import {
   createYouTubeAuthorizeUrl,
   exchangeYouTubeCode,
@@ -28,18 +51,39 @@ import {
   normalizeYouTubeScopes,
 } from "./providers/youtube.js";
 
-const SUPPORTED_OAUTH_PROVIDERS = ["youtube"] as const;
+export const SUPPORTED_OAUTH_PROVIDERS = ["youtube", "tiktok", "kick"] as const;
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 export type CreateOAuthRouterOptions = {
+  allowedOrigins?: string[];
   apiGatewaySecret: string | undefined;
   fetchImpl?: typeof fetch;
   now?: () => number;
   repository?: OAuthConnectionRepository;
   stateStore?: OAuthStateStore;
+  connectSuccessRedirect?: string;
+  youtubeConnectSuccessRedirect?: string;
 };
 
 type SupportedOAuthProvider = (typeof SUPPORTED_OAUTH_PROVIDERS)[number];
+
+type NormalizedOAuthToken = {
+  accessToken: string;
+  expiresIn?: number;
+  profile: OAuthProviderProfile;
+  refreshToken?: string;
+  scopes: string[];
+};
+
+type OAuthProviderRuntime = {
+  createAuthorizeUrl(input: { codeChallenge: string; state: string }): URL;
+  createCodeChallenge?(codeVerifier: string): string;
+  exchangeCode(input: {
+    code: string;
+    codeVerifier: string;
+    fetchImpl: typeof fetch;
+  }): Promise<NormalizedOAuthToken>;
+};
 
 function isSupportedOAuthProvider(
   provider: string,
@@ -81,15 +125,116 @@ function getRepository({
   return repository ?? createSupabaseOAuthConnectionRepository({ fetchImpl });
 }
 
+function getProviderRuntime({
+  origin,
+  provider,
+}: {
+  origin: string;
+  provider: SupportedOAuthProvider;
+}): OAuthProviderRuntime {
+  if (provider === "youtube") {
+    const config = getYouTubeOAuthConfig({ origin });
+
+    return {
+      createAuthorizeUrl({ codeChallenge, state }) {
+        return createYouTubeAuthorizeUrl({ codeChallenge, config, state });
+      },
+      async exchangeCode({ code, codeVerifier, fetchImpl }) {
+        const token = await exchangeYouTubeCode({
+          code,
+          codeVerifier,
+          config,
+          fetchImpl,
+        });
+        const profile = await fetchYouTubeChannelProfile({
+          accessToken: token.access_token,
+          fetchImpl,
+        });
+
+        return {
+          accessToken: token.access_token,
+          expiresIn: token.expires_in,
+          profile,
+          refreshToken: token.refresh_token,
+          scopes: normalizeYouTubeScopes({ config, token }),
+        };
+      },
+    };
+  }
+
+  if (provider === "tiktok") {
+    const config = getTikTokOAuthConfig({ origin });
+
+    return {
+      createAuthorizeUrl({ codeChallenge, state }) {
+        return createTikTokAuthorizeUrl({ codeChallenge, config, state });
+      },
+      createCodeChallenge: createTikTokPkceChallenge,
+      async exchangeCode({ code, codeVerifier, fetchImpl }) {
+        const token = await exchangeTikTokCode({
+          code,
+          codeVerifier,
+          config,
+          fetchImpl,
+        });
+        const profile = await fetchTikTokUserProfile({
+          accessToken: token.access_token,
+          config,
+          fetchImpl,
+        });
+
+        return {
+          accessToken: token.access_token,
+          expiresIn: token.expires_in,
+          profile,
+          refreshToken: token.refresh_token,
+          scopes: normalizeTikTokScopes({ config, token }),
+        };
+      },
+    };
+  }
+
+  const config = getKickOAuthConfig({ origin });
+
+  return {
+    createAuthorizeUrl({ codeChallenge, state }) {
+      return createKickAuthorizeUrl({ codeChallenge, config, state });
+    },
+    async exchangeCode({ code, codeVerifier, fetchImpl }) {
+      const token = await exchangeKickCode({
+        code,
+        codeVerifier,
+        config,
+        fetchImpl,
+      });
+      const profile = await fetchKickChannelProfile({
+        accessToken: token.access_token,
+        fetchImpl,
+      });
+
+      return {
+        accessToken: token.access_token,
+        expiresIn: token.expires_in,
+        profile,
+        refreshToken: token.refresh_token,
+        scopes: normalizeKickScopes({ config, token }),
+      };
+    },
+  };
+}
+
 export function createOAuthRouter({
+  allowedOrigins = [],
   apiGatewaySecret,
   fetchImpl = fetch,
   now = Date.now,
   repository,
   stateStore,
+  connectSuccessRedirect = process.env.CONNECT_SUCCESS_REDIRECT,
+  youtubeConnectSuccessRedirect = process.env.YOUTUBE_CONNECT_SUCCESS_REDIRECT,
 }: CreateOAuthRouterOptions): Router {
   const router = express.Router();
-  const oauthStateStore = stateStore ?? new MemoryOAuthStateStore(now);
+  const oauthStateStore = stateStore ?? createDefaultOAuthStateStore(now);
 
   router.get("/:provider/connect", async (request, response) => {
     const provider = request.params.provider;
@@ -104,8 +249,8 @@ export function createOAuthRouter({
       return;
     }
 
-    let config: ReturnType<typeof getYouTubeOAuthConfig>;
     let handoff: ReturnType<typeof verifyOAuthHandoffToken>;
+    let providerRuntime: OAuthProviderRuntime;
 
     try {
       assertEncryptionConfigured();
@@ -114,7 +259,10 @@ export function createOAuthRouter({
         secret: apiGatewaySecret,
         token: getQueryValue(request, "handoff"),
       });
-      config = getYouTubeOAuthConfig({ origin: getOrigin(request) });
+      providerRuntime = getProviderRuntime({
+        origin: getOrigin(request),
+        provider,
+      });
     } catch (error) {
       const code =
         error instanceof Error && error.message.includes("handoff")
@@ -134,7 +282,9 @@ export function createOAuthRouter({
 
     const state = createOAuthState();
     const codeVerifier = createPkceVerifier();
-    const codeChallenge = createPkceChallenge(codeVerifier);
+    const codeChallenge =
+      providerRuntime.createCodeChallenge?.(codeVerifier) ??
+      createPkceChallenge(codeVerifier);
 
     await oauthStateStore.save({
       codeVerifier,
@@ -146,9 +296,8 @@ export function createOAuthRouter({
       userId: handoff.user_id,
     });
 
-    const authorizeUrl = createYouTubeAuthorizeUrl({
+    const authorizeUrl = providerRuntime.createAuthorizeUrl({
       codeChallenge,
-      config,
       state,
     });
 
@@ -179,11 +328,12 @@ export function createOAuthRouter({
       storedState.provider !== (provider as OAuthProvider) ||
       !hasMatchingState(returnedState, storedState.state)
     ) {
-      sendOAuthError({
-        code: "invalid_state",
-        message: "OAuth state is missing, expired, or invalid.",
+      redirectToOAuthError({
+        allowedOrigins,
+        connectSuccessRedirect,
+        provider,
         response,
-        status: 400,
+        youtubeConnectSuccessRedirect,
       });
       return;
     }
@@ -192,11 +342,12 @@ export function createOAuthRouter({
     const code = getQueryValue(request, "code");
 
     if (providerError || !code) {
-      sendOAuthError({
-        code: "oauth_exchange_failed",
-        message: "OAuth provider did not return an authorization code.",
+      redirectToOAuthError({
+        allowedOrigins,
+        connectSuccessRedirect,
+        provider,
         response,
-        status: 400,
+        youtubeConnectSuccessRedirect,
       });
       return;
     }
@@ -204,39 +355,38 @@ export function createOAuthRouter({
     let tokenResult: PersistOAuthConnectionInput;
 
     try {
-      const config = getYouTubeOAuthConfig({ origin: getOrigin(request) });
-      const token = await exchangeYouTubeCode({
+      const providerRuntime = getProviderRuntime({
+        origin: getOrigin(request),
+        provider,
+      });
+      const token = await providerRuntime.exchangeCode({
         code,
         codeVerifier: storedState.codeVerifier,
-        config,
         fetchImpl,
       });
-      const profile = await fetchYouTubeChannelProfile({
-        accessToken: token.access_token,
-        fetchImpl,
-      });
-      const expiresAt = token.expires_in
-        ? new Date(now() + token.expires_in * 1000).toISOString()
+      const expiresAt = token.expiresIn
+        ? new Date(now() + token.expiresIn * 1000).toISOString()
         : null;
 
       tokenResult = {
-        accessTokenCiphertext: encryptSecret(token.access_token),
+        accessTokenCiphertext: encryptSecret(token.accessToken),
         creatorId: storedState.creatorId,
         expiresAt,
-        profile,
+        profile: token.profile,
         provider,
-        refreshTokenCiphertext: token.refresh_token
-          ? encryptSecret(token.refresh_token)
+        refreshTokenCiphertext: token.refreshToken
+          ? encryptSecret(token.refreshToken)
           : null,
-        scopes: normalizeYouTubeScopes({ config, token }),
+        scopes: token.scopes,
         userId: storedState.userId,
       };
     } catch {
-      sendOAuthError({
-        code: "oauth_exchange_failed",
-        message: "YouTube OAuth exchange or profile lookup failed.",
+      redirectToOAuthError({
+        allowedOrigins,
+        connectSuccessRedirect,
+        provider,
         response,
-        status: 502,
+        youtubeConnectSuccessRedirect,
       });
       return;
     }
@@ -248,11 +398,12 @@ export function createOAuthRouter({
         tokenResult,
       );
     } catch {
-      sendOAuthError({
-        code: "token_persistence_failed",
-        message: "OAuth tokens could not be persisted securely.",
+      redirectToOAuthError({
+        allowedOrigins,
+        connectSuccessRedirect,
+        provider,
         response,
-        status: 500,
+        youtubeConnectSuccessRedirect,
       });
       return;
     }
@@ -267,20 +418,64 @@ export function createOAuthRouter({
       });
     }
 
-    response.status(200).json({
-      data: {
-        channel_id: result.channelId,
-        connection_id: result.connectionId,
-        expires_at: result.expiresAt,
-        profile: result.profile,
-        provider,
-        scopes: result.scopes,
-      },
-      success: true,
-    });
+    response.redirect(
+      302,
+      resolveOAuthRedirectTarget({
+        allowedOrigins,
+        fallbackPath: getConnectSuccessRedirect({
+          connectSuccessRedirect,
+          provider,
+          youtubeConnectSuccessRedirect,
+        }),
+        returnTo: storedState.returnTo,
+      }),
+    );
   });
 
   return router;
+}
+
+function getConnectSuccessRedirect({
+  connectSuccessRedirect,
+  provider,
+  youtubeConnectSuccessRedirect,
+}: {
+  connectSuccessRedirect: string | undefined;
+  provider: SupportedOAuthProvider;
+  youtubeConnectSuccessRedirect: string | undefined;
+}): string | undefined {
+  if (provider === "youtube") {
+    return youtubeConnectSuccessRedirect ?? connectSuccessRedirect;
+  }
+
+  return connectSuccessRedirect ?? youtubeConnectSuccessRedirect;
+}
+
+function redirectToOAuthError({
+  allowedOrigins,
+  connectSuccessRedirect,
+  provider,
+  response,
+  youtubeConnectSuccessRedirect,
+}: {
+  allowedOrigins: readonly string[];
+  connectSuccessRedirect: string | undefined;
+  provider: SupportedOAuthProvider;
+  response: Response;
+  youtubeConnectSuccessRedirect: string | undefined;
+}) {
+  response.redirect(
+    302,
+    resolveOAuthErrorRedirect({
+      allowedOrigins,
+      fallbackPath: getConnectSuccessRedirect({
+        connectSuccessRedirect,
+        provider,
+        youtubeConnectSuccessRedirect,
+      }),
+      provider,
+    }),
+  );
 }
 
 async function registerInitialYouTubeWebSub({
