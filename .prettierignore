@@ -1,0 +1,16 @@
+node_modules/
+.venv/
+.cache
+.cache/
+.pytest_cache/
+__pycache__/
+dist/
+build/
+.next/
+out/
+.turbo/
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/

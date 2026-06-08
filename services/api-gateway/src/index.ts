@@ -1,8 +1,18 @@
 import { createApp } from "./app.js";
+import { createBullMqClipGenerationQueue } from "./jobs/clipGenerationQueue.js";
+import { createBullMqTranscriptionQueue } from "./jobs/transcriptionQueue.js";
 
-const app = createApp();
+const clipGenerationQueue = process.env.REDIS_URL
+  ? createBullMqClipGenerationQueue()
+  : undefined;
+const transcriptionQueue = process.env.REDIS_URL
+  ? createBullMqTranscriptionQueue()
+  : undefined;
+
+const app = createApp({ clipGenerationQueue, transcriptionQueue });
 const port = Number(process.env.PORT ?? 4000);
+const host = process.env.HOST || process.env.HOSTNAME || "0.0.0.0";
 
-app.listen(port, () => {
-  console.log(`api-gateway listening on ${port}`);
+app.listen(port, host, () => {
+  console.log(`api-gateway listening on ${host}:${port}`);
 });

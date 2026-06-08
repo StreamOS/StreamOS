@@ -1,0 +1,141 @@
+name: streamos
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.api-gateway
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: "4000"
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_DEFAULT_NAME: streamos-media
+      CLIP_GENERATION_QUEUE_NAME: streamos-clip-generation
+      TRANSCRIPTION_QUEUE_NAME: streamos-transcription
+      API_GATEWAY_SECRET: ${API_GATEWAY_SECRET:-local-api-gateway-secret}
+      API_GATEWAY_ALLOWED_ORIGINS: ${API_GATEWAY_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      API_GATEWAY_RATE_LIMIT_MAX: ${API_GATEWAY_RATE_LIMIT_MAX:-120}
+      API_GATEWAY_RATE_LIMIT_WINDOW_MS: ${API_GATEWAY_RATE_LIMIT_WINDOW_MS:-60000}
+      STREAM_EVENT_WEBHOOK_SECRET: ${STREAM_EVENT_WEBHOOK_SECRET:-local-streamos-webhook-secret}
+      TWITCH_EVENTSUB_SECRET: ${TWITCH_EVENTSUB_SECRET:-local-twitch-eventsub-secret}
+      YOUTUBE_WEBHOOK_SECRET: ${YOUTUBE_WEBHOOK_SECRET:-local-youtube-webhook-secret}
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:4000/health'').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  automation-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.automation-service
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8000"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      OPENAI_TITLE_MODEL: ${OPENAI_TITLE_MODEL:-gpt-4o-mini}
+      OPENAI_TRANSCRIPTION_MODEL: ${OPENAI_TRANSCRIPTION_MODEL:-gpt-4o-transcribe}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_TIMEOUT_SECONDS: ${OPENAI_TIMEOUT_SECONDS:-30}
+      OPENAI_MAX_TRANSCRIPTION_MEDIA_BYTES: ${OPENAI_MAX_TRANSCRIPTION_MEDIA_BYTES:-25000000}
+      STREAMOS_E2E_MODE: ${STREAMOS_E2E_MODE:-false}
+      TRANSCRIPTION_PROCESSOR_MODE: ${TRANSCRIPTION_PROCESSOR_MODE:-openai}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(''http://127.0.0.1:8000/health'', timeout=3).status == 200 else 1)"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  transcription-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.transcription-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      automation-service:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_DEFAULT_NAME: streamos-media
+      TRANSCRIPTION_QUEUE_NAME: streamos-transcription
+      AUTOMATION_SERVICE_URL: http://automation-service:8000
+      TRANSCRIPTION_WORKER_CONCURRENCY: ${TRANSCRIPTION_WORKER_CONCURRENCY:-1}
+      SUPABASE_URL: ${SUPABASE_DOCKER_URL:-${SUPABASE_URL:-}}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+
+  clip-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.clip-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      automation-service:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_DEFAULT_NAME: streamos-media
+      CLIP_GENERATION_QUEUE_NAME: streamos-clip-generation
+      AUTOMATION_SERVICE_URL: http://automation-service:8000
+      CLIP_WORKER_CONCURRENCY: ${CLIP_WORKER_CONCURRENCY:-1}
+      SUPABASE_URL: ${SUPABASE_DOCKER_URL:-${SUPABASE_URL:-}}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+
+  content-job-retry-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.content-job-retry-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_DEFAULT_NAME: streamos-media
+      CLIP_GENERATION_QUEUE_NAME: streamos-clip-generation
+      TRANSCRIPTION_QUEUE_NAME: streamos-transcription
+      CONTENT_JOB_RETRY_WORKER_BATCH_SIZE: ${CONTENT_JOB_RETRY_WORKER_BATCH_SIZE:-25}
+      CONTENT_JOB_RETRY_WORKER_POLL_INTERVAL_MS: ${CONTENT_JOB_RETRY_WORKER_POLL_INTERVAL_MS:-60000}
+      CONTENT_JOB_RETRY_ATTEMPTS: ${CONTENT_JOB_RETRY_ATTEMPTS:-3}
+      CONTENT_JOB_RETRY_BACKOFF_MS: ${CONTENT_JOB_RETRY_BACKOFF_MS:-30000}
+      SUPABASE_URL: ${SUPABASE_DOCKER_URL:-${SUPABASE_URL:-}}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+
+volumes:
+  redis_data:

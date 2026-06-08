@@ -1,5 +1,11 @@
 # Dependencies
 node_modules/
+.venv/
+.cache/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+*.py[cod]
 
 # Build output
 dist/
@@ -19,6 +25,7 @@ pnpm-debug.log*
 # Environment files
 .env
 .env.local
+.env.test
 .env.*.local
 
 # OS and editor files
@@ -26,7 +33,9 @@ pnpm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+.agents/
 .codex/
+skills-lock.json
 
 # Test and coverage output
 coverage/
@@ -35,3 +44,10 @@ coverage/
 # Electron output
 release/
 *.asar
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

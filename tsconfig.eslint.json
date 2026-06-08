@@ -1,0 +1,22 @@
+{
+  "extends": "./packages/config/tsconfig/base.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "jsx": "preserve",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "types": ["node", "vitest/globals"]
+  },
+  "include": [
+    "*.ts",
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "e2e/**/*.ts",
+    "packages/**/*.ts",
+    "packages/**/*.tsx",
+    "services/**/*.ts",
+    "workers/**/*.ts"
+  ],
+  "exclude": ["node_modules", "**/.next/**", "**/dist/**", "**/build/**"]
+}

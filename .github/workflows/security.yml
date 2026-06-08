@@ -1,0 +1,181 @@
+name: Security & Dependency Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+  security-events: write
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "9.15.4"
+  PYTHON_VERSION: "3.12"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request' && (!github.event.repository.private || vars.ENABLE_GHAS_CHECKS == 'true')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high
+          retry-on-snapshot-warnings: true
+
+  trufflehog:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Scan pull request diff for verified secrets
+        if: github.event_name == 'pull_request'
+        uses: trufflesecurity/trufflehog@v3.95.2
+        with:
+          path: ./
+          base: ${{ github.event.pull_request.base.sha }}
+          head: HEAD
+          extra_args: --only-verified
+
+      - name: Scan repository history for verified secrets
+        if: github.event_name != 'pull_request'
+        uses: trufflesecurity/trufflehog@v3.95.2
+        with:
+          path: ./
+          extra_args: --only-verified
+
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: ${{ !github.event.repository.private || vars.ENABLE_GHAS_CHECKS == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - javascript-typescript
+          - python
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+
+  npm-audit:
+    name: npm audit (workspace)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run npm audit
+        run: pnpm audit --prod --audit-level high
+
+  pip-audit:
+    name: pip-audit (automation-service)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Cache Python virtualenv
+        uses: actions/cache@v5
+        with:
+          path: services/automation-service/.venv
+          key: ${{ runner.os }}-security-python-${{ env.PYTHON_VERSION }}-${{ hashFiles('services/automation-service/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-security-python-${{ env.PYTHON_VERSION }}-
+
+      - name: Install Python dependencies and audit tooling
+        run: |
+          python -m venv services/automation-service/.venv
+          . services/automation-service/.venv/bin/activate
+          python -m pip install --upgrade pip pip-audit
+          python -m pip install -e "./services/automation-service[dev]"
+
+      - name: Run pip-audit
+        run: |
+          . services/automation-service/.venv/bin/activate
+          pip-audit --local
+
+  database-security:
+    name: Supabase RLS migration validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Supabase migration security
+        run: pnpm db:validate-security

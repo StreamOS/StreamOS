@@ -1,0 +1,29 @@
+{
+  "name": "@streamos/transcription-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@streamos/redis": "workspace:*",
+    "@streamos/types": "workspace:*",
+    "@streamos/utils": "workspace:*",
+    "bullmq": "^5.77.7",
+    "ioredis": "^5.8.2",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@streamos/config": "workspace:*",
+    "@types/node": "^22.13.14",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.0.9"
+  }
+}

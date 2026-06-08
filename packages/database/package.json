@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "validate-security": "node ../../scripts/validate-database-security.cjs"
+  },
   "exports": {
     ".": "./src/index.ts"
   },

@@ -6,20 +6,31 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
     "lint": "tsc -p tsconfig.json --noEmit",
+    "setup:eventsub": "tsx scripts/setup-twitch-eventsub.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@streamos/queue": "workspace:*",
+    "@streamos/redis": "workspace:*",
     "@streamos/types": "workspace:*",
+    "@streamos/youtube-websub": "workspace:*",
+    "bullmq": "^5.77.7",
     "express": "^4.21.2",
+    "fast-xml-parser": "^5.8.0",
     "helmet": "^8.1.0",
+    "ioredis": "^5.8.2",
+    "jose": "^6.2.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@streamos/config": "workspace:*",
     "@types/express": "^5.0.1",
     "@types/node": "^22.13.14",
+    "@types/supertest": "^7.2.0",
+    "supertest": "^7.2.2",
     "tsx": "^4.19.3",
     "typescript": "^5.8.3",
     "vitest": "^3.0.9"

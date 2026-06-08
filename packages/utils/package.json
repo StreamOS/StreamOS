@@ -1,0 +1,32 @@
+{
+  "name": "@streamos/utils",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./crypto": {
+      "types": "./src/crypto.ts",
+      "import": "./dist/crypto.js",
+      "default": "./dist/crypto.js"
+    }
+  },
+  "scripts": {
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "dev": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --watch",
+    "lint": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@streamos/config": "workspace:*",
+    "@types/node": "^22.13.14",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,12 +1,16 @@
 import { createBrowserClient } from "@supabase/ssr";
+import type { Database } from "@streamos/database";
+import { getSupabaseConfig } from "./config";
 
 export function createClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const config = getSupabaseConfig();
 
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!config) {
     throw new Error("Missing browser Supabase environment variables.");
   }
 
-  return createBrowserClient(supabaseUrl, supabaseAnonKey);
+  return createBrowserClient<Database, "public", Database["public"]>(
+    config.url,
+    config.anonKey,
+  );
 }

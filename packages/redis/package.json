@@ -1,0 +1,28 @@
+{
+  "name": "@streamos/redis",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "dev": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --watch",
+    "lint": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "test": "node ./node_modules/vitest/vitest.mjs run",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@streamos/config": "workspace:*",
+    "@types/node": "^22.13.14",
+    "typescript": "^5.8.3",
+    "vitest": "^3.0.9"
+  }
+}
