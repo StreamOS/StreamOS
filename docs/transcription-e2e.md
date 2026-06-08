@@ -62,6 +62,21 @@ For deployed services, run the same gate with `--skip-docker`,
 webhook trigger, BullMQ worker consumption, Supabase `content_jobs` write, and
 service health checks mandatory for rollout.
 
+For quick local validation when Docker/Compose services are intentionally not
+running, keep `--skip-docker` explicit and allow only local service checks to be
+skipped:
+
+```bash
+pnpm rollout:check -- \
+  --env-file=.env.test \
+  --skip-docker \
+  --allow-missing-local-services
+```
+
+This mode still runs the database security validator plus API Gateway typecheck
+and tests. It exits successfully only when the unresolved service URLs are local
+targets such as `localhost`. Do not use it for release promotion.
+
 ## Failure Path
 
 ```bash

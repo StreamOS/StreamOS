@@ -285,5 +285,21 @@ the target services are already running, and `--allow-hosted-e2e` must only be
 used intentionally because the transcription E2E creates disposable Supabase
 rows via the service-role key.
 
+For local development checks where Docker/Compose services are intentionally not
+running, you may keep the static rollout checks hard while avoiding service
+availability false negatives:
+
+```bash
+pnpm rollout:check -- \
+  --env-file=.env.test \
+  --skip-docker \
+  --allow-missing-local-services
+```
+
+This local-only mode skips the transcription E2E and deployment health checks
+only when the resolved service URLs are local and unavailable or missing. It
+does not apply to hosted Supabase E2E runs and must not be used for release
+promotion.
+
 The private Automation Service check cannot succeed from a local shell or
 Vercel because Railway private networking is not public internet.
