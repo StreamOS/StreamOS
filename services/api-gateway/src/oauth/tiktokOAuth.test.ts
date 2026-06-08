@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { OAuthConnectionResult } from "@streamos/types";
 
@@ -192,7 +192,12 @@ describe("TikTok OAuth gateway routes", () => {
         "tiktok-client-key",
       );
       expect(authorizeUrl.searchParams.get("state")).toHaveLength(43);
-      expect(authorizeUrl.searchParams.get("code_challenge")).toHaveLength(64);
+      expect(authorizeUrl.searchParams.get("code_challenge")).toBe(
+        createHash("sha256")
+          .update(stateStore.saved[0]?.codeVerifier ?? "")
+          .digest("base64url"),
+      );
+      expect(authorizeUrl.searchParams.get("code_challenge")).toHaveLength(43);
       expect(authorizeUrl.searchParams.get("code_challenge_method")).toBe(
         "S256",
       );

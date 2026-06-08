@@ -185,7 +185,7 @@ export function normalizeTikTokScopes({
 }
 
 export function createTikTokPkceChallenge(verifier: string): string {
-  return createHash("sha256").update(verifier).digest("hex");
+  return createHash("sha256").update(verifier).digest("base64url");
 }
 
 function getDefaultTikTokUserFields(scopes: string[]): string[] {
