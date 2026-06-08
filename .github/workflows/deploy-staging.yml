@@ -79,7 +79,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Vercel CLI
-        run: npm install --global vercel@${VERCEL_CLI_VERSION}
+        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
       - name: Pull Vercel preview environment
         working-directory: apps/web
@@ -133,7 +133,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install Railway CLI
-        run: npm install --global @railway/cli@${RAILWAY_CLI_VERSION}
+        run: npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
 
       - name: Deploy Railway service
         env:
