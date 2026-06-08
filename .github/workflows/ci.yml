@@ -63,4 +63,4 @@ jobs:
           python -m pip install -e "./services/automation-service[dev]"
 
       - name: Validate
-        run: pnpm validate
+        run: pnpm validate:ci
