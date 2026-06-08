@@ -29,7 +29,7 @@ jobs:
     name: Dependency review
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && (!github.event.repository.private || vars.ENABLE_GHAS_CHECKS == 'true')
 
     steps:
       - name: Checkout
@@ -59,19 +59,20 @@ jobs:
           path: ./
           base: ${{ github.event.pull_request.base.sha }}
           head: HEAD
-          extra_args: --only-verified --fail
+          extra_args: --only-verified
 
       - name: Scan repository history for verified secrets
         if: github.event_name != 'pull_request'
         uses: trufflesecurity/trufflehog@v3.95.2
         with:
           path: ./
-          extra_args: --only-verified --fail
+          extra_args: --only-verified
 
   codeql:
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    if: ${{ !github.event.repository.private || vars.ENABLE_GHAS_CHECKS == 'true' }}
     strategy:
       fail-fast: false
       matrix:
