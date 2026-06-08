@@ -3,6 +3,8 @@ import express from "express";
 import type { Express, NextFunction, Request, Response } from "express";
 import helmet from "helmet";
 import { Redis } from "ioredis";
+import { dispatchStreamOSJob } from "@streamos/queue";
+import { assertRedisTls } from "@streamos/redis";
 import { ZodError } from "zod";
 
 import {
@@ -29,7 +31,6 @@ import { createAutomationCallbackRouter } from "./routes/callbacks/automation.js
 import { createRoutes } from "./routes/index.js";
 import { createProviderWebhookRouter } from "./webhooks/providerRoutes.js";
 import type { ProviderWebhookDispatcher } from "./webhooks/providerEvents.js";
-import { dispatchStreamOSJob } from "@streamos/queue";
 
 type CreateAppOptions = {
   allowedOrigins?: string[];
@@ -525,12 +526,16 @@ function createRateLimitMiddleware(config: RateLimitConfig) {
   };
 }
 
-function createDefaultDeduplicationClient(): RedisDeduplicationClient {
+function createDefaultDeduplicationClient(
+  nodeEnv = process.env.NODE_ENV,
+): RedisDeduplicationClient {
   const redisUrl = process.env.REDIS_URL?.trim();
 
   if (!redisUrl) {
     return new InMemoryDeduplicationClient();
   }
+
+  assertRedisTls(redisUrl, { nodeEnv });
 
   const redis = new Redis(redisUrl, {
     enableReadyCheck: true,
@@ -561,7 +566,8 @@ export function createApp(options: CreateAppOptions = {}): Express {
   const providerWebhookDispatcher =
     options.providerWebhookDispatcher ?? dispatchStreamOSJob;
   const deduplicationClient =
-    options.webhookDeduplicationClient ?? createDefaultDeduplicationClient();
+    options.webhookDeduplicationClient ??
+    createDefaultDeduplicationClient(nodeEnv);
 
   if (
     isProduction(nodeEnv) &&

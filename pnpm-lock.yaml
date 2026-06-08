@@ -178,6 +178,9 @@ importers:
 
   packages/queue:
     dependencies:
+      "@streamos/redis":
+        specifier: workspace:*
+        version: link:../redis
       bullmq:
         specifier: ^5.77.7
         version: 5.77.7
@@ -194,6 +197,21 @@ importers:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+
+  packages/redis:
+    devDependencies:
+      "@streamos/config":
+        specifier: workspace:*
+        version: link:../config
+      "@types/node":
+        specifier: ^22.13.14
+        version: 22.19.19
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.9
+        version: 3.2.4(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)(yaml@2.9.0)
 
   packages/twitch-eventsub:
     devDependencies:
@@ -254,6 +272,9 @@ importers:
       "@streamos/queue":
         specifier: workspace:*
         version: link:../../packages/queue
+      "@streamos/redis":
+        specifier: workspace:*
+        version: link:../../packages/redis
       "@streamos/types":
         specifier: workspace:*
         version: link:../../packages/types
@@ -309,6 +330,9 @@ importers:
 
   workers/clip-worker:
     dependencies:
+      "@streamos/redis":
+        specifier: workspace:*
+        version: link:../../packages/redis
       "@streamos/types":
         specifier: workspace:*
         version: link:../../packages/types
@@ -337,6 +361,9 @@ importers:
 
   workers/content-job-retry-worker:
     dependencies:
+      "@streamos/redis":
+        specifier: workspace:*
+        version: link:../../packages/redis
       "@streamos/types":
         specifier: workspace:*
         version: link:../../packages/types
@@ -368,6 +395,9 @@ importers:
       "@streamos/queue":
         specifier: workspace:*
         version: link:../../packages/queue
+      "@streamos/redis":
+        specifier: workspace:*
+        version: link:../../packages/redis
       "@supabase/supabase-js":
         specifier: ^2.49.4
         version: 2.106.2
@@ -396,6 +426,9 @@ importers:
 
   workers/transcription-worker:
     dependencies:
+      "@streamos/redis":
+        specifier: workspace:*
+        version: link:../../packages/redis
       "@streamos/types":
         specifier: workspace:*
         version: link:../../packages/types

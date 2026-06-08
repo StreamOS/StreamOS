@@ -1,5 +1,6 @@
 import { Queue, type JobsOptions } from "bullmq";
 import { Redis } from "ioredis";
+import { assertRedisTls } from "@streamos/redis";
 
 export const STREAM_JOB_QUEUE_NAME = "streamos-media";
 
@@ -76,6 +77,8 @@ function getRedisUrl(source: NodeJS.ProcessEnv = process.env): string {
   if (parsedUrl.protocol !== "redis:" && parsedUrl.protocol !== "rediss:") {
     throw new Error("REDIS_URL must use redis:// or rediss://.");
   }
+
+  assertRedisTls(redisUrl);
 
   return redisUrl;
 }

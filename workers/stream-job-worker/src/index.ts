@@ -6,6 +6,7 @@ import {
   type StreamOSJob,
   type StreamOSJobType,
 } from "@streamos/queue";
+import { assertRedisTls } from "@streamos/redis";
 
 type WorkerConfig = {
   alertWebhookUrl?: string;
@@ -93,6 +94,8 @@ function createRedisConnection(redisUrl: string): Redis {
   if (url.protocol !== "redis:" && url.protocol !== "rediss:") {
     throw new Error("REDIS_URL must use redis:// or rediss://.");
   }
+
+  assertRedisTls(redisUrl);
 
   return new Redis(redisUrl, {
     enableReadyCheck: true,

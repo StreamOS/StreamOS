@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { OAuthProvider } from "@streamos/types";
+import { assertRedisTls } from "@streamos/redis";
 import { Redis } from "ioredis";
 
 export type StoredOAuthState = {
@@ -113,6 +114,8 @@ export function createDefaultOAuthStateStore(
   if (!redisUrl) {
     return new MemoryOAuthStateStore(now);
   }
+
+  assertRedisTls(redisUrl);
 
   return new RedisOAuthStateStore(
     new Redis(redisUrl, {
