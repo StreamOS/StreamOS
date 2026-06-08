@@ -12,7 +12,7 @@ COPY packages ./packages
 COPY services/api-gateway ./services/api-gateway
 
 RUN pnpm install --frozen-lockfile --filter @streamos/api-gateway...
-RUN pnpm --filter @streamos/api-gateway build
+RUN pnpm --filter @streamos/api-gateway... run build
 
 ENV NODE_ENV=production
 
