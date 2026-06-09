@@ -12,7 +12,7 @@ COPY packages ./packages
 COPY workers/clip-worker ./workers/clip-worker
 
 RUN pnpm install --frozen-lockfile --filter @streamos/clip-worker...
-RUN pnpm --filter @streamos/clip-worker build
+RUN pnpm --filter @streamos/clip-worker... --if-present build
 
 ENV NODE_ENV=production
 
