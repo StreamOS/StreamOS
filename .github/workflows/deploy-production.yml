@@ -11,6 +11,11 @@ on:
         required: true
         default: true
         type: boolean
+      repair_supabase_migration_history:
+        description: Mark known orphaned Supabase production migrations as reverted before db push
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -260,6 +265,20 @@ jobs:
         uses: supabase/setup-cli@v1
         with:
           version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Repair Supabase production migration history
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.repair_supabase_migration_history }}
+        working-directory: packages/database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_PRODUCTION }}
+        run: |
+          supabase migration repair --status reverted \
+            20260531211351 \
+            20260601160555 \
+            20260601211849 \
+            20260601211946 \
+            20260602145407 \
+            --db-url "${SUPABASE_DB_URL}"
 
       - name: Push Supabase migrations
         working-directory: packages/database
