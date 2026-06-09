@@ -12,7 +12,7 @@ COPY packages ./packages
 COPY workers/content-job-retry-worker ./workers/content-job-retry-worker
 
 RUN pnpm install --frozen-lockfile --filter @streamos/content-job-retry-worker...
-RUN pnpm --filter @streamos/content-job-retry-worker build
+RUN pnpm --filter @streamos/content-job-retry-worker... --if-present build
 
 ENV NODE_ENV=production
 

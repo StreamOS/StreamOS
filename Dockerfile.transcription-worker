@@ -13,7 +13,7 @@ COPY scripts/check-deployment.cjs ./scripts/check-deployment.cjs
 COPY workers/transcription-worker ./workers/transcription-worker
 
 RUN pnpm install --frozen-lockfile --filter @streamos/transcription-worker...
-RUN pnpm --filter @streamos/transcription-worker build
+RUN pnpm --filter @streamos/transcription-worker... --if-present build
 
 ENV NODE_ENV=production
 
