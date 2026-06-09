@@ -221,7 +221,6 @@ jobs:
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
       - name: Pull Vercel production environment
-        working-directory: apps/web
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -229,14 +228,12 @@ jobs:
         run: vercel pull --yes --environment=production --token="${VERCEL_TOKEN}"
 
       - name: Build Vercel production output
-        working-directory: apps/web
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel build --prod --token="${VERCEL_TOKEN}"
 
       - name: Deploy prebuilt production
         id: deploy
-        working-directory: apps/web
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
