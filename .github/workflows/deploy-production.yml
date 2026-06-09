@@ -280,6 +280,20 @@ jobs:
             20260602145407 \
             --db-url "${SUPABASE_DB_URL}"
 
+      - name: Mark Supabase production baseline migrations as applied
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.repair_supabase_migration_history }}
+        working-directory: packages/database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_PRODUCTION }}
+        run: |
+          supabase migration repair --status applied \
+            0001 \
+            0002 \
+            0003 \
+            0004 \
+            0005 \
+            --db-url "${SUPABASE_DB_URL}"
+
       - name: Push Supabase migrations
         working-directory: packages/database
         env:
