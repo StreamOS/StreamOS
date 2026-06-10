@@ -127,7 +127,7 @@ function SupabaseSetupNotice() {
     <section className="mb-6 rounded-lg border border-signal-gold/30 bg-signal-gold/10 p-4 text-sm text-signal-gold">
       Supabase ist lokal noch nicht konfiguriert. Das Dashboard laeuft im
       Demo-Modus. Setze `NEXT_PUBLIC_SUPABASE_URL` und
-      `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `apps/web/.env.local`, um Login,
+      `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in `apps/web/.env.local`, um Login,
       Session-Schutz und Creator-Bootstrap zu aktivieren.
     </section>
   );
