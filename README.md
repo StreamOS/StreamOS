@@ -183,8 +183,8 @@ VERCEL_PROJECT_ID=
 RAILWAY_PROJECT_ID=
 RAILWAY_TOKEN_STAGING=
 RAILWAY_TOKEN_PRODUCTION=
-SUPABASE_DB_URL_STAGING=
-SUPABASE_DB_URL_PRODUCTION=
+SUPABASE_DB_URL_STAGING=postgresql://postgres.<project-ref>:<password>@<pooler-host>:5432/postgres
+SUPABASE_DB_URL_PRODUCTION=postgresql://postgres.<project-ref>:<password>@<pooler-host>:5432/postgres
 DISCORD_WEBHOOK_URL=
 ```
 

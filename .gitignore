@@ -31,6 +31,7 @@ pnpm-debug.log*
 # OS and editor files
 .DS_Store
 Thumbs.db
+desktop.ini
 .vscode/
 .idea/
 .agents/
@@ -51,3 +52,7 @@ release/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+.vercel
+.env*
+!.env.example
+!.env.*.example

@@ -43,7 +43,7 @@ NEXT_PUBLIC_APP_URL=https://app.streamos.example
 APP_ENV=production
 STREAMOS_DEMO_MODE=false
 NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
 TWITCH_CLIENT_ID=
 TWITCH_CLIENT_SECRET=
@@ -52,6 +52,11 @@ TWITCH_SCOPES=user:read:email
 API_GATEWAY_URL=https://streamos-api-gateway.up.railway.app
 API_GATEWAY_SECRET=
 ```
+
+`NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` must be set in
+both the Vercel Production and Preview/Staging environments. The CD workflow
+fails the Vercel build when either value is missing, because `/auth/login`,
+Supabase SSR session checks, and platform OAuth connect flows depend on them.
 
 Do not set `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_OPENAI_KEY`, or `NEXT_PUBLIC_OPENAI_API_KEY` in the Vercel browser-facing app unless a server route explicitly needs the server-only value.
 
