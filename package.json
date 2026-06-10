@@ -31,7 +31,10 @@
     "typecheck": "turbo typecheck",
     "validate": "pnpm lint && pnpm turbo run lint typecheck test build && pnpm db:validate-security && pnpm test:fastapi",
     "validate:ci": "pnpm lint && pnpm -r --if-present run lint && pnpm -r --if-present run typecheck && pnpm -r --if-present run build && pnpm -r --if-present run test && pnpm db:validate-security && pnpm test:fastapi",
-    "format": "prettier --check \"*.{json,md,yml,yaml}\" \"apps/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"docs/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"e2e/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"packages/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"scripts/**/*.{ts,tsx,js,cjs,json,md,yml,yaml}\" \"services/api-gateway/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"workers/**/*.{ts,tsx,js,json,md,yml,yaml}\""
+    "format": "node scripts/format-changed.cjs --check",
+    "format:write": "node scripts/format-changed.cjs --write",
+    "format:staged": "node scripts/format-changed.cjs --staged --write",
+    "format:staged:check": "node scripts/format-changed.cjs --staged --check"
   },
   "lint-staged": {
     "*.{ts,tsx,js,cjs,mjs,json,md,yml,yaml,css}": "prettier --write"
