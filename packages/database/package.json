@@ -4,12 +4,26 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "db:drizzle:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:drizzle:introspect": "drizzle-kit introspect --config drizzle.config.ts",
+    "db:drizzle:studio": "drizzle-kit studio --config drizzle.config.ts",
+    "typecheck": "tsc --noEmit",
     "validate-security": "node ../../scripts/validate-database-security.cjs"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./drizzle": "./src/drizzle.ts",
+    "./drizzle/schema": "./drizzle/schema.ts"
   },
   "dependencies": {
-    "@streamos/types": "workspace:*"
+    "@streamos/types": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@streamos/config": "workspace:*",
+    "@types/node": "^22.13.14",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.8.3"
   }
 }

@@ -317,8 +317,11 @@ async function insertFailedContentJob(env, userId) {
       next_retry_at: null,
       payload: {
         requested_by: userId,
+        source_platform: "twitch",
         source_url: `https://example.com/streamos-e2e-${runId}.mp4`,
         stream_id: payloadStreamId,
+        transcript:
+          "E2E transcript fixture for retrying a failed StreamOS clip scoring job.",
       },
       queue_job_id: `e2e-failed-${runId}`,
       result: {

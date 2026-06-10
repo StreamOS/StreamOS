@@ -5,6 +5,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "outDir": "dist",
-    "declaration": true
+    "declaration": true,
+    "types": ["node"]
   }
 }

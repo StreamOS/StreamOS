@@ -54,3 +54,24 @@ Use the generated-style `Database` type with Supabase clients:
 ```ts
 import type { Database } from "@streamos/database";
 ```
+
+## Drizzle ORM
+
+Drizzle is available as a server-side query layer for Node services and workers.
+Keep schema migrations in `packages/database/supabase/migrations` unless the
+team intentionally moves migration ownership to Drizzle.
+
+Use the Supabase Shared Pooler transaction-mode URL on port `6543`:
+
+```bash
+DATABASE_URL=postgresql://postgres.<project-ref>:<password>@<pooler-host>:6543/postgres
+```
+
+Never expose `DATABASE_URL` through `NEXT_PUBLIC_*` variables.
+
+```ts
+import { createDrizzleClient, schema } from "@streamos/database/drizzle";
+
+const db = createDrizzleClient();
+const jobs = await db.select().from(schema.contentJobs);
+```
