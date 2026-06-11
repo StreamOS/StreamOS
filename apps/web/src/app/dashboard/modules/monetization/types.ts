@@ -52,12 +52,35 @@ export type RecentMonetizationEvent = {
   status: MonetizationEventStatus;
 };
 
+export type MonetizationSummarySnapshot = {
+  currency: string;
+  eventCount: number;
+  grossAmountCents: number;
+  netAmountCents: number;
+  periodLabel: string;
+  providerLabel: string;
+  updatedAt: string;
+  windowLabel: string;
+};
+
+export type MonetizationPlatformRanking = {
+  currency: string;
+  eventCount: number;
+  grossAmountCents: number;
+  provider: StreamPlatform;
+  providerLabel: string;
+  rank: number;
+  windowLabel: string;
+};
+
 export type MonetizationDashboardData = {
   activePlatforms: number;
   avgRevenuePerDayCents: number;
   breakdown: MonetizationBreakdownItem[];
   currency: string;
+  latestSummary: MonetizationSummarySnapshot | null;
   period: MonetizationPeriod;
+  platformRankings: MonetizationPlatformRanking[];
   platformRevenue: MonetizationPlatformRevenue[];
   recentEvents: RecentMonetizationEvent[];
   totalRevenueCents: number;

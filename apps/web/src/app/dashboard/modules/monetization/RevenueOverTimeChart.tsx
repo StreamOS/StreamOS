@@ -25,7 +25,7 @@ export function RevenueOverTimeChart({
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
-            Revenue over time
+            Umsatzverlauf
           </p>
           <h2 className="mt-2 text-lg font-semibold text-white">
             Bestaetigter Umsatz pro Tag
@@ -58,7 +58,7 @@ export function RevenueOverTimeChart({
                 }}
                 formatter={(value) => [
                   formatMoney(Number(value), currency),
-                  "Revenue",
+                  "Umsatz",
                 ]}
                 labelStyle={{ color: "#cbd5e1" }}
               />

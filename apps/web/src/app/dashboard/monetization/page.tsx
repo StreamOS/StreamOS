@@ -23,6 +23,7 @@ import {
   type MonetizationBreakdownItem,
   type MonetizationPeriod,
   type MonetizationPlatformRevenue,
+  type MonetizationPlatformRanking,
   type RecentMonetizationEvent,
 } from "@/app/dashboard/modules/monetization/types";
 
@@ -44,7 +45,7 @@ export default async function MonetizationPage({
       <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
-            Monetization
+            Monetarisierung
           </p>
           <h1 className="mt-2 text-3xl font-semibold text-white">
             Umsatz, Plattform-Mix und letzte Zahlungen
@@ -56,21 +57,21 @@ export default async function MonetizationPage({
       <section className="grid gap-4 md:grid-cols-3">
         <StatCard
           icon={BadgeDollarSign}
-          label="Total Revenue"
+          label="Gesamtumsatz"
           tone="emerald"
           trend={periodLabel(dashboard.period)}
           value={formatMoney(dashboard.totalRevenueCents, dashboard.currency)}
         />
         <StatCard
           icon={RadioTower}
-          label="Active Platforms"
+          label="Aktive Plattformen"
           tone="violet"
-          trend="Confirmed revenue sources"
+          trend="Bestaetigte Umsatzquellen"
           value={String(dashboard.activePlatforms)}
         />
         <StatCard
           icon={CalendarDays}
-          label="Avg Revenue / Day"
+          label="Umsatz pro Tag"
           tone="amber"
           trend={periodLabel(dashboard.period)}
           value={formatMoney(
@@ -80,15 +81,62 @@ export default async function MonetizationPage({
         />
       </section>
 
+      {dashboard.latestSummary && (
+        <section className="card">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
+                Letzte Zusammenfassung
+              </p>
+              <h2 className="mt-2 text-lg font-semibold text-white">
+                {dashboard.latestSummary.providerLabel} -{" "}
+                {dashboard.latestSummary.periodLabel}
+              </h2>
+              <p className="mt-2 text-sm text-slate-400">
+                Zeitraum {dashboard.latestSummary.windowLabel} - aktualisiert{" "}
+                {formatDateTime(dashboard.latestSummary.updatedAt)}
+              </p>
+            </div>
+            <span className="inline-flex rounded-full border border-signal-green/30 bg-signal-green/10 px-3 py-1.5 text-xs font-semibold text-signal-green">
+              {dashboard.latestSummary.eventCount} Ereignisse
+            </span>
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <SummaryMetric
+              label="Brutto"
+              value={formatMoney(
+                dashboard.latestSummary.grossAmountCents,
+                dashboard.latestSummary.currency,
+              )}
+            />
+            <SummaryMetric
+              label="Netto"
+              value={formatMoney(
+                dashboard.latestSummary.netAmountCents,
+                dashboard.latestSummary.currency,
+              )}
+            />
+            <SummaryMetric
+              label="Quelle"
+              value={dashboard.latestSummary.providerLabel}
+            />
+          </div>
+        </section>
+      )}
+
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.9fr)]">
         <RevenueOverTimeChart
           currency={dashboard.currency}
           data={dashboard.trend}
         />
-        <RevenueByPlatform
-          currency={dashboard.currency}
-          items={dashboard.platformRevenue}
-        />
+        <div className="space-y-6">
+          <RevenueByPlatform
+            currency={dashboard.currency}
+            items={dashboard.platformRevenue}
+          />
+          <PlatformRanking items={dashboard.platformRankings} />
+        </div>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(320px,.85fr)_minmax(0,1.4fr)]">
@@ -109,7 +157,7 @@ function PeriodFilter({
 }) {
   return (
     <nav
-      aria-label="Monetization period"
+      aria-label="Zeitraum der Monetarisierung"
       className="inline-flex w-full rounded-lg border border-white/10 bg-white/5 p-1 md:w-auto"
     >
       {MONETIZATION_PERIODS.map((period) => {
@@ -151,7 +199,7 @@ function RevenueByPlatform({
         </span>
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
-            Revenue per Platform
+            Umsatz pro Plattform
           </p>
           <h2 className="mt-1 text-lg font-semibold text-white">
             Plattform-Mix
@@ -177,7 +225,7 @@ function RevenueByPlatform({
               />
             </div>
             <p className="mt-1 text-xs text-slate-500">
-              {item.eventCount} events
+              {item.eventCount} Ereignisse
             </p>
           </div>
         ))}
@@ -196,7 +244,7 @@ function RevenueBreakdown({
   return (
     <section className="card">
       <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
-        Revenue Breakdown
+        Umsatz-Aufschluesselung
       </p>
       <h2 className="mt-2 text-lg font-semibold text-white">Event-Typen</h2>
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -211,7 +259,7 @@ function RevenueBreakdown({
                   {item.label}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  {item.eventCount} events
+                  {item.eventCount} Ereignisse
                 </p>
               </div>
               <strong className="text-right text-base text-white">
@@ -225,16 +273,62 @@ function RevenueBreakdown({
   );
 }
 
+function PlatformRanking({ items }: { items: MonetizationPlatformRanking[] }) {
+  return (
+    <section className="card">
+      <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
+        Plattform-Ranking
+      </p>
+      <h2 className="mt-2 text-lg font-semibold text-white">
+        Summaries nach Umsatz
+      </h2>
+
+      <div className="mt-5 space-y-3">
+        {items.length === 0 ? (
+          <article className="rounded-lg border border-white/10 bg-white/5 p-4 text-sm leading-6 text-slate-400">
+            Sobald monetization_summaries fuer mehrere Plattformen vorliegen,
+            erscheint hier die Rangfolge nach aktuellem Bruttoumsatz.
+          </article>
+        ) : (
+          items.map((item) => (
+            <article
+              className="rounded-lg border border-white/10 bg-white/5 p-4"
+              key={item.provider}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+                    Rang {item.rank}
+                  </p>
+                  <h3 className="mt-1 text-sm font-semibold text-white">
+                    {item.providerLabel}
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {item.eventCount} Ereignisse - {item.windowLabel}
+                  </p>
+                </div>
+                <strong className="text-right text-base text-white">
+                  {formatMoney(item.grossAmountCents, item.currency)}
+                </strong>
+              </div>
+            </article>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
 function RecentEventsTable({ events }: { events: RecentMonetizationEvent[] }) {
   return (
     <section className="card overflow-hidden">
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
-            Latest Events
+            Aktuelle Ereignisse
           </p>
           <h2 className="mt-2 text-lg font-semibold text-white">
-            Letzte Monetization Events
+            Letzte Monetarisierungsereignisse
           </h2>
         </div>
       </div>
@@ -254,7 +348,7 @@ function RecentEventsTable({ events }: { events: RecentMonetizationEvent[] }) {
             {events.length === 0 ? (
               <tr>
                 <td className="py-8 text-center text-slate-400" colSpan={5}>
-                  Keine Monetization Events im ausgewaehlten Zeitraum.
+                  Keine Monetarisierungsereignisse im ausgewaehlten Zeitraum.
                 </td>
               </tr>
             ) : (
@@ -305,4 +399,15 @@ function statusTone(status: RecentMonetizationEvent["status"]): string {
   }
 
   return "border-signal-red/30 bg-signal-red/10 text-signal-red";
+}
+
+function SummaryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <article className="rounded-lg border border-white/10 bg-white/5 p-4">
+      <p className="text-xs uppercase tracking-[0.08em] text-slate-500">
+        {label}
+      </p>
+      <strong className="mt-2 block text-xl text-white">{value}</strong>
+    </article>
+  );
 }

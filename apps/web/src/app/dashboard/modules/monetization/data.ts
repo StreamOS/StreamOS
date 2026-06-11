@@ -1,9 +1,9 @@
-import type {
-  MonetizationEventStatus,
-  MonetizationEventType,
-  StreamPlatform,
-} from "@streamos/types";
+import "server-only";
+
+import type { MonetizationEventType, StreamPlatform } from "@streamos/types";
+import type { Tables } from "@streamos/database";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { ensureCreatorForUser } from "@/lib/supabase/creator";
 import { createClient } from "@/lib/supabase/server";
 import { formatProvider } from "./formatters";
 import type {
@@ -11,6 +11,8 @@ import type {
   MonetizationDashboardData,
   MonetizationPeriod,
   MonetizationPlatformRevenue,
+  MonetizationPlatformRanking,
+  MonetizationSummarySnapshot,
   MonetizationTrendPoint,
   RecentMonetizationEvent,
 } from "./types";
@@ -30,12 +32,12 @@ const BREAKDOWN_GROUPS: Array<{
   {
     eventTypes: ["subscription", "membership"],
     id: "subs",
-    label: "Subs",
+    label: "Abos",
   },
   {
     eventTypes: ["tip", "donation", "bits"],
     id: "tips",
-    label: "Tips",
+    label: "Trinkgelder",
   },
   {
     eventTypes: ["sponsorship", "affiliate"],
@@ -50,63 +52,60 @@ const BREAKDOWN_GROUPS: Array<{
   {
     eventTypes: ["ad_revenue"],
     id: "ads",
-    label: "Ads",
+    label: "Werbung",
   },
   {
     eventTypes: ["other"],
     id: "other",
-    label: "Other",
+    label: "Sonstiges",
   },
 ];
 
-type RpcPlatformRevenue = {
-  amount_cents?: unknown;
-  event_count?: unknown;
-  provider?: unknown;
+type MonetizationEventRow = Pick<
+  Tables<"monetization_events">,
+  | "amount_cents"
+  | "currency"
+  | "event_type"
+  | "id"
+  | "occurred_at"
+  | "provider"
+  | "source"
+  | "status"
+>;
+
+type MonetizationSummaryRow = Pick<
+  Tables<"monetization_summaries">,
+  | "currency"
+  | "event_count"
+  | "gross_amount_cents"
+  | "id"
+  | "net_amount_cents"
+  | "period"
+  | "period_end"
+  | "period_start"
+  | "provider"
+  | "updated_at"
+  | "subscription_count"
+  | "tip_count"
+  | "donation_count"
+  | "ad_revenue_count"
+  | "sponsorship_count"
+  | "merch_sale_count"
+>;
+
+type MonetizationEventQueryResult = {
+  data: MonetizationEventRow[] | null;
+  error: { message: string } | null;
 };
 
-type RpcEventTypeRevenue = {
-  amount_cents?: unknown;
-  event_count?: unknown;
-  event_type?: unknown;
+type MonetizationSummaryQueryResult = {
+  data: MonetizationSummaryRow[] | null;
+  error: { message: string } | null;
 };
 
-type RpcTrendPoint = {
-  amount_cents?: unknown;
-  day?: unknown;
-};
-
-type RpcRecentEvent = {
-  amount_cents?: unknown;
-  currency?: unknown;
-  event_type?: unknown;
-  id?: unknown;
-  occurred_at?: unknown;
-  provider?: unknown;
-  source?: unknown;
-  status?: unknown;
-};
-
-type RpcMonetizationDashboard = {
-  active_platforms?: unknown;
-  avg_revenue_per_day_cents?: unknown;
-  currency?: unknown;
-  period?: unknown;
-  recent_events?: unknown;
-  revenue_by_event_type?: unknown;
-  revenue_by_platform?: unknown;
-  revenue_over_time?: unknown;
-  total_revenue_cents?: unknown;
-};
-
-type MonetizationRpcClient = {
-  rpc(
-    fn: "get_monetization_dashboard",
-    args: { p_period: MonetizationPeriod },
-  ): Promise<{
-    data: unknown;
-    error: { message: string } | null;
-  }>;
+type PeriodWindow = {
+  since: Date | null;
+  dayCount: number;
 };
 
 export function parseMonetizationPeriod(
@@ -137,102 +136,196 @@ export async function getMonetizationDashboardData(
     return getEmptyMonetizationData(period);
   }
 
-  const rpcClient = supabase as unknown as MonetizationRpcClient;
-  const dashboardResult = await rpcClient.rpc("get_monetization_dashboard", {
-    p_period: period,
-  });
+  let creatorId: string | null = null;
 
-  if (dashboardResult.error || !isDashboardPayload(dashboardResult.data)) {
+  try {
+    creatorId = (await ensureCreatorForUser(supabase, userResult.data.user)).id;
+  } catch {
+    creatorId = null;
+  }
+
+  const window = getPeriodWindow(period);
+  const userId = userResult.data.user.id;
+
+  let eventsQuery = supabase
+    .from("monetization_events")
+    .select(
+      "amount_cents, currency, event_type, id, occurred_at, provider, source, status",
+    )
+    .eq("user_id", userId);
+
+  if (creatorId) {
+    eventsQuery = eventsQuery.eq("creator_id", creatorId);
+  }
+
+  if (window.since) {
+    eventsQuery = eventsQuery.gte("occurred_at", window.since.toISOString());
+  }
+
+  let summariesQuery = supabase
+    .from("monetization_summaries")
+    .select(
+      "ad_revenue_count, currency, donation_count, event_count, gross_amount_cents, id, merch_sale_count, net_amount_cents, period, period_end, period_start, provider, sponsorship_count, subscription_count, tip_count, updated_at",
+    )
+    .eq("user_id", userId);
+
+  if (creatorId) {
+    summariesQuery = summariesQuery.eq("creator_id", creatorId);
+  }
+
+  const [eventsResult, summariesResult] = await Promise.all([
+    eventsQuery.order("occurred_at", { ascending: false }),
+    summariesQuery.order("period_end", { ascending: false }).limit(12),
+  ]);
+
+  if (eventsResult.error && summariesResult.error) {
     return getEmptyMonetizationData(period);
   }
 
-  return normalizeDashboardPayload(dashboardResult.data, period);
+  return buildMonetizationDashboardData({
+    events: ((eventsResult as MonetizationEventQueryResult).data ??
+      []) as MonetizationEventRow[],
+    period,
+    summaries: ((summariesResult as MonetizationSummaryQueryResult).data ??
+      []) as MonetizationSummaryRow[],
+  });
 }
 
-function normalizeDashboardPayload(
-  payload: RpcMonetizationDashboard,
-  requestedPeriod: MonetizationPeriod,
-): MonetizationDashboardData {
-  const period = parseMonetizationPeriod(asString(payload.period));
-  const currency = asCurrency(payload.currency);
-  const platformRevenue = normalizePlatformRevenue(
-    asArray<RpcPlatformRevenue>(payload.revenue_by_platform),
+export function buildMonetizationDashboardData({
+  events,
+  period,
+  summaries,
+}: {
+  events: MonetizationEventRow[];
+  period: MonetizationPeriod;
+  summaries: MonetizationSummaryRow[];
+}): MonetizationDashboardData {
+  const filteredEvents = filterEventsByPeriod(events, period).sort(
+    (left, right) =>
+      new Date(right.occurred_at).getTime() -
+      new Date(left.occurred_at).getTime(),
   );
-  const eventTypeRevenue = asArray<RpcEventTypeRevenue>(
-    payload.revenue_by_event_type,
+  const confirmedEvents = filteredEvents.filter(
+    (event) => event.status === "confirmed",
   );
+  const currency = resolveCurrency(confirmedEvents, summaries);
+  const recentEvents = normalizeRecentEvents(filteredEvents);
+  const activePlatforms = resolveActivePlatforms(confirmedEvents, summaries);
+  const platformRevenue =
+    confirmedEvents.length > 0
+      ? normalizePlatformRevenueFromEvents(confirmedEvents)
+      : normalizePlatformRevenueFromSummaries(summaries);
+  const breakdown =
+    confirmedEvents.length > 0
+      ? normalizeBreakdownFromEvents(confirmedEvents)
+      : normalizeBreakdownFromSummaries(summaries);
+  const trend = normalizeTrendFromEvents(confirmedEvents);
+  const totalRevenueCents = confirmedEvents.reduce(
+    (sum, event) => sum + event.amount_cents,
+    0,
+  );
+  const dayCount =
+    period === "all_time"
+      ? Math.max(1, countDistinctDays(confirmedEvents))
+      : getPeriodWindow(period).dayCount;
 
   return {
-    activePlatforms: asNumber(payload.active_platforms),
-    avgRevenuePerDayCents: asNumber(payload.avg_revenue_per_day_cents),
-    breakdown: normalizeBreakdown(eventTypeRevenue),
+    activePlatforms,
+    avgRevenuePerDayCents: Math.floor(totalRevenueCents / dayCount),
+    breakdown,
     currency,
-    period: period ?? requestedPeriod,
+    latestSummary: buildLatestSummarySnapshot(summaries),
+    period,
+    platformRankings: buildPlatformRankingsFromSummaries(summaries),
     platformRevenue,
-    recentEvents: normalizeRecentEvents(
-      asArray<RpcRecentEvent>(payload.recent_events),
-    ),
-    totalRevenueCents: asNumber(payload.total_revenue_cents),
-    trend: normalizeTrend(asArray<RpcTrendPoint>(payload.revenue_over_time)),
+    recentEvents,
+    totalRevenueCents,
+    trend,
   };
 }
 
-function normalizePlatformRevenue(
-  items: RpcPlatformRevenue[],
+function normalizePlatformRevenueFromEvents(
+  events: MonetizationEventRow[],
 ): MonetizationPlatformRevenue[] {
-  const byProvider = new Map<StreamPlatform, MonetizationPlatformRevenue>();
+  const byProvider = new Map<
+    StreamPlatform,
+    { amountCents: number; eventCount: number }
+  >();
 
   for (const provider of PLATFORM_ORDER) {
-    byProvider.set(provider, {
-      amountCents: 0,
-      eventCount: 0,
-      label: formatProvider(provider),
-      provider,
-    });
+    byProvider.set(provider, { amountCents: 0, eventCount: 0 });
   }
 
-  for (const item of items) {
-    const provider = parseProvider(item.provider);
-
-    if (!provider) {
+  for (const event of events) {
+    const bucket = byProvider.get(event.provider);
+    if (!bucket) {
       continue;
     }
 
-    byProvider.set(provider, {
-      amountCents: asNumber(item.amount_cents),
-      eventCount: asNumber(item.event_count),
-      label: formatProvider(provider),
-      provider,
-    });
+    bucket.amountCents += event.amount_cents;
+    bucket.eventCount += 1;
+    byProvider.set(event.provider, bucket);
   }
 
-  return PLATFORM_ORDER.map((provider) => byProvider.get(provider)).filter(
-    (item): item is MonetizationPlatformRevenue => Boolean(item),
-  );
+  return PLATFORM_ORDER.map((provider) => {
+    const bucket = byProvider.get(provider) ?? {
+      amountCents: 0,
+      eventCount: 0,
+    };
+
+    return {
+      amountCents: bucket.amountCents,
+      eventCount: bucket.eventCount,
+      label: formatProvider(provider),
+      provider,
+    };
+  });
 }
 
-function normalizeBreakdown(
-  items: RpcEventTypeRevenue[],
+function normalizePlatformRevenueFromSummaries(
+  summaries: MonetizationSummaryRow[],
+): MonetizationPlatformRevenue[] {
+  const latestByProvider = getLatestSummaryByProvider(summaries);
+
+  return PLATFORM_ORDER.map((provider) => {
+    const summary = latestByProvider.get(provider);
+
+    return {
+      amountCents: summary?.gross_amount_cents ?? 0,
+      eventCount: summary?.event_count ?? 0,
+      label: formatProvider(provider),
+      provider,
+    };
+  });
+}
+
+function normalizeBreakdownFromEvents(
+  events: MonetizationEventRow[],
 ): MonetizationBreakdownItem[] {
-  const byType = new Map<MonetizationEventType, RpcEventTypeRevenue>();
+  const byType = new Map<
+    MonetizationEventType,
+    { amountCents: number; eventCount: number }
+  >();
 
-  for (const item of items) {
-    const eventType = parseEventType(item.event_type);
-
-    if (eventType) {
-      byType.set(eventType, item);
-    }
+  for (const event of events) {
+    const bucket = byType.get(event.event_type) ?? {
+      amountCents: 0,
+      eventCount: 0,
+    };
+    bucket.amountCents += event.amount_cents;
+    bucket.eventCount += 1;
+    byType.set(event.event_type, bucket);
   }
 
   return BREAKDOWN_GROUPS.map((group) =>
     group.eventTypes.reduce<MonetizationBreakdownItem>(
       (aggregate, eventType) => {
-        const item = byType.get(eventType);
+        const bucket = byType.get(eventType);
 
         return {
           ...aggregate,
-          amountCents: aggregate.amountCents + asNumber(item?.amount_cents),
-          eventCount: aggregate.eventCount + asNumber(item?.event_count),
+          amountCents: aggregate.amountCents + (bucket?.amountCents ?? 0),
+          eventCount: aggregate.eventCount + (bucket?.eventCount ?? 0),
         };
       },
       {
@@ -245,54 +338,328 @@ function normalizeBreakdown(
   );
 }
 
-function normalizeTrend(items: RpcTrendPoint[]): MonetizationTrendPoint[] {
-  return items
-    .map((item) => {
-      const day = asString(item.day);
+function normalizeBreakdownFromSummaries(
+  summaries: MonetizationSummaryRow[],
+): MonetizationBreakdownItem[] {
+  const latestByProvider = getLatestSummaryByProvider(summaries);
+  const buckets = new Map<
+    MonetizationBreakdownItem["id"],
+    { amountCents: number; eventCount: number }
+  >(
+    BREAKDOWN_GROUPS.map((group) => [
+      group.id,
+      { amountCents: 0, eventCount: 0 },
+    ]),
+  );
 
-      if (!day) {
-        return null;
-      }
+  for (const summary of latestByProvider.values()) {
+    const knownCounts = {
+      ads: summary.ad_revenue_count,
+      merch: summary.merch_sale_count,
+      sponsorship: summary.sponsorship_count,
+      subs: summary.subscription_count,
+      tips: summary.tip_count + summary.donation_count,
+    };
 
-      return {
-        amountCents: asNumber(item.amount_cents),
-        day,
-        label: new Intl.DateTimeFormat("de-DE", {
-          day: "2-digit",
-          month: "short",
-        }).format(new Date(day)),
+    const totalKnownCount = Object.values(knownCounts).reduce(
+      (sum, value) => sum + value,
+      0,
+    );
+
+    if (totalKnownCount === 0) {
+      const otherBucket = buckets.get("other") ?? {
+        amountCents: 0,
+        eventCount: 0,
       };
-    })
-    .filter((item): item is MonetizationTrendPoint => Boolean(item));
+      otherBucket.amountCents += summary.gross_amount_cents;
+      buckets.set("other", otherBucket);
+      continue;
+    }
+
+    const allocatedAmounts = new Map<MonetizationBreakdownItem["id"], number>();
+    let allocatedTotal = 0;
+
+    for (const [id, count] of Object.entries(knownCounts) as Array<
+      [Exclude<MonetizationBreakdownItem["id"], "other">, number]
+    >) {
+      const amountCents = Math.floor(
+        (summary.gross_amount_cents * count) / totalKnownCount,
+      );
+
+      allocatedAmounts.set(id, amountCents);
+      allocatedTotal += amountCents;
+    }
+
+    const remainder = summary.gross_amount_cents - allocatedTotal;
+    const orderedAllocations: Array<{
+      id: MonetizationBreakdownItem["id"];
+      amountCents: number;
+      eventCount: number;
+    }> = [
+      {
+        amountCents: allocatedAmounts.get("subs") ?? 0,
+        eventCount: knownCounts.subs,
+        id: "subs",
+      },
+      {
+        amountCents: allocatedAmounts.get("tips") ?? 0,
+        eventCount: knownCounts.tips,
+        id: "tips",
+      },
+      {
+        amountCents: allocatedAmounts.get("sponsorship") ?? 0,
+        eventCount: knownCounts.sponsorship,
+        id: "sponsorship",
+      },
+      {
+        amountCents: allocatedAmounts.get("merch") ?? 0,
+        eventCount: knownCounts.merch,
+        id: "merch",
+      },
+      {
+        amountCents: allocatedAmounts.get("ads") ?? 0,
+        eventCount: knownCounts.ads,
+        id: "ads",
+      },
+    ];
+
+    for (const allocation of orderedAllocations) {
+      const bucket = buckets.get(allocation.id) ?? {
+        amountCents: 0,
+        eventCount: 0,
+      };
+
+      bucket.amountCents += allocation.amountCents;
+      bucket.eventCount += allocation.eventCount;
+      buckets.set(allocation.id, bucket);
+    }
+
+    const otherBucket = buckets.get("other") ?? {
+      amountCents: 0,
+      eventCount: 0,
+    };
+    otherBucket.amountCents += remainder;
+    buckets.set("other", otherBucket);
+  }
+
+  return BREAKDOWN_GROUPS.map((group) => {
+    const bucket = buckets.get(group.id) ?? { amountCents: 0, eventCount: 0 };
+
+    return {
+      amountCents: bucket.amountCents,
+      eventCount: bucket.eventCount,
+      id: group.id,
+      label: group.label,
+    };
+  });
+}
+
+function buildLatestSummarySnapshot(
+  summaries: MonetizationSummaryRow[],
+): MonetizationSummarySnapshot | null {
+  const latest = [...summaries].sort(
+    (left, right) =>
+      new Date(right.period_end).getTime() -
+        new Date(left.period_end).getTime() ||
+      new Date(right.updated_at).getTime() -
+        new Date(left.updated_at).getTime(),
+  )[0];
+
+  if (!latest) {
+    return null;
+  }
+
+  return {
+    currency: latest.currency,
+    eventCount: latest.event_count,
+    grossAmountCents: latest.gross_amount_cents,
+    netAmountCents: latest.net_amount_cents,
+    periodLabel: formatSummaryPeriodLabel(latest.period),
+    providerLabel: formatProvider(latest.provider),
+    updatedAt: latest.updated_at,
+    windowLabel: `${formatSummaryDate(latest.period_start)} - ${formatSummaryDate(latest.period_end)}`,
+  };
+}
+
+function buildPlatformRankingsFromSummaries(
+  summaries: MonetizationSummaryRow[],
+): MonetizationPlatformRanking[] {
+  return [...getLatestSummaryByProvider(summaries).values()]
+    .sort(
+      (left, right) =>
+        right.gross_amount_cents - left.gross_amount_cents ||
+        left.provider.localeCompare(right.provider),
+    )
+    .map((summary, index) => ({
+      currency: summary.currency,
+      eventCount: summary.event_count,
+      grossAmountCents: summary.gross_amount_cents,
+      provider: summary.provider,
+      providerLabel: formatProvider(summary.provider),
+      rank: index + 1,
+      windowLabel: `${formatSummaryDate(summary.period_start)} - ${formatSummaryDate(summary.period_end)}`,
+    }));
 }
 
 function normalizeRecentEvents(
-  items: RpcRecentEvent[],
+  events: MonetizationEventRow[],
 ): RecentMonetizationEvent[] {
-  return items
-    .map((item) => {
-      const eventType = parseEventType(item.event_type);
-      const id = asString(item.id);
-      const occurredAt = asString(item.occurred_at);
-      const provider = parseProvider(item.provider);
-      const status = parseStatus(item.status);
+  return events.slice(0, 12).map((event) => ({
+    amountCents: event.amount_cents,
+    currency: event.currency,
+    eventType: event.event_type,
+    id: event.id,
+    occurredAt: event.occurred_at,
+    provider: event.provider,
+    source: event.source,
+    status: event.status,
+  }));
+}
 
-      if (!eventType || !id || !occurredAt || !provider || !status) {
-        return null;
-      }
+function normalizeTrendFromEvents(
+  events: MonetizationEventRow[],
+): MonetizationTrendPoint[] {
+  const byDay = new Map<string, number>();
 
-      return {
-        amountCents: asNumber(item.amount_cents),
-        currency: asCurrency(item.currency),
-        eventType,
-        id,
-        occurredAt,
-        provider,
-        source: asString(item.source) ?? "unknown",
-        status,
-      };
-    })
-    .filter((item): item is RecentMonetizationEvent => Boolean(item));
+  for (const event of events) {
+    const day = event.occurred_at.slice(0, 10);
+    byDay.set(day, (byDay.get(day) ?? 0) + event.amount_cents);
+  }
+
+  return [...byDay.entries()]
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .map(([day, amountCents]) => ({
+      amountCents,
+      day,
+      label: new Intl.DateTimeFormat("de-DE", {
+        day: "2-digit",
+        month: "short",
+      }).format(new Date(day)),
+    }));
+}
+
+function resolveCurrency(
+  confirmedEvents: MonetizationEventRow[],
+  summaries: MonetizationSummaryRow[],
+): string {
+  const currencyFromEvents = pickPrimaryCurrency(confirmedEvents);
+  if (currencyFromEvents) {
+    return currencyFromEvents;
+  }
+
+  const latestSummary = buildLatestSummarySnapshot(summaries);
+  return latestSummary?.currency ?? "USD";
+}
+
+function pickPrimaryCurrency(events: MonetizationEventRow[]): string | null {
+  if (events.length === 0) {
+    return null;
+  }
+
+  const byCurrency = new Map<string, number>();
+  for (const event of events) {
+    byCurrency.set(
+      event.currency,
+      (byCurrency.get(event.currency) ?? 0) + event.amount_cents,
+    );
+  }
+
+  return (
+    [...byCurrency.entries()].sort(
+      (left, right) => right[1] - left[1],
+    )[0]?.[0] ?? null
+  );
+}
+
+function resolveActivePlatforms(
+  confirmedEvents: MonetizationEventRow[],
+  summaries: MonetizationSummaryRow[],
+): number {
+  if (confirmedEvents.length > 0) {
+    return new Set(
+      confirmedEvents
+        .filter((event) => event.amount_cents > 0)
+        .map((event) => event.provider),
+    ).size;
+  }
+
+  return getLatestSummaryByProvider(summaries).size;
+}
+
+function getLatestSummaryByProvider(
+  summaries: MonetizationSummaryRow[],
+): Map<StreamPlatform, MonetizationSummaryRow> {
+  const sorted = [...summaries].sort(
+    (left, right) =>
+      new Date(right.period_end).getTime() -
+        new Date(left.period_end).getTime() ||
+      new Date(right.updated_at).getTime() -
+        new Date(left.updated_at).getTime(),
+  );
+  const byProvider = new Map<StreamPlatform, MonetizationSummaryRow>();
+
+  for (const summary of sorted) {
+    if (!byProvider.has(summary.provider)) {
+      byProvider.set(summary.provider, summary);
+    }
+  }
+
+  return byProvider;
+}
+
+function filterEventsByPeriod(
+  events: MonetizationEventRow[],
+  period: MonetizationPeriod,
+): MonetizationEventRow[] {
+  const window = getPeriodWindow(period);
+
+  if (!window.since) {
+    return [...events];
+  }
+
+  const sinceTime = window.since.getTime();
+
+  return events.filter(
+    (event) => new Date(event.occurred_at).getTime() >= sinceTime,
+  );
+}
+
+function getPeriodWindow(period: MonetizationPeriod): PeriodWindow {
+  if (period === "last_7_days") {
+    return {
+      dayCount: 7,
+      since: new Date(Date.now() - 7 * 24 * 60 * 60 * 1_000),
+    };
+  }
+
+  if (period === "last_30_days") {
+    return {
+      dayCount: 30,
+      since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000),
+    };
+  }
+
+  return {
+    dayCount: 1,
+    since: null,
+  };
+}
+
+function countDistinctDays(events: MonetizationEventRow[]): number {
+  return new Set(events.map((event) => event.occurred_at.slice(0, 10))).size;
+}
+
+function formatSummaryPeriodLabel(
+  period: MonetizationSummaryRow["period"],
+): string {
+  return period === "weekly" ? "Wochenabschluss" : "Tagesabschluss";
+}
+
+function formatSummaryDate(value: string): string {
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+  }).format(new Date(value));
 }
 
 function getEmptyMonetizationData(
@@ -301,10 +668,12 @@ function getEmptyMonetizationData(
   return {
     activePlatforms: 0,
     avgRevenuePerDayCents: 0,
-    breakdown: normalizeBreakdown([]),
+    breakdown: normalizeBreakdownFromEvents([]),
     currency: "USD",
+    latestSummary: null,
     period,
-    platformRevenue: normalizePlatformRevenue([]),
+    platformRankings: [],
+    platformRevenue: normalizePlatformRevenueFromEvents([]),
     recentEvents: [],
     totalRevenueCents: 0,
     trend: [],
@@ -347,25 +716,87 @@ function getDemoMonetizationData(
     },
   ];
 
-  const eventTypeRevenue: RpcEventTypeRevenue[] = [
-    { amount_cents: 182400, event_count: 128, event_type: "subscription" },
-    { amount_cents: 82600, event_count: 41, event_type: "tip" },
-    { amount_cents: 210000, event_count: 3, event_type: "sponsorship" },
-    { amount_cents: 68400, event_count: 18, event_type: "merch_sale" },
-    { amount_cents: 39200, event_count: 7, event_type: "ad_revenue" },
+  const summaries: MonetizationSummaryRow[] = [
+    {
+      ad_revenue_count: 7,
+      currency: "USD",
+      donation_count: 6,
+      event_count: 154,
+      gross_amount_cents: 569400,
+      id: "demo-summary-1",
+      merch_sale_count: 18,
+      net_amount_cents: 536000,
+      period: "weekly",
+      period_end: "2026-06-05",
+      period_start: "2026-05-30",
+      provider: "twitch",
+      sponsorship_count: 3,
+      subscription_count: 128,
+      tip_count: 41,
+      updated_at: "2026-06-05T18:30:00.000Z",
+    },
   ];
 
   return {
     activePlatforms: 3,
     avgRevenuePerDayCents: period === "last_7_days" ? 18100 : 11200,
-    breakdown: normalizeBreakdown(eventTypeRevenue),
+    breakdown: normalizeBreakdownFromEvents([
+      {
+        amount_cents: 182400,
+        currency: "USD",
+        event_type: "subscription",
+        id: "demo-event-1",
+        occurred_at: "2026-06-05T18:24:00.000Z",
+        provider: "twitch",
+        source: "live_stream",
+        status: "confirmed",
+      },
+      {
+        amount_cents: 82600,
+        currency: "USD",
+        event_type: "tip",
+        id: "demo-event-2",
+        occurred_at: "2026-06-04T14:10:00.000Z",
+        provider: "youtube",
+        source: "stream_chat",
+        status: "confirmed",
+      },
+    ]),
     currency: "USD",
+    latestSummary: buildLatestSummarySnapshot(summaries),
     period,
-    platformRevenue: normalizePlatformRevenue([
-      { amount_cents: 224300, event_count: 126, provider: "twitch" },
-      { amount_cents: 210000, event_count: 3, provider: "youtube" },
-      { amount_cents: 68400, event_count: 18, provider: "tiktok" },
-      { amount_cents: 0, event_count: 0, provider: "kick" },
+    platformRankings: buildPlatformRankingsFromSummaries(summaries),
+    platformRevenue: normalizePlatformRevenueFromEvents([
+      {
+        amount_cents: 224300,
+        currency: "USD",
+        event_type: "subscription",
+        id: "demo-event-3",
+        occurred_at: "2026-06-05T18:24:00.000Z",
+        provider: "twitch",
+        source: "live_stream",
+        status: "confirmed",
+      },
+      {
+        amount_cents: 210000,
+        currency: "USD",
+        event_type: "sponsorship",
+        id: "demo-event-4",
+        occurred_at: "2026-06-04T14:10:00.000Z",
+        provider: "youtube",
+        source: "sponsorship_campaign",
+        status: "confirmed",
+      },
+      {
+        amount_cents: 68400,
+        currency: "USD",
+        event_type: "merch_sale",
+        id: "demo-event-5",
+        occurred_at: "2026-06-03T20:42:00.000Z",
+        provider: "tiktok",
+        source: "merch_sku",
+        status: "confirmed",
+      },
     ]),
     recentEvents,
     totalRevenueCents: 569400,
@@ -379,83 +810,4 @@ function getDemoMonetizationData(
       { amountCents: 105300, day: "2026-06-05", label: "05. Juni" },
     ],
   };
-}
-
-function isDashboardPayload(value: unknown): value is RpcMonetizationDashboard {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function asArray<T>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : [];
-}
-
-function asCurrency(value: unknown): string {
-  const currency = asString(value);
-
-  return currency && /^[A-Z]{3}$/.test(currency) ? currency : "USD";
-}
-
-function asNumber(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  return 0;
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function parseProvider(value: unknown): StreamPlatform | undefined {
-  if (
-    value === "twitch" ||
-    value === "youtube" ||
-    value === "tiktok" ||
-    value === "kick"
-  ) {
-    return value;
-  }
-
-  return undefined;
-}
-
-function parseEventType(value: unknown): MonetizationEventType | undefined {
-  if (
-    value === "subscription" ||
-    value === "membership" ||
-    value === "tip" ||
-    value === "donation" ||
-    value === "bits" ||
-    value === "ad_revenue" ||
-    value === "merch_sale" ||
-    value === "sponsorship" ||
-    value === "affiliate" ||
-    value === "other"
-  ) {
-    return value;
-  }
-
-  return undefined;
-}
-
-function parseStatus(value: unknown): MonetizationEventStatus | undefined {
-  if (
-    value === "pending" ||
-    value === "confirmed" ||
-    value === "void" ||
-    value === "disputed" ||
-    value === "refunded" ||
-    value === "failed"
-  ) {
-    return value;
-  }
-
-  return undefined;
 }

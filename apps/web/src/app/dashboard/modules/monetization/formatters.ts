@@ -47,16 +47,16 @@ export function formatProvider(provider: StreamPlatform): string {
 
 export function formatEventType(eventType: MonetizationEventType): string {
   const labels: Record<MonetizationEventType, string> = {
-    ad_revenue: "Ads",
-    affiliate: "Affiliate",
+    ad_revenue: "Werbung",
+    affiliate: "Partnerprogramm",
     bits: "Bits",
-    donation: "Donation",
-    membership: "Membership",
+    donation: "Spende",
+    membership: "Mitgliedschaft",
     merch_sale: "Merch",
-    other: "Other",
+    other: "Sonstiges",
     sponsorship: "Sponsoring",
-    subscription: "Subscription",
-    tip: "Tip",
+    subscription: "Abo",
+    tip: "Trinkgeld",
   };
 
   return labels[eventType];
@@ -64,12 +64,12 @@ export function formatEventType(eventType: MonetizationEventType): string {
 
 export function formatStatus(status: MonetizationEventStatus): string {
   const labels: Record<MonetizationEventStatus, string> = {
-    confirmed: "Confirmed",
-    disputed: "Disputed",
-    failed: "Failed",
-    pending: "Pending",
-    refunded: "Refunded",
-    void: "Void",
+    confirmed: "Bestaetigt",
+    disputed: "Angefochten",
+    failed: "Fehlgeschlagen",
+    pending: "Ausstehend",
+    refunded: "Zurueckerstattet",
+    void: "Ungueltig",
   };
 
   return labels[status];
@@ -77,9 +77,9 @@ export function formatStatus(status: MonetizationEventStatus): string {
 
 export function periodLabel(period: MonetizationPeriod): string {
   const labels: Record<MonetizationPeriod, string> = {
-    all_time: "All time",
-    last_30_days: "Last 30 days",
-    last_7_days: "Last 7 days",
+    all_time: "Gesamte Zeit",
+    last_30_days: "Letzte 30 Tage",
+    last_7_days: "Letzte 7 Tage",
   };
 
   return labels[period];
