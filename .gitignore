@@ -36,6 +36,7 @@ Thumbs.db
 .agents/
 .codex/
 skills-lock.json
+.vercel/
 
 # Test and coverage output
 coverage/
