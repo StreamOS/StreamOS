@@ -4,6 +4,7 @@ import {
   completeOnboardingForCurrentUser,
 } from "../actions";
 import { CompleteRedirect } from "./CompleteRedirect";
+import { getSupabaseSetupNotice } from "@/lib/supabase/messages";
 
 type OnboardingCompletePageProps = {
   searchParams: Promise<{
@@ -14,8 +15,9 @@ type OnboardingCompletePageProps = {
 const errorMessages: Record<string, string> = {
   completion_failed:
     "Onboarding konnte nicht abgeschlossen werden. Bitte versuche es erneut.",
-  supabase_not_configured:
-    "Supabase ist lokal noch nicht konfiguriert. Onboarding kann nicht gespeichert werden.",
+  supabase_not_configured: getSupabaseSetupNotice(
+    "du das Onboarding abschließen kannst",
+  ),
 };
 
 export default async function OnboardingCompletePage({

@@ -92,7 +92,7 @@ describe("branding page", () => {
     expect(html).toContain("Space Grotesk");
   });
 
-  it("renders the demo setup notice when Supabase is not configured", async () => {
+  it("renders the setup notice when Supabase is not configured", async () => {
     mockIsSupabaseConfigured.mockReturnValue(false);
     mockGetBrandKitDashboardData.mockResolvedValue({
       activeAssets: 0,
@@ -110,6 +110,6 @@ describe("branding page", () => {
     );
 
     expect(html).toContain("Supabase noch nicht konfiguriert");
-    expect(html).toContain("Demo-Modus");
+    expect(html).toContain("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
   });
 });

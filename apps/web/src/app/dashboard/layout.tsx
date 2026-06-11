@@ -10,6 +10,7 @@ import {
   toDashboardAuthUser,
 } from "@/lib/auth/dashboard";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { getSupabaseSetupNotice } from "@/lib/supabase/messages";
 import {
   ensureCreatorForUser,
   type CreatorWorkspace,
@@ -125,10 +126,9 @@ export default async function DashboardLayout({
 function SupabaseSetupNotice() {
   return (
     <section className="mb-6 rounded-lg border border-signal-gold/30 bg-signal-gold/10 p-4 text-sm text-signal-gold">
-      Supabase ist lokal noch nicht konfiguriert. Das Dashboard laeuft im
-      Demo-Modus. Setze `NEXT_PUBLIC_SUPABASE_URL` und
-      `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in `apps/web/.env.local`, um Login,
-      Session-Schutz und Creator-Bootstrap zu aktivieren.
+      {getSupabaseSetupNotice(
+        "du Login, Session-Schutz und Creator-Bootstrap nutzen kannst",
+      )}
     </section>
   );
 }

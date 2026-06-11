@@ -21,6 +21,7 @@ import {
 } from "./brand-kit-presets";
 import { getBrandKitDashboardData } from "./data";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { getSupabaseSetupNotice } from "@/lib/supabase/messages";
 
 type BrandingPageProps = {
   searchParams?: Promise<{
@@ -164,11 +165,9 @@ export default async function BrandingPage({
             Supabase noch nicht konfiguriert
           </h2>
           <p className="text-sm text-slate-400">
-            Das Branding-Modul laeuft lokal im Demo-Modus, bis
-            `NEXT_PUBLIC_SUPABASE_URL` und
-            `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` gesetzt sind. Die
-            CRUD-Aktionen bleiben serverseitig auf die echte Supabase-Session
-            ausgerichtet.
+            {getSupabaseSetupNotice(
+              "das Branding-Modul die echten Supabase-Daten nutzen kann",
+            )}
           </p>
         </section>
       ) : (
@@ -316,8 +315,9 @@ function BrandingNotice({
       "Config JSON muss ein gueltiges JSON-Objekt sein.",
     "invalid-brand-kit-form":
       "Brand Kit Formular ist ungueltig oder unvollstaendig.",
-    "supabase-not-configured":
-      "Supabase ist nicht konfiguriert. Aktiviere die Umgebungsvariablen fuer das echte Branding-CRUD.",
+    "supabase-not-configured": getSupabaseSetupNotice(
+      "das echte Branding-CRUD aktiviert werden kann",
+    ),
   };
 
   if (status && successMessages[status]) {

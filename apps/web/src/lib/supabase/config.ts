@@ -12,10 +12,11 @@ export function getSupabaseConfig(): SupabaseConfig | null {
     return null;
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey =
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const publishableKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+  const legacyAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  const anonKey = publishableKey || legacyAnonKey;
 
   if (!url || !anonKey) {
     return null;
@@ -26,7 +27,7 @@ export function getSupabaseConfig(): SupabaseConfig | null {
 
 export function getSupabaseServiceRoleConfig(): SupabaseServiceRoleConfig | null {
   const baseConfig = getSupabaseConfig();
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
   if (!baseConfig || !serviceRoleKey) {
     return null;
