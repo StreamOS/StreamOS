@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
 import type { ClipGenerationQueue } from "./jobs/clipGenerationQueue.js";
+import type { MetricsSyncQueue } from "@streamos/queue";
 import type { TranscriptionQueue } from "./jobs/transcriptionQueue.js";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -14,6 +15,14 @@ const YOUTUBE_WEBHOOK_SECRET = "test-youtube-webhook-secret-123";
 const WEBHOOK_NOW = new Date("2026-06-06T10:00:00.000Z");
 
 function createClipGenerationQueue(): ClipGenerationQueue {
+  return {
+    async add(_name, _data, opts) {
+      return { id: String(opts.jobId) };
+    },
+  };
+}
+
+function createMetricsSyncQueue(): MetricsSyncQueue {
   return {
     async add(_name, _data, opts) {
       return { id: String(opts.jobId) };
@@ -81,6 +90,7 @@ describe("api-gateway", () => {
         allowedOrigins: ["https://app.streamos.test"],
         streamEventWebhookSecret: WEBHOOK_SECRET,
         clipGenerationQueue: createClipGenerationQueue(),
+        metricsSyncQueue: createMetricsSyncQueue(),
         transcriptionQueue: createTranscriptionQueue(),
       }),
     ).toThrow("API_GATEWAY_SECRET is required in production.");
@@ -90,6 +100,7 @@ describe("api-gateway", () => {
         allowedOrigins: ["https://app.streamos.test"],
         apiGatewaySecret: API_SECRET,
         clipGenerationQueue: createClipGenerationQueue(),
+        metricsSyncQueue: createMetricsSyncQueue(),
         nodeEnv: "production",
       }),
     ).toThrow("STREAM_EVENT_WEBHOOK_SECRET is required in production.");
@@ -99,6 +110,7 @@ describe("api-gateway", () => {
         allowedOrigins: ["https://app.streamos.test"],
         apiGatewaySecret: API_SECRET,
         clipGenerationQueue: createClipGenerationQueue(),
+        metricsSyncQueue: createMetricsSyncQueue(),
         nodeEnv: "production",
         streamEventWebhookSecret: WEBHOOK_SECRET,
         transcriptionQueue: createTranscriptionQueue(),
@@ -110,6 +122,7 @@ describe("api-gateway", () => {
         allowedOrigins: ["https://app.streamos.test"],
         apiGatewaySecret: API_SECRET,
         clipGenerationQueue: createClipGenerationQueue(),
+        metricsSyncQueue: createMetricsSyncQueue(),
         nodeEnv: "production",
         streamEventWebhookSecret: WEBHOOK_SECRET,
         transcriptionQueue: createTranscriptionQueue(),
@@ -122,6 +135,7 @@ describe("api-gateway", () => {
         allowedOrigins: ["https://app.streamos.test"],
         apiGatewaySecret: "short",
         clipGenerationQueue: createClipGenerationQueue(),
+        metricsSyncQueue: createMetricsSyncQueue(),
         nodeEnv: "production",
         streamEventWebhookSecret: WEBHOOK_SECRET,
         transcriptionQueue: createTranscriptionQueue(),
@@ -136,6 +150,7 @@ describe("api-gateway", () => {
       createApp({
         apiGatewaySecret: API_SECRET,
         clipGenerationQueue: createClipGenerationQueue(),
+        metricsSyncQueue: createMetricsSyncQueue(),
         nodeEnv: "production",
         streamEventWebhookSecret: WEBHOOK_SECRET,
         transcriptionQueue: createTranscriptionQueue(),
@@ -151,6 +166,7 @@ describe("api-gateway", () => {
         allowedOrigins: ["*"],
         apiGatewaySecret: API_SECRET,
         clipGenerationQueue: createClipGenerationQueue(),
+        metricsSyncQueue: createMetricsSyncQueue(),
         nodeEnv: "production",
         streamEventWebhookSecret: WEBHOOK_SECRET,
         transcriptionQueue: createTranscriptionQueue(),
@@ -164,6 +180,7 @@ describe("api-gateway", () => {
         allowedOrigins: ["https://app.streamos.test"],
         apiGatewaySecret: API_SECRET,
         clipGenerationQueue: createClipGenerationQueue(),
+        metricsSyncQueue: createMetricsSyncQueue(),
         nodeEnv: "production",
         rateLimit: { enabled: false },
         streamEventWebhookSecret: WEBHOOK_SECRET,
@@ -177,6 +194,7 @@ describe("api-gateway", () => {
       createApp({
         allowedOrigins: ["https://app.streamos.test"],
         apiGatewaySecret: API_SECRET,
+        metricsSyncQueue: createMetricsSyncQueue(),
         nodeEnv: "production",
         streamEventWebhookSecret: WEBHOOK_SECRET,
         twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,

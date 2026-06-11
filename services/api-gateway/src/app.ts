@@ -4,6 +4,7 @@ import type { Express, NextFunction, Request, Response } from "express";
 import helmet from "helmet";
 import { Redis } from "ioredis";
 import { dispatchStreamOSJob } from "@streamos/queue";
+import type { MetricsSyncQueue } from "@streamos/queue";
 import { assertRedisTls } from "@streamos/redis";
 import { ZodError } from "zod";
 
@@ -28,6 +29,7 @@ import {
 import { attachRawBodyMiddleware } from "./middleware/raw-body.js";
 import { createAuthHandoffRouter } from "./routes/auth/handoff.js";
 import { createAutomationCallbackRouter } from "./routes/callbacks/automation.js";
+import { createMetricsRouter } from "./routes/metrics.js";
 import { createRoutes } from "./routes/index.js";
 import { createProviderWebhookRouter } from "./webhooks/providerRoutes.js";
 import type { ProviderWebhookDispatcher } from "./webhooks/providerEvents.js";
@@ -36,6 +38,7 @@ type CreateAppOptions = {
   allowedOrigins?: string[];
   apiGatewaySecret?: string;
   clipGenerationQueue?: ClipGenerationQueue;
+  metricsSyncQueue?: MetricsSyncQueue;
   nodeEnv?: string;
   oauth?: Partial<
     Pick<CreateOAuthRouterOptions, "fetchImpl" | "repository" | "stateStore">
@@ -571,7 +574,9 @@ export function createApp(options: CreateAppOptions = {}): Express {
 
   if (
     isProduction(nodeEnv) &&
-    (!options.clipGenerationQueue || !options.transcriptionQueue)
+    (!options.clipGenerationQueue ||
+      !options.metricsSyncQueue ||
+      !options.transcriptionQueue)
   ) {
     throw new Error(
       "REDIS_URL is required in production for API Gateway queues.",
@@ -636,6 +641,13 @@ export function createApp(options: CreateAppOptions = {}): Express {
   });
 
   app.use("/auth", createAuthHandoffRouter());
+  app.use(
+    "/api/metrics",
+    createMetricsRouter({
+      apiGatewaySecret: securityConfig.apiGatewaySecret,
+      metricsSyncQueue: options.metricsSyncQueue,
+    }),
+  );
   app.use(
     "/api/auth",
     createOAuthRouter({

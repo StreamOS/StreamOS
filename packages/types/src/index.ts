@@ -71,6 +71,18 @@ export type MetricsSyncRequest = {
   providers: SupportedProvider[];
 };
 
+export type MetricsSyncJobData = {
+  providers: SupportedProvider[];
+  user_id: string;
+};
+
+export type MetricsSyncQueuedResponse = {
+  job_id: string;
+  providers: SupportedProvider[];
+  queue_job_id: string;
+  status: "queued";
+};
+
 export type MetricsSyncErrorCode =
   | "CONNECTION_NOT_FOUND"
   | "DB_WRITE_FAILED"
