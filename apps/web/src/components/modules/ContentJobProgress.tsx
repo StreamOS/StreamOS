@@ -16,37 +16,37 @@ const statusMeta = {
   pending: {
     className: "border-slate-500/30 bg-slate-500/10 text-slate-300",
     icon: Clock3,
-    label: "Pending",
+    label: "Ausstehend",
   },
   running: {
     className: "border-signal-gold/30 bg-signal-gold/10 text-signal-gold",
     icon: Loader2,
-    label: "Running",
+    label: "Laeuft",
   },
   processing: {
     className: "border-signal-gold/30 bg-signal-gold/10 text-signal-gold",
     icon: Loader2,
-    label: "Processing",
+    label: "Wird verarbeitet",
   },
   done: {
     className: "border-signal-green/30 bg-signal-green/10 text-signal-green",
     icon: CheckCircle2,
-    label: "Done",
+    label: "Fertig",
   },
   completed: {
     className: "border-signal-green/30 bg-signal-green/10 text-signal-green",
     icon: CheckCircle2,
-    label: "Completed",
+    label: "Abgeschlossen",
   },
   failed: {
     className: "border-signal-red/30 bg-signal-red/10 text-signal-red",
     icon: AlertTriangle,
-    label: "Failed",
+    label: "Fehlgeschlagen",
   },
   cancelled: {
     className: "border-slate-500/30 bg-slate-500/10 text-slate-300",
     icon: AlertTriangle,
-    label: "Cancelled",
+    label: "Abgebrochen",
   },
 } as const satisfies Record<
   ContentJobRow["status"],
@@ -94,16 +94,16 @@ export function ContentJobProgress({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
-            Automation Jobs
+            Automationsjobs
           </p>
           <h2 className="mt-1 text-lg font-semibold text-white">
-            Content Pipeline
+            Content-Pipeline
           </h2>
         </div>
         <div className="grid grid-cols-3 gap-2 text-center text-xs sm:min-w-64">
-          <Counter label="Running" value={counts.running} />
-          <Counter label="Done" value={counts.done} />
-          <Counter label="Failed" value={counts.failed} />
+          <Counter label="Laeuft" value={counts.running} />
+          <Counter label="Fertig" value={counts.done} />
+          <Counter label="Fehlgeschlagen" value={counts.failed} />
         </div>
       </div>
 
@@ -113,8 +113,8 @@ export function ContentJobProgress({
             <tr>
               <th className="px-4 py-3 font-medium">Job</th>
               <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Result</th>
-              <th className="px-4 py-3 font-medium">Updated</th>
+              <th className="px-4 py-3 font-medium">Ergebnis</th>
+              <th className="px-4 py-3 font-medium">Aktualisiert</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10 bg-surface-900/60">
@@ -150,8 +150,8 @@ function JobRow({ job }: { job: ContentJobRow }) {
   return (
     <tr>
       <td className="px-4 py-3">
-        <div className="font-medium capitalize text-white">
-          {job.job_type.replace("_", " ")}
+        <div className="font-medium text-white">
+          {formatJobTypeLabel(job.job_type)}
         </div>
         <div className="max-w-52 truncate text-xs text-slate-400">
           {job.queue_job_id ?? job.id}
@@ -217,7 +217,7 @@ function getResultPreview(job: ContentJobRow): string {
         ? job.result.title_suggestions[0]
         : null;
 
-    return [`Score ${job.result.virality_score}/100`, title, summary]
+    return [`Punktzahl ${job.result.virality_score}/100`, title, summary]
       .filter(Boolean)
       .join(" - ");
   }
@@ -231,6 +231,17 @@ function isProcessingStatus(status: ContentJobRow["status"]): boolean {
 
 function isDoneStatus(status: ContentJobRow["status"]): boolean {
   return status === "done" || status === "completed";
+}
+
+function formatJobTypeLabel(jobType: ContentJobRow["job_type"]): string {
+  const labels: Record<ContentJobRow["job_type"], string> = {
+    clip_scoring: "Clip-Bewertung",
+    repurposing: "Repurposing",
+    title_generation: "Titelgenerierung",
+    transcription: "Transkription",
+  };
+
+  return labels[jobType];
 }
 
 function mergeJob(

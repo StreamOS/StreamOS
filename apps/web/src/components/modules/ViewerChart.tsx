@@ -8,15 +8,34 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { viewerTrend } from "@/data/dashboard";
+import type { ViewerPoint } from "@/data/dashboard";
 
-export function ViewerChart() {
+type ViewerChartProps = {
+  data: ViewerPoint[];
+};
+
+export function ViewerChart({ data }: ViewerChartProps) {
+  if (data.length === 0) {
+    return (
+      <section className="card">
+        <h2 className="text-base font-semibold text-white">
+          Live-Zuschauerverlauf
+        </h2>
+        <div className="mt-4 grid h-72 place-items-center rounded-lg border border-white/10 bg-white/5 text-sm text-slate-400">
+          Noch keine Metrics-Snapshots verfuegbar.
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="card">
-      <h2 className="text-base font-semibold text-white">Live viewer trend</h2>
+      <h2 className="text-base font-semibold text-white">
+        Live-Zuschauerverlauf
+      </h2>
       <div className="mt-4 h-72">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={viewerTrend}>
+          <LineChart data={data}>
             <XAxis dataKey="day" stroke="#94a3b8" />
             <YAxis stroke="#94a3b8" />
             <Tooltip
@@ -44,6 +63,13 @@ export function ViewerChart() {
               type="monotone"
               dataKey="tiktok"
               stroke="#ff4e6a"
+              strokeWidth={2}
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="kick"
+              stroke="#f5c842"
               strokeWidth={2}
               dot={false}
             />

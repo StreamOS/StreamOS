@@ -1,4 +1,4 @@
-import type { StreamPlatform } from "@streamos/types";
+import type { OAuthProvider, StreamPlatform } from "@streamos/types";
 import type { Tables } from "@streamos/database";
 import {
   CheckCircle2,
@@ -12,6 +12,7 @@ import { continueFromPlatformsAction, skipPlatformsAction } from "../actions";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
 import { createClient } from "@/lib/supabase/server";
+import { GatewayConnectButton } from "@/app/dashboard/components/GatewayConnectButton";
 
 type OnboardingPlatformsPageProps = {
   searchParams: Promise<{
@@ -23,6 +24,7 @@ type PlatformCard = {
   accentClassName: string;
   connectHref?: string;
   description: string;
+  gatewayProvider?: OAuthProvider;
   icon: typeof Radio;
   id: StreamPlatform;
   label: string;
@@ -44,14 +46,18 @@ const platformCards: PlatformCard[] = [
   },
   {
     accentClassName: "border-signal-red/40 bg-signal-red/10 text-rose-200",
-    description: "YouTube OAuth wird als naechster Connector vorbereitet.",
+    description:
+      "Verbinde YouTube ueber den Gateway fuer Kanal- und Video-Signale.",
+    gatewayProvider: "youtube",
     icon: PlaySquare,
     id: "youtube",
     label: "YouTube",
   },
   {
     accentClassName: "border-slate-400/30 bg-slate-950/80 text-slate-200",
-    description: "TikTok OAuth bleibt bis zur Gateway-Freigabe deaktiviert.",
+    description:
+      "Verbinde TikTok ueber den Gateway fuer Shortform-Performance.",
+    gatewayProvider: "tiktok",
     icon: Clapperboard,
     id: "tiktok",
     label: "TikTok",
@@ -59,7 +65,8 @@ const platformCards: PlatformCard[] = [
   {
     accentClassName:
       "border-signal-green/40 bg-signal-green/10 text-emerald-200",
-    description: "Kick OAuth kommt nach dem Beta-Provider-Vertrag.",
+    description: "Verbinde Kick ueber den Gateway fuer Live-Kanalmetriken.",
+    gatewayProvider: "kick",
     icon: Video,
     id: "kick",
     label: "Kick",
@@ -91,9 +98,9 @@ export default async function OnboardingPlatformsPage({
           Plattform verbinden
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-          Waehle mindestens eine Streaming-Plattform aus, damit StreamOS
-          Analytics, Discovery-Signale und Automationen deinem Creator-Profil
-          zuordnen kann.
+          Waehle mindestens eine Streaming-Plattform aus. YouTube, TikTok und
+          Kick laufen ueber den API-Gateway-Connect-Flow und werden nach dem
+          OAuth-Handshake direkt mit deinem Creator-Profil verknuepft.
         </p>
       </div>
 
@@ -125,15 +132,16 @@ export default async function OnboardingPlatformsPage({
               : "Noch keine Plattform verbunden."}
           </p>
           <p className="mt-1 text-sm text-slate-400">
-            Du kannst fortfahren, sobald eine Verbindung aktiv ist, oder das
-            Setup spaeter im Dashboard abschliessen.
+            Du kannst fortfahren, sobald eine Verbindung aktiv ist. Bei YouTube,
+            TikTok und Kick fuehrt der Gateway-Flow nach dem Handshake direkt
+            zum Abschluss.
           </p>
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row">
           <form action={skipPlatformsAction}>
             <button className="btn-ghost w-full sm:w-auto" type="submit">
-              Spaeter verbinden - Dashboard
+              Spaeter verbinden und Dashboard oeffnen
             </button>
           </form>
           <form action={continueFromPlatformsAction}>
@@ -159,7 +167,8 @@ function PlatformConnectorCard({
   platform: PlatformCard;
 }) {
   const Icon = platform.icon;
-  const isComingSoon = !platform.connectHref;
+  const isGatewayOAuth = Boolean(platform.gatewayProvider);
+  const isComingSoon = !platform.connectHref && !isGatewayOAuth;
 
   return (
     <article className="rounded-lg border border-white/10 bg-white/5 p-5">
@@ -180,7 +189,7 @@ function PlatformConnectorCard({
           </span>
         ) : (
           <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-slate-300">
-            OAuth bereit
+            Gateway bereit
           </span>
         )}
       </div>
@@ -200,6 +209,14 @@ function PlatformConnectorCard({
           {isConnected ? "Neu verbinden" : "Verbinden"}
           <ExternalLink className="h-3.5 w-3.5" />
         </a>
+      ) : platform.gatewayProvider ? (
+        <GatewayConnectButton
+          className="btn-primary mt-4 px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+          label={isConnected ? "Neu verbinden" : "Verbinden"}
+          pendingLabel="Verbinde..."
+          provider={platform.gatewayProvider}
+          returnTo="/onboarding/complete"
+        />
       ) : (
         <button
           className="btn-ghost mt-4 cursor-not-allowed px-3 py-1.5 text-xs opacity-60"

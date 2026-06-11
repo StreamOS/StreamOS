@@ -14,19 +14,19 @@ type ContentJobRow = Tables<"content_jobs">;
 
 const pipelineStages = [
   {
-    title: "Ingest",
-    description: "VODs, Streams und Rohclips fuer AI-Verarbeitung sammeln.",
-    metric: "3 sources",
+    title: "Import",
+    description: "VODs, Streams und Rohclips fuer KI-Verarbeitung sammeln.",
+    metric: "3 Quellen",
   },
   {
-    title: "Analyze",
-    description: "Transcription, Highlight-Erkennung und Hook-Scoring.",
-    metric: "AI ready",
+    title: "Analysieren",
+    description: "Transkription, Highlight-Erkennung und Hook-Bewertung.",
+    metric: "KI-bereit",
   },
   {
-    title: "Repurpose",
-    description: "Shorts, TikToks und YouTube Clips in Varianten planen.",
-    metric: "12 queued",
+    title: "Wiederverwertung",
+    description: "Shorts, TikToks und YouTube-Clips in Varianten planen.",
+    metric: "12 in Warteschlange",
   },
 ] as const;
 
@@ -38,10 +38,10 @@ export default async function ContentPage() {
       <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
-            Content Automation
+            Content-Automatisierung
           </p>
           <h1 className="mt-2 text-3xl font-semibold text-white">
-            Clip-Pipeline, Repurposing und AI Jobs
+            Clip-Pipeline, Repurposing und KI-Jobs
           </h1>
         </div>
         <a className="btn-primary" href="/dashboard/clips">
@@ -81,7 +81,7 @@ export default async function ContentPage() {
             </span>
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
-                Operating Queue
+                Operations-Queue
               </p>
               <h2 className="mt-1 text-lg font-semibold text-white">
                 Naechste Aktionen
@@ -90,10 +90,10 @@ export default async function ContentPage() {
           </div>
           <ul className="mt-5 space-y-3 text-sm text-slate-300">
             <li className="rounded-lg border border-white/10 bg-white/5 p-3">
-              Twitch VODs fuer Transcription markieren.
+              Twitch-VODs fuer Transkription markieren.
             </li>
             <li className="rounded-lg border border-white/10 bg-white/5 p-3">
-              Ready Clips in Plattform-Varianten schneiden.
+              Fertige Clips in Plattform-Varianten schneiden.
             </li>
             <li className="rounded-lg border border-white/10 bg-white/5 p-3">
               Sponsor-kompatible Highlights priorisieren.
@@ -110,7 +110,7 @@ export default async function ContentPage() {
               <FileVideo className="h-4 w-4" aria-hidden="true" />
             </span>
             <h2 className="text-lg font-semibold text-white">
-              Repurposing Brief
+              Wiederverwertungs-Briefing
             </h2>
           </div>
           <p className="mt-4 text-sm leading-6 text-slate-400">

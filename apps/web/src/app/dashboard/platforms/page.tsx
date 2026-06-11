@@ -11,7 +11,7 @@ import { GatewayConnectButton } from "../components/GatewayConnectButton";
 export default async function PlatformsPage() {
   const platformSummaries = await getPlatformSummaries();
   const connectedCount = platformSummaries.filter(
-    (platform) => platform.status === "Connected",
+    (platform) => platform.status === "Verbunden",
   ).length;
 
   return (
@@ -19,29 +19,36 @@ export default async function PlatformsPage() {
       <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
-            Platforms
+            Plattformen
           </p>
           <h1 className="mt-2 text-3xl font-semibold text-white">
             Twitch, YouTube, TikTok und Kick verwalten
           </h1>
         </div>
-        <a className="btn-primary" href="/api/platforms/twitch/connect">
-          Twitch verbinden
+        <a
+          className="btn-primary"
+          href="/api/platforms/twitch/connect?next=/dashboard/platforms"
+        >
+          Twitch-Verbindung starten
         </a>
       </header>
 
       <section className="grid gap-4 md:grid-cols-3">
         <PlatformStat
           icon={Globe}
-          label="Supported Platforms"
+          label="Verfuegbare Plattformen"
           value={String(platformSummaries.length)}
         />
         <PlatformStat
           icon={RadioTower}
-          label="Connected"
+          label="Verbunden"
           value={String(connectedCount)}
         />
-        <PlatformStat icon={KeyRound} label="OAuth Scope" value="Server-side" />
+        <PlatformStat
+          icon={KeyRound}
+          label="OAuth-Bereich"
+          value="Serverseitig"
+        />
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -82,7 +89,7 @@ export default async function PlatformsPage() {
                     className="btn-ghost px-3 py-1.5 text-xs"
                     type="submit"
                   >
-                    Token erneuern
+                    Twitch-Token erneuern
                   </button>
                 </form>
               )}
@@ -98,7 +105,7 @@ export default async function PlatformsPage() {
           </span>
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
-              Integration Boundary
+              Integrationsgrenze
             </p>
             <h2 className="mt-1 text-lg font-semibold text-white">
               OAuth bleibt serverseitig
@@ -106,7 +113,7 @@ export default async function PlatformsPage() {
           </div>
         </div>
         <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-400">
-          Plattform-Verbindungen laufen ueber API-Gateway oder Server Actions.
+          Plattform-Verbindungen laufen ueber API-Gateway oder Server-Aktionen.
           Browser-Komponenten erhalten keine Provider-Secrets und keine
           Service-Role-Zugriffe.
         </p>
@@ -136,11 +143,11 @@ function PlatformStat({
 }
 
 function statusClassName(status: PlatformSummary["status"]): string {
-  if (status === "Connected") {
+  if (status === "Verbunden") {
     return "rounded-full border border-signal-green/30 bg-signal-green/10 px-2.5 py-1 text-xs font-semibold text-signal-green";
   }
 
-  if (status === "Expired" || status === "Setup required") {
+  if (status === "Abgelaufen" || status === "Setup erforderlich") {
     return "rounded-full border border-signal-red/30 bg-signal-red/10 px-2.5 py-1 text-xs font-semibold text-signal-red";
   }
 
@@ -214,19 +221,20 @@ async function getPlatformSummaries(): Promise<PlatformSummary[]> {
     return {
       ...platform,
       actionHref: isConnected && !isExpired ? undefined : platform.actionHref,
-      actionLabel: isConnected && !isExpired ? undefined : "Neu verbinden",
+      actionLabel:
+        isConnected && !isExpired ? undefined : "Verbindung erneuern",
       canRefresh: platform.id === "twitch",
       followers: channel
-        ? `${formatFollowers(channel.follower_count)} followers`
+        ? `${formatFollowers(channel.follower_count)} Follower`
         : "Kanal verbunden",
       reach: isExpired
         ? "Token abgelaufen"
         : (channel?.display_name ?? "OAuth aktiv"),
       status: isExpired
-        ? "Expired"
+        ? "Abgelaufen"
         : isConnected
-          ? "Connected"
-          : "OAuth pending",
+          ? "Verbunden"
+          : "OAuth ausstehend",
     };
   });
 }

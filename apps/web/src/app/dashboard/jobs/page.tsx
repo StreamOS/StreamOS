@@ -23,9 +23,9 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold text-white">Content Jobs</h1>
+          <h1 className="text-3xl font-semibold text-white">Content-Jobs</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-            Live-Status fuer Clip-, Transkriptions- und Repurposing-Jobs.
+            Live-Status fuer Clip-, Transkriptions- und Wiederverwertungs-Jobs.
           </p>
         </div>
       </header>
@@ -73,8 +73,8 @@ function JobsNotice({ error, status }: { error?: string; status?: string }) {
   if (status === "retry-requested") {
     return (
       <section className="rounded-lg border border-signal-green/30 bg-signal-green/10 p-4 text-sm text-signal-green">
-        Retry wurde angefordert. Der Retry-Worker nimmt den Job beim naechsten
-        Polling auf.
+        Ein erneuter Versuch wurde angefordert. Der Wiederholungs-Worker nimmt
+        den Job beim naechsten Abruf auf.
       </section>
     );
   }
@@ -86,13 +86,15 @@ function JobsNotice({ error, status }: { error?: string; status?: string }) {
   const messages: Record<string, string> = {
     "invalid-job": "Der Job konnte nicht eindeutig gelesen werden.",
     "job-not-failed":
-      "Nur fehlgeschlagene Jobs koennen manuell retried werden.",
+      "Nur fehlgeschlagene Jobs koennen manuell erneut versucht werden.",
     "job-not-found":
       "Der Job wurde nicht gefunden oder gehoert nicht zu deinem Workspace.",
-    "retry-load-failed": "Der Job konnte vor dem Retry nicht geladen werden.",
-    "retry-update-failed": "Der Retry konnte nicht vorgemerkt werden.",
+    "retry-load-failed":
+      "Der Job konnte vor dem erneuten Versuch nicht geladen werden.",
+    "retry-update-failed":
+      "Der erneute Versuch konnte nicht vorgemerkt werden.",
     "supabase-not-configured":
-      "Supabase ist noch nicht konfiguriert. Setze die Supabase Env Vars, bevor Jobs angezeigt werden.",
+      "Supabase ist noch nicht konfiguriert. Setze die Supabase-Umgebungsvariablen, bevor Jobs angezeigt werden.",
   };
 
   return (

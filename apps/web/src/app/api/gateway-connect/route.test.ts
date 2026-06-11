@@ -72,6 +72,19 @@ describe("GET /api/gateway-connect", () => {
     });
   });
 
+  it("includes a safe onboarding return target in the signed handoff claims", async () => {
+    const { GET } = await import("./route");
+    const response = await GET(
+      createRequest("youtube", "/onboarding/complete"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(verifyHandoffToken(payload.handoff_token)).toMatchObject({
+      return_to: "/onboarding/complete",
+    });
+  });
+
   it("defaults to YouTube when provider is omitted", async () => {
     const { GET } = await import("./route");
     const response = await GET(createRequest());
@@ -92,6 +105,22 @@ describe("GET /api/gateway-connect", () => {
     expect(payload).toEqual({
       code: "provider_not_supported",
       error: "Gateway OAuth provider is not supported.",
+    });
+    expect(mockCreateClient).not.toHaveBeenCalled();
+    expect(mockEnsureCreatorForUser).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for unsafe return targets before creating a handoff", async () => {
+    const { GET } = await import("./route");
+    const response = await GET(
+      createRequest("youtube", "https://evil.example/phishing"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload).toEqual({
+      code: "return_to_invalid",
+      error: "Gateway OAuth return target is invalid.",
     });
     expect(mockCreateClient).not.toHaveBeenCalled();
     expect(mockEnsureCreatorForUser).not.toHaveBeenCalled();
@@ -131,11 +160,15 @@ describe("GET /api/gateway-connect", () => {
   });
 });
 
-function createRequest(provider?: string): NextRequest {
+function createRequest(provider?: string, returnTo?: string): NextRequest {
   const url = new URL("https://app.streamos.test/api/gateway-connect");
 
   if (provider) {
     url.searchParams.set("provider", provider);
+  }
+
+  if (returnTo) {
+    url.searchParams.set("returnTo", returnTo);
   }
 
   return new NextRequest(url);

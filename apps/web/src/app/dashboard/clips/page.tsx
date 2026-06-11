@@ -25,10 +25,10 @@ export default async function ClipsPage({ searchParams }: ClipsPageProps) {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
-            AI Clip Engine
+            KI-Clip-Engine
           </p>
           <h1 className="mt-2 text-3xl font-semibold text-white">
-            VODs analysieren und Shortform-Pipeline steuern
+            VODs analysieren und Kurzform-Pipeline steuern
           </h1>
         </div>
         <button className="btn-primary" form="clip-analysis-form" type="submit">
@@ -43,7 +43,7 @@ export default async function ClipsPage({ searchParams }: ClipsPageProps) {
       >
         <div className="grid gap-4 md:grid-cols-4">
           <label className="grid gap-2 text-sm font-semibold text-slate-300">
-            VOD URL
+            VOD-URL
             <input
               className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-signal-green"
               name="vodUrl"
@@ -93,7 +93,7 @@ export default async function ClipsPage({ searchParams }: ClipsPageProps) {
             className="min-h-36 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-signal-green"
             maxLength={60000}
             name="transcript"
-            placeholder="Paste den VOD-Transcript oder den relevanten Highlight-Abschnitt fuer die Clip-Analyse."
+            placeholder="Fuege den VOD-Transkript oder den relevanten Highlight-Abschnitt fuer die Clip-Analyse ein."
             required
           />
         </label>
@@ -116,7 +116,7 @@ function ClipAnalysisNotice({
   if (status === "clip-queued") {
     return (
       <section className="rounded-lg border border-signal-green/30 bg-signal-green/10 p-4 text-sm text-signal-green">
-        Clip-Analyse wurde gestartet. Der Job erscheint in der Content Pipeline.
+        Clip-Analyse wurde gestartet. Der Job erscheint in der Content-Pipeline.
       </section>
     );
   }
@@ -127,15 +127,15 @@ function ClipAnalysisNotice({
 
   const messages: Record<string, string> = {
     "api-gateway-not-configured":
-      "API_GATEWAY_URL ist nicht gesetzt. Ohne API-Gateway kann StreamOS keine Clip-Jobs queuen.",
+      "API_GATEWAY_URL ist nicht gesetzt. Ohne API-Gateway kann StreamOS keine Clip-Jobs in die Warteschlange stellen.",
     "clip-queue-failed":
-      "Clip-Analyse konnte nicht in die Queue geschrieben werden. Pruefe API-Gateway und Redis.",
+      "Clip-Analyse konnte nicht in die Warteschlange geschrieben werden. Pruefe API-Gateway und Redis.",
     "invalid-vod-url":
-      "Die VOD URL ist ungueltig. Nutze eine erreichbare HTTP- oder HTTPS-URL.",
+      "Die VOD-URL ist ungueltig. Nutze eine erreichbare HTTP- oder HTTPS-URL.",
     "no-channel":
-      "Verbinde zuerst einen Kanal, damit StreamOS den VOD einem Workspace-Channel zuordnen kann.",
+      "Verbinde zuerst einen Kanal, damit StreamOS den VOD einem Workspace-Kanal zuordnen kann.",
     "supabase-not-configured":
-      "Supabase ist noch nicht konfiguriert. Setze die Supabase Env Vars, bevor Clip-Jobs gestartet werden.",
+      "Supabase ist noch nicht konfiguriert. Setze die Supabase-Umgebungsvariablen, bevor Clip-Jobs gestartet werden.",
   };
 
   return (

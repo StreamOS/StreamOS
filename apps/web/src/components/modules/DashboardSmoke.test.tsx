@@ -9,10 +9,10 @@ import { ContentJobsLiveList } from "./ContentJobsLiveList";
 describe("dashboard UI", () => {
   it("renders a typed stat card", () => {
     const html = renderToStaticMarkup(
-      <StatCard label="Discovery score" value="82" trend="+9%" icon={Search} />,
+      <StatCard label="Discovery-Score" value="82" trend="+9%" icon={Search} />,
     );
 
-    expect(html).toContain("Discovery score");
+    expect(html).toContain("Discovery-Score");
     expect(html).toContain("82");
   });
 
@@ -49,8 +49,8 @@ describe("dashboard UI", () => {
       />,
     );
 
-    expect(html).toContain("Content Pipeline");
-    expect(html).toContain("Done");
+    expect(html).toContain("Content-Pipeline");
+    expect(html).toContain("Fertig");
     expect(html).toContain("A clean transcript.");
   });
 
@@ -106,9 +106,9 @@ describe("dashboard UI", () => {
       />,
     );
 
-    expect(html).toContain("Live Job Queue");
-    expect(html).toContain("Processing");
-    expect(html).toContain("Failed");
-    expect(html).toContain("Retry");
+    expect(html).toContain("Live-Job-Warteschlange");
+    expect(html).toContain("Wird verarbeitet");
+    expect(html).toContain("Fehlgeschlagen");
+    expect(html).toContain("Erneut versuchen");
   });
 });

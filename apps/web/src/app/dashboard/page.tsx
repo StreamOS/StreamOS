@@ -1,11 +1,11 @@
 import { Activity, BadgeDollarSign, Clapperboard, Search } from "lucide-react";
 import { StatCard } from "@streamos/ui";
-import { dashboardStats, operatingPlan } from "@/data/dashboard";
 import { PlatformOverview } from "@/components/modules/PlatformOverview";
 import { RecentClips } from "@/components/modules/RecentClips";
 import { TwitchAnalyticsSnapshotCard } from "@/components/modules/TwitchAnalyticsSnapshotCard";
 import { ViewerChart } from "@/components/modules/ViewerChart";
 import { GatewayConnectButton } from "./components/GatewayConnectButton";
+import { getDashboardSurfaceData } from "@/lib/dashboard/insights";
 
 const statIcons = [Search, BadgeDollarSign, Clapperboard, Activity];
 
@@ -21,6 +21,13 @@ export default async function DashboardPage({
   searchParams,
 }: DashboardPageProps) {
   const params = await searchParams;
+  const {
+    dashboardStats,
+    heroMetrics,
+    operatingPlan,
+    recentClips,
+    viewerTrend,
+  } = await getDashboardSurfaceData();
 
   return (
     <div className="space-y-6">
@@ -31,14 +38,14 @@ export default async function DashboardPage({
       <header className="grid gap-6 rounded-lg border border-white/10 bg-surface-900/85 p-6 shadow-[0_22px_70px_rgba(0,0,0,0.42)] xl:grid-cols-[minmax(0,1.1fr)_360px]">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
-            Creator command center
+            Creator-Kommandozentrale
           </p>
           <h1 className="mt-3 max-w-3xl text-4xl font-semibold tracking-normal text-white md:text-5xl">
             Aus deinem Stream wird ein kompletter Content- und Umsatz-Funnel.
           </h1>
           <p className="mt-4 max-w-2xl text-base leading-7 text-slate-400">
-            StreamOS buendelt Discoverability, Clip-Automatisierung,
-            Monetarisierung, Branding, Multi-Plattform-Management und Analytics
+            StreamOS buendelt Auffindbarkeit, Clip-Automatisierung,
+            Monetarisierung, Branding, Multi-Plattform-Verwaltung und Analysen
             in einer operativen Creator-Oberflaeche.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
@@ -46,9 +53,12 @@ export default async function DashboardPage({
               VOD analysieren
             </a>
             <a href="/dashboard/analytics" className="btn-ghost">
-              Analytics pruefen
+              Analysen pruefen
             </a>
-            <GatewayConnectButton />
+            <GatewayConnectButton
+              label="Plattform verbinden"
+              pendingLabel="Verbindung wird vorbereitet..."
+            />
           </div>
         </div>
         <div className="rounded-lg border border-white/10 bg-white/5 p-4">
@@ -57,16 +67,22 @@ export default async function DashboardPage({
           </div>
           <div className="mt-3 grid grid-cols-3 gap-3 text-center">
             <div className="rounded-lg border border-white/10 bg-surface-800 p-3">
-              <strong className="block text-xl text-white">36</strong>
+              <strong className="block text-xl text-white">
+                {heroMetrics.clips}
+              </strong>
               <span className="text-xs text-slate-400">Clips</span>
             </div>
             <div className="rounded-lg border border-white/10 bg-surface-800 p-3">
-              <strong className="block text-xl text-white">12</strong>
-              <span className="text-xs text-slate-400">Posts</span>
+              <strong className="block text-xl text-white">
+                {heroMetrics.jobs}
+              </strong>
+              <span className="text-xs text-slate-400">Jobs</span>
             </div>
             <div className="rounded-lg border border-white/10 bg-surface-800 p-3">
-              <strong className="block text-xl text-white">4</strong>
-              <span className="text-xs text-slate-400">Sponsors</span>
+              <strong className="block text-xl text-white">
+                {heroMetrics.activePlatforms}
+              </strong>
+              <span className="text-xs text-slate-400">Plattformen</span>
             </div>
           </div>
         </div>
@@ -83,7 +99,7 @@ export default async function DashboardPage({
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">
-        <ViewerChart />
+        <ViewerChart data={viewerTrend} />
         <PlatformOverview />
       </section>
 
@@ -91,7 +107,7 @@ export default async function DashboardPage({
 
       <section className="card">
         <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
-          AI Operating Plan
+          KI-Operationsplan
         </p>
         <h2 className="mt-2 text-lg font-semibold text-white">
           Naechste Schritte
@@ -109,7 +125,7 @@ export default async function DashboardPage({
         </ul>
       </section>
 
-      <RecentClips />
+      <RecentClips clips={recentClips} />
     </div>
   );
 }

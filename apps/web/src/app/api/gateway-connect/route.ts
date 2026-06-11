@@ -10,6 +10,11 @@ export const runtime = "nodejs";
 
 const HANDOFF_TTL_MS = 60_000;
 const GATEWAY_OAUTH_PROVIDERS = ["youtube", "tiktok", "kick"] as const;
+const DEFAULT_RETURN_TO = "/dashboard/platforms";
+const ALLOWED_RETURN_TO_PATHS = new Set([
+  DEFAULT_RETURN_TO,
+  "/onboarding/complete",
+]);
 
 type ErrorResponse = {
   code: string;
@@ -19,11 +24,20 @@ type ErrorResponse = {
 export async function GET(request: NextRequest) {
   try {
     const provider = getGatewayOAuthProvider(request);
+    const returnTo = getSafeReturnTo(request);
 
     if (!provider) {
       return jsonError(
         "provider_not_supported",
         "Gateway OAuth provider is not supported.",
+        400,
+      );
+    }
+
+    if (!returnTo) {
+      return jsonError(
+        "return_to_invalid",
+        "Gateway OAuth return target is invalid.",
         400,
       );
     }
@@ -64,7 +78,7 @@ export async function GET(request: NextRequest) {
       {
         creator_id: creator.id,
         exp: Date.now() + HANDOFF_TTL_MS,
-        return_to: "/dashboard/platforms",
+        return_to: returnTo,
         user_id: data.user.id,
       },
       apiGatewaySecret,
@@ -100,6 +114,51 @@ function getGatewayOAuthProvider(request: NextRequest): OAuthProvider | null {
   const provider = request.nextUrl.searchParams.get("provider") ?? "youtube";
 
   return isGatewayOAuthProvider(provider) ? provider : null;
+}
+
+function getSafeReturnTo(request: NextRequest): string | null {
+  const returnTo =
+    request.nextUrl.searchParams.get("returnTo") ??
+    request.nextUrl.searchParams.get("return_to");
+
+  if (!returnTo) {
+    return DEFAULT_RETURN_TO;
+  }
+
+  const trimmedReturnTo = returnTo.trim();
+
+  if (
+    !isSafeAppRelativePath(trimmedReturnTo) ||
+    !ALLOWED_RETURN_TO_PATHS.has(trimmedReturnTo)
+  ) {
+    return null;
+  }
+
+  return trimmedReturnTo;
+}
+
+function isSafeAppRelativePath(value: string): boolean {
+  if (value.length === 0 || value.length > 512) {
+    return false;
+  }
+
+  if (!value.startsWith("/") || value.startsWith("//")) {
+    return false;
+  }
+
+  if (value.includes("\\")) {
+    return false;
+  }
+
+  for (let index = 0; index < value.length; index += 1) {
+    const codePoint = value.charCodeAt(index);
+
+    if (codePoint <= 31 || codePoint === 127) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function isGatewayOAuthProvider(value: string): value is OAuthProvider {

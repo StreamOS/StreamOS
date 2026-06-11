@@ -19,7 +19,7 @@ export async function TwitchAnalyticsSnapshotCard() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
-            Twitch Analytics
+            Twitch-Analytics
           </p>
           <h2 className="mt-2 text-lg font-semibold text-white">
             {snapshot?.channels?.display_name ?? "Noch kein Snapshot"}
@@ -27,7 +27,7 @@ export async function TwitchAnalyticsSnapshotCard() {
         </div>
         <form action={syncTwitchAnalyticsAction}>
           <button className="btn-primary px-3 py-1.5 text-xs" type="submit">
-            Sync
+            Synchronisieren
           </button>
         </form>
       </div>
@@ -35,14 +35,17 @@ export async function TwitchAnalyticsSnapshotCard() {
       {snapshot ? (
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <Metric
-            label="Live viewers"
+            label="Live-Zuschauer"
             value={formatNumber(snapshot.viewer_count)}
           />
           <Metric
-            label="Followers"
+            label="Follower"
             value={formatNumber(snapshot.follower_count)}
           />
-          <Metric label="Last sync" value={formatDate(snapshot.captured_at)} />
+          <Metric
+            label="Letzte Synchronisierung"
+            value={formatDate(snapshot.captured_at)}
+          />
         </div>
       ) : (
         <p className="mt-5 text-sm leading-6 text-slate-400">
@@ -96,7 +99,7 @@ async function getLatestTwitchSnapshot(): Promise<TwitchDashboardSnapshot | null
 }
 
 function formatNumber(value: number): string {
-  return new Intl.NumberFormat("en", {
+  return new Intl.NumberFormat("de-DE", {
     compactDisplay: "short",
     notation: "compact",
   }).format(value);

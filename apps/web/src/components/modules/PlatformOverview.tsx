@@ -11,7 +11,9 @@ export async function PlatformOverview() {
 
   return (
     <section className="card">
-      <h2 className="text-base font-semibold text-white">Platform overview</h2>
+      <h2 className="text-base font-semibold text-white">
+        Plattform-Übersicht
+      </h2>
       <div className="mt-4 space-y-3">
         {platformSummaries.map((platform) => (
           <div
@@ -42,7 +44,7 @@ export async function PlatformOverview() {
                     className="btn-ghost px-3 py-1.5 text-xs"
                     type="submit"
                   >
-                    Token erneuern
+                    Twitch-Token erneuern
                   </button>
                 </form>
               )}
@@ -122,19 +124,20 @@ async function getPlatformSummaries(): Promise<PlatformSummary[]> {
     return {
       ...platform,
       actionHref: isConnected && !isExpired ? undefined : platform.actionHref,
-      actionLabel: isConnected && !isExpired ? undefined : "Neu verbinden",
+      actionLabel:
+        isConnected && !isExpired ? undefined : "Verbindung erneuern",
       canRefresh,
       followers: channel
-        ? `${formatFollowers(channel.follower_count)} followers`
+        ? `${formatFollowers(channel.follower_count)} Follower`
         : "Kanal verbunden",
       reach: isExpired
         ? "Token abgelaufen"
         : (channel?.display_name ?? "OAuth aktiv"),
       status: isExpired
-        ? "Expired"
+        ? "Abgelaufen"
         : isConnected
-          ? "Connected"
-          : "OAuth pending",
+          ? "Verbunden"
+          : "OAuth ausstehend",
     };
   });
 }

@@ -13,6 +13,7 @@ type GatewayConnectButtonProps = {
   label?: string;
   pendingLabel?: string;
   provider?: OAuthProvider;
+  returnTo?: string;
 };
 
 export function GatewayConnectButton({
@@ -20,6 +21,7 @@ export function GatewayConnectButton({
   label = "Gateway verbinden",
   pendingLabel = "Verbinde...",
   provider = "youtube",
+  returnTo,
 }: GatewayConnectButtonProps) {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -31,6 +33,10 @@ export function GatewayConnectButton({
     try {
       const handoffUrl = new URL("/api/gateway-connect", window.location.href);
       handoffUrl.searchParams.set("provider", provider);
+
+      if (returnTo) {
+        handoffUrl.searchParams.set("returnTo", returnTo);
+      }
 
       const response = await fetch(handoffUrl, {
         cache: "no-store",

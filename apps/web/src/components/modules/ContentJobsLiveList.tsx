@@ -28,37 +28,37 @@ const statusMeta = {
   pending: {
     className: "border-slate-500/30 bg-slate-500/10 text-slate-300",
     icon: Clock3,
-    label: "Pending",
+    label: "Ausstehend",
   },
   running: {
     className: "border-signal-gold/30 bg-signal-gold/10 text-signal-gold",
     icon: Loader2,
-    label: "Processing",
+    label: "Wird verarbeitet",
   },
   processing: {
     className: "border-signal-gold/30 bg-signal-gold/10 text-signal-gold",
     icon: Loader2,
-    label: "Processing",
+    label: "Wird verarbeitet",
   },
   failed: {
     className: "border-signal-red/30 bg-signal-red/10 text-signal-red",
     icon: AlertTriangle,
-    label: "Failed",
+    label: "Fehlgeschlagen",
   },
   done: {
     className: "border-signal-green/30 bg-signal-green/10 text-signal-green",
     icon: CheckCircle2,
-    label: "Done",
+    label: "Fertig",
   },
   completed: {
     className: "border-signal-green/30 bg-signal-green/10 text-signal-green",
     icon: CheckCircle2,
-    label: "Completed",
+    label: "Abgeschlossen",
   },
   cancelled: {
     className: "border-slate-500/30 bg-slate-500/10 text-slate-300",
     icon: AlertTriangle,
-    label: "Cancelled",
+    label: "Abgebrochen",
   },
 } as const satisfies Record<
   ContentJobRow["status"],
@@ -70,11 +70,11 @@ const statusMeta = {
 >;
 
 const statusFilters: Array<{ label: string; value: JobStatusFilter }> = [
-  { label: "All", value: "all" },
-  { label: "Pending", value: "pending" },
-  { label: "Processing", value: "processing" },
-  { label: "Failed", value: "failed" },
-  { label: "Done", value: "done" },
+  { label: "Alle", value: "all" },
+  { label: "Ausstehend", value: "pending" },
+  { label: "Wird verarbeitet", value: "processing" },
+  { label: "Fehlgeschlagen", value: "failed" },
+  { label: "Fertig", value: "done" },
 ];
 
 export function ContentJobsLiveList({
@@ -148,7 +148,9 @@ export function ContentJobsLiveList({
     <section className="card">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-white">Live Job Queue</h2>
+          <h2 className="text-lg font-semibold text-white">
+            Live-Job-Warteschlange
+          </h2>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-400">
             <span>{jobs.length} Jobs synchronisiert</span>
             <RealtimeBadge status={realtimeStatus} />
@@ -156,10 +158,10 @@ export function ContentJobsLiveList({
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
-          <Counter label="Pending" value={counts.pending} />
-          <Counter label="Processing" value={counts.processing} />
-          <Counter label="Failed" value={counts.failed} />
-          <Counter label="Done" value={counts.done} />
+          <Counter label="Ausstehend" value={counts.pending} />
+          <Counter label="Wird verarbeitet" value={counts.processing} />
+          <Counter label="Fehlgeschlagen" value={counts.failed} />
+          <Counter label="Fertig" value={counts.done} />
         </div>
       </div>
 
@@ -188,10 +190,10 @@ export function ContentJobsLiveList({
               <tr>
                 <th className="px-4 py-3 font-medium">Job</th>
                 <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Retries</th>
-                <th className="px-4 py-3 font-medium">Result</th>
-                <th className="px-4 py-3 font-medium">Updated</th>
-                <th className="px-4 py-3 text-right font-medium">Action</th>
+                <th className="px-4 py-3 font-medium">Versuche</th>
+                <th className="px-4 py-3 font-medium">Ergebnis</th>
+                <th className="px-4 py-3 font-medium">Aktualisiert</th>
+                <th className="px-4 py-3 text-right font-medium">Aktion</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10 bg-surface-900/60">
@@ -216,7 +218,7 @@ export function ContentJobsLiveList({
 
 function RealtimeBadge({ status }: { status: ContentJobsRealtimeStatus }) {
   const isLive = status === "subscribed";
-  const label = isLive ? "Realtime live" : "Polling fallback";
+  const label = isLive ? "Echtzeit aktiv" : "Abruf-Fallback";
 
   return (
     <span
@@ -225,7 +227,7 @@ function RealtimeBadge({ status }: { status: ContentJobsRealtimeStatus }) {
           ? "rounded-full border border-signal-green/20 bg-signal-green/10 px-2 py-0.5 text-xs font-medium text-signal-green"
           : "rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-0.5 text-xs font-medium text-amber-200"
       }
-      title={`Supabase Realtime status: ${status}`}
+      title={`Supabase-Realtime-Status: ${status}`}
     >
       {label}
     </span>
@@ -255,7 +257,7 @@ function JobRow({
     <tr>
       <td className="px-4 py-3">
         <div className="font-medium capitalize text-white">
-          {job.job_type.replace("_", " ")}
+          {formatJobTypeLabel(job.job_type)}
         </div>
         <div className="mt-1 max-w-56 truncate text-xs text-slate-400">
           {job.queue_job_id ?? job.id}
@@ -311,7 +313,7 @@ function RetryButton() {
         aria-hidden="true"
         className={`h-4 w-4 ${pending ? "animate-spin" : ""}`}
       />
-      {pending ? "Retry..." : "Retry"}
+      {pending ? "Erneut versuchen..." : "Erneut versuchen"}
     </button>
   );
 }
@@ -328,15 +330,17 @@ function getJobCounts(jobs: ContentJobRow[]) {
 function getRetryLabel(job: ContentJobRow): string {
   if (job.status !== "failed") {
     return job.last_retried_at
-      ? `Last retry ${formatDateTime(job.last_retried_at)}`
-      : "No retry required";
+      ? `Letzter erneuter Versuch ${formatDateTime(job.last_retried_at)}`
+      : "Kein erneuter Versuch erforderlich";
   }
 
   if (job.next_retry_at) {
-    return `Next ${formatDateTime(job.next_retry_at)}`;
+    return `Naechster Versuch ${formatDateTime(job.next_retry_at)}`;
   }
 
-  return job.retry_count >= job.max_retries ? "Limit reached" : "Retry due";
+  return job.retry_count >= job.max_retries
+    ? "Limit erreicht"
+    : "Erneuter Versuch faellig";
 }
 
 function getResultPreview(job: ContentJobRow): string {
@@ -350,8 +354,8 @@ function getResultPreview(job: ContentJobRow): string {
     Array.isArray(job.result)
   ) {
     return isProcessingStatus(job.status)
-      ? "Processing..."
-      : "Waiting for result";
+      ? "Wird verarbeitet..."
+      : "Wartet auf Ergebnis";
   }
 
   if ("error" in job.result && typeof job.result.error === "string") {
@@ -378,12 +382,12 @@ function getResultPreview(job: ContentJobRow): string {
         ? job.result.title_suggestions[0]
         : null;
 
-    return [`Score ${job.result.virality_score}/100`, title, summary]
+    return [`Punktzahl ${job.result.virality_score}/100`, title, summary]
       .filter(Boolean)
       .join(" - ");
   }
 
-  return "Result stored";
+  return "Ergebnis gespeichert";
 }
 
 function matchesFilter(job: ContentJobRow, filter: JobStatusFilter): boolean {
@@ -423,6 +427,17 @@ function mergeJob(
       new Date(right.updated_at).getTime() -
       new Date(left.updated_at).getTime(),
   );
+}
+
+function formatJobTypeLabel(jobType: ContentJobRow["job_type"]): string {
+  const labels: Record<ContentJobRow["job_type"], string> = {
+    clip_scoring: "Clip-Bewertung",
+    repurposing: "Repurposing",
+    title_generation: "Titelgenerierung",
+    transcription: "Transkription",
+  };
+
+  return labels[jobType];
 }
 
 function formatDateTime(value: string): string {
