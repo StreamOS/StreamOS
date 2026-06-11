@@ -4,6 +4,7 @@
     "jsx": "preserve",
     "allowJs": false,
     "noEmit": true,
-    "incremental": true
+    "incremental": true,
+    "types": ["node", "react", "react-dom"]
   }
 }
