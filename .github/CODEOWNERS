@@ -1,23 +1,49 @@
-# Default owner for the whole monorepo.
-*                               @thomasdorts-hash
+# StreamOS - CODEOWNERS
+# Syntax: <path-pattern> <owner>
+# Rules are evaluated top-to-bottom and the last matching rule wins.
+
+# Global fallback
+*                                       @thomasdorts-hash
 
 # Frontend
-/apps/web/                      @thomasdorts-hash
+/apps/web/                               @thomasdorts-hash
+/apps/web/src/app/dashboard/             @thomasdorts-hash
+/apps/web/src/lib/integrations/          @thomasdorts-hash
 
 # Backend services
-/services/api-gateway/          @thomasdorts-hash
-/services/automation-service/   @thomasdorts-hash
+/services/api-gateway/                   @thomasdorts-hash
+/services/automation-service/            @thomasdorts-hash
 
 # Workers
-/workers/                       @thomasdorts-hash
+/workers/                                @thomasdorts-hash
+/workers/transcription-worker/           @thomasdorts-hash
+/workers/clip-worker/                    @thomasdorts-hash
+/workers/content-job-retry-worker/       @thomasdorts-hash
+/workers/stream-job-worker/              @thomasdorts-hash
+/workers/metrics-sync-worker/            @thomasdorts-hash
 
 # Shared packages
-/packages/config/               @thomasdorts-hash
-/packages/database/             @thomasdorts-hash
-/packages/database/supabase/migrations/ @thomasdorts-hash
-/packages/types/                @thomasdorts-hash
-/packages/ui/                   @thomasdorts-hash
+/packages/config/                        @thomasdorts-hash
+/packages/database/                      @thomasdorts-hash
+/packages/database/supabase/migrations/  @thomasdorts-hash
+/packages/queue/                         @thomasdorts-hash
+/packages/redis/                         @thomasdorts-hash
+/packages/twitch-eventsub/               @thomasdorts-hash
+/packages/types/                         @thomasdorts-hash
+/packages/ui/                            @thomasdorts-hash
+/packages/utils/                         @thomasdorts-hash
+/packages/youtube-websub/                @thomasdorts-hash
 
-# Repository operations
-/.github/                       @thomasdorts-hash
-/docs/                          @thomasdorts-hash
+# Infrastructure and CI/CD
+/.github/                                @thomasdorts-hash
+/.github/workflows/                      @thomasdorts-hash
+/Dockerfile*                             @thomasdorts-hash
+/docker-compose*.yml                     @thomasdorts-hash
+/package.json                            @thomasdorts-hash
+/pnpm-lock.yaml                          @thomasdorts-hash
+/pnpm-workspace.yaml                     @thomasdorts-hash
+/turbo.json                              @thomasdorts-hash
+
+# Documentation
+/docs/                                   @thomasdorts-hash
+/README.md                               @thomasdorts-hash
