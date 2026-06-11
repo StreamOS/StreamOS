@@ -66,7 +66,11 @@ export type BrandAssetRow = Pick<
   | "created_at"
   | "id"
   | "name"
+  | "metadata"
+  | "public_url"
   | "status"
+  | "storage_bucket"
+  | "storage_path"
   | "updated_at"
 >;
 
@@ -74,6 +78,13 @@ export type BrandKitFormValues = {
   assetType: BrandAssetType;
   config: Record<string, Json>;
   id: string | null;
+  name: string;
+  status: BrandAssetStatus;
+};
+
+export type BrandKitDraftDefaults = {
+  assetType: BrandAssetType;
+  config: Record<string, Json>;
   name: string;
   status: BrandAssetStatus;
 };

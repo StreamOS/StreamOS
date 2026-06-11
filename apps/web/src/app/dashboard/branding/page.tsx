@@ -1,10 +1,13 @@
 import React from "react";
+import Link from "next/link";
 import { ArchiveRestore, Layers3, Sparkles } from "lucide-react";
 import { StatCard } from "@streamos/ui";
+import { BrandAssetUploadForm } from "./BrandAssetUploadForm";
 import { BrandKitEditorForm } from "./BrandKitEditorForm";
 import {
   createBrandKitAction,
   deleteBrandKitAction,
+  uploadBrandAssetFileAction,
   updateBrandKitAction,
 } from "./actions";
 import {
@@ -12,6 +15,10 @@ import {
   brandAssetTypeLabels,
   summarizeBrandKitConfig,
 } from "./brand-kit";
+import {
+  brandKitPresetTemplates,
+  resolveBrandKitTemplateSelection,
+} from "./brand-kit-presets";
 import { getBrandKitDashboardData } from "./data";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -19,6 +26,7 @@ type BrandingPageProps = {
   searchParams?: Promise<{
     error?: string;
     status?: string;
+    template?: string;
   }>;
 };
 
@@ -28,6 +36,10 @@ export default async function BrandingPage({
   const params = await searchParams;
   const configured = isSupabaseConfigured();
   const dashboard = await getBrandKitDashboardData();
+  const selectedTemplate = resolveBrandKitTemplateSelection({
+    assets: dashboard.assets,
+    templateKey: params?.template ?? null,
+  });
 
   return (
     <div className="space-y-6">
@@ -73,6 +85,79 @@ export default async function BrandingPage({
         />
       </section>
 
+      <section className="card space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
+              Presets
+            </p>
+            <h2 className="mt-2 text-lg font-semibold text-white">
+              Template-Bibliothek
+            </h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Waehle eine Vorlage und fuelle das Brand Kit damit vor. Du kannst
+              entweder ein Preset nehmen oder ein bestehendes Brand Kit als
+              Vorlage wiederverwenden.
+            </p>
+          </div>
+          <Link className="btn-ghost self-start" href="/dashboard/branding">
+            Vorlage leeren
+          </Link>
+        </div>
+
+        {selectedTemplate && (
+          <section className="rounded-lg border border-signal-green/20 bg-signal-green/10 p-4 text-sm text-signal-green">
+            Aktive Vorlage: {selectedTemplate.label}
+            <span className="ml-2 text-slate-300">
+              {selectedTemplate.description}
+            </span>
+          </section>
+        )}
+
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+          {brandKitPresetTemplates.map((template) => {
+            const isActive = selectedTemplate?.key === template.key;
+
+            return (
+              <article
+                className={`rounded-lg border p-4 transition ${
+                  isActive
+                    ? "border-signal-green/40 bg-signal-green/10"
+                    : "border-white/10 bg-white/5"
+                }`}
+                key={template.key}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-signal-green">
+                      Preset
+                    </p>
+                    <h3 className="mt-2 text-lg font-semibold text-white">
+                      {template.label}
+                    </h3>
+                  </div>
+                  <span className="rounded-full border border-white/10 bg-surface-900/70 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
+                    {brandAssetTypeLabels[template.defaults.assetType]}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm text-slate-400">
+                  {template.description}
+                </p>
+                <p className="mt-3 text-xs text-slate-500">
+                  {summarizeBrandKitConfig(template.defaults.config)}
+                </p>
+                <Link
+                  className="btn-primary mt-4 w-full"
+                  href={`/dashboard/branding?template=${template.key}`}
+                >
+                  Vorlage verwenden
+                </Link>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
       {!configured ? (
         <section className="card space-y-3">
           <h2 className="text-lg font-semibold text-white">
@@ -88,14 +173,25 @@ export default async function BrandingPage({
         </section>
       ) : (
         <section className="grid gap-6 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
-          <article className="card">
-            <BrandKitEditorForm
-              action={createBrandKitAction}
-              description="Lege ein neues Brand Kit an, das direkt gegen `brand_assets` mit RLS gespeichert wird."
-              submitLabel="Brand Kit speichern"
-              title="Neues Brand Kit"
-            />
-          </article>
+          <div className="space-y-6">
+            <article className="card">
+              <BrandAssetUploadForm action={uploadBrandAssetFileAction} />
+            </article>
+
+            <article className="card">
+              <BrandKitEditorForm
+                action={createBrandKitAction}
+                defaults={selectedTemplate?.defaults ?? null}
+                description="Lege ein neues Brand Kit an, das direkt gegen `brand_assets` mit RLS gespeichert wird."
+                selectedTemplateDescription={
+                  selectedTemplate?.description ?? null
+                }
+                selectedTemplateLabel={selectedTemplate?.label ?? null}
+                submitLabel="Brand Kit speichern"
+                title="Neues Brand Kit"
+              />
+            </article>
+          </div>
 
           <section className="space-y-4">
             <div className="card">
@@ -133,10 +229,31 @@ export default async function BrandingPage({
                         <p className="mt-2 text-sm text-slate-400">
                           {summarizeBrandKitConfig(asset.config)}
                         </p>
+                        {asset.public_url && (
+                          <a
+                            className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-signal-green hover:text-white"
+                            href={asset.public_url}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            Datei oeffnen
+                            <span className="text-xs text-slate-500">
+                              {getBrandAssetFileName(asset)}
+                            </span>
+                          </a>
+                        )}
                       </div>
-                      <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
-                        {brandAssetStatusLabels[asset.status]}
-                      </span>
+                      <div className="flex flex-col items-start gap-2">
+                        <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
+                          {brandAssetStatusLabels[asset.status]}
+                        </span>
+                        <Link
+                          className="btn-ghost px-3 py-1.5 text-xs"
+                          href={`/dashboard/branding?template=${asset.id}`}
+                        >
+                          Als Vorlage nutzen
+                        </Link>
+                      </div>
                     </div>
 
                     <BrandKitEditorForm
@@ -166,6 +283,8 @@ function BrandingNotice({
   status?: string;
 }) {
   const successMessages: Record<string, string> = {
+    "brand-asset-uploaded":
+      "Brand Asset wurde hochgeladen und in Supabase Storage gespeichert.",
     "brand-kit-created":
       "Brand Kit wurde erstellt und via Supabase persistiert.",
     "brand-kit-deleted": "Brand Kit wurde geloescht.",
@@ -173,10 +292,20 @@ function BrandingNotice({
   };
 
   const errorMessages: Record<string, string> = {
+    "brand-asset-upload-failed":
+      "Brand Asset konnte nicht hochgeladen werden. Pruefe Supabase Storage und die Bucket-Policies.",
+    "invalid-brand-asset-file":
+      "Die Datei ist ungueltig oder wird nicht unterstuetzt.",
+    "invalid-brand-asset-upload-config":
+      "Die Upload-Config muss ein gueltiges JSON-Objekt sein.",
+    "invalid-brand-asset-upload-form":
+      "Das Upload-Formular ist ungueltig oder unvollstaendig.",
     "brand-kit-create-failed":
       "Brand Kit konnte nicht gespeichert werden. Pruefe Supabase und die RLS-Policies.",
     "brand-kit-delete-failed":
       "Brand Kit konnte nicht geloescht werden. Pruefe, ob der Datensatz zum aktuellen User gehoert.",
+    "brand-kit-storage-delete-failed":
+      "Die zugehoerige Datei konnte nicht aus Supabase Storage geloescht werden.",
     "brand-kit-load-failed":
       "Brand Kit konnte nicht geladen werden. Pruefe die Supabase-Verbindung.",
     "brand-kit-not-found":
@@ -234,4 +363,28 @@ function EmptyBrandKitState() {
       </ul>
     </section>
   );
+}
+
+function getBrandAssetFileName(asset: {
+  metadata: unknown;
+  public_url: string | null;
+  storage_path: string | null;
+}) {
+  if (asset.metadata && typeof asset.metadata === "object") {
+    const fileName = (asset.metadata as Record<string, unknown>).file_name;
+
+    if (typeof fileName === "string" && fileName.trim()) {
+      return fileName;
+    }
+  }
+
+  if (asset.storage_path) {
+    return asset.storage_path.split("/").pop() ?? "uploaded-asset";
+  }
+
+  if (asset.public_url) {
+    return "uploaded-asset";
+  }
+
+  return "uploaded-asset";
 }

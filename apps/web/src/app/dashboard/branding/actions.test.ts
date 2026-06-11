@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createBrandKitAction,
   deleteBrandKitAction,
+  uploadBrandAssetFileAction,
   updateBrandKitAction,
 } from "./actions";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -15,6 +16,10 @@ vi.mock("next/navigation", () => ({
   redirect: vi.fn((path: string) => {
     throw new Error(`REDIRECT:${path}`);
   }),
+}));
+
+vi.mock("node:crypto", () => ({
+  randomUUID: vi.fn(() => "11111111-1111-4111-8111-111111111111"),
 }));
 
 vi.mock("@/lib/supabase/config", () => ({
@@ -147,6 +152,52 @@ describe("branding actions", () => {
       },
     ]);
   });
+
+  it("uploads a brand asset file and persists the storage metadata", async () => {
+    const supabase = createSupabaseClientMock();
+    mockCreateClient.mockResolvedValue(supabase as never);
+    const formData = new FormData();
+    formData.set("assetType", "overlay");
+    formData.set(
+      "file",
+      new File(["overlay"], "My Overlay File.png", { type: "image/png" }),
+    );
+    formData.set("name", "Overlay Upload");
+    formData.set("status", "draft");
+    formData.set("configJson", '{"placement":"top-right"}');
+
+    await expect(uploadBrandAssetFileAction(formData)).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?status=brand-asset-uploaded",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(1);
+    expect(supabase.storageUploads[0]).toMatchObject({
+      bucket: "brand-assets",
+      fileName: "My Overlay File.png",
+    });
+    expect(supabase.inserts).toHaveLength(1);
+
+    const payload = supabase.inserts[0] as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      asset_type: "overlay",
+      name: "Overlay Upload",
+      public_url:
+        "https://storage.example/brand-assets/user-1/overlay/11111111-1111-4111-8111-111111111111/11111111-1111-4111-8111-111111111111-my-overlay-file.png",
+      status: "draft",
+      storage_bucket: "brand-assets",
+      storage_path:
+        "user-1/overlay/11111111-1111-4111-8111-111111111111/11111111-1111-4111-8111-111111111111-my-overlay-file.png",
+      user_id: "user-1",
+    });
+    expect(payload.metadata).toMatchObject({
+      asset_type: "overlay",
+      file_name: "My Overlay File.png",
+      mime_type: "image/png",
+      source: "upload",
+      storage_path:
+        "user-1/overlay/11111111-1111-4111-8111-111111111111/11111111-1111-4111-8111-111111111111-my-overlay-file.png",
+    });
+  });
 });
 
 function createSupabaseClientMock({
@@ -156,6 +207,16 @@ function createSupabaseClientMock({
 } = {}) {
   const inserts: unknown[] = [];
   const updates: unknown[] = [];
+  const storageDeletes: Array<{
+    bucket: string;
+    paths: string[];
+  }> = [];
+  const storageUploads: Array<{
+    bucket: string;
+    fileName: string;
+    options: Record<string, unknown>;
+    path: string;
+  }> = [];
   const deletes: Array<{
     filters: Array<[string, string]>;
     table: string;
@@ -230,12 +291,47 @@ function createSupabaseClientMock({
         error: null,
       })),
     },
+    storage: {
+      from: vi.fn((bucket: string) => ({
+        getPublicUrl: vi.fn((path: string) => ({
+          data: {
+            publicUrl: `https://storage.example/${bucket}/${path}`,
+          },
+        })),
+        remove: vi.fn(async (paths: string[]) => {
+          storageDeletes.push({
+            bucket,
+            paths,
+          });
+
+          return { error: null };
+        }),
+        upload: vi.fn(
+          async (
+            path: string,
+            file: File,
+            options: { contentType?: string; upsert?: boolean },
+          ) => {
+            storageUploads.push({
+              bucket,
+              fileName: file.name,
+              options,
+              path,
+            });
+
+            return { error: null };
+          },
+        ),
+      })),
+    },
     deletes,
     from: vi.fn((table: string) => {
       currentTable = table;
       return builder;
     }),
     inserts,
+    storageDeletes,
+    storageUploads,
     selects,
     updates,
   };

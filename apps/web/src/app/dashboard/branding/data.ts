@@ -25,7 +25,9 @@ export async function getBrandKitDashboardData(): Promise<BrandKitDashboardData>
 
   const { data, error } = await supabase
     .from("brand_assets")
-    .select("asset_type,config,created_at,id,name,status,updated_at")
+    .select(
+      "asset_type,config,created_at,id,name,metadata,public_url,status,storage_bucket,storage_path,updated_at",
+    )
     .eq("user_id", userData.user.id)
     .order("updated_at", { ascending: false })
     .limit(24);
