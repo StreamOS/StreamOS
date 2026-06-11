@@ -34,6 +34,39 @@ env:
   SUPABASE_CLI_VERSION: "2.102.0"
 
 jobs:
+  detect-changes:
+    name: Detect deploy targets
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_web: ${{ steps.detect.outputs.deploy_web }}
+      deploy_api_gateway: ${{ steps.detect.outputs.deploy_api_gateway }}
+      deploy_automation_service: ${{ steps.detect.outputs.deploy_automation_service }}
+      deploy_transcription_worker: ${{ steps.detect.outputs.deploy_transcription_worker }}
+      deploy_clip_worker: ${{ steps.detect.outputs.deploy_clip_worker }}
+      deploy_content_job_retry_worker: ${{ steps.detect.outputs.deploy_content_job_retry_worker }}
+      run_migrations: ${{ steps.detect.outputs.run_migrations }}
+      has_deployable_changes: ${{ steps.detect.outputs.has_deployable_changes }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed deploy targets
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            node scripts/detect-deploy-changes.cjs --force-all
+          else
+            node scripts/detect-deploy-changes.cjs \
+              --base "${{ github.event.before }}" \
+              --head "${{ github.sha }}"
+          fi
+
   ci:
     name: CI
     uses: ./.github/workflows/ci.yml
@@ -42,7 +75,10 @@ jobs:
     name: Create GitHub release
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: ci
+    needs:
+      - ci
+      - detect-changes
+    if: ${{ needs.ci.result == 'success' && needs.detect-changes.outputs.has_deployable_changes == 'true' }}
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       url: ${{ steps.release.outputs.url }}
@@ -147,7 +183,9 @@ jobs:
     name: Deploy ${{ matrix.service }} to Railway production
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: ci
+    needs:
+      - ci
+      - detect-changes
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_backend_services }}
     environment:
       name: production
@@ -162,32 +200,69 @@ jobs:
           - content-job-retry-worker
 
     steps:
+      - name: Determine whether service changed
+        id: changed
+        shell: bash
+        run: |
+          case "${{ matrix.service }}" in
+            api-gateway)
+              deploy="${{ needs.detect-changes.outputs.deploy_api_gateway }}"
+              ;;
+            automation-service)
+              deploy="${{ needs.detect-changes.outputs.deploy_automation_service }}"
+              ;;
+            clip-worker)
+              deploy="${{ needs.detect-changes.outputs.deploy_clip_worker }}"
+              ;;
+            transcription-worker)
+              deploy="${{ needs.detect-changes.outputs.deploy_transcription_worker }}"
+              ;;
+            content-job-retry-worker)
+              deploy="${{ needs.detect-changes.outputs.deploy_content_job_retry_worker }}"
+              ;;
+            *)
+              echo "Unknown service mapping: ${{ matrix.service }}" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "deploy=${deploy}" >> "${GITHUB_OUTPUT}"
+
       - name: Checkout
+        if: ${{ steps.changed.outputs.deploy == 'true' }}
         uses: actions/checkout@v5
 
       - name: Setup Node.js
+        if: ${{ steps.changed.outputs.deploy == 'true' }}
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install Railway CLI
+        if: ${{ steps.changed.outputs.deploy == 'true' }}
         run: npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
 
       - name: Deploy Railway service
+        if: ${{ steps.changed.outputs.deploy == 'true' }}
         env:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
         run: railway up --ci --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --service "${{ matrix.service }}"
+
+      - name: Skip unchanged service
+        if: ${{ steps.changed.outputs.deploy != 'true' }}
+        run: echo "Skipping unchanged service ${{ matrix.service }}."
 
   deploy-web:
     name: Deploy frontend to Vercel production
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs:
+      - detect-changes
       - ci
       - release
       - deploy-railway
-    if: ${{ always() && needs.ci.result == 'success' && needs.release.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+    if: ${{ always() && needs.detect-changes.outputs.deploy_web == 'true' && needs.ci.result == 'success' && needs.release.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
     environment:
       name: production
       url: ${{ steps.deploy.outputs.url }}
@@ -252,9 +327,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs:
+      - detect-changes
       - deploy-web
       - deploy-railway
-    if: ${{ always() && needs.deploy-web.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+    if: ${{ always() && needs.detect-changes.outputs.run_migrations == 'true' && (needs.deploy-web.result == 'success' || needs.deploy-web.result == 'skipped') && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
     environment:
       name: production
 
@@ -306,11 +382,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs:
+      - detect-changes
       - release
       - deploy-web
       - deploy-railway
       - migrate-supabase
-    if: always()
+    if: ${{ always() && needs.detect-changes.outputs.has_deployable_changes == 'true' }}
 
     steps:
       - name: Write GitHub deployment summary

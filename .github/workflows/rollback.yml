@@ -1,0 +1,320 @@
+name: CD - Manual Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment to roll back
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      git_ref:
+        description: Git tag, branch, or commit SHA to redeploy. Required for staging. Optional for production.
+        required: false
+        type: string
+      deploy_backend_services:
+        description: Redeploy Railway backend services and workers
+        required: true
+        default: true
+        type: boolean
+      deploy_frontend:
+        description: Redeploy the web app to Vercel
+        required: true
+        default: true
+        type: boolean
+      reason:
+        description: Short rollback reason for the deployment summary
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: rollback-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "9.15.4"
+  VERCEL_CLI_VERSION: "52.2.0"
+  RAILWAY_CLI_VERSION: "4.58.0"
+
+jobs:
+  resolve-target:
+    name: Resolve rollback target
+    runs-on: ubuntu-latest
+    outputs:
+      git_ref: ${{ steps.resolve.outputs.git_ref }}
+      git_sha: ${{ steps.resolve.outputs.git_sha }}
+      railway_environment: ${{ steps.resolve.outputs.railway_environment }}
+      vercel_environment: ${{ steps.resolve.outputs.vercel_environment }}
+
+    steps:
+      - name: Checkout repository metadata
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve Git ref
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          target_env="${{ inputs.environment }}"
+          requested_ref="${{ inputs.git_ref }}"
+
+          if [ -n "${requested_ref}" ]; then
+            target_ref="${requested_ref}"
+          elif [ "${target_env}" = "production" ]; then
+            mapfile -t tags < <(git for-each-ref --sort=-creatordate --format='%(refname:short)' refs/tags)
+            if [ "${#tags[@]}" -lt 2 ]; then
+              echo "::error::Production rollback without git_ref requires at least two release tags."
+              exit 1
+            fi
+
+            latest_tag="${tags[0]}"
+            latest_sha="$(git rev-parse "${latest_tag}^{commit}")"
+            target_ref=""
+
+            for candidate_tag in "${tags[@]:1}"; do
+              candidate_sha="$(git rev-parse "${candidate_tag}^{commit}")"
+              if [ "${candidate_sha}" != "${latest_sha}" ]; then
+                target_ref="${candidate_tag}"
+                break
+              fi
+            done
+
+            if [ -z "${target_ref}" ]; then
+              echo "::error::Could not find an older release tag pointing to a different commit. Provide git_ref explicitly."
+              exit 1
+            fi
+          else
+            echo "::error::Staging rollback requires an explicit git_ref because staging does not create release tags."
+            exit 1
+          fi
+
+          target_sha="$(git rev-parse "${target_ref}^{commit}")"
+
+          if [ "${target_env}" = "production" ]; then
+            railway_environment="production"
+            vercel_environment="production"
+          else
+            railway_environment="staging"
+            vercel_environment="preview"
+          fi
+
+          echo "git_ref=${target_ref}" >> "${GITHUB_OUTPUT}"
+          echo "git_sha=${target_sha}" >> "${GITHUB_OUTPUT}"
+          echo "railway_environment=${railway_environment}" >> "${GITHUB_OUTPUT}"
+          echo "vercel_environment=${vercel_environment}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "## StreamOS Rollback Target"
+            echo ""
+            echo "- Environment: ${target_env}"
+            echo "- Git ref: ${target_ref}"
+            echo "- Commit: ${target_sha}"
+            echo "- Reason: ${{ inputs.reason || 'not provided' }}"
+            echo "- Automatic database rollback: disabled"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  deploy-railway:
+    name: Redeploy ${{ matrix.service }} to Railway ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: resolve-target
+    if: ${{ inputs.deploy_backend_services }}
+    environment:
+      name: ${{ inputs.environment }}
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - automation-service
+          - clip-worker
+          - transcription-worker
+          - content-job-retry-worker
+
+    steps:
+      - name: Checkout rollback target
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve-target.outputs.git_sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Railway CLI
+        run: npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
+
+      - name: Deploy Railway service from target ref
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_TOKEN_PRODUCTION: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+          RAILWAY_TOKEN_STAGING: ${{ secrets.RAILWAY_TOKEN_STAGING }}
+          TARGET_ENV: ${{ needs.resolve-target.outputs.railway_environment }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${TARGET_ENV}" = "production" ]; then
+            export RAILWAY_TOKEN="${RAILWAY_TOKEN_PRODUCTION}"
+          else
+            export RAILWAY_TOKEN="${RAILWAY_TOKEN_STAGING}"
+          fi
+
+          railway up --ci \
+            --project "${RAILWAY_PROJECT_ID}" \
+            --environment "${TARGET_ENV}" \
+            --service "${{ matrix.service }}"
+
+  deploy-web:
+    name: Redeploy frontend to Vercel ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs:
+      - resolve-target
+      - deploy-railway
+    if: ${{ always() && inputs.deploy_frontend && needs.resolve-target.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout rollback target
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve-target.outputs.git_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Cache Vercel build output
+        uses: actions/cache@v5
+        with:
+          path: |
+            apps/web/.next/cache
+            apps/web/.vercel/cache
+          key: ${{ runner.os }}-vercel-rollback-${{ needs.resolve-target.outputs.vercel_environment }}-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**/*', 'apps/web/package.json', 'apps/web/next.config.ts') }}
+          restore-keys: |
+            ${{ runner.os }}-vercel-rollback-${{ needs.resolve-target.outputs.vercel_environment }}-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Vercel CLI
+        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
+
+      - name: Pull Vercel environment
+        env:
+          TARGET_VERCEL_ENV: ${{ needs.resolve-target.outputs.vercel_environment }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          vercel pull --yes --environment="${TARGET_VERCEL_ENV}" --token="${VERCEL_TOKEN}"
+
+      - name: Build and deploy target ref
+        id: deploy
+        env:
+          STREAMOS_REQUIRE_SUPABASE_ENV: "true"
+          TARGET_VERCEL_ENV: ${{ needs.resolve-target.outputs.vercel_environment }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${TARGET_VERCEL_ENV}" = "production" ]; then
+            vercel build --prod --token="${VERCEL_TOKEN}"
+            deployment_url="$(vercel deploy --prebuilt --prod --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
+          else
+            vercel build --token="${VERCEL_TOKEN}"
+            deployment_url="$(vercel deploy --prebuilt --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
+          fi
+
+          echo "url=${deployment_url}" >> "${GITHUB_OUTPUT}"
+          echo "Rollback frontend URL: ${deployment_url}" >> "${GITHUB_STEP_SUMMARY}"
+
+  notify:
+    name: Rollback summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - resolve-target
+      - deploy-railway
+      - deploy-web
+    if: always()
+
+    steps:
+      - name: Write GitHub rollback summary
+        env:
+          TARGET_REF: ${{ needs.resolve-target.outputs.git_ref }}
+          TARGET_SHA: ${{ needs.resolve-target.outputs.git_sha }}
+          FRONTEND_URL: ${{ needs.deploy-web.outputs.url }}
+          BACKEND_RESULT: ${{ needs.deploy-railway.result }}
+          FRONTEND_RESULT: ${{ needs.deploy-web.result }}
+        run: |
+          {
+            echo "## StreamOS Rollback Summary"
+            echo ""
+            echo "- Environment: ${{ inputs.environment }}"
+            echo "- Git ref: ${TARGET_REF}"
+            echo "- Commit: ${TARGET_SHA}"
+            echo "- Reason: ${{ inputs.reason || 'not provided' }}"
+            echo "- Railway services: ${BACKEND_RESULT}"
+            echo "- Frontend: ${FRONTEND_RESULT}"
+            echo "- Frontend URL: ${FRONTEND_URL}"
+            echo "- Supabase schema rollback: not performed"
+            echo "- Follow-up: run rollout verification from a Railway shell before re-opening traffic-sensitive workflows"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Send Discord notification
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TARGET_REF: ${{ needs.resolve-target.outputs.git_ref }}
+          TARGET_SHA: ${{ needs.resolve-target.outputs.git_sha }}
+          BACKEND_RESULT: ${{ needs.deploy-railway.result }}
+          FRONTEND_RESULT: ${{ needs.deploy-web.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DISCORD_WEBHOOK_URL}" ]; then
+            echo "DISCORD_WEBHOOK_URL is not configured; skipping Discord notification."
+            exit 0
+          fi
+
+          payload="$(jq -n \
+            --arg environment "${{ inputs.environment }}" \
+            --arg ref "${TARGET_REF}" \
+            --arg sha "${TARGET_SHA}" \
+            --arg backend "${BACKEND_RESULT}" \
+            --arg frontend "${FRONTEND_RESULT}" \
+            --arg reason "${{ inputs.reason || 'not provided' }}" \
+            '{content: ("StreamOS rollback finished\nEnvironment: " + $environment + "\nGit ref: " + $ref + "\nCommit: `" + $sha + "`\nRailway services: " + $backend + "\nFrontend: " + $frontend + "\nReason: " + $reason + "\nSupabase schema rollback: not performed")}' \
+          )"
+
+          curl --fail --silent --show-error \
+            -H "Content-Type: application/json" \
+            -d "${payload}" \
+            "${DISCORD_WEBHOOK_URL}"

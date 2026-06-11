@@ -341,3 +341,183 @@ rows via the service-role key.
 
 The private Automation Service check cannot succeed from a local shell or
 Vercel because Railway private networking is not public internet.
+
+## GitHub Actions Deployment Workflows
+
+StreamOS already uses split GitHub Actions deployment workflows instead of a
+single `deploy.yml`:
+
+- [`.github/workflows/deploy-staging.yml`](../.github/workflows/deploy-staging.yml)
+- [`.github/workflows/deploy-production.yml`](../.github/workflows/deploy-production.yml)
+
+This matches the current topology better than a unified workflow because:
+
+- `develop` is the staging deployment branch.
+- `main` is the production deployment branch.
+- production has extra release and migration-repair behavior that staging does
+  not need.
+
+### Staging Flow
+
+Trigger:
+
+- push to `develop`
+- manual dispatch with optional backend-service deployment toggle
+
+Behavior:
+
+- run shared CI first through `ci.yml`
+- deploy `apps/web` to Vercel preview/staging
+- deploy Railway backend services and workers
+- apply Supabase staging migrations
+- comment the staging URL on associated pull requests
+- write a GitHub deployment summary
+- send an optional Discord notification
+
+Staging concurrency is configured with `cancel-in-progress: false` so an active
+deploy is queued instead of interrupted mid-rollout.
+
+### Production Flow
+
+Trigger:
+
+- push to `main`
+- manual dispatch with optional backend-service deployment toggle
+- optional production migration-history repair toggle
+
+Behavior:
+
+- run shared CI first through `ci.yml`
+- create a GitHub release from Conventional Commits
+- deploy Railway backend services and workers
+- deploy `apps/web` to Vercel production
+- apply Supabase production migrations
+- write a GitHub deployment summary
+- send an optional Discord notification
+
+Production concurrency is also configured with `cancel-in-progress: false` so
+queued deploys do not interrupt in-flight Railway worker rollouts.
+
+### Secrets Used By The Workflows
+
+Repository-level:
+
+- `RAILWAY_PROJECT_ID`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
+- `VERCEL_TOKEN`
+- `DISCORD_WEBHOOK_URL` (optional)
+
+Environment `staging`:
+
+- `RAILWAY_TOKEN_STAGING`
+- `SUPABASE_DB_URL_STAGING`
+
+Environment `production`:
+
+- `RAILWAY_TOKEN_PRODUCTION`
+- `SUPABASE_DB_URL_PRODUCTION`
+
+Keep Railway and Supabase secrets environment-scoped so staging deploys cannot
+accidentally promote production credentials.
+
+### Affected-Only Deploy Selection
+
+Push-triggered staging and production deploys do not blindly redeploy every
+service anymore. Both deploy workflows run
+[`scripts/detect-deploy-changes.cjs`](../scripts/detect-deploy-changes.cjs)
+first and compare `github.event.before` to `github.sha`.
+
+The detection logic is intentionally path- and dependency-aware:
+
+- direct changes under `apps/web`, `services/api-gateway`,
+  `services/automation-service`, `workers/transcription-worker`,
+  `workers/clip-worker`, or `workers/content-job-retry-worker` redeploy only
+  that target
+- shared workspace package changes propagate through the internal workspace
+  dependency graph
+- `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, and `turbo.json`
+  invalidate all Node-based deploy targets
+- `packages/database/supabase/migrations/*` triggers Supabase migration rollout
+  without forcing unrelated service redeploys
+- manual workflow dispatch still forces a full deployment selection so operators
+  can intentionally redeploy everything
+- if no deployable target changed, CI still runs but release, deployment, and
+  deployment-notification jobs are skipped
+
+This keeps the existing CI choice intact: `validate:ci` still avoids Turbo in
+GitHub CI on purpose, while deployment selection uses the monorepo dependency
+graph to skip unchanged deploy targets safely.
+
+## GitHub Actions Rollback Workflow
+
+StreamOS uses a manual rollback workflow in
+[`.github/workflows/rollback.yml`](../.github/workflows/rollback.yml).
+
+This workflow redeploys an older Git ref instead of attempting an opaque
+platform-side rollback. That approach matches the current setup better because
+production deploys already create GitHub release tags and the existing deploy
+logic is ref-driven from the repository.
+
+### Why the rollback workflow is manual
+
+- Railway's documented rollback flow is exposed in the dashboard deployment UI.
+- The current Railway CLI documentation exposes `redeploy`, `restart`, and
+  `scale`, but not a general-purpose rollback command for arbitrary previous
+  deployments.
+- Supabase schema rollback is intentionally not automated because migrations
+  may be destructive or not reversible in place.
+
+### Rollback Trigger
+
+Use the GitHub Actions UI to run `CD - Manual Rollback`.
+
+Inputs:
+
+- `environment`: `staging` or `production`
+- `git_ref`: git tag, branch, or commit SHA
+- `deploy_backend_services`: whether Railway services should be redeployed
+- `deploy_frontend`: whether the Vercel app should be redeployed
+- `reason`: optional operator note for the deployment summary
+
+### Rollback Target Resolution
+
+Production behavior:
+
+- if `git_ref` is provided, the workflow redeploys that ref
+- if `git_ref` is omitted, the workflow selects the previous release tag
+
+Staging behavior:
+
+- `git_ref` is required because staging does not create release tags
+
+### Rollback Behavior
+
+The workflow:
+
+- checks out the target ref
+- redeploys Railway services from that exact repository state
+- optionally redeploys `apps/web` to the matching Vercel environment
+- writes a rollback summary to the GitHub job summary
+- sends an optional Discord notification
+
+### Deliberate Non-Goals
+
+The workflow does not:
+
+- attempt automatic Supabase schema rollback
+- attempt automatic Railway dashboard rollback of a previous deployment object
+- run the private Automation Service rollout gate from GitHub-hosted runners
+
+After a production rollback, run the hosted verification flow from a Railway
+shell in the same project/environment before treating the rollback as complete:
+
+```bash
+pnpm rollout:check -- \
+  --env-file=.env \
+  --skip-docker \
+  --allow-hosted-e2e \
+  --api-gateway-url=https://streamos-api-gateway.up.railway.app \
+  --automation-service-url=http://automation-service.railway.internal:8000 \
+  --expect-private-automation
+```
