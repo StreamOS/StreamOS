@@ -39,51 +39,78 @@ apps/web/src/
 
 ## Backend Responsibilities
 
-- OAuth and token refresh for YouTube, TikTok, and Kick through
-  `services/api-gateway`.
+- Gateway OAuth and encrypted token persistence for YouTube, TikTok, and Kick
+  through `services/api-gateway`.
 - Twitch OAuth is the current explicit exception and remains in Next.js server
   route handlers plus dashboard server actions until the gateway owns a
   first-class Supabase user-session hand-off.
 - Webhook validation and event ingestion.
+- BullMQ job production for stream-ended transcription and clip generation.
+- BullMQ job consumption through `workers/transcription-worker`,
+  `workers/clip-worker`, and `workers/content-job-retry-worker`.
 - Analytics normalization into Supabase PostgreSQL.
 - AI jobs for transcription, clip scoring, title generation, and repurposing.
-- Rate limiting, retry handling, and audit logging for external API calls.
+- Retry handling for failed `content_jobs`, including manual dashboard retry
+  requests and automatic requeueing with exponential BullMQ backoff.
+- Rate limiting and audit logging for external API calls.
 
 ## Data Model Direction
 
-The initial Supabase migration lives in `packages/database/supabase/migrations/0001_initial_streamos_schema.sql`.
+Supabase migration history lives in
+`packages/database/supabase/migrations/`. The active chain currently runs from
+`0001_initial_streamos_schema.sql` through `0027_media_content_jobs.sql`.
+Drizzle is available as a server-side query layer, but SQL migrations remain the
+source of truth for schema ownership.
 
-Core entities currently covered:
+Core entities currently covered include:
 
+- `user_profiles`
 - `creators`
 - `channels`
 - `platform_connections`
+- `youtube_websub_subscriptions`
 - `metrics_snapshots`
-
-Entities planned next:
-
 - `streams`
-- `clips`
 - `content_jobs`
+- `vod_assets`
+- `stream_transcripts`
+- `stream_highlights`
+- `clips`
+- `clip_exports`
 - `brand_assets`
 - `monetization_events`
+- `monetization_summaries`
 
-Use `user_id` on every Supabase table plus row-level security policies scoped to `user_id = auth.uid()` for tenant isolation. Service-role keys must remain server-only.
+Use `user_id` on every tenant-owned Supabase table plus row-level security
+policies scoped to `(select auth.uid()) = user_id` for tenant isolation.
+New public tables must include explicit grants and RLS policies in the same
+migration, because Data API exposure is a deliberate database contract.
+Service-role keys must remain server-only.
 
 ## API Strategy
 
 Use REST route handlers or the API gateway for simple commands and webhooks:
 
-- `services/api-gateway`: `/api/auth/youtube/connect`
-- `services/api-gateway`: `/api/auth/youtube/callback`
+- `apps/web`: `/api/gateway-connect`
 - `apps/web`: `/api/platforms/twitch/connect`
 - `apps/web`: `/api/platforms/twitch/callback`
+- `apps/web`: `/api/platforms/twitch/disconnect`
+- `apps/web`: `/api/platforms/youtube/disconnect`
+- `apps/web`: `/api/metrics/sync`
+- `apps/web`: `/api/webhooks/youtube/websub`
 - `apps/web`: dashboard server action for Twitch token refresh
 - `apps/web`: dashboard server action for first Twitch analytics sync
-- `/api/metrics/sync`
-- `/api/clips/analyze`
-- `/api/webhooks/twitch`
-- `/api/webhooks/youtube`
+- `apps/web`: dashboard server action for manual `content_jobs` retry requests
+- `services/api-gateway`: `/api/auth/youtube/connect`
+- `services/api-gateway`: `/api/auth/youtube/callback`
+- `services/api-gateway`: `/api/auth/tiktok/connect`
+- `services/api-gateway`: `/api/auth/tiktok/callback`
+- `services/api-gateway`: `/api/auth/kick/connect`
+- `services/api-gateway`: `/api/auth/kick/callback`
+- `services/api-gateway`: `/api/clips/generate`
+- `services/api-gateway`: `/api/webhooks/streams/ended`
+- `services/api-gateway`: `/api/webhooks/twitch`
+- `services/api-gateway`: `/api/webhooks/youtube`
 
 Use realtime channels or server-sent events for live viewer counts, stream status, ingestion progress, and notifications.
 
@@ -108,8 +135,14 @@ has all of the following contracts:
   token exchange failure, and encrypted token persistence.
 - Updated Twitch Developer Console redirect URI pointing at the gateway callback.
 
-New platform OAuth flows for YouTube, TikTok, and Kick should be implemented in
-`services/api-gateway` from the start so this exception does not expand.
+YouTube, TikTok, and Kick already follow the gateway pattern in
+`services/api-gateway/src/oauth`. The Next.js dashboard calls
+`/api/gateway-connect` to mint a short-lived signed handoff, then redirects the
+browser to `/api/auth/:provider/connect` on the gateway. The gateway owns
+provider PKCE, one-time state, profile lookup, encrypted token persistence, and
+safe callback redirects.
+
+Do not expand the Twitch exception to new providers.
 
 ## Security Baseline
 

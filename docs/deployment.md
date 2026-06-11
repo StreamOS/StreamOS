@@ -10,6 +10,7 @@ This document defines the production deployment topology for the StreamOS monore
 | `services/api-gateway`             | Node.js               | Railway                                                        | Public API gateway, non-Twitch OAuth, webhook ingress, BullMQ job producers |
 | `services/automation-service`      | FastAPI               | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                                     |
 | `workers/transcription-worker`     | Node.js BullMQ Worker | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI                      |
+| `workers/clip-worker`              | Node.js BullMQ Worker | Railway Worker Dyno                                            | Long-running clip-generation consumer that calls FastAPI                    |
 | `workers/content-job-retry-worker` | Node.js BullMQ Worker | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into BullMQ                        |
 
 ## Service Boundaries
@@ -21,6 +22,9 @@ This document defines the production deployment topology for the StreamOS monore
   tenant-safe encrypted token persistence.
 - `services/automation-service` should use private Railway networking in production. Do not call it from browser code or Vercel client bundles; only Railway services/workers in the same project/environment should call it.
 - `workers/transcription-worker` owns BullMQ consumption, calls `services/automation-service`, and writes job status to Supabase.
+- `workers/clip-worker` owns the `streamos-clip-generation` BullMQ queue, calls
+  `services/automation-service` for clip scoring/generation, and writes job
+  status to Supabase.
 - `workers/content-job-retry-worker` owns retry orchestration for failed `content_jobs`; it uses the Supabase service-role key server-side and requeues only supported job payloads. Row-level `content_jobs.max_retries` is the source of truth for retry budget, including manual retries from the dashboard.
 - Python does not consume BullMQ directly. Redis is the shared backing service, but BullMQ job semantics remain Node-owned.
 - OpenAI, provider client secrets, Supabase service role keys, and Redis credentials are server-only.
@@ -62,8 +66,7 @@ Do not set `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_OPENAI_KE
 
 `TWITCH_CLIENT_SECRET` stays in Vercel only for the documented Twitch OAuth
 server-route exception. It must never be exposed with a `NEXT_PUBLIC_*` prefix.
-YouTube, TikTok, and Kick provider secrets should be configured on the API
-gateway when those OAuth flows are implemented there.
+YouTube, TikTok, and Kick provider secrets are configured on the API gateway.
 
 `API_GATEWAY_URL` must be public because Vercel functions are outside the Railway private network. The Automation Service remains private and is reached by Railway workers, not by Vercel.
 
@@ -219,6 +222,40 @@ Validation:
 pnpm --filter @streamos/transcription-worker lint
 pnpm --filter @streamos/transcription-worker test
 pnpm --filter @streamos/transcription-worker build
+```
+
+## Railway Worker Dyno: `workers/clip-worker`
+
+The clip worker is a Node.js BullMQ consumer. It consumes the same
+`streamos-clip-generation` queue that `services/api-gateway` produces and that
+`workers/content-job-retry-worker` can requeue, calls FastAPI for clip
+scoring/generation, and persists status in Supabase.
+
+Recommended Docker configuration:
+
+| Setting           | Value                    |
+| ----------------- | ------------------------ |
+| Dockerfile Path   | `Dockerfile.clip-worker` |
+| Service Type      | Worker                   |
+| Public Networking | Disabled                 |
+
+Required variables:
+
+```bash
+REDIS_URL=rediss://default:password@host:6379
+CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
+CLIP_WORKER_CONCURRENCY=2
+AUTOMATION_SERVICE_URL=http://${{automation-service.RAILWAY_PRIVATE_DOMAIN}}:8000
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+```
+
+Validation:
+
+```bash
+pnpm --filter @streamos/clip-worker lint
+pnpm --filter @streamos/clip-worker test
+pnpm --filter @streamos/clip-worker build
 ```
 
 ## Railway Worker Dyno: `workers/content-job-retry-worker`
