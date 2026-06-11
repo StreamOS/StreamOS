@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import type { Inserts, Updates } from "@streamos/database";
+import type { Updates } from "@streamos/database";
 import { isSupabaseEmailConfirmed } from "@/lib/auth/dashboard";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
@@ -77,21 +77,24 @@ export async function createOrUpdateCreatorProfileAction(
     redirect("/auth/verify-email");
   }
 
-  const creatorPayload: Inserts<"creators"> = {
+  const creator = await ensureCreatorForUser(supabase, data.user);
+
+  const creatorPayload: Updates<"creators"> = {
     avatar_url: parsed.data.avatarUrl,
     bio: parsed.data.bio,
     display_name: parsed.data.displayName,
-    email: data.user.email ?? null,
-    id: data.user.id,
     onboarding_completed: false,
     onboarding_step: 1,
     primary_language: parsed.data.primaryLanguage,
-    user_id: data.user.id,
   };
 
   const { error: upsertError } = await supabase
     .from("creators")
-    .upsert(creatorPayload as never, { onConflict: "user_id" });
+    .update(creatorPayload as never)
+    .eq("id", creator.id)
+    .eq("user_id", data.user.id)
+    .select("id")
+    .single();
 
   if (upsertError) {
     return {
