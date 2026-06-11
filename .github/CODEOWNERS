@@ -1,0 +1,23 @@
+# Default owner for the whole monorepo.
+*                               @thomasdorts-hash
+
+# Frontend
+/apps/web/                      @thomasdorts-hash
+
+# Backend services
+/services/api-gateway/          @thomasdorts-hash
+/services/automation-service/   @thomasdorts-hash
+
+# Workers
+/workers/                       @thomasdorts-hash
+
+# Shared packages
+/packages/config/               @thomasdorts-hash
+/packages/database/             @thomasdorts-hash
+/packages/database/supabase/migrations/ @thomasdorts-hash
+/packages/types/                @thomasdorts-hash
+/packages/ui/                   @thomasdorts-hash
+
+# Repository operations
+/.github/                       @thomasdorts-hash
+/docs/                          @thomasdorts-hash
