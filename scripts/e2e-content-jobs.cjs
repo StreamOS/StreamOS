@@ -9,6 +9,7 @@ const DEFAULT_WAIT_MS = 180_000;
 const DEFAULT_POLL_MS = 5_000;
 const DEFAULT_ENV_FILE = ".env.test";
 const TEST_ENV_FILE = ".env.test";
+const CLAIMED_JOB_SUCCESS_STATUSES = new Set(["pending", "running", "done"]);
 
 function parseArgs(argv) {
   const options = {
@@ -306,9 +307,97 @@ function getRunId() {
     .slice(0, 14);
 }
 
-async function insertFailedContentJob(env, userId) {
+async function seedStreamGraph(env, userId) {
   const runId = getRunId();
-  const payloadStreamId = `e2e-stream-${runId}`;
+  const existingCreatorRows = await supabaseFetch({
+    env,
+    path: "/rest/v1/creators",
+    query: {
+      select: "id",
+      user_id: `eq.${userId}`,
+    },
+  });
+  let creatorId = existingCreatorRows[0]?.id;
+
+  if (!creatorId) {
+    const creatorRows = await supabaseFetch({
+      body: {
+        display_name: `StreamOS Retry E2E Creator ${runId}`,
+        handle: `retry-e2e-${runId}`,
+        niche: "Local E2E",
+        owner_id: userId,
+        user_id: userId,
+      },
+      env,
+      method: "POST",
+      path: "/rest/v1/creators",
+      query: {
+        select: "id",
+      },
+    });
+    creatorId = creatorRows[0]?.id;
+  }
+
+  if (!creatorId) {
+    throw new Error("Unable to seed creator for content_jobs E2E.");
+  }
+
+  const channelRows = await supabaseFetch({
+    body: {
+      connected_at: new Date().toISOString(),
+      creator_id: creatorId,
+      display_name: "StreamOS Retry E2E Twitch",
+      external_channel_id: `retry-e2e-channel-${runId}`,
+      follower_count: 0,
+      platform: "twitch",
+      user_id: userId,
+    },
+    env,
+    method: "POST",
+    path: "/rest/v1/channels",
+    query: {
+      select: "id",
+    },
+  });
+  const channelId = channelRows[0]?.id;
+
+  if (!channelId) {
+    throw new Error("Unable to seed channel for content_jobs E2E.");
+  }
+
+  const streamRows = await supabaseFetch({
+    body: {
+      channel_id: channelId,
+      ended_at: new Date().toISOString(),
+      provider: "twitch",
+      platform_stream_id: `retry-e2e-stream-${runId}`,
+      started_at: new Date(Date.now() - 15 * 60_000).toISOString(),
+      title: "StreamOS Content Job Retry E2E",
+      user_id: userId,
+    },
+    env,
+    method: "POST",
+    path: "/rest/v1/streams",
+    query: {
+      select: "id",
+    },
+  });
+  const streamId = streamRows[0]?.id;
+
+  if (!streamId) {
+    throw new Error("Unable to seed stream for content_jobs E2E.");
+  }
+
+  return {
+    channelId,
+    creatorId,
+    streamId,
+    vodAssetUrl: `https://cdn.example.com/streamos-retry-e2e-${runId}.mp4`,
+  };
+}
+
+async function insertFailedContentJob(env, userId, graph) {
+  const runId = getRunId();
   const rows = await supabaseFetch({
     body: {
       error_message: "E2E seeded failed content job.",
@@ -316,9 +405,12 @@ async function insertFailedContentJob(env, userId) {
       max_retries: 3,
       next_retry_at: null,
       payload: {
+        creator_id: graph.creatorId,
         requested_by: userId,
-        source_url: `https://example.com/streamos-e2e-${runId}.mp4`,
-        stream_id: payloadStreamId,
+        source_platform: "twitch",
+        source_url: graph.vodAssetUrl,
+        stream_id: graph.streamId,
+        transcript: "StreamOS retry E2E transcript completed.",
       },
       queue_job_id: `e2e-failed-${runId}`,
       result: {
@@ -326,7 +418,7 @@ async function insertFailedContentJob(env, userId) {
       },
       retry_count: 3,
       status: "failed",
-      stream_id: null,
+      stream_id: graph.streamId,
       user_id: userId,
     },
     env,
@@ -381,15 +473,20 @@ async function waitForWorkerClaim({ env, jobId, pollMs, waitMs }) {
 
   while (Date.now() < deadline) {
     lastJob = await getContentJob(env, jobId);
-
-    if (
-      lastJob?.status === "pending" &&
-      Number(lastJob.retry_count) >= 4 &&
-      String(lastJob.queue_job_id ?? "").includes(
+    const retryClaimed =
+      Number(lastJob?.retry_count) >= 4 &&
+      String(lastJob?.queue_job_id ?? "").includes(
         `content-job-clip_scoring-${jobId}-retry-`,
-      )
-    ) {
+      );
+
+    if (retryClaimed && CLAIMED_JOB_SUCCESS_STATUSES.has(lastJob?.status)) {
       return lastJob;
+    }
+
+    if (retryClaimed && lastJob?.status === "failed") {
+      throw new Error(
+        `Retry-worker claimed job ${jobId}, but clip-worker failed it again before the E2E could pass. Last row: ${JSON.stringify(lastJob)}`,
+      );
     }
 
     console.log(
@@ -504,7 +601,10 @@ async function main() {
     options.userId || env.E2E_USER_ID || (await getFirstAuthUserId(env));
   console.log(`Using Supabase auth user: ${userId}`);
 
-  const seededJob = await insertFailedContentJob(env, userId);
+  const graph = await seedStreamGraph(env, userId);
+  console.log(`Seeded stream graph: stream=${graph.streamId}`);
+
+  const seededJob = await insertFailedContentJob(env, userId, graph);
   console.log(
     `Seeded exhausted failed content_job: ${seededJob.id} retry=${seededJob.retry_count}/${seededJob.max_retries}`,
   );

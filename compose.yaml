@@ -23,6 +23,7 @@ services:
       redis:
         condition: service_healthy
     environment:
+      NODE_ENV: development
       HOST: 0.0.0.0
       PORT: "4000"
       REDIS_URL: redis://redis:6379/0
@@ -90,6 +91,7 @@ services:
       automation-service:
         condition: service_healthy
     environment:
+      NODE_ENV: development
       REDIS_URL: redis://redis:6379/0
       QUEUE_DEFAULT_NAME: streamos-media
       TRANSCRIPTION_QUEUE_NAME: streamos-transcription
@@ -109,6 +111,7 @@ services:
       automation-service:
         condition: service_healthy
     environment:
+      NODE_ENV: development
       REDIS_URL: redis://redis:6379/0
       QUEUE_DEFAULT_NAME: streamos-media
       CLIP_GENERATION_QUEUE_NAME: streamos-clip-generation
@@ -126,6 +129,7 @@ services:
       redis:
         condition: service_healthy
     environment:
+      NODE_ENV: development
       REDIS_URL: redis://redis:6379/0
       QUEUE_DEFAULT_NAME: streamos-media
       CLIP_GENERATION_QUEUE_NAME: streamos-clip-generation

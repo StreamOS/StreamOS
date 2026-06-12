@@ -94,7 +94,7 @@ pnpm e2e:jobs
 The script will:
 
 - start `docker compose up -d redis api-gateway content-job-retry-worker`,
-- create an exhausted failed `clip_scoring` `content_jobs` row,
+- seed a creator, channel, and stream graph plus an exhausted failed `clip_scoring` `content_jobs` row,
 - print the seeded job ID,
 - pause while you open `/dashboard/jobs` and click `Retry`,
 - poll Supabase until the retry worker changes the row to `pending` and assigns a `content-job-...-retry-N` BullMQ job ID.
@@ -112,6 +112,13 @@ Expected UI behavior:
 - within one retry-worker polling interval the row moves to `Pending`,
 - the retry counter increments,
 - the queue job ID changes to `content-job-clip_scoring-<job-id>-retry-<n>`.
+
+If `clip-worker` is already running in another local stack, the retried row may
+move from `Pending` to `Running` or `Done` immediately after the retry worker
+requeues it. The E2E helper still treats that as a successful claim because the
+BullMQ job was accepted with the expected retry queue ID.
+If the row goes straight back to `Failed`, the helper exits non-zero on purpose
+so immediate worker regressions are not masked as a passing retry flow.
 
 ## Fully Scripted Backend Shortcut
 
@@ -171,7 +178,7 @@ pnpm e2e:jobs -- --wait-ms=240000 --poll-ms=10000
 
 - `No Docker-compatible CLI was found`: start Docker Desktop, set `DOCKER_BIN`, pass `--docker-bin`, install Podman, or rerun with `--skip-docker`.
 - `No Supabase auth users found`: create a user in Supabase Auth or pass `--user-id`.
-- Job stays `failed`: check `pnpm infra:logs` and confirm `SUPABASE_SERVICE_ROLE_KEY` is set in root `.env`.
+- Job returns to `failed` right after Retry: inspect `clip-worker` logs and the retried `content_jobs.payload`; the helper now fails intentionally when the worker reclaims the job but immediately errors again.
 - Job moves to `pending`, but UI does not update: confirm migration `0002_streams_content_jobs.sql` added `public.content_jobs` to `supabase_realtime`.
 - Job is marked unretryable: inspect the seeded row payload. The retry worker validates `clip_scoring` payloads before queuing.
 
