@@ -366,12 +366,18 @@ Key rules:
 - The gate is skipped when no backend services changed. In that case, the
   previously gated Railway state is assumed valid.
 - The gate writes a structured Step Summary on every run, both pass and fail.
-- Workflow and composite action YAML is linted by `actionlint` in `ci.yml`.
+- actionlint runs exclusively in CI (`ci.yml`, `lint-workflows` job).
+- Local installation is not required and not expected.
+- Push your changes - CI enforces the lint contract.
 - The rollback workflow intentionally skips the gate. After rollback, run
   `pnpm rolloutcheck` manually from a Railway shell before treating the rollback
   as complete.
 - Rule: Do not add `.env.staging` or `.env.production` to the repository.
 - The gate contract is stable across environments via flags, not env files.
+
+> Note: actionlint is a CI-only check. There is no local actionlint
+> prerequisite for contributors. The `lint-workflows` job in `ci.yml` is the
+> single enforcement point (ADR-5).
 
 Run the gate locally before promotion from a checked-out copy of the repository:
 
