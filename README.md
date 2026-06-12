@@ -167,7 +167,8 @@ production build.
 The production deployment topology is documented in
 [`docs/deployment.md`](docs/deployment.md):
 
-- `apps/web` deploys to Vercel as the Next.js App Router dashboard.
+- Vercel should use the repository root as its root directory and build
+  `apps/web` with `pnpm --filter @streamos/web build`.
 - `services/api-gateway` deploys to Railway with `Dockerfile.api-gateway`.
 - `services/automation-service` deploys to Railway first, or Fly.io when GPU-backed Whisper becomes required.
 - `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.

@@ -29,16 +29,29 @@ This document defines the production deployment topology for the StreamOS monore
 - Python does not consume BullMQ directly. Redis is the shared backing service, but BullMQ job semantics remain Node-owned.
 - OpenAI, provider client secrets, Supabase service role keys, and Redis credentials are server-only.
 
-## Vercel: `apps/web`
+## Vercel: repository root -> `apps/web`
 
-Create a Vercel project with this configuration:
+Create a Vercel project with the repository root as the Vercel root directory so
+pnpm can resolve the full workspace graph during install. The Next.js app still
+builds from `apps/web`.
 
 | Setting          | Value                                               |
 | ---------------- | --------------------------------------------------- |
-| Root Directory   | `apps/web`                                          |
+| Root Directory   | repository root                                     |
 | Framework Preset | Next.js                                             |
 | Install Command  | `corepack enable && pnpm install --frozen-lockfile` |
 | Build Command    | `pnpm --filter @streamos/web build`                 |
+
+Do not point the Vercel root directory at `apps/web`; that isolates the app
+from workspace packages such as `@streamos/queue`, `@streamos/types`,
+`@streamos/twitch-eventsub`, and `@streamos/youtube-websub`.
+
+The Next.js build artifact is written to `apps/web/.next`, but Vercel should
+serve it through the Next.js integration rather than a custom static output
+directory.
+
+The repository root `vercel.json` keeps the cron schedule and the
+workspace-aware install/build commands under version control.
 
 Required Vercel environment variables:
 
