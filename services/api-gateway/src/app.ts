@@ -31,6 +31,12 @@ import { createAutomationCallbackRouter } from "./routes/callbacks/automation.js
 import { createRoutes } from "./routes/index.js";
 import { createProviderWebhookRouter } from "./webhooks/providerRoutes.js";
 import type { ProviderWebhookDispatcher } from "./webhooks/providerEvents.js";
+import { createMetricsSyncRouter } from "./routes/metrics.js";
+import {
+  GatewayError,
+  isGatewayError,
+  serializeGatewayError,
+} from "./lib/gateway-error.js";
 
 type CreateAppOptions = {
   allowedOrigins?: string[];
@@ -40,6 +46,7 @@ type CreateAppOptions = {
   oauth?: Partial<
     Pick<CreateOAuthRouterOptions, "fetchImpl" | "repository" | "stateStore">
   >;
+  metrics?: Partial<Pick<MetricsSyncRouterOptions, "fetchImpl">>;
   providerWebhookDispatcher?: ProviderWebhookDispatcher;
   rateLimit?: Partial<RateLimitConfig>;
   streamEventWebhookSecret?: string;
@@ -71,6 +78,10 @@ type SecurityConfig = {
 
 type RawBodyRequest = Request & {
   rawBody?: Buffer;
+};
+
+type MetricsSyncRouterOptions = {
+  fetchImpl: typeof fetch;
 };
 
 const DEFAULT_ALLOWED_DEV_ORIGINS = [
@@ -688,6 +699,14 @@ export function createApp(options: CreateAppOptions = {}): Express {
     },
   );
 
+  app.use(
+    "/api/metrics",
+    requireAppApiSecret(securityConfig.apiGatewaySecret),
+    createMetricsSyncRouter({
+      fetchImpl: options.metrics?.fetchImpl,
+    }),
+  );
+
   app.post(
     "/api/webhooks/streams/ended",
     requireSignedWebhook({
@@ -731,6 +750,57 @@ export function createApp(options: CreateAppOptions = {}): Express {
           message: "Transcription trigger job could not be queued.",
         });
       }
+    },
+  );
+
+  app.use(
+    (
+      error: unknown,
+      _request: Request,
+      response: Response,
+      next: NextFunction,
+    ) => {
+      if (response.headersSent) {
+        next(error);
+        return;
+      }
+
+      if (isGatewayError(error)) {
+        if (error.retryAfterSeconds) {
+          response.setHeader("Retry-After", String(error.retryAfterSeconds));
+        } else if (error.statusCode === 502) {
+          response.setHeader("Retry-After", "60");
+        }
+
+        response.status(error.statusCode).json(serializeGatewayError(error));
+        return;
+      }
+
+      const gatewayError =
+        error instanceof GatewayError
+          ? error
+          : new GatewayError({
+              code: "INTERNAL_ERROR",
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Unexpected API gateway error.",
+              retryable: false,
+              statusCode: 500,
+            });
+
+      if (gatewayError.retryAfterSeconds) {
+        response.setHeader(
+          "Retry-After",
+          String(gatewayError.retryAfterSeconds),
+        );
+      } else if (gatewayError.statusCode === 502) {
+        response.setHeader("Retry-After", "60");
+      }
+
+      response
+        .status(gatewayError.statusCode)
+        .json(serializeGatewayError(gatewayError));
     },
   );
 

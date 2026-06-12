@@ -67,8 +67,31 @@ export type MetricsSnapshot = {
   data: Record<string, unknown>;
 };
 
+export type MetricsSyncProvider = Exclude<SupportedProvider, "twitch">;
+
+export type ChannelSnapshot = {
+  channelId: string;
+  creatorId: string;
+  followers: number | null;
+  peakViewers: number | null;
+  provider: MetricsSyncProvider;
+  rawPayload: Record<string, unknown>;
+  snapshotAt: string;
+  subscribers: number | null;
+  userId: string;
+  views: number | null;
+};
+
 export type MetricsSyncRequest = {
-  providers: SupportedProvider[];
+  creatorId: string;
+  provider: MetricsSyncProvider;
+  userId: string;
+};
+
+export type MetricsSyncResult = {
+  provider: MetricsSyncProvider;
+  snapshot: ChannelSnapshot;
+  syncedAt: string;
 };
 
 export type MetricsSyncErrorCode =

@@ -80,7 +80,8 @@ Use REST route handlers or the API gateway for simple commands and webhooks:
 - `apps/web`: `/api/platforms/twitch/callback`
 - `apps/web`: dashboard server action for Twitch token refresh
 - `apps/web`: dashboard server action for first Twitch analytics sync
-- `/api/metrics/sync`
+- `apps/web`: `/api/metrics/sync` proxy for Twitch locally and gateway delegation for YouTube, TikTok, and Kick
+- `services/api-gateway`: `/api/metrics/sync` owns Non-Twitch credential refresh, provider API fetches, and snapshot upserts
 - `/api/clips/analyze`
 - `/api/webhooks/twitch`
 - `/api/webhooks/youtube`
