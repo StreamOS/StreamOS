@@ -1,3 +1,9 @@
+#
+# NOTE: This rollback workflow intentionally skips the rollout-gate composite action.
+# Rollback targets a known-good ref. Running a rollout gate against a broken deployment
+# would block recovery itself. After rollback completes, run rollout:check manually
+# from a Railway shell per docs/deployment.md before treating the rollback as complete.
+#
 name: CD - Manual Rollback
 
 on:

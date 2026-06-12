@@ -29,6 +29,8 @@ env:
   RAILWAY_CLI_VERSION: "4.58.0"
   RAILWAY_ENVIRONMENT: staging
   SUPABASE_CLI_VERSION: "2.102.0"
+  STAGING_API_GATEWAY_URL: ${{ vars.STAGING_API_GATEWAY_URL || vars.API_GATEWAY_URL }}
+  STAGING_AUTOMATION_SERVICE_URL: ${{ vars.STAGING_AUTOMATION_SERVICE_URL || vars.AUTOMATION_SERVICE_URL }}
 
 jobs:
   ci:
@@ -67,12 +69,15 @@ jobs:
     name: Deploy frontend to Vercel staging
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: ci
+    needs:
+      - rollout-gate
     environment:
       name: staging
       url: ${{ steps.deploy.outputs.url }}
     outputs:
       url: ${{ steps.deploy.outputs.url }}
+
+    if: ${{ always() && needs.rollout-gate.result == 'success' }}
 
     steps:
       - name: Checkout
@@ -164,6 +169,25 @@ jobs:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
         run: railway up --ci --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --service "${{ matrix.service }}"
+
+  rollout-gate:
+    name: Rollout gate for staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - deploy-railway
+    if: ${{ always() && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+
+    steps:
+      - name: Run rollout gate
+        uses: ./.github/actions/rollout-gate
+        with:
+          environment: staging
+          api-gateway-url: ${{ env.STAGING_API_GATEWAY_URL }}
+          allow-hosted-e2e: "true"
+          automation-service-url: ${{ env.STAGING_AUTOMATION_SERVICE_URL }}
+          env-file: .env.test
+          expect-private-automation: "false"
 
   migrate-supabase:
     name: Apply Supabase staging migrations

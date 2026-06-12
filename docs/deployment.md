@@ -398,3 +398,23 @@ The private Automation Service check cannot succeed from a local shell or
 Vercel because Railway private networking is not public internet. The SSH-based
 workflow follows Railway's documented `railway ssh` single-command mode and its
 workspace SSH key model.
+
+## GitHub Actions Deployment Gates
+
+The staging and production deploy workflows now run `pnpm rollout:check` before
+Vercel promotion. The gate is wired through `.github/actions/rollout-gate` and
+blocks the frontend deploy job when it fails.
+
+Required GitHub environment variables and secrets:
+
+| Scope       | Name                             | Purpose                                                    |
+| ----------- | -------------------------------- | ---------------------------------------------------------- |
+| repo var    | `STAGING_API_GATEWAY_URL`        | Public staging API Gateway URL used by rollout checks      |
+| repo var    | `PROD_API_GATEWAY_URL`           | Public production API Gateway URL used by rollout checks   |
+| repo var    | `STAGING_AUTOMATION_SERVICE_URL` | Optional staging Automation Service URL for rollout checks |
+| repo var    | `AUTOMATION_SERVICE_URL`         | Optional shared fallback used by rollout checks            |
+| prod secret | `AUTOMATION_SERVICE_PRIVATE_URL` | Private production Automation Service URL                  |
+
+If the environment variables are not present, the rollout gate fails closed and
+the promote job stays blocked. Production should use the private automation URL
+secret from a Railway-accessible context.

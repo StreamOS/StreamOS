@@ -32,6 +32,8 @@ env:
   RAILWAY_CLI_VERSION: "4.58.0"
   RAILWAY_ENVIRONMENT: production
   SUPABASE_CLI_VERSION: "2.102.0"
+  PROD_API_GATEWAY_URL: ${{ vars.PROD_API_GATEWAY_URL || vars.API_GATEWAY_URL }}
+  PROD_AUTOMATION_SERVICE_URL: ${{ secrets.AUTOMATION_SERVICE_PRIVATE_URL || vars.PROD_AUTOMATION_SERVICE_URL || vars.AUTOMATION_SERVICE_URL }}
 
 jobs:
   ci:
@@ -70,7 +72,8 @@ jobs:
     name: Create GitHub release
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: ci
+    needs:
+      - rollout-gate
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       url: ${{ steps.release.outputs.url }}
@@ -210,6 +213,25 @@ jobs:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
         run: railway up --ci --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --service "${{ matrix.service }}"
 
+  rollout-gate:
+    name: Rollout gate for production
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - deploy-railway
+    if: ${{ always() && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+
+    steps:
+      - name: Run rollout gate
+        uses: ./.github/actions/rollout-gate
+        with:
+          environment: production
+          api-gateway-url: ${{ env.PROD_API_GATEWAY_URL }}
+          allow-hosted-e2e: "true"
+          automation-service-url: ${{ env.PROD_AUTOMATION_SERVICE_URL }}
+          env-file: .env.test
+          expect-private-automation: "true"
+
   deploy-web:
     name: Deploy frontend to Vercel production
     runs-on: ubuntu-latest
@@ -336,6 +358,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs:
+      - rollout-gate
       - release
       - deploy-web
       - deploy-railway
@@ -345,16 +368,23 @@ jobs:
     steps:
       - name: Write GitHub deployment summary
         env:
+          GATE_RESULT: ${{ needs.rollout-gate.result }}
           RELEASE_TAG: ${{ needs.release.outputs.tag }}
           RELEASE_URL: ${{ needs.release.outputs.url }}
           WEB_URL: ${{ needs.deploy-web.outputs.url }}
           RAILWAY_RESULT: ${{ needs.deploy-railway.result }}
           MIGRATION_RESULT: ${{ needs.migrate-supabase.result }}
         run: |
+          release_line="- Release: not created"
+          if [ -n "${RELEASE_TAG}" ] && [ -n "${RELEASE_URL}" ]; then
+            release_line="- Release: [${RELEASE_TAG}](${RELEASE_URL})"
+          fi
+
           {
             echo "## StreamOS Production Deployment"
             echo ""
-            echo "- Release: [${RELEASE_TAG}](${RELEASE_URL})"
+            echo "- Rollout gate: ${GATE_RESULT}"
+            echo "${release_line}"
             echo "- Frontend: ${WEB_URL}"
             echo "- Railway services: ${RAILWAY_RESULT}"
             echo "- Supabase migrations: ${MIGRATION_RESULT}"
@@ -364,6 +394,7 @@ jobs:
       - name: Send Discord notification
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GATE_RESULT: ${{ needs.rollout-gate.result }}
           RELEASE_TAG: ${{ needs.release.outputs.tag }}
           RELEASE_URL: ${{ needs.release.outputs.url }}
           WEB_URL: ${{ needs.deploy-web.outputs.url }}
@@ -373,13 +404,22 @@ jobs:
             exit 0
           fi
 
-          payload="$(jq -n \
-            --arg tag "${RELEASE_TAG}" \
-            --arg release_url "${RELEASE_URL}" \
-            --arg web_url "${WEB_URL}" \
-            --arg sha "${GITHUB_SHA::7}" \
-            '{content: ("StreamOS production deployed: " + $tag + "\nRelease: " + $release_url + "\nFrontend: " + $web_url + "\nCommit: `" + $sha + "`")}' \
-          )"
+          if [ "${GATE_RESULT}" != "success" ]; then
+            payload="$(jq -n \
+              --arg env "production" \
+              --arg web_url "${WEB_URL}" \
+              --arg sha "${GITHUB_SHA::7}" \
+              '{content: ("Rollout gate failed on " + $env + " - Vercel deploy skipped.\nFrontend: " + $web_url + "\nCommit: `" + $sha + "`")}' \
+            )"
+          else
+            payload="$(jq -n \
+              --arg tag "${RELEASE_TAG}" \
+              --arg release_url "${RELEASE_URL}" \
+              --arg web_url "${WEB_URL}" \
+              --arg sha "${GITHUB_SHA::7}" \
+              '{content: ("StreamOS production deployed: " + $tag + "\nRelease: " + $release_url + "\nFrontend: " + $web_url + "\nCommit: `" + $sha + "`")}' \
+            )"
+          fi
 
           curl --fail --silent --show-error \
             -H "Content-Type: application/json" \
