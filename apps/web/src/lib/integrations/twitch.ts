@@ -146,7 +146,9 @@ export function getTwitchEventSubConfig(): {
 } {
   const publicUrl = process.env.STREAMOS_PUBLIC_URL?.trim();
   const secret = (
-    process.env.TWITCH_EVENTSUB_SECRET ?? process.env.TWITCH_WEBHOOK_SECRET
+    process.env.STREAM_EVENT_WEBHOOK_SECRET ??
+    process.env.TWITCH_EVENTSUB_SECRET ??
+    process.env.TWITCH_WEBHOOK_SECRET
   )?.trim();
 
   if (!publicUrl || !secret) {

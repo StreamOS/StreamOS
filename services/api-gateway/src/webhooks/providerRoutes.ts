@@ -126,7 +126,7 @@ export function createProviderWebhookRouter({
         response.status(503).json({
           error: "twitch_eventsub_secret_missing",
           message:
-            "TWITCH_EVENTSUB_SECRET or TWITCH_WEBHOOK_SECRET is required.",
+            "STREAM_EVENT_WEBHOOK_SECRET is required for Twitch EventSub. TWITCH_EVENTSUB_SECRET and TWITCH_WEBHOOK_SECRET are legacy fallbacks.",
         });
         return;
       }

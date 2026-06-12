@@ -65,7 +65,6 @@ type SecurityConfig = {
   streamEventWebhookSecret: string | undefined;
   twitchEventSubSecret: string | undefined;
   webhookNow: () => number;
-  youtubeWebhookSecret: string | undefined;
   youtubeWebSubSecret: string | undefined;
   youtubeWebSubVerifyToken: string | undefined;
 };
@@ -159,19 +158,20 @@ function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
   )?.trim();
   const twitchEventSubSecret = (
     options.twitchEventSubSecret ??
+    streamEventWebhookSecret ??
     process.env.TWITCH_EVENTSUB_SECRET ??
     process.env.TWITCH_WEBHOOK_SECRET
   )?.trim();
-  const youtubeWebhookSecret = (
-    options.youtubeWebhookSecret ?? process.env.YOUTUBE_WEBHOOK_SECRET
-  )?.trim();
   const youtubeWebSubSecret = (
     options.youtubeWebSubSecret ??
-    process.env.YOUTUBE_WEBHOOK_SECRET ??
-    process.env.YOUTUBE_WEBSUB_SECRET
+    options.youtubeWebhookSecret ??
+    process.env.YOUTUBE_WEBSUB_SECRET ??
+    process.env.YOUTUBE_WEBHOOK_SECRET
   )?.trim();
   const youtubeWebSubVerifyToken = (
-    options.youtubeWebSubVerifyToken ?? process.env.YOUTUBE_WEBSUB_VERIFY_TOKEN
+    options.youtubeWebSubVerifyToken ??
+    process.env.YOUTUBE_WEBSUB_VERIFY_TOKEN ??
+    youtubeWebSubSecret
   )?.trim();
   const envAllowedOrigins = parseCommaSeparatedEnv(
     process.env.API_GATEWAY_ALLOWED_ORIGINS,
@@ -213,12 +213,8 @@ function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
     throw new Error("STREAM_EVENT_WEBHOOK_SECRET is required in production.");
   }
 
-  if (isProduction(nodeEnv) && !twitchEventSubSecret) {
-    throw new Error("TWITCH_EVENTSUB_SECRET is required in production.");
-  }
-
-  if (isProduction(nodeEnv) && !youtubeWebhookSecret && !youtubeWebSubSecret) {
-    throw new Error("YOUTUBE_WEBHOOK_SECRET is required in production.");
+  if (isProduction(nodeEnv) && !youtubeWebSubSecret) {
+    throw new Error("YOUTUBE_WEBSUB_SECRET is required in production.");
   }
 
   if (
@@ -243,22 +239,11 @@ function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
 
   if (
     isProduction(nodeEnv) &&
-    twitchEventSubSecret &&
-    twitchEventSubSecret.length < MIN_PRODUCTION_SECRET_LENGTH
+    youtubeWebSubSecret &&
+    youtubeWebSubSecret.length < MIN_PRODUCTION_SECRET_LENGTH
   ) {
     throw new Error(
-      "TWITCH_EVENTSUB_SECRET must be at least 24 characters in production.",
-    );
-  }
-
-  if (
-    isProduction(nodeEnv) &&
-    (youtubeWebhookSecret ?? youtubeWebSubSecret) &&
-    (youtubeWebhookSecret ?? youtubeWebSubSecret)!.length <
-      MIN_PRODUCTION_SECRET_LENGTH
-  ) {
-    throw new Error(
-      "YOUTUBE_WEBHOOK_SECRET must be at least 24 characters in production.",
+      "YOUTUBE_WEBSUB_SECRET must be at least 24 characters in production.",
     );
   }
 
@@ -285,7 +270,6 @@ function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
     streamEventWebhookSecret,
     twitchEventSubSecret,
     webhookNow: options.webhookNow ?? Date.now,
-    youtubeWebhookSecret,
     youtubeWebSubSecret,
     youtubeWebSubVerifyToken,
   };
@@ -604,9 +588,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
       dispatcher: providerWebhookDispatcher,
       now: securityConfig.webhookNow,
       twitchWebhookSecret: securityConfig.streamEventWebhookSecret,
-      youtubeWebhookSecret:
-        securityConfig.youtubeWebhookSecret ??
-        securityConfig.youtubeWebSubSecret,
+      youtubeWebhookSecret: securityConfig.youtubeWebSubSecret,
     }),
   );
   app.use(
@@ -615,9 +597,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
       dispatcher: providerWebhookDispatcher,
       now: securityConfig.webhookNow,
       twitchEventSubSecret: securityConfig.twitchEventSubSecret,
-      youtubeWebSubSecret:
-        securityConfig.youtubeWebhookSecret ??
-        securityConfig.youtubeWebSubSecret,
+      youtubeWebSubSecret: securityConfig.youtubeWebSubSecret,
       youtubeWebSubVerifyToken: securityConfig.youtubeWebSubVerifyToken,
     }),
   );

@@ -195,7 +195,9 @@ function parseLeaseSeconds(value: string | null): number {
 }
 
 function hasValidVerifyToken(receivedToken: string | null): boolean {
-  const expectedToken = process.env.YOUTUBE_WEBSUB_VERIFY_TOKEN?.trim();
+  const expectedToken =
+    process.env.YOUTUBE_WEBSUB_VERIFY_TOKEN?.trim() ??
+    process.env.YOUTUBE_WEBSUB_SECRET?.trim();
 
   return !expectedToken || receivedToken === expectedToken;
 }

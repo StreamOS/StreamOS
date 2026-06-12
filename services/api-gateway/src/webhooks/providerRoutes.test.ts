@@ -6,14 +6,13 @@ import type { ProviderWebhookEvent } from "./providerEvents.js";
 
 const NOW = new Date("2026-06-06T10:00:00.000Z");
 const STREAM_EVENT_WEBHOOK_SECRET = "test-stream-event-webhook-secret-123";
-const TWITCH_EVENTSUB_SECRET = "test-twitch-eventsub-secret-123";
-const YOUTUBE_WEBHOOK_SECRET = "test-youtube-webhook-secret-123";
+const YOUTUBE_WEBSUB_SECRET = "test-youtube-websub-secret-123";
 
 function createTwitchEventSubHeaders({
   body,
   messageId = "eventsub-message-1",
   messageType = "notification",
-  secret = TWITCH_EVENTSUB_SECRET,
+  secret = STREAM_EVENT_WEBHOOK_SECRET,
   timestamp = NOW.toISOString(),
 }: {
   body: string;
@@ -36,7 +35,7 @@ function createTwitchEventSubHeaders({
   };
 }
 
-function createWebSubSignature(body: string, secret = YOUTUBE_WEBHOOK_SECRET) {
+function createWebSubSignature(body: string, secret = YOUTUBE_WEBSUB_SECRET) {
   return `sha1=${createHmac("sha1", secret).update(body).digest("hex")}`;
 }
 
@@ -48,10 +47,9 @@ async function withServer<T>(
     providerWebhookDispatcher: async (event) => {
       events.push(event);
     },
-    twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+    streamEventWebhookSecret: STREAM_EVENT_WEBHOOK_SECRET,
     webhookNow: () => NOW.getTime(),
-    youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
-    youtubeWebSubVerifyToken: "youtube-verify-token",
+    youtubeWebSubSecret: YOUTUBE_WEBSUB_SECRET,
   });
   const server = app.listen(0);
 
@@ -76,9 +74,8 @@ describe("provider webhook routes", () => {
         events.push(event);
       },
       streamEventWebhookSecret: STREAM_EVENT_WEBHOOK_SECRET,
-      twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
       webhookNow: () => NOW.getTime(),
-      youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+      youtubeWebSubSecret: YOUTUBE_WEBSUB_SECRET,
     });
     const server = app.listen(0);
 
@@ -119,9 +116,8 @@ describe("provider webhook routes", () => {
   it("serves the production YouTube verification path and rejects non-YouTube topics", async () => {
     const app = createApp({
       streamEventWebhookSecret: STREAM_EVENT_WEBHOOK_SECRET,
-      twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
       webhookNow: () => NOW.getTime(),
-      youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+      youtubeWebSubSecret: YOUTUBE_WEBSUB_SECRET,
     });
     const server = app.listen(0);
 
@@ -272,7 +268,7 @@ describe("provider webhook routes", () => {
         "https://www.youtube.com/feeds/videos.xml?channel_id=youtube-channel-1",
       );
       url.searchParams.set("hub.challenge", "youtube-challenge-token");
-      url.searchParams.set("hub.verify_token", "youtube-verify-token");
+      url.searchParams.set("hub.verify_token", YOUTUBE_WEBSUB_SECRET);
 
       const response = await fetch(url);
       const text = await response.text();

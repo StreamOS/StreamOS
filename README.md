@@ -274,10 +274,14 @@ TWITCH_CLIENT_SECRET=
 TWITCH_REDIRECT_URI=http://localhost:3000/api/platforms/twitch/callback
 TWITCH_SCOPES=user:read:email
 APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
+STREAM_EVENT_WEBHOOK_SECRET=
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 ```
 
 Register the same redirect URI in the Twitch Developer Console. If Next.js falls back to another local port, update both `TWITCH_REDIRECT_URI` and the Twitch app settings to match.
+Use the same `STREAM_EVENT_WEBHOOK_SECRET` value that the API gateway uses for
+Twitch EventSub callback verification. `TWITCH_EVENTSUB_SECRET` and
+`TWITCH_WEBHOOK_SECRET` remain legacy fallback names only.
 
 ## YouTube OAuth
 

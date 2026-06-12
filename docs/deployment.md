@@ -45,6 +45,7 @@ STREAMOS_DEMO_MODE=false
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
+STREAM_EVENT_WEBHOOK_SECRET=
 TWITCH_CLIENT_ID=
 TWITCH_CLIENT_SECRET=
 TWITCH_REDIRECT_URI=https://app.streamos.example/api/platforms/twitch/callback
@@ -57,8 +58,11 @@ Do not set `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_OPENAI_KE
 
 `TWITCH_CLIENT_SECRET` stays in Vercel only for the documented Twitch OAuth
 server-route exception. It must never be exposed with a `NEXT_PUBLIC_*` prefix.
-YouTube, TikTok, and Kick provider secrets should be configured on the API
-gateway when those OAuth flows are implemented there.
+The current Twitch exception also reuses `STREAM_EVENT_WEBHOOK_SECRET` during
+EventSub registration, so Vercel and Railway must share the same secret value
+until that flow is moved fully behind the API gateway. YouTube, TikTok, and
+Kick provider secrets should be configured on the API gateway when those OAuth
+flows are implemented there.
 
 `API_GATEWAY_URL` must be public because Vercel functions are outside the Railway private network. The Automation Service remains private and is reached by Railway workers, not by Vercel.
 
@@ -95,6 +99,7 @@ STREAM_EVENT_WEBHOOK_SECRET=
 APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
+YOUTUBE_WEBSUB_SECRET=
 YOUTUBE_CLIENT_ID=
 YOUTUBE_CLIENT_SECRET=
 YOUTUBE_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/youtube/callback
@@ -129,6 +134,8 @@ Security model:
 - TikTok and Kick OAuth are gateway-owned. Their client secrets must stay in
   Railway only, and provider tokens must never be proxied through browser code.
 - `API_GATEWAY_SECRET` and `STREAM_EVENT_WEBHOOK_SECRET` are mandatory when `NODE_ENV=production`; the service fails during startup if either is missing.
+- `STREAM_EVENT_WEBHOOK_SECRET` is the canonical Twitch EventSub secret name. `TWITCH_EVENTSUB_SECRET` and `TWITCH_WEBHOOK_SECRET` are legacy fallbacks only.
+- `YOUTUBE_WEBSUB_SECRET` is the canonical YouTube WebSub secret name and is used for both HMAC signatures and GET verification unless a legacy `YOUTUBE_WEBSUB_VERIFY_TOKEN` override is explicitly set.
 - CORS allows only `API_GATEWAY_ALLOWED_ORIGINS`; server-to-server calls without an `Origin` header are allowed.
 - Rate limits are fixed-window per client IP, method, and URL. Start with `120` requests per `60000` ms and tighten per endpoint once production traffic is measured.
 
