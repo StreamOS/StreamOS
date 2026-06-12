@@ -10,6 +10,7 @@ import {
   upsertWebSubTracking,
   type YouTubeConnection,
 } from "@/lib/integrations/youtube-websub";
+import { requireCronAuth } from "@/lib/cron-auth";
 import { createServiceRoleAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -26,14 +27,10 @@ type RenewReport = {
 export async function GET(request: NextRequest) {
   const startedAt = Date.now();
 
-  if (!hasValidCronSecret(request)) {
-    return NextResponse.json(
-      {
-        error: "unauthorized",
-        message: "Valid cron authorization is required.",
-      },
-      { status: 401 },
-    );
+  const unauthorizedResponse = requireCronAuth(request);
+
+  if (unauthorizedResponse) {
+    return unauthorizedResponse;
   }
 
   const serviceSupabase = createServiceRoleAdminClient();
@@ -153,14 +150,4 @@ export async function GET(request: NextRequest) {
   report.duration_ms = Date.now() - startedAt;
 
   return NextResponse.json(report);
-}
-
-function hasValidCronSecret(request: NextRequest): boolean {
-  const cronSecret = process.env.CRON_SECRET?.trim();
-
-  if (!cronSecret) {
-    return false;
-  }
-
-  return request.headers.get("authorization") === `Bearer ${cronSecret}`;
 }
