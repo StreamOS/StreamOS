@@ -66,7 +66,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
 
-- `packages/database/supabase/migrations/0002_*` through `0005_*` have been applied to Supabase.
+- All migrations in `packages/database/supabase/migrations/` up to and including `0028_*` have been applied to Supabase so the hosted project matches the current `content_jobs` schema, runtime-table RLS policies, and Realtime setup.
 - Supabase Realtime publication includes `public.content_jobs`.
 - At least one Supabase Auth user exists. To force a specific user, set `E2E_USER_ID=<auth-user-uuid>` in your shell.
 
