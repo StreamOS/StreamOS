@@ -19,7 +19,10 @@ inputs:
   env-file:
     required: false
     default: ".env.test"
-    description: Env file passed to rolloutcheck.
+    description: >
+      Path to the env file consumed by pnpm rolloutcheck. .env.test is the
+      only env file present in the repository and is the correct value for all
+      environments. Do not change this to .env.staging or .env.production.
   allow-hosted-e2e:
     required: false
     default: "false"

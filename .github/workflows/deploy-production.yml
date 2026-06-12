@@ -236,7 +236,6 @@ jobs:
           api-gateway-url: ${{ env.PROD_API_GATEWAY_URL }}
           allow-hosted-e2e: "true"
           automation-service-url: ${{ env.PROD_AUTOMATION_SERVICE_URL }}
-          env-file: .env.test
           expect-private-automation: "true"
 
   deploy-frontend:

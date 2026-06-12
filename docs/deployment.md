@@ -355,7 +355,9 @@ pnpm --filter @streamos/content-job-retry-worker build
 
 `pnpm rolloutcheck` is the mandatory gate between Railway backend deployment
 and Vercel frontend promotion. The deploy workflows run it through the reusable
-composite action at `.github/actions/rollout-gate/action.yml`.
+composite action at `.github/actions/rollout-gate/action.yml`. The gate uses
+`.env.test` in all environments; staging and production differ only through
+flags such as `--api-gateway-url` and `--expect-private-automation`.
 
 Key rules:
 
@@ -368,6 +370,8 @@ Key rules:
 - The rollback workflow intentionally skips the gate. After rollback, run
   `pnpm rolloutcheck` manually from a Railway shell before treating the rollback
   as complete.
+- Rule: Do not add `.env.staging` or `.env.production` to the repository.
+- The gate contract is stable across environments via flags, not env files.
 
 Run the gate locally before promotion from a checked-out copy of the repository:
 

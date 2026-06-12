@@ -193,7 +193,6 @@ jobs:
           api-gateway-url: ${{ env.STAGING_API_GATEWAY_URL }}
           allow-hosted-e2e: "true"
           automation-service-url: ${{ env.STAGING_AUTOMATION_SERVICE_URL }}
-          env-file: .env.test
           expect-private-automation: "false"
 
   migrate:
