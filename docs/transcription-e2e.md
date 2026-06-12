@@ -54,7 +54,7 @@ Before promoting a release candidate, run the bundled rollout gate instead of
 calling this E2E helper manually:
 
 ```bash
-pnpm rollout:check -- --env-file=.env.test
+pnpm rolloutcheck -- --env-file=.env.test
 ```
 
 For deployed services, run the same gate with `--skip-docker`,

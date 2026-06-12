@@ -60,8 +60,9 @@ function printHelp() {
   console.log(`StreamOS rollout gate
 
 Usage:
+  pnpm rolloutcheck -- --env-file=.env.test
+  pnpm rolloutcheck -- --env-file=.env --skip-docker --allow-hosted-e2e --api-gateway-url=https://api.example.com --automation-service-url=http://automation.railway.internal:8000 --expect-private-automation
   pnpm rollout:check -- --env-file=.env.test
-  pnpm rollout:check -- --env-file=.env --skip-docker --allow-hosted-e2e --api-gateway-url=https://api.example.com --automation-service-url=http://automation.railway.internal:8000 --expect-private-automation
 
 Required checks:
   1. Supabase migration/RLS/index validator

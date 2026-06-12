@@ -19,6 +19,7 @@
     "deployment:check:remote": "node scripts/run-railway-smoke-check.cjs",
     "db:validate-security": "node scripts/validate-database-security.cjs",
     "rollout:check": "node scripts/rollout-check.cjs",
+    "rolloutcheck": "node scripts/rollout-check.cjs",
     "rollout:check:local": "node scripts/rollout-check.cjs --env-file=.env.test",
     "lint-staged": "lint-staged",
     "lint": "eslint . --max-warnings=0",

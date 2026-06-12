@@ -167,6 +167,7 @@ function main() {
   if (args["github-output"]) {
     writeGithubOutput(args["github-output"], {
       changed_files_json: JSON.stringify(summary.changedFiles),
+      backend: detection.railwayServices.length > 0 ? "true" : "false",
       deploy_backend: detection.railwayServices.length > 0 ? "true" : "false",
       detection_mode: detection.detectionMode,
       railway_services_json: JSON.stringify(detection.railwayServices),

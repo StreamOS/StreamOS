@@ -3,122 +3,137 @@ description: Run the StreamOS rollout check before promoting a deployment.
 
 inputs:
   environment:
-    description: Target environment name.
     required: true
+    description: "staging | production"
   api-gateway-url:
-    description: Public API Gateway base URL.
     required: true
+    description: Public API Gateway URL.
   automation-service-url:
-    description: Automation Service base URL.
-    required: true
-  allow-hosted-e2e:
-    description: Allow hosted Supabase-backed E2E execution.
-    default: "false"
     required: false
-  env-file:
-    description: Env file passed to the rollout gate.
-    default: .env.test
-    required: false
+    default: ""
+    description: Automation Service URL.
   expect-private-automation:
-    description: Require the automation service URL to be private networking.
+    required: false
     default: "false"
+    description: Require private automation networking.
+  env-file:
     required: false
-  node-version:
-    description: Node.js version used for the gate.
-    default: "22"
+    default: ".env.test"
+    description: Env file passed to rolloutcheck.
+  allow-hosted-e2e:
     required: false
-  pnpm-version:
-    description: pnpm version used for the gate.
-    default: "9.15.4"
+    default: "false"
+    description: Allow hosted E2E execution.
+  gate-timeout-minutes:
     required: false
+    default: "10"
+    description: Timeout for the rollout gate step.
 
 runs:
   using: composite
   steps:
-    - name: Checkout repository
-      uses: actions/checkout@v5
-
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v6
-      with:
-        version: ${{ inputs.pnpm-version }}
+    - uses: actions/checkout@v4
 
     - name: Setup Node.js
       uses: actions/setup-node@v6
       with:
         cache: pnpm
         cache-dependency-path: pnpm-lock.yaml
-        node-version: ${{ inputs.node-version }}
+        node-version: "22"
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v6
+      with:
+        version: "9.15.4"
 
     - name: Install Node dependencies
       shell: bash
       run: pnpm install --frozen-lockfile
 
-    - name: Run rollout gate
+    - name: Run rolloutcheck
+      continue-on-error: true
+      id: gate
       shell: bash
+      timeout-minutes: ${{ inputs.gate-timeout-minutes }}
       env:
         ALLOW_HOSTED_E2E: ${{ inputs.allow-hosted-e2e }}
         API_GATEWAY_URL: ${{ inputs.api-gateway-url }}
         AUTOMATION_SERVICE_URL: ${{ inputs.automation-service-url }}
         ENV_FILE: ${{ inputs.env-file }}
         EXPECT_PRIVATE_AUTOMATION: ${{ inputs.expect-private-automation }}
-        ENVIRONMENT: ${{ inputs.environment }}
       run: |
         set -euo pipefail
 
         args=(
-          --env-file="${ENV_FILE}"
+          --env-file "${ENV_FILE}"
           --skip-docker
-          --api-gateway-url="${API_GATEWAY_URL}"
-          --automation-service-url="${AUTOMATION_SERVICE_URL}"
+          --api-gateway-url "${API_GATEWAY_URL}"
         )
 
         if [ "${ALLOW_HOSTED_E2E}" = "true" ]; then
           args+=(--allow-hosted-e2e)
         fi
 
+        if [ -n "${AUTOMATION_SERVICE_URL}" ]; then
+          args+=(--automation-service-url "${AUTOMATION_SERVICE_URL}")
+        fi
+
         if [ "${EXPECT_PRIVATE_AUTOMATION}" = "true" ]; then
           args+=(--expect-private-automation)
         fi
 
-        log_file="${RUNNER_TEMP}/rollout-check.log"
-        rm -f "${log_file}"
+        pnpm rolloutcheck "${args[@]}"
 
-        set +e
-        pnpm rollout:check -- "${args[@]}" 2>&1 | tee "${log_file}"
-        status=${PIPESTATUS[0]}
-        set -e
+    - name: Write rollout gate summary
+      if: always()
+      shell: bash
+      env:
+        GATE_OUTCOME: ${{ steps.gate.outcome }}
+        TRIGGERED_BY: ${{ github.actor }}
+        RUN_ID: ${{ github.run_id }}
+      run: |
+        set -euo pipefail
 
-        if [ "${status}" -ne 0 ]; then
-          {
-            echo "## Rollout Gate Failed - ${ENVIRONMENT}"
-            echo ""
-            echo "- Environment: ${ENVIRONMENT}"
-            echo "- API Gateway URL: ${API_GATEWAY_URL}"
-            echo "- Automation Service URL: ${AUTOMATION_SERVICE_URL}"
-            echo "- Env file: ${ENV_FILE}"
-            echo "- Hosted E2E: ${ALLOW_HOSTED_E2E}"
-            echo "- Private automation expected: ${EXPECT_PRIVATE_AUTOMATION}"
-            echo ""
-            echo "Vercel promotion was blocked."
-            echo ""
-            echo "### Rollout Output"
-            echo ""
-            echo '```text'
-            tail -n 80 "${log_file}"
-            echo '```'
-          } >> "${GITHUB_STEP_SUMMARY}"
+        timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-          exit "${status}"
+        if [ "${GATE_OUTCOME}" = "success" ]; then
+          cat >> "${GITHUB_STEP_SUMMARY}" <<EOF
+          ## Rollout Gate Passed - ${{ inputs.environment }}
+          | Field | Value |
+          | --- | --- |
+          | Environment | ${{ inputs.environment }} |
+          | API Gateway URL | ${{ inputs.api-gateway-url }} |
+          | Automation Service URL | ${{ inputs.automation-service-url }} |
+          | Private Automation | ${{ inputs.expect-private-automation }} |
+          | Triggered by | ${TRIGGERED_BY} |
+          | Run ID | ${RUN_ID} |
+          | Timestamp | ${timestamp} |
+          EOF
+          exit 0
         fi
 
-        {
-          echo "## Rollout Gate Passed - ${ENVIRONMENT}"
-          echo ""
-          echo "- Environment: ${ENVIRONMENT}"
-          echo "- API Gateway URL: ${API_GATEWAY_URL}"
-          echo "- Automation Service URL: ${AUTOMATION_SERVICE_URL}"
-          echo "- Env file: ${ENV_FILE}"
-          echo "- Hosted E2E: ${ALLOW_HOSTED_E2E}"
-          echo "- Private automation expected: ${EXPECT_PRIVATE_AUTOMATION}"
-        } >> "${GITHUB_STEP_SUMMARY}"
+        cat >> "${GITHUB_STEP_SUMMARY}" <<EOF
+        ## Rollout Gate Failed - ${{ inputs.environment }}
+        | Field | Value |
+        | --- | --- |
+        | Environment | ${{ inputs.environment }} |
+        | API Gateway URL | ${{ inputs.api-gateway-url }} |
+        | Automation Service URL | ${{ inputs.automation-service-url }} |
+        | Private Automation | ${{ inputs.expect-private-automation }} |
+        | Triggered by | ${TRIGGERED_BY} |
+        | Run ID | ${RUN_ID} |
+        | Timestamp | ${timestamp} |
+
+        Action required: Vercel deploy and release creation were skipped.
+        Fix the failing gate check and re-trigger the workflow.
+        [View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+        EOF
+
+    - name: Propagate rollout gate failure
+      if: always()
+      shell: bash
+      run: |
+        if [ "${{ steps.gate.outcome }}" != "success" ]; then
+          echo "Rollout gate failed. Blocking downstream jobs."
+          exit 1
+        fi

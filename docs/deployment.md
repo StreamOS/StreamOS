@@ -349,15 +349,30 @@ pnpm --filter @streamos/content-job-retry-worker test
 pnpm --filter @streamos/content-job-retry-worker build
 ```
 
-## Production Checks
+## GitHub Actions Deployment Workflows
 
-Run the rollout gate before promoting a deployment from a checked-out copy of
-the repository. This is the pre-promotion gate because it combines tenant
-security validation, API Gateway integration tests, signed-webhook tests, the
-transcription E2E path, and service health checks in one ordered command.
+### Rollout Gate (Pre-Promote)
+
+`pnpm rolloutcheck` is the mandatory gate between Railway backend deployment
+and Vercel frontend promotion. The deploy workflows run it through the reusable
+composite action at `.github/actions/rollout-gate/action.yml`.
+
+Key rules:
+
+- The gate runs after Railway services are deployed and before `deploy-frontend`.
+- In production, `create-release` also depends on the gate.
+- The gate is skipped when no backend services changed. In that case, the
+  previously gated Railway state is assumed valid.
+- The gate writes a structured Step Summary on every run, both pass and fail.
+- Workflow and composite action YAML is linted by `actionlint` in `ci.yml`.
+- The rollback workflow intentionally skips the gate. After rollback, run
+  `pnpm rolloutcheck` manually from a Railway shell before treating the rollback
+  as complete.
+
+Run the gate locally before promotion from a checked-out copy of the repository:
 
 ```bash
-pnpm rollout:check -- --env-file=.env.test
+pnpm rolloutcheck -- --env-file=.env.test
 ```
 
 For deployed environments, use a separate remote smoke verification from a
@@ -390,7 +405,7 @@ or production. Configure these secrets before using it:
 You can optionally store `API_GATEWAY_URL` as a GitHub Environment variable on
 `staging` and `production`, otherwise pass it as a workflow input.
 
-Do not promote when `rollout:check` fails. Treat the remote Railway smoke check
+Do not promote when `rolloutcheck` fails. Treat the remote Railway smoke check
 as the deployed-environment confirmation that `/health` passes from both the
 public gateway and the private Automation Service path.
 
@@ -399,21 +414,17 @@ Vercel because Railway private networking is not public internet. The SSH-based
 workflow follows Railway's documented `railway ssh` single-command mode and its
 workspace SSH key model.
 
-## GitHub Actions Deployment Gates
-
-The staging and production deploy workflows now run `pnpm rollout:check` before
-Vercel promotion. The gate is wired through `.github/actions/rollout-gate` and
-blocks the frontend deploy job when it fails.
-
 Required GitHub environment variables and secrets:
 
-| Scope       | Name                             | Purpose                                                    |
-| ----------- | -------------------------------- | ---------------------------------------------------------- |
-| repo var    | `STAGING_API_GATEWAY_URL`        | Public staging API Gateway URL used by rollout checks      |
-| repo var    | `PROD_API_GATEWAY_URL`           | Public production API Gateway URL used by rollout checks   |
-| repo var    | `STAGING_AUTOMATION_SERVICE_URL` | Optional staging Automation Service URL for rollout checks |
-| repo var    | `AUTOMATION_SERVICE_URL`         | Optional shared fallback used by rollout checks            |
-| prod secret | `AUTOMATION_SERVICE_PRIVATE_URL` | Private production Automation Service URL                  |
+| Secret / Variable                | Scope             | Purpose                                  |
+| -------------------------------- | ----------------- | ---------------------------------------- |
+| `STAGING_API_GATEWAY_URL`        | repo var          | Gate `--api-gateway-url` for staging     |
+| `PROD_API_GATEWAY_URL`           | repo var          | Gate `--api-gateway-url` for production  |
+| `AUTOMATION_SERVICE_PRIVATE_URL` | production secret | Gate `--automation-service-url` for prod |
+
+The rollout gate still supports the existing fallback automation-service
+variables for local and non-production checks, but production promotion should
+use the private Railway URL secret.
 
 If the environment variables are not present, the rollout gate fails closed and
 the promote job stays blocked. Production should use the private automation URL

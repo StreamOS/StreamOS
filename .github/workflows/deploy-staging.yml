@@ -37,11 +37,14 @@ jobs:
     name: CI
     uses: ./.github/workflows/ci.yml
 
-  detect-deploy-changes:
+  detect-changes:
     name: Detect deployable backend changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    needs:
+      - ci
     outputs:
+      backend: ${{ steps.detect.outputs.backend }}
       deploy_backend: ${{ steps.detect.outputs.deploy_backend }}
       detection_mode: ${{ steps.detect.outputs.detection_mode }}
       railway_services_json: ${{ steps.detect.outputs.railway_services_json }}
@@ -65,11 +68,12 @@ jobs:
             --head "${{ github.sha }}" \
             --github-output "${GITHUB_OUTPUT}"
 
-  deploy-web:
+  deploy-frontend:
     name: Deploy frontend to Vercel staging
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs:
+      - detect-changes
       - rollout-gate
     environment:
       name: staging
@@ -77,7 +81,8 @@ jobs:
     outputs:
       url: ${{ steps.deploy.outputs.url }}
 
-    if: ${{ always() && needs.rollout-gate.result == 'success' }}
+    # Gate skipped: backend unchanged, previously gated ref.
+    if: ${{ needs.rollout-gate.result == 'success' || (needs.rollout-gate.result == 'skipped' && needs.detect-changes.outputs.backend != 'true') }}
 
     steps:
       - name: Checkout
@@ -131,14 +136,14 @@ jobs:
           echo "url=${deployment_url}" >> "${GITHUB_OUTPUT}"
           echo "Staging frontend URL: ${deployment_url}" >> "${GITHUB_STEP_SUMMARY}"
 
-  deploy-railway:
+  deploy-backend:
     name: Deploy ${{ matrix.service }} to Railway staging
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs:
       - ci
-      - detect-deploy-changes
-    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.deploy_backend_services) && (github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect-deploy-changes.outputs.railway_services_json), matrix.service)) }}
+      - detect-changes
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.deploy_backend_services) || (github.event_name != 'workflow_dispatch' && needs.detect-changes.outputs.backend == 'true') }}
     environment:
       name: staging
     strategy:
@@ -175,10 +180,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs:
-      - deploy-railway
-    if: ${{ always() && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+      - deploy-backend
+    if: ${{ needs.deploy-backend.result == 'success' }}
 
     steps:
+      # ADR-1: Hard pre-promote gate.
+      # ADR-2: deploy-frontend stays blocked until this passes.
       - name: Run rollout gate
         uses: ./.github/actions/rollout-gate
         with:
@@ -189,14 +196,13 @@ jobs:
           env-file: .env.test
           expect-private-automation: "false"
 
-  migrate-supabase:
+  migrate:
     name: Apply Supabase staging migrations
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs:
-      - deploy-web
-      - deploy-railway
-    if: ${{ always() && needs.deploy-web.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+      - deploy-frontend
+    if: ${{ needs.deploy-frontend.result == 'success' }}
     environment:
       name: staging
 
@@ -215,21 +221,54 @@ jobs:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_STAGING }}
         run: supabase db push --db-url "${SUPABASE_DB_URL}"
 
-  comment-pr:
-    name: Comment deployment URL on PR
+  notify:
+    name: Notify deployment
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs:
-      - deploy-web
-      - deploy-railway
-      - migrate-supabase
-    if: ${{ always() && needs.deploy-web.result == 'success' && needs.migrate-supabase.result == 'success' }}
+      - ci
+      - deploy-backend
+      - rollout-gate
+      - deploy-frontend
+      - migrate
+    if: always()
 
     steps:
+      - name: Write deployment summary
+        env:
+          CI_RESULT: ${{ needs.ci.result }}
+          BACKEND_RESULT: ${{ needs.deploy-backend.result }}
+          FRONTEND_RESULT: ${{ needs.deploy-frontend.result }}
+          GATE_RESULT: ${{ needs.rollout-gate.result }}
+          MIGRATION_RESULT: ${{ needs.migrate.result }}
+        run: |
+          overall="NO-OP"
+          if [ "${CI_RESULT}" = "failure" ] || [ "${BACKEND_RESULT}" = "failure" ] || [ "${GATE_RESULT}" = "failure" ] || [ "${FRONTEND_RESULT}" = "failure" ] || [ "${MIGRATION_RESULT}" = "failure" ]; then
+            overall="BLOCKED"
+          elif [ "${FRONTEND_RESULT}" = "success" ] || [ "${MIGRATION_RESULT}" = "success" ]; then
+            overall="PROMOTED"
+          fi
+
+          {
+            echo "## StreamOS Staging Deployment"
+            echo ""
+            echo "| Step | Status |"
+            echo "| --- | --- |"
+            echo "| CI | ${CI_RESULT:-skipped} |"
+            echo "| Backend Deploy | ${BACKEND_RESULT:-skipped} |"
+            echo "| Rollout Gate | ${GATE_RESULT:-skipped} |"
+            echo "| Frontend Deploy | ${FRONTEND_RESULT:-skipped} |"
+            echo "| DB Migration | ${MIGRATION_RESULT:-skipped} |"
+            echo "| Overall | ${overall} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Comment on associated pull request
         uses: actions/github-script@v9
         env:
-          DEPLOYMENT_URL: ${{ needs.deploy-web.outputs.url }}
+          DEPLOYMENT_URL: ${{ needs.deploy-frontend.outputs.url }}
+          BACKEND_RESULT: ${{ needs.deploy-backend.result }}
+          GATE_RESULT: ${{ needs.rollout-gate.result }}
+          MIGRATION_RESULT: ${{ needs.migrate.result }}
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -248,8 +287,9 @@ jobs:
               "## StreamOS Staging Deployment",
               "",
               `- Frontend: ${process.env.DEPLOYMENT_URL}`,
-              "- Railway services: staging deploy completed",
-              "- Supabase migrations: staging database updated",
+              `- Rollout gate: ${process.env.GATE_RESULT ?? "unknown"}`,
+              `- Railway services: ${process.env.BACKEND_RESULT ?? "unknown"}`,
+              `- Supabase migrations: ${process.env.MIGRATION_RESULT ?? "unknown"}`,
               `- Commit: \`${context.sha.slice(0, 7)}\``,
             ].join("\n");
 
@@ -261,3 +301,30 @@ jobs:
                 body,
               });
             }
+
+      - name: Send Discord notification
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          BACKEND_RESULT: ${{ needs.deploy-backend.result }}
+          FRONTEND_RESULT: ${{ needs.deploy-frontend.result }}
+          GATE_RESULT: ${{ needs.rollout-gate.result }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DISCORD_WEBHOOK_URL}" ]; then
+            echo "DISCORD_WEBHOOK_URL is not configured; skipping Discord notification."
+            exit 0
+          fi
+
+          if [ "${GATE_RESULT}" = "failure" ]; then
+            payload="$(jq -n \
+              --arg env "staging" \
+              --arg actor "${{ github.actor }}" \
+              --arg link "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              '{content: ("Rollout gate failed on " + $env + " - Vercel deploy skipped.\nTriggered by: " + $actor + " | Run: " + $link)}' \
+            )"
+            curl --fail --silent --show-error \
+              -H "Content-Type: application/json" \
+              -d "${payload}" \
+              "${DISCORD_WEBHOOK_URL}"
+          fi

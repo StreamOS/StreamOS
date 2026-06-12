@@ -40,11 +40,14 @@ jobs:
     name: CI
     uses: ./.github/workflows/ci.yml
 
-  detect-deploy-changes:
+  detect-changes:
     name: Detect deployable backend changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    needs:
+      - ci
     outputs:
+      backend: ${{ steps.detect.outputs.backend }}
       deploy_backend: ${{ steps.detect.outputs.deploy_backend }}
       detection_mode: ${{ steps.detect.outputs.detection_mode }}
       railway_services_json: ${{ steps.detect.outputs.railway_services_json }}
@@ -68,11 +71,12 @@ jobs:
             --head "${{ github.sha }}" \
             --github-output "${GITHUB_OUTPUT}"
 
-  release:
+  create-release:
     name: Create GitHub release
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs:
+      - detect-changes
       - rollout-gate
     outputs:
       tag: ${{ steps.release.outputs.tag }}
@@ -88,6 +92,7 @@ jobs:
         id: release
         uses: actions/github-script@v9
         with:
+          # ADR-3: No release tag before a passing gate.
           script: |
             const { owner, repo } = context.repo;
             const { execSync } = require("node:child_process");
@@ -174,14 +179,14 @@ jobs:
             core.setOutput("tag", tag);
             core.setOutput("url", release.html_url);
 
-  deploy-railway:
+  deploy-backend:
     name: Deploy ${{ matrix.service }} to Railway production
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs:
       - ci
-      - detect-deploy-changes
-    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.deploy_backend_services) && (github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect-deploy-changes.outputs.railway_services_json), matrix.service)) }}
+      - detect-changes
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.deploy_backend_services) || (github.event_name != 'workflow_dispatch' && needs.detect-changes.outputs.backend == 'true') }}
     environment:
       name: production
     strategy:
@@ -218,10 +223,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs:
-      - deploy-railway
-    if: ${{ always() && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+      - deploy-backend
+    if: ${{ needs.deploy-backend.result == 'success' }}
 
     steps:
+      # ADR-1: Hard pre-promote gate.
+      # ADR-3: create-release stays blocked until this passes.
       - name: Run rollout gate
         uses: ./.github/actions/rollout-gate
         with:
@@ -232,20 +239,20 @@ jobs:
           env-file: .env.test
           expect-private-automation: "true"
 
-  deploy-web:
+  deploy-frontend:
     name: Deploy frontend to Vercel production
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs:
-      - ci
-      - release
-      - deploy-railway
-    if: ${{ always() && needs.ci.result == 'success' && needs.release.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+      - create-release
+      - detect-changes
     environment:
       name: production
       url: ${{ steps.deploy.outputs.url }}
     outputs:
       url: ${{ steps.deploy.outputs.url }}
+
+    if: ${{ needs.create-release.result == 'success' || (needs.create-release.result == 'skipped' && needs.detect-changes.outputs.backend != 'true') }}
 
     steps:
       - name: Checkout
@@ -299,14 +306,13 @@ jobs:
           echo "url=${deployment_url}" >> "${GITHUB_OUTPUT}"
           echo "Production frontend URL: ${deployment_url}" >> "${GITHUB_STEP_SUMMARY}"
 
-  migrate-supabase:
+  migrate:
     name: Apply Supabase production migrations
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs:
-      - deploy-web
-      - deploy-railway
-    if: ${{ always() && needs.deploy-web.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+      - deploy-frontend
+    if: ${{ needs.deploy-frontend.result == 'success' }}
     environment:
       name: production
 
@@ -358,35 +364,54 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs:
+      - ci
       - rollout-gate
-      - release
-      - deploy-web
-      - deploy-railway
-      - migrate-supabase
+      - create-release
+      - deploy-frontend
+      - deploy-backend
+      - migrate
     if: always()
 
     steps:
       - name: Write GitHub deployment summary
         env:
+          CI_RESULT: ${{ needs.ci.result }}
           GATE_RESULT: ${{ needs.rollout-gate.result }}
-          RELEASE_TAG: ${{ needs.release.outputs.tag }}
-          RELEASE_URL: ${{ needs.release.outputs.url }}
-          WEB_URL: ${{ needs.deploy-web.outputs.url }}
-          RAILWAY_RESULT: ${{ needs.deploy-railway.result }}
-          MIGRATION_RESULT: ${{ needs.migrate-supabase.result }}
+          FRONTEND_RESULT: ${{ needs.deploy-frontend.result }}
+          RELEASE_TAG: ${{ needs.create-release.outputs.tag }}
+          RELEASE_URL: ${{ needs.create-release.outputs.url }}
+          WEB_URL: ${{ needs.deploy-frontend.outputs.url }}
+          BACKEND_RESULT: ${{ needs.deploy-backend.result }}
+          MIGRATION_RESULT: ${{ needs.migrate.result }}
+          RELEASE_RESULT: ${{ needs.create-release.result }}
         run: |
           release_line="- Release: not created"
           if [ -n "${RELEASE_TAG}" ] && [ -n "${RELEASE_URL}" ]; then
             release_line="- Release: [${RELEASE_TAG}](${RELEASE_URL})"
           fi
 
+          overall="NO-OP"
+          if [ "${CI_RESULT}" = "failure" ] || [ "${BACKEND_RESULT}" = "failure" ] || [ "${GATE_RESULT}" = "failure" ] || [ "${RELEASE_RESULT}" = "failure" ] || [ "${FRONTEND_RESULT}" = "failure" ] || [ "${MIGRATION_RESULT}" = "failure" ]; then
+            overall="BLOCKED"
+          elif [ "${FRONTEND_RESULT}" = "success" ] || [ "${MIGRATION_RESULT}" = "success" ]; then
+            overall="PROMOTED"
+          fi
+
           {
             echo "## StreamOS Production Deployment"
             echo ""
-            echo "- Rollout gate: ${GATE_RESULT}"
+            echo "| Step | Status |"
+            echo "| --- | --- |"
+            echo "| CI | ${CI_RESULT:-skipped} |"
+            echo "| Backend Deploy | ${BACKEND_RESULT:-skipped} |"
+            echo "| Rollout Gate | ${GATE_RESULT:-skipped} |"
+            echo "| Frontend Deploy | ${FRONTEND_RESULT:-skipped} |"
+            echo "| DB Migration | ${MIGRATION_RESULT:-skipped} |"
+            echo "| Overall | ${overall} |"
+            echo ""
             echo "${release_line}"
             echo "- Frontend: ${WEB_URL}"
-            echo "- Railway services: ${RAILWAY_RESULT}"
+            echo "- Railway services: ${BACKEND_RESULT}"
             echo "- Supabase migrations: ${MIGRATION_RESULT}"
             echo "- Commit: ${GITHUB_SHA::7}"
           } >> "${GITHUB_STEP_SUMMARY}"
@@ -395,9 +420,9 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GATE_RESULT: ${{ needs.rollout-gate.result }}
-          RELEASE_TAG: ${{ needs.release.outputs.tag }}
-          RELEASE_URL: ${{ needs.release.outputs.url }}
-          WEB_URL: ${{ needs.deploy-web.outputs.url }}
+          RELEASE_TAG: ${{ needs.create-release.outputs.tag }}
+          RELEASE_URL: ${{ needs.create-release.outputs.url }}
+          WEB_URL: ${{ needs.deploy-frontend.outputs.url }}
         run: |
           if [ -z "${DISCORD_WEBHOOK_URL}" ]; then
             echo "DISCORD_WEBHOOK_URL is not configured; skipping Discord notification."
@@ -409,7 +434,9 @@ jobs:
               --arg env "production" \
               --arg web_url "${WEB_URL}" \
               --arg sha "${GITHUB_SHA::7}" \
-              '{content: ("Rollout gate failed on " + $env + " - Vercel deploy skipped.\nFrontend: " + $web_url + "\nCommit: `" + $sha + "`")}' \
+              --arg actor "${{ github.actor }}" \
+              --arg link "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              '{content: ("Rollout gate failed on " + $env + " - Release tag not created, Vercel deploy skipped.\nTriggered by: " + $actor + " | Run: " + $link)}' \
             )"
           else
             payload="$(jq -n \
