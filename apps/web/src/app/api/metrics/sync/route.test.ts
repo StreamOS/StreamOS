@@ -10,6 +10,15 @@ const mocks = vi.hoisted(() => ({
   syncTwitchAnalytics: vi.fn(),
 }));
 
+/**
+ * BOUNDARY NOTE:
+ * These tests cover the current web boundary where /api/metrics/sync proxies
+ * YouTube, TikTok, and Kick sync requests to the API gateway.
+ *
+ * Provider-specific refresh, token rotation, and snapshot logic is validated
+ * in the gateway service tests. If that ownership moves again, update these
+ * assertions to match the new boundary.
+ */
 vi.mock("@/lib/supabase/server", () => ({
   createClient: mocks.createClient,
 }));
@@ -76,59 +85,130 @@ describe("POST /api/metrics/sync", () => {
     vi.unstubAllGlobals();
   });
 
-  it("delegates non-Twitch sync requests to the API gateway", async () => {
-    const gatewayResult = {
-      provider: "youtube",
-      snapshot: {
-        channelId: "channel-1",
-        creatorId: "creator-1",
-        followers: null,
-        peakViewers: null,
+  it.each([
+    [
+      "youtube",
+      {
         provider: "youtube",
-        rawPayload: { subscribers: 1234 },
-        snapshotAt: "2026-06-08T10:15:30.000Z",
-        subscribers: 1234,
-        userId: "user-1",
-        views: 9876,
+        snapshot: {
+          channelId: "channel-1",
+          creatorId: "creator-1",
+          followers: null,
+          peakViewers: null,
+          provider: "youtube",
+          rawPayload: { subscribers: 1234 },
+          snapshotAt: "2026-06-08T10:15:30.000Z",
+          subscribers: 1234,
+          userId: "user-1",
+          views: 9876,
+        },
+        syncedAt: "2026-06-08T10:15:30.000Z",
       },
-      syncedAt: "2026-06-08T10:15:30.000Z",
-    };
+    ],
+    [
+      "tiktok",
+      {
+        provider: "tiktok",
+        snapshot: {
+          channelId: "channel-1",
+          creatorId: "creator-1",
+          followers: 4321,
+          peakViewers: null,
+          provider: "tiktok",
+          rawPayload: { followerCount: 4321 },
+          snapshotAt: "2026-06-08T10:15:30.000Z",
+          subscribers: null,
+          userId: "user-1",
+          views: null,
+        },
+        syncedAt: "2026-06-08T10:15:30.000Z",
+      },
+    ],
+    [
+      "kick",
+      {
+        provider: "kick",
+        snapshot: {
+          channelId: "channel-1",
+          creatorId: "creator-1",
+          followers: 500,
+          peakViewers: 88,
+          provider: "kick",
+          rawPayload: {
+            category: "Just Chatting",
+            followersCount: 500,
+            title: "Live now",
+          },
+          snapshotAt: "2026-06-08T10:15:30.000Z",
+          subscribers: null,
+          userId: "user-1",
+          views: null,
+        },
+        syncedAt: "2026-06-08T10:15:30.000Z",
+      },
+    ],
+  ])(
+    "delegates %s sync requests to the API gateway",
+    async (_provider, gatewayResult) => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify(gatewayResult), {
+          headers: { "content-type": "application/json" },
+          status: 200,
+        }),
+      );
 
+      const { POST } = await import("./route");
+      const response = await POST(
+        createRequest({ provider: gatewayResult.provider }),
+      );
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload).toEqual(gatewayResult);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      const [requestUrl, requestInit] = fetchMock.mock.calls[0] ?? [];
+      expect(String(requestUrl)).toBe(
+        "https://gateway.streamos.test/api/metrics/sync",
+      );
+      expect(requestInit).toMatchObject({
+        headers: {
+          Authorization: `Bearer ${API_GATEWAY_SECRET}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+
+      const requestBody = JSON.parse(String(requestInit?.body ?? "{}"));
+      expect(requestBody).toEqual({
+        creatorId: "creator-1",
+        provider: gatewayResult.provider,
+        userId: "user-1",
+      });
+      expect(mocks.syncTwitchAnalytics).not.toHaveBeenCalled();
+    },
+  );
+
+  it("surfaces gateway non-JSON Kick responses without leaking raw text", async () => {
     const fetchMock = vi.mocked(globalThis.fetch);
     fetchMock.mockResolvedValue(
-      new Response(JSON.stringify(gatewayResult), {
-        headers: { "content-type": "application/json" },
-        status: 200,
+      new Response("<html><body>temporary outage</body></html>", {
+        headers: { "content-type": "text/html" },
+        status: 503,
       }),
     );
 
     const { POST } = await import("./route");
-    const response = await POST(createRequest({ provider: "youtube" }));
+    const response = await POST(createRequest({ provider: "kick" }));
     const payload = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(payload).toEqual(gatewayResult);
+    expect(response.status).toBe(503);
+    expect(payload).toEqual({
+      code: "PROVIDER_API_ERROR",
+      error: "<html><body>temporary outage</body></html>",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    const [requestUrl, requestInit] = fetchMock.mock.calls[0] ?? [];
-    expect(String(requestUrl)).toBe(
-      "https://gateway.streamos.test/api/metrics/sync",
-    );
-    expect(requestInit).toMatchObject({
-      headers: {
-        Authorization: `Bearer ${API_GATEWAY_SECRET}`,
-        "Content-Type": "application/json",
-      },
-      method: "POST",
-    });
-
-    const requestBody = JSON.parse(String(requestInit?.body ?? "{}"));
-    expect(requestBody).toEqual({
-      creatorId: "creator-1",
-      provider: "youtube",
-      userId: "user-1",
-    });
-    expect(mocks.syncTwitchAnalytics).not.toHaveBeenCalled();
   });
 
   it("surfaces Kick re-auth prompts from the gateway", async () => {
