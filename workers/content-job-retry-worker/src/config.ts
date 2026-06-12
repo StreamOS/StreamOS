@@ -91,11 +91,7 @@ export function loadRetryWorkerConfig(
     }),
     redisUrl: requireEnv(source, "REDIS_URL"),
     supabaseServiceRoleKey: requireEnv(source, "SUPABASE_SERVICE_ROLE_KEY"),
-    supabaseUrl: requireEnv(
-      source,
-      "SUPABASE_URL",
-      source.NEXT_PUBLIC_SUPABASE_URL,
-    ),
+    supabaseUrl: requireEnv(source, "SUPABASE_URL"),
     transcriptionQueueName:
       source.TRANSCRIPTION_QUEUE_NAME?.trim() ||
       source.QUEUE_DEFAULT_NAME?.trim() ||

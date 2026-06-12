@@ -68,8 +68,9 @@ pnpm infra:ps
 
 This starts Redis at `localhost:6379`, the API gateway at
 `http://localhost:4000`, the automation service at `http://localhost:8000`,
-`transcription-worker`, and `content-job-retry-worker`. Compose reads
-`SUPABASE_URL`, optional `SUPABASE_DOCKER_URL`, and
+`transcription-worker`, `clip-worker`, `stream-job-worker`, and
+`content-job-retry-worker`. Compose reads `SUPABASE_URL`, optional
+`SUPABASE_DOCKER_URL`, and
 `SUPABASE_SERVICE_ROLE_KEY` from the selected env file for the workers.
 Use `SUPABASE_DOCKER_URL=http://host.docker.internal:54321` when the worker in
 Docker should call a Supabase CLI stack running on your host. The gateway and
@@ -171,10 +172,19 @@ The production deployment topology is documented in
 - `services/automation-service` deploys to Railway first, or Fly.io when GPU-backed Whisper becomes required.
 - `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.
 
+For deployed Railway environments, use the SSH-based smoke path instead of the
+full rollout gate:
+
+```bash
+pnpm deployment:check:remote -- --project-id=<railway-project-id> --environment=production --service=transcription-worker --identity-file=$HOME/.ssh/railway_verifier --api-gateway-url=https://streamos-api-gateway.up.railway.app --automation-service-url=http://automation-service.railway.internal:8000 --expect-private-automation
+```
+
+The repository also includes a manual GitHub Actions workflow,
+`Railway Smoke Verification`, for the same private-network check.
+
 ### Required GitHub Secrets
 
-Set these values in GitHub repository or environment secrets before enabling
-the CI/CD workflows:
+Set these values before enabling the CI/CD workflows:
 
 ```bash
 VERCEL_TOKEN=
@@ -188,11 +198,12 @@ SUPABASE_DB_URL_PRODUCTION=
 DISCORD_WEBHOOK_URL=
 ```
 
-`DISCORD_WEBHOOK_URL` is optional; when it is not configured, production
-deployment notifications are still written to the GitHub Actions job summary.
-Use GitHub Environments named `staging` and `production` for environment-scoped
-secrets and enable required reviewers on `production` to enforce manual approval
-before production deploy and migration jobs run.
+Store `RAILWAY_PROJECT_ID` as a repository secret. Store
+`RAILWAY_TOKEN_STAGING`, `RAILWAY_TOKEN_PRODUCTION`,
+`SUPABASE_DB_URL_STAGING`, and `SUPABASE_DB_URL_PRODUCTION` in the matching
+GitHub Environments (`staging` and `production`). `DISCORD_WEBHOOK_URL` is
+optional; when it is not configured, production deployment notifications are
+still written to the GitHub Actions job summary.
 
 ## Queue Backend
 
@@ -203,12 +214,13 @@ the Redis protocol endpoint, not the REST endpoint:
 REDIS_URL=rediss://default:password@host.upstash.io:6379
 CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
-CLIP_WORKER_CONCURRENCY=1
+CLIP_WORKER_CONCURRENCY=2
 API_GATEWAY_SECRET=
 API_GATEWAY_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 API_GATEWAY_RATE_LIMIT_MAX=120
 API_GATEWAY_RATE_LIMIT_WINDOW_MS=60000
 STREAM_EVENT_WEBHOOK_SECRET=
+YOUTUBE_WEBSUB_SECRET=
 CONTENT_JOB_RETRY_ATTEMPTS=3
 CONTENT_JOB_RETRY_BACKOFF_MS=30000
 ```
@@ -216,10 +228,12 @@ CONTENT_JOB_RETRY_BACKOFF_MS=30000
 `POST /api/webhooks/streams/ended` queues the first automation job,
 `transcription.trigger`. Re-sending the same `stream_id` reuses the same BullMQ
 `jobId`, so one ended stream cannot enqueue duplicate transcription work.
-In production, `services/api-gateway` fails startup unless both
-`API_GATEWAY_SECRET` and `STREAM_EVENT_WEBHOOK_SECRET` are set. App-facing
-gateway routes accept `Authorization: Bearer $API_GATEWAY_SECRET`; external
-webhooks use `X-StreamOS-Webhook-Secret`.
+In production, `services/api-gateway` fails startup unless
+`API_GATEWAY_SECRET`, `STREAM_EVENT_WEBHOOK_SECRET`, and
+`YOUTUBE_WEBSUB_SECRET` are set. App-facing gateway routes accept
+`Authorization: Bearer $API_GATEWAY_SECRET`; signed stream webhooks must send
+`X-StreamOS-Event-Id`, `X-StreamOS-Timestamp`, and `X-StreamOS-Signature`
+derived from `STREAM_EVENT_WEBHOOK_SECRET`.
 
 ## Supabase Auth
 

@@ -138,6 +138,7 @@ jobs:
           - api-gateway
           - automation-service
           - clip-worker
+          - stream-job-worker
           - transcription-worker
           - content-job-retry-worker
 
@@ -285,13 +286,14 @@ jobs:
             echo "- Frontend: ${FRONTEND_RESULT}"
             echo "- Frontend URL: ${FRONTEND_URL}"
             echo "- Supabase schema rollback: not performed"
-            echo "- Follow-up: run rollout verification from a Railway shell before re-opening traffic-sensitive workflows"
+            echo "- Follow-up: run the Railway smoke verification before re-opening traffic-sensitive workflows"
             echo ""
             echo '```bash'
-            echo 'pnpm rollout:check -- \'
-            echo '  --env-file=.env \'
-            echo '  --skip-docker \'
-            echo '  --allow-hosted-e2e \'
+            echo 'pnpm deployment:check:remote -- \'
+            echo '  --project-id=<railway-project-id> \'
+            echo '  --environment=${{ inputs.environment }} \'
+            echo '  --service=transcription-worker \'
+            echo '  --identity-file=$HOME/.ssh/railway_verifier \'
             echo '  --api-gateway-url=https://streamos-api-gateway.up.railway.app \'
             echo '  --automation-service-url=http://automation-service.railway.internal:8000 \'
             echo '  --expect-private-automation'
@@ -321,7 +323,7 @@ jobs:
             --arg backend "${BACKEND_RESULT}" \
             --arg frontend "${FRONTEND_RESULT}" \
             --arg reason "${{ inputs.reason || 'not provided' }}" \
-            '{content: ("StreamOS rollback finished\nEnvironment: " + $environment + "\nGit ref: " + $ref + "\nCommit: `" + $sha + "`\nRailway services: " + $backend + "\nFrontend: " + $frontend + "\nReason: " + $reason + "\nSupabase schema rollback: not performed\nFollow-up: run `pnpm rollout:check ... --expect-private-automation` from a Railway shell.")}' \
+            '{content: ("StreamOS rollback finished\nEnvironment: " + $environment + "\nGit ref: " + $ref + "\nCommit: `" + $sha + "`\nRailway services: " + $backend + "\nFrontend: " + $frontend + "\nReason: " + $reason + "\nSupabase schema rollback: not performed\nFollow-up: run `pnpm deployment:check:remote ... --expect-private-automation` from a Railway SSH session or the Railway Smoke Verification workflow.")}' \
           )"
 
           curl --fail --silent --show-error \

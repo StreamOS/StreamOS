@@ -80,11 +80,7 @@ function loadWorkerConfig(
       STREAM_JOB_QUEUE_NAME,
     redisUrl: requireEnv(source, "REDIS_URL"),
     supabaseServiceRoleKey: requireEnv(source, "SUPABASE_SERVICE_ROLE_KEY"),
-    supabaseUrl: requireEnv(
-      source,
-      "SUPABASE_URL",
-      source.NEXT_PUBLIC_SUPABASE_URL,
-    ),
+    supabaseUrl: requireEnv(source, "SUPABASE_URL"),
   };
 }
 

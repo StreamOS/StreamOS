@@ -63,8 +63,7 @@ export function createAutomationCallbackRouter({
   apiGatewaySecret,
   fetchImpl = fetch,
   serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY,
-  supabaseUrl = process.env.SUPABASE_URL ??
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
+  supabaseUrl = process.env.SUPABASE_URL,
 }: CreateAutomationCallbackRouterOptions): Router {
   const router = express.Router();
 

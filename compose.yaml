@@ -95,7 +95,7 @@ services:
       QUEUE_DEFAULT_NAME: streamos-media
       TRANSCRIPTION_QUEUE_NAME: streamos-transcription
       AUTOMATION_SERVICE_URL: http://automation-service:8000
-      TRANSCRIPTION_WORKER_CONCURRENCY: ${TRANSCRIPTION_WORKER_CONCURRENCY:-1}
+      TRANSCRIPTION_WORKER_CONCURRENCY: ${TRANSCRIPTION_WORKER_CONCURRENCY:-2}
       SUPABASE_URL: ${SUPABASE_DOCKER_URL:-${SUPABASE_URL:-}}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
 
@@ -115,7 +115,25 @@ services:
       QUEUE_DEFAULT_NAME: streamos-media
       CLIP_GENERATION_QUEUE_NAME: streamos-clip-generation
       AUTOMATION_SERVICE_URL: http://automation-service:8000
-      CLIP_WORKER_CONCURRENCY: ${CLIP_WORKER_CONCURRENCY:-1}
+      CLIP_WORKER_CONCURRENCY: ${CLIP_WORKER_CONCURRENCY:-2}
+      SUPABASE_URL: ${SUPABASE_DOCKER_URL:-${SUPABASE_URL:-}}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+
+  stream-job-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.stream-job-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_DEFAULT_NAME: streamos-media
+      STREAM_JOB_QUEUE_NAME: streamos-media
+      STREAM_JOB_WORKER_CONCURRENCY: ${STREAM_JOB_WORKER_CONCURRENCY:-5}
+      STREAM_JOB_ALERT_WEBHOOK_URL: ${STREAM_JOB_ALERT_WEBHOOK_URL:-}
       SUPABASE_URL: ${SUPABASE_DOCKER_URL:-${SUPABASE_URL:-}}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
 

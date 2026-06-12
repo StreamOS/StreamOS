@@ -9,6 +9,8 @@ This document defines the production deployment topology for the StreamOS monore
 | `apps/web`                         | Next.js App Router    | Vercel                                                         | Dashboard, auth surfaces, Twitch OAuth server handlers                      |
 | `services/api-gateway`             | Node.js               | Railway                                                        | Public API gateway, non-Twitch OAuth, webhook ingress, BullMQ job producers |
 | `services/automation-service`      | FastAPI               | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                                     |
+| `workers/clip-worker`              | Node.js BullMQ Worker | Railway Worker Dyno                                            | Long-running clip-generation consumer that calls FastAPI                    |
+| `workers/stream-job-worker`        | Node.js BullMQ Worker | Railway Worker Dyno                                            | Consumes normalized provider webhook jobs and persists stream state         |
 | `workers/transcription-worker`     | Node.js BullMQ Worker | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI                      |
 | `workers/content-job-retry-worker` | Node.js BullMQ Worker | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into BullMQ                        |
 
@@ -20,7 +22,9 @@ This document defines the production deployment topology for the StreamOS monore
   until the gateway owns a signed Supabase user-session hand-off and
   tenant-safe encrypted token persistence.
 - `services/automation-service` should use private Railway networking in production. Do not call it from browser code or Vercel client bundles; only Railway services/workers in the same project/environment should call it.
-- `workers/transcription-worker` owns BullMQ consumption, calls `services/automation-service`, and writes job status to Supabase.
+- `workers/stream-job-worker` owns the `streamos-media` queue fed by provider webhooks. It normalizes stream/video events into durable Supabase state and must not embed direct browser-facing or AI-provider credentials.
+- `workers/transcription-worker` owns only `streamos-transcription` BullMQ consumption, calls `services/automation-service`, and writes job status to Supabase.
+- `workers/clip-worker` owns `streamos-clip-generation` BullMQ consumption, calls `services/automation-service`, and persists highlight, clip, and export artifacts to Supabase.
 - `workers/content-job-retry-worker` owns retry orchestration for failed `content_jobs`; it uses the Supabase service-role key server-side and requeues only supported job payloads. Row-level `content_jobs.max_retries` is the source of truth for retry budget, including manual retries from the dashboard.
 - Python does not consume BullMQ directly. Redis is the shared backing service, but BullMQ job semantics remain Node-owned.
 - OpenAI, provider client secrets, Supabase service role keys, and Redis credentials are server-only.
@@ -89,7 +93,6 @@ REDIS_URL=rediss://default:password@host:6379
 QUEUE_DEFAULT_NAME=streamos-media
 CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
-CLIP_WORKER_CONCURRENCY=2
 API_GATEWAY_SECRET=
 API_GATEWAY_ALLOWED_ORIGINS=https://app.streamos.example
 CONNECT_SUCCESS_REDIRECT=https://app.streamos.example/dashboard/platforms
@@ -126,7 +129,9 @@ Security model:
 
 - `/health` is public and not rate-limited so Railway healthchecks remain reliable.
 - App-facing `/api/*` routes require `Authorization: Bearer $API_GATEWAY_SECRET` or `X-StreamOS-API-Secret`.
-- External stream webhooks require `X-StreamOS-Webhook-Secret: $STREAM_EVENT_WEBHOOK_SECRET`.
+- External stream webhooks require raw-body HMAC headers
+  `X-StreamOS-Event-Id`, `X-StreamOS-Timestamp`, and
+  `X-StreamOS-Signature`, derived from `STREAM_EVENT_WEBHOOK_SECRET`.
 - Gateway OAuth connect requests require a short-lived `handoff` token signed
   with `API_GATEWAY_SECRET`; callbacks validate one-time state plus PKCE before
   encrypted token persistence, then redirect to the safe `return_to` target or
@@ -181,12 +186,80 @@ RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 `OPENAI_MODEL` is reserved for complex analysis tasks. Title-generation jobs
 should use `OPENAI_TITLE_MODEL`.
 
-Keep public networking disabled for steady-state production. During first deploy only, you may temporarily enable a Railway public domain to smoke-test `/health`, then remove it and verify from the transcription worker Railway shell with `node scripts/check-deployment.cjs --expect-private-automation`.
+Keep public networking disabled for steady-state production. During first deploy only, you may temporarily enable a Railway public domain to smoke-test `/health`, then remove it and verify from a Railway worker shell with `node scripts/check-deployment.cjs --expect-private-automation`.
 
 Validation:
 
 ```bash
 python -m pytest services/automation-service
+```
+
+## Railway Worker Dyno: `workers/clip-worker`
+
+The clip worker is a Node.js BullMQ consumer. It consumes the same
+`streamos-clip-generation` queue that upstream services produce, calls FastAPI
+for clip analysis, and persists derived highlights, clips, and export drafts in
+Supabase.
+
+Recommended Docker configuration:
+
+| Setting           | Value                    |
+| ----------------- | ------------------------ |
+| Dockerfile Path   | `Dockerfile.clip-worker` |
+| Service Type      | Worker                   |
+| Public Networking | Disabled                 |
+
+Required variables:
+
+```bash
+REDIS_URL=rediss://default:password@host:6379
+CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
+CLIP_WORKER_CONCURRENCY=2
+AUTOMATION_SERVICE_URL=http://${{automation-service.RAILWAY_PRIVATE_DOMAIN}}:8000
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+```
+
+Validation:
+
+```bash
+pnpm --filter @streamos/clip-worker lint
+pnpm --filter @streamos/clip-worker test
+pnpm --filter @streamos/clip-worker build
+```
+
+## Railway Worker Dyno: `workers/stream-job-worker`
+
+The stream job worker consumes normalized provider webhook events from the
+`streamos-media` queue, upserts `streams`, and creates durable `content_jobs`
+rows for downstream processing. It must not depend on provider client secrets or
+call `services/automation-service` directly.
+
+Recommended Docker configuration:
+
+| Setting           | Value                          |
+| ----------------- | ------------------------------ |
+| Dockerfile Path   | `Dockerfile.stream-job-worker` |
+| Service Type      | Worker                         |
+| Public Networking | Disabled                       |
+
+Required variables:
+
+```bash
+REDIS_URL=rediss://default:password@host:6379
+QUEUE_DEFAULT_NAME=streamos-media
+STREAM_JOB_QUEUE_NAME=streamos-media
+STREAM_JOB_WORKER_CONCURRENCY=5
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+STREAM_JOB_ALERT_WEBHOOK_URL=
+```
+
+Validation:
+
+```bash
+pnpm --filter stream-job-worker lint
+pnpm --filter stream-job-worker build
 ```
 
 ## Railway Worker Dyno: `workers/transcription-worker`
@@ -207,7 +280,6 @@ Required variables:
 REDIS_URL=rediss://default:password@host:6379
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
 TRANSCRIPTION_WORKER_CONCURRENCY=2
-CLIP_WORKER_CONCURRENCY=2
 AUTOMATION_SERVICE_URL=http://${{automation-service.RAILWAY_PRIVATE_DOMAIN}}:8000
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
@@ -245,7 +317,6 @@ Required variables:
 REDIS_URL=rediss://default:password@host:6379
 CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
-CLIP_WORKER_CONCURRENCY=2
 CONTENT_JOB_RETRY_WORKER_BATCH_SIZE=25
 CONTENT_JOB_RETRY_WORKER_POLL_INTERVAL_MS=60000
 CONTENT_JOB_RETRY_ATTEMPTS=3
@@ -264,33 +335,50 @@ pnpm --filter @streamos/content-job-retry-worker build
 
 ## Production Checks
 
-Run the rollout gate before promoting a deployment. This is mandatory for
-release candidates because it combines tenant security validation, API Gateway
-integration tests, signed-webhook tests, the transcription E2E path, and
-service health checks in one ordered command.
+Run the rollout gate before promoting a deployment from a checked-out copy of
+the repository. This is the pre-promotion gate because it combines tenant
+security validation, API Gateway integration tests, signed-webhook tests, the
+transcription E2E path, and service health checks in one ordered command.
 
 ```bash
 pnpm rollout:check -- --env-file=.env.test
 ```
 
-For a deployed release candidate, run the gate from an environment that can
-reach the private Automation Service URL, for example a Railway shell in the
-same project/environment:
+For deployed environments, use a separate remote smoke verification from a
+Railway service that can reach private networking. The worker images now bundle
+`scripts/check-deployment.cjs`, so `transcription-worker`, `clip-worker`,
+`stream-job-worker`, or `content-job-retry-worker` can be used as the SSH
+entrypoint. A supported remote path is:
 
 ```bash
-pnpm rollout:check -- \
-  --env-file=.env \
-  --skip-docker \
-  --allow-hosted-e2e \
+pnpm deployment:check:remote -- \
+  --project-id=<railway-project-id> \
+  --environment=production \
+  --service=transcription-worker \
+  --identity-file=$HOME/.ssh/railway_verifier \
   --api-gateway-url=https://streamos-api-gateway.up.railway.app \
   --automation-service-url=http://automation-service.railway.internal:8000 \
   --expect-private-automation
 ```
 
-Do not promote when `rollout:check` fails. `--skip-docker` is only valid when
-the target services are already running, and `--allow-hosted-e2e` must only be
-used intentionally because the transcription E2E creates disposable Supabase
-rows via the service-role key.
+The repository also includes a manual GitHub Actions workflow,
+`Railway Smoke Verification`, which wraps the same SSH-based check for staging
+or production. Configure these secrets before using it:
+
+- `RAILWAY_PROJECT_ID`
+- `RAILWAY_API_TOKEN`
+  Use a workspace-scoped Railway API token for CI verification.
+- `RAILWAY_VERIFIER_SSH_PRIVATE_KEY`
+  Register the matching public key as a Railway workspace SSH key.
+
+You can optionally store `API_GATEWAY_URL` as a GitHub Environment variable on
+`staging` and `production`, otherwise pass it as a workflow input.
+
+Do not promote when `rollout:check` fails. Treat the remote Railway smoke check
+as the deployed-environment confirmation that `/health` passes from both the
+public gateway and the private Automation Service path.
 
 The private Automation Service check cannot succeed from a local shell or
-Vercel because Railway private networking is not public internet.
+Vercel because Railway private networking is not public internet. The SSH-based
+workflow follows Railway's documented `railway ssh` single-command mode and its
+workspace SSH key model.

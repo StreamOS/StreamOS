@@ -1,0 +1,158 @@
+name: Railway Smoke Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Railway environment to verify
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      api_gateway_url:
+        description: Public API Gateway base URL. Leave empty to use the GitHub Environment variable API_GATEWAY_URL.
+        required: false
+        type: string
+      automation_service_url:
+        description: Optional private Automation Service URL override
+        required: false
+        default: http://automation-service.railway.internal:8000
+        type: string
+      service:
+        description: Railway service used as the private-network SSH entrypoint
+        required: true
+        default: transcription-worker
+        type: choice
+        options:
+          - transcription-worker
+          - clip-worker
+          - stream-job-worker
+          - content-job-retry-worker
+      timeout_ms:
+        description: Health-check timeout in milliseconds
+        required: true
+        default: "5000"
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+  RAILWAY_CLI_VERSION: "4.58.0"
+
+jobs:
+  verify:
+    name: Verify Railway smoke path
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate required secrets
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_VERIFIER_SSH_PRIVATE_KEY: ${{ secrets.RAILWAY_VERIFIER_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RAILWAY_API_TOKEN}" ]; then
+            echo "::error::Missing secret RAILWAY_API_TOKEN. Use a workspace-scoped Railway API token for SSH-based CI verification."
+            exit 1
+          fi
+
+          if [ -z "${RAILWAY_PROJECT_ID}" ]; then
+            echo "::error::Missing secret RAILWAY_PROJECT_ID."
+            exit 1
+          fi
+
+          if [ -z "${RAILWAY_VERIFIER_SSH_PRIVATE_KEY}" ]; then
+            echo "::error::Missing secret RAILWAY_VERIFIER_SSH_PRIVATE_KEY. Register the matching public key as a Railway workspace SSH key."
+            exit 1
+          fi
+
+      - name: Resolve verification target
+        id: target
+        env:
+          INPUT_API_GATEWAY_URL: ${{ inputs.api_gateway_url }}
+          INPUT_AUTOMATION_SERVICE_URL: ${{ inputs.automation_service_url }}
+          ENV_API_GATEWAY_URL: ${{ vars.API_GATEWAY_URL }}
+        run: |
+          set -euo pipefail
+
+          api_gateway_url="${INPUT_API_GATEWAY_URL}"
+          if [ -z "${api_gateway_url}" ]; then
+            api_gateway_url="${ENV_API_GATEWAY_URL}"
+          fi
+
+          if [ -z "${api_gateway_url}" ]; then
+            echo "::error::Provide api_gateway_url input or define API_GATEWAY_URL as a GitHub Environment variable."
+            exit 1
+          fi
+
+          {
+            echo "api_gateway_url=${api_gateway_url}"
+            echo "automation_service_url=${INPUT_AUTOMATION_SERVICE_URL}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Railway CLI
+        run: npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
+
+      - name: Prepare SSH key
+        id: ssh
+        env:
+          RAILWAY_VERIFIER_SSH_PRIVATE_KEY: ${{ secrets.RAILWAY_VERIFIER_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p "${HOME}/.ssh"
+          key_path="${RUNNER_TEMP}/railway_verifier"
+          printf '%s\n' "${RAILWAY_VERIFIER_SSH_PRIVATE_KEY}" > "${key_path}"
+          chmod 600 "${key_path}"
+
+          cat > "${HOME}/.ssh/config" <<'EOF'
+          Host ssh.railway.com
+            StrictHostKeyChecking accept-new
+          EOF
+          chmod 600 "${HOME}/.ssh/config"
+
+          echo "key_path=${key_path}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run Railway smoke verification
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+
+          node scripts/run-railway-smoke-check.cjs \
+            --project-id="${RAILWAY_PROJECT_ID}" \
+            --environment="${{ inputs.environment }}" \
+            --service="${{ inputs.service }}" \
+            --identity-file="${{ steps.ssh.outputs.key_path }}" \
+            --api-gateway-url="${{ steps.target.outputs.api_gateway_url }}" \
+            --automation-service-url="${{ steps.target.outputs.automation_service_url }}" \
+            --timeout-ms="${{ inputs.timeout_ms }}"
+
+      - name: Write verification summary
+        run: |
+          {
+            echo "## Railway Smoke Verification"
+            echo ""
+            echo "- Environment: ${{ inputs.environment }}"
+            echo "- SSH entrypoint service: ${{ inputs.service }}"
+            echo "- API Gateway URL: ${{ steps.target.outputs.api_gateway_url }}"
+            echo "- Automation Service URL: ${{ steps.target.outputs.automation_service_url }}"
+            echo "- Timeout: ${{ inputs.timeout_ms }} ms"
+          } >> "${GITHUB_STEP_SUMMARY}"

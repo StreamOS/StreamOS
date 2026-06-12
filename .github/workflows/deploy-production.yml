@@ -38,6 +38,34 @@ jobs:
     name: CI
     uses: ./.github/workflows/ci.yml
 
+  detect-deploy-changes:
+    name: Detect deployable backend changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      deploy_backend: ${{ steps.detect.outputs.deploy_backend }}
+      detection_mode: ${{ steps.detect.outputs.detection_mode }}
+      railway_services_json: ${{ steps.detect.outputs.railway_services_json }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Detect changed Railway services
+        id: detect
+        run: |
+          node scripts/detect-deploy-changes.cjs \
+            --base "${{ github.event.before }}" \
+            --head "${{ github.sha }}" \
+            --github-output "${GITHUB_OUTPUT}"
+
   release:
     name: Create GitHub release
     runs-on: ubuntu-latest
@@ -147,8 +175,10 @@ jobs:
     name: Deploy ${{ matrix.service }} to Railway production
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: ci
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_backend_services }}
+    needs:
+      - ci
+      - detect-deploy-changes
+    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.deploy_backend_services) && (github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect-deploy-changes.outputs.railway_services_json), matrix.service)) }}
     environment:
       name: production
     strategy:
@@ -158,6 +188,7 @@ jobs:
           - api-gateway
           - automation-service
           - clip-worker
+          - stream-job-worker
           - transcription-worker
           - content-job-retry-worker
 
