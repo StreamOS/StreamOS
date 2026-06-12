@@ -132,6 +132,9 @@ KICK_WEBHOOK_SECRET=
 RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 ```
 
+`HOST=::` is the Railway binding value for both the gateway and the automation
+service. Local Compose keeps `HOST=0.0.0.0` through `.env.compose.example`.
+
 Twitch OAuth variables are not required in the API gateway while the Twitch flow
 remains in `apps/web`. YouTube, TikTok, and Kick are gateway-owned and must use
 the API Gateway callback URLs shown above.
@@ -185,19 +188,19 @@ HOST=::
 PORT=8000
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o
-OPENAI_TITLE_MODEL=gpt-4o-mini
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_TIMEOUT_SECONDS=30
 OPENAI_MAX_TRANSCRIPTION_MEDIA_BYTES=25000000
-REPLICATE_API_TOKEN=
 STREAMOS_E2E_MODE=false
 TRANSCRIPTION_PROCESSOR_MODE=openai
 RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 ```
 
-`OPENAI_MODEL` is reserved for complex analysis tasks. Title-generation jobs
-should use `OPENAI_TITLE_MODEL`.
+`OPENAI_MODEL` is reserved for complex analysis tasks.
+
+`REPLICATE_API_TOKEN` is not required for the current OpenAI-only runtime.
+Leave it unset until a Replicate processor is actually implemented.
 
 Keep public networking disabled for steady-state production. During first deploy only, you may temporarily enable a Railway public domain to smoke-test `/health`, then remove it and verify from a Railway worker shell with `node scripts/check-deployment.cjs --expect-private-automation`.
 

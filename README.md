@@ -143,11 +143,11 @@ Configure AI provider credentials only for `services/automation-service`:
 ```bash
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o
-OPENAI_TITLE_MODEL=gpt-4o-mini
 ```
 
 Use `OPENAI_MODEL=gpt-4o` for complex clip analysis and repurposing tasks.
-Use `OPENAI_TITLE_MODEL=gpt-4o-mini` for low-latency title generation.
+Title suggestions are currently produced by the clip-analysis pipeline; there
+is no separate title-generation model yet.
 
 Browser code should call StreamOS API routes or backend services. It must never
 call OpenAI directly.

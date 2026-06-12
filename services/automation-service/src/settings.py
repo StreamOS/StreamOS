@@ -17,7 +17,6 @@ class Settings:
     streamos_e2e_mode: bool
     openai_api_key: str
     openai_model: str
-    openai_title_model: str
     openai_transcription_model: str
     openai_base_url: str
     openai_timeout_seconds: float
@@ -76,8 +75,6 @@ def load_settings(source: Mapping[str, str] | None = None) -> Settings:
         streamos_e2e_mode=e2e_mode,
         openai_api_key=values.get("OPENAI_API_KEY", "").strip(),
         openai_model=values.get("OPENAI_MODEL", "gpt-4o").strip() or "gpt-4o",
-        openai_title_model=values.get("OPENAI_TITLE_MODEL", "gpt-4o-mini").strip()
-        or "gpt-4o-mini",
         openai_transcription_model=values.get(
             "OPENAI_TRANSCRIPTION_MODEL", "gpt-4o-transcribe"
         ).strip()
