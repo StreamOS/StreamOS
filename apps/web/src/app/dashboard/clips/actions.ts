@@ -63,7 +63,7 @@ export async function startClipAnalysisAction(formData: FormData) {
     channelId: channel.id,
     provider: channel.platform,
     sourceUrl: values.sourceUrl,
-    supabase,
+    supabase: serviceSupabase,
     userId,
   });
   const queuePayload = buildClipGenerationQueuePayload({

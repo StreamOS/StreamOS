@@ -44,16 +44,11 @@ const platformConnectionReadableColumns = [
   "updated_at",
 ];
 
-const contentJobClientInsertColumns = [
-  "user_id",
-  "stream_id",
-  "queue_job_id",
-  "job_type",
-  "payload",
-];
-
 const authenticatedReadOnlyTables = [
+  "clips",
+  "content_jobs",
   "metrics_snapshots",
+  "streams",
   "vod_assets",
   "stream_transcripts",
   "clip_exports",
@@ -63,10 +58,20 @@ const authenticatedReadOnlyTables = [
 ];
 
 const authenticatedReadOnlyWritePolicies = {
+  clips: {
+    delete: "Clips can be deleted by their user",
+    insert: "Clips can be inserted by their user",
+    update: "Clips can be updated by their user",
+  },
   clip_exports: {
     delete: "Clip exports can be deleted by their user",
     insert: "Clip exports can be inserted by their user",
     update: "Clip exports can be updated by their user",
+  },
+  content_jobs: {
+    delete: "Content jobs can be deleted by their user",
+    insert: "Content jobs can be inserted by their user",
+    update: "Content jobs can be updated by their user",
   },
   metrics_snapshots: {
     delete: "Metrics snapshots can be deleted by their user",
@@ -92,6 +97,11 @@ const authenticatedReadOnlyWritePolicies = {
     delete: "Stream transcripts can be deleted by their user",
     insert: "Stream transcripts can be inserted by their user",
     update: "Stream transcripts can be updated by their user",
+  },
+  streams: {
+    delete: "Streams can be deleted by their user",
+    insert: "Streams can be inserted by their user",
+    update: "Streams can be updated by their user",
   },
   vod_assets: {
     delete: "VOD assets can be deleted by their user",
@@ -184,6 +194,24 @@ const columnGrantRegex = (table, action, columns, role) =>
       .join("\\s*,\\s*")}\\s*\\)\\s+on\\s+public\\.${escapeRegex(
       table,
     )}\\s+to\\s+${escapeRegex(role)}`,
+    "i",
+  );
+
+const anyColumnGrantRegex = (table, action, role) =>
+  new RegExp(
+    `grant\\s+${action}\\s*\\([^)]*\\)\\s+on\\s+public\\.${escapeRegex(
+      table,
+    )}\\s+to\\s+${escapeRegex(role)}`,
+    "i",
+  );
+
+const columnRevokeRegex = (table, action, columns, role) =>
+  new RegExp(
+    `revoke\\s+${action}\\s*\\(\\s*${columns
+      .map(escapeRegex)
+      .join("\\s*,\\s*")}\\s*\\)\\s+on\\s+public\\.${escapeRegex(
+      table,
+    )}\\s+from\\s+${escapeRegex(role)}`,
     "i",
   );
 
@@ -327,78 +355,6 @@ for (const table of tenantTables) {
       ),
       `${table}: authenticated SELECT grant must use explicit non-token columns`,
     );
-  } else if (table === "content_jobs") {
-    const updatePolicyName = "Content jobs can be updated by their user";
-    const deletePolicyName = "Content jobs can be deleted by their user";
-
-    assertPattern(
-      hasPattern(
-        policyRegex(
-          table,
-          "insert",
-          `with\\s+check\\s*\\(\\s*${authenticatedUserScope}\\s*\\)`,
-        ),
-      ),
-      `${table}: INSERT policy must explicitly check auth.uid() is not null and user_id = auth.uid()`,
-    );
-
-    assertPattern(
-      hasPattern(droppedPolicyRegex(table, updatePolicyName)),
-      `${table}: authenticated UPDATE policy must be dropped; status/result/retry writes are service-side only`,
-    );
-
-    assertPattern(
-      hasPattern(droppedPolicyRegex(table, deletePolicyName)),
-      `${table}: authenticated DELETE policy must be dropped; job state is service-side only`,
-    );
-
-    assertPattern(
-      lastPatternIndex(droppedPolicyRegex(table, updatePolicyName)) >
-        lastPatternIndex(
-          namedWritePolicyRegex(table, updatePolicyName, "update"),
-        ),
-      `${table}: final UPDATE policy state must be dropped`,
-    );
-
-    assertPattern(
-      lastPatternIndex(droppedPolicyRegex(table, deletePolicyName)) >
-        lastPatternIndex(
-          namedWritePolicyRegex(table, deletePolicyName, "delete"),
-        ),
-      `${table}: final DELETE policy state must be dropped`,
-    );
-
-    assertPattern(
-      lastPatternIndex(
-        new RegExp(
-          `revoke\\s+insert\\s*,\\s*update\\s*,\\s*delete\\s+on\\s+public\\.${tableName}\\s+from\\s+authenticated`,
-          "i",
-        ),
-      ) > lastPatternIndex(tableCrudGrantRegex(table)),
-      `${table}: authenticated table-level write grants must be revoked after earlier CRUD grants`,
-    );
-
-    assertPattern(
-      hasPattern(
-        columnGrantRegex(
-          table,
-          "insert",
-          contentJobClientInsertColumns,
-          "authenticated",
-        ),
-      ),
-      `${table}: authenticated INSERT grant must exclude status/result/retry columns`,
-    );
-
-    assertPattern(
-      hasPattern(
-        new RegExp(
-          `grant\\s+select\\s+on\\s+public\\.${tableName}\\s+to\\s+authenticated`,
-          "i",
-        ),
-      ),
-      `${table}: authenticated role must keep explicit SELECT grant`,
-    );
   } else if (authenticatedReadOnlyTables.includes(table)) {
     const writePolicies = authenticatedReadOnlyWritePolicies[table];
     const policyActions = ["insert", "update", "delete"];
@@ -452,6 +408,31 @@ for (const table of tenantTables) {
       ),
       `${table}: authenticated role must keep explicit read-only SELECT grant`,
     );
+
+    if (table === "content_jobs") {
+      assertPattern(
+        lastPatternIndex(
+          columnRevokeRegex(
+            table,
+            "insert",
+            [
+              "user_id",
+              "stream_id",
+              "channel_id",
+              "queue_job_id",
+              "job_type",
+              '"type"',
+              "payload",
+            ],
+            "authenticated",
+          ),
+        ) >
+          lastPatternIndex(
+            anyColumnGrantRegex(table, "insert", "authenticated"),
+          ),
+        `${table}: authenticated column-level INSERT grants must be revoked after earlier column grants`,
+      );
+    }
   } else {
     assertPattern(
       hasPattern(
