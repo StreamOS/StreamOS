@@ -236,7 +236,9 @@ function createRequestBody({
     "hub.topic": topicUrl,
   });
   const verifyToken =
-    options.verifyToken ?? process.env.YOUTUBE_WEBSUB_VERIFY_TOKEN?.trim();
+    options.verifyToken ??
+    process.env.YOUTUBE_WEBSUB_VERIFY_TOKEN?.trim() ??
+    secret;
 
   if (mode === "subscribe") {
     body.set("hub.lease_seconds", String(leaseSeconds));
