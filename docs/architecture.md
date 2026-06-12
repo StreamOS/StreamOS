@@ -49,6 +49,21 @@ apps/web/src/
 - AI jobs for transcription, clip scoring, title generation, and repurposing.
 - Rate limiting, retry handling, and audit logging for external API calls.
 
+## Worker Topology
+
+- `workers/stream-job-worker` consumes `streamos-media`, materializes provider
+  webhook events into durable `streams` rows, and creates pending
+  `content_jobs` for downstream processing.
+- `workers/transcription-worker` consumes `streamos-transcription`, calls the
+  automation service for transcription, and persists the resulting job state.
+- `workers/clip-worker` consumes `streamos-clip-generation`, calls the
+  automation service for clip analysis, and persists highlight, clip, and
+  export artifacts.
+- `workers/content-job-retry-worker` scans failed `content_jobs`, applies the
+  retry budget, and requeues eligible transcription or clip jobs.
+- `services/api-gateway` owns the queue-producing side of the worker pipeline
+  for non-Twitch provider ingress and app-facing job creation.
+
 ## Data Model Direction
 
 The initial Supabase migration lives in `packages/database/supabase/migrations/0001_initial_streamos_schema.sql`.

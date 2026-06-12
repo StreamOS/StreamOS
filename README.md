@@ -14,6 +14,9 @@ StreamOS/
 |   |-- api-gateway/             # Backend-for-frontend aggregation service
 |   `-- automation-service/      # FastAPI service for clip and AI pipelines
 |-- workers/
+|   |-- clip-worker/             # BullMQ clip-generation worker
+|   |-- content-job-retry-worker/ # Retry orchestrator for failed content jobs
+|   |-- stream-job-worker/       # Webhook materialization worker for streams/content jobs
 |   `-- transcription-worker/    # Async media transcription worker
 |-- packages/
 |   |-- config/                  # Shared TypeScript configuration
@@ -68,9 +71,18 @@ pnpm infra:ps
 
 This starts Redis at `localhost:6379`, the API gateway at
 `http://localhost:4000`, the automation service at `http://localhost:8000`,
-`transcription-worker`, `clip-worker`, `stream-job-worker`, and
-`content-job-retry-worker`. Compose reads `SUPABASE_URL`, optional
-`SUPABASE_DOCKER_URL`, and
+and the worker fleet:
+
+- `stream-job-worker` materializes provider webhooks into `streams` and
+  `content_jobs`.
+- `transcription-worker` consumes `streamos-transcription` jobs and calls the
+  automation service.
+- `clip-worker` consumes `streamos-clip-generation` jobs and calls the
+  automation service.
+- `content-job-retry-worker` scans failed `content_jobs` and requeues supported
+  jobs to the clip or transcription queues.
+
+Compose reads `SUPABASE_URL`, optional `SUPABASE_DOCKER_URL`, and
 `SUPABASE_SERVICE_ROLE_KEY` from the selected env file for the workers.
 Use `SUPABASE_DOCKER_URL=http://host.docker.internal:54321` when the worker in
 Docker should call a Supabase CLI stack running on your host. The gateway and
@@ -171,7 +183,10 @@ The production deployment topology is documented in
   `apps/web` with `pnpm --filter @streamos/web build`.
 - `services/api-gateway` deploys to Railway with `Dockerfile.api-gateway`.
 - `services/automation-service` deploys to Railway first, or Fly.io when GPU-backed Whisper becomes required.
+- `workers/stream-job-worker` deploys to Railway as a Node.js BullMQ worker that materializes provider webhooks.
 - `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.
+- `workers/clip-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for clip analysis.
+- `workers/content-job-retry-worker` deploys to Railway as a Node.js retry orchestrator for failed content jobs.
 
 For deployed Railway environments, use the SSH-based smoke path instead of the
 full rollout gate:

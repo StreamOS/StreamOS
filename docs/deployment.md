@@ -4,15 +4,19 @@ This document defines the production deployment topology for the StreamOS monore
 
 ## Target Topology
 
-| Path                               | Runtime               | Platform                                                       | Purpose                                                                     |
-| ---------------------------------- | --------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `apps/web`                         | Next.js App Router    | Vercel                                                         | Dashboard, auth surfaces, Twitch OAuth server handlers                      |
-| `services/api-gateway`             | Node.js               | Railway                                                        | Public API gateway, non-Twitch OAuth, webhook ingress, BullMQ job producers |
-| `services/automation-service`      | FastAPI               | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                                     |
-| `workers/clip-worker`              | Node.js BullMQ Worker | Railway Worker Dyno                                            | Long-running clip-generation consumer that calls FastAPI                    |
-| `workers/stream-job-worker`        | Node.js BullMQ Worker | Railway Worker Dyno                                            | Consumes normalized provider webhook jobs and persists stream state         |
-| `workers/transcription-worker`     | Node.js BullMQ Worker | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI                      |
-| `workers/content-job-retry-worker` | Node.js BullMQ Worker | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into BullMQ                        |
+| Path                               | Runtime               | Platform                                                       | Purpose                                                                                        |
+| ---------------------------------- | --------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `apps/web`                         | Next.js App Router    | Vercel                                                         | Dashboard, auth surfaces, Twitch OAuth server handlers                                         |
+| `services/api-gateway`             | Node.js               | Railway                                                        | Public API gateway, non-Twitch OAuth, webhook ingress, BullMQ job producers                    |
+| `services/automation-service`      | FastAPI               | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                                                        |
+| `workers/clip-worker`              | Node.js BullMQ Worker | Railway Worker Dyno                                            | Long-running clip-generation consumer that calls FastAPI and persists clip artifacts           |
+| `workers/stream-job-worker`        | Node.js BullMQ Worker | Railway Worker Dyno                                            | Consumes normalized provider webhook jobs, upserts streams, and creates pending `content_jobs` |
+| `workers/transcription-worker`     | Node.js BullMQ Worker | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI and persists job status                 |
+| `workers/content-job-retry-worker` | Node.js BullMQ Worker | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` back onto clip or transcription queues                |
+
+The worker tier is split into one ingress/materialization worker
+(`stream-job-worker`), two AI consumers (`transcription-worker` and
+`clip-worker`), and one retry orchestrator (`content-job-retry-worker`).
 
 ## Service Boundaries
 
