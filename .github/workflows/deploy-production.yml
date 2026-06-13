@@ -1,9 +1,6 @@
 name: CD - Production Deployment
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       deploy_backend_services:
@@ -11,8 +8,23 @@ on:
         required: true
         default: true
         type: boolean
+      deploy_frontend:
+        description: Deploy the web app to Vercel production
+        required: true
+        default: true
+        type: boolean
+      apply_database_migrations:
+        description: Apply Supabase production migrations after deployment
+        required: true
+        default: true
+        type: boolean
       repair_supabase_migration_history:
         description: Mark known orphaned Supabase production migrations as reverted before db push
+        required: true
+        default: false
+        type: boolean
+      confirm_production:
+        description: Confirm that this run may deploy to production
         required: true
         default: false
         type: boolean
@@ -38,11 +50,72 @@ jobs:
     name: CI
     uses: ./.github/workflows/ci.yml
 
+  production-approval:
+    name: Await production approval
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: ci
+    if: ${{ inputs.confirm_production }}
+    environment:
+      name: production
+
+    steps:
+      - name: Validate production request
+        env:
+          APPLY_DATABASE_MIGRATIONS: ${{ inputs.apply_database_migrations }}
+          DEPLOY_BACKEND_SERVICES: ${{ inputs.deploy_backend_services }}
+          DEPLOY_FRONTEND: ${{ inputs.deploy_frontend }}
+          REPAIR_SUPABASE_MIGRATION_HISTORY: ${{ inputs.repair_supabase_migration_history }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${DEPLOY_BACKEND_SERVICES}" != "true" ] && \
+            [ "${DEPLOY_FRONTEND}" != "true" ] && \
+            [ "${APPLY_DATABASE_MIGRATIONS}" != "true" ]; then
+            echo "::error::Select at least one production action before approving this workflow."
+            exit 1
+          fi
+
+          if [ "${APPLY_DATABASE_MIGRATIONS}" = "true" ] && [ "${DEPLOY_FRONTEND}" != "true" ]; then
+            echo "::error::Production database migrations require deploy_frontend=true in this workflow."
+            exit 1
+          fi
+
+          if [ "${REPAIR_SUPABASE_MIGRATION_HISTORY}" = "true" ] && \
+            [ "${APPLY_DATABASE_MIGRATIONS}" != "true" ]; then
+            echo "::error::repair_supabase_migration_history requires apply_database_migrations=true."
+            exit 1
+          fi
+
+      - name: Record production approval
+        env:
+          APPLY_DATABASE_MIGRATIONS: ${{ inputs.apply_database_migrations }}
+          DEPLOY_BACKEND_SERVICES: ${{ inputs.deploy_backend_services }}
+          DEPLOY_FRONTEND: ${{ inputs.deploy_frontend }}
+          REPAIR_SUPABASE_MIGRATION_HISTORY: ${{ inputs.repair_supabase_migration_history }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## StreamOS Production Approval"
+            echo ""
+            echo "- Backend services: ${DEPLOY_BACKEND_SERVICES}"
+            echo "- Frontend: ${DEPLOY_FRONTEND}"
+            echo "- Database migrations: ${APPLY_DATABASE_MIGRATIONS}"
+            echo "- Repair migration history: ${REPAIR_SUPABASE_MIGRATION_HISTORY}"
+            echo "- Commit: ${GITHUB_SHA::7}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   release:
     name: Create GitHub release
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: ci
+    needs:
+      - ci
+      - production-approval
+    if: ${{ needs.production-approval.result == 'success' }}
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       url: ${{ steps.release.outputs.url }}
@@ -147,8 +220,10 @@ jobs:
     name: Deploy ${{ matrix.service }} to Railway production
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: ci
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_backend_services }}
+    needs:
+      - ci
+      - production-approval
+    if: ${{ inputs.deploy_backend_services && needs.production-approval.result == 'success' }}
     environment:
       name: production
     strategy:
@@ -185,9 +260,10 @@ jobs:
     timeout-minutes: 20
     needs:
       - ci
+      - production-approval
       - release
       - deploy-railway
-    if: ${{ always() && needs.ci.result == 'success' && needs.release.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+    if: ${{ always() && inputs.deploy_frontend && needs.ci.result == 'success' && needs.production-approval.result == 'success' && needs.release.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
     environment:
       name: production
       url: ${{ steps.deploy.outputs.url }}
@@ -251,9 +327,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs:
+      - production-approval
       - deploy-web
       - deploy-railway
-    if: ${{ always() && needs.deploy-web.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+    if: ${{ always() && inputs.apply_database_migrations && needs.production-approval.result == 'success' && needs.deploy-web.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
     environment:
       name: production
 
@@ -305,11 +382,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs:
+      - production-approval
       - release
       - deploy-web
       - deploy-railway
       - migrate-supabase
-    if: always()
+    if: ${{ always() && needs.production-approval.result == 'success' }}
 
     steps:
       - name: Write GitHub deployment summary
