@@ -91,6 +91,8 @@ Use `user_id` on every Supabase table plus row-level security policies scoped to
 
 Use REST route handlers or the API gateway for simple commands and webhooks:
 
+- `services/api-gateway`: `/api/auth/twitch/connect`
+- `services/api-gateway`: `/api/auth/twitch/callback`
 - `services/api-gateway`: `/api/auth/youtube/connect`
 - `services/api-gateway`: `/api/auth/youtube/callback`
 - `services/api-gateway`: `/api/auth/tiktok/connect`
@@ -98,31 +100,28 @@ Use REST route handlers or the API gateway for simple commands and webhooks:
 - `services/api-gateway`: `/api/auth/kick/connect`
 - `services/api-gateway`: `/api/auth/kick/callback`
 - `services/api-gateway`: `/api/clips/generate`
+- `services/api-gateway`: `/api/metrics/sync`
+- `services/api-gateway`: `/api/content-jobs/retry`
+- `services/api-gateway`: `/api/platforms/:provider/disconnect`
 - `services/api-gateway`: `/api/webhooks/streams/ended`
 - `services/api-gateway`: `/api/callbacks/automation`
-- `apps/web`: `/api/platforms/twitch/connect`
-- `apps/web`: `/api/platforms/twitch/callback`
-- `apps/web`: dashboard server action for Twitch token refresh
-- `apps/web`: dashboard server action for first Twitch analytics sync
-- `/api/metrics/sync`
-- `/api/clips/analyze`
-- `/api/webhooks/twitch`
-- `/api/webhooks/youtube`
+- `apps/web`: `/api/gateway-connect`
+- `apps/web`: `/api/metrics/sync` authenticated proxy to the gateway
+- `apps/web`: dashboard server actions that call gateway-owned mutations
 
 Use realtime channels or server-sent events for live viewer counts, stream status, ingestion progress, and notifications.
 
 ## Twitch OAuth Placement Decision
 
-Twitch OAuth intentionally stays in `apps/web` for the current implementation.
-The connect and callback route handlers run only on the Next.js server, read the
-Supabase SSR session from HTTP-only cookies, use a server-only service-role
-client for `platform_connections` token reads and writes, and encrypt access and
-refresh tokens with `APP_ENCRYPTION_KEY` before writing `platform_connections`.
+Twitch OAuth is gateway-owned. The web app issues a short-lived signed handoff
+after validating the Supabase SSR session, then the API Gateway owns PKCE,
+provider callback validation, encrypted token persistence, token refresh,
+disconnect, and metrics writes. `apps/web` must not require Supabase
+service-role, Redis, OpenAI, Railway private URLs, or non-Twitch provider
+secrets in Vercel.
 
 This keeps Twitch tied to the authenticated browser session while avoiding
-browser-visible token grants. The service-role key is allowed only in server
-route handlers/actions; a gateway migration should happen only after the gateway
-has all of the following contracts:
+browser-visible token grants. The migration depends on these gateway contracts:
 
 - A signed, short-lived hand-off from `apps/web` that identifies the Supabase
   user without forwarding provider tokens through the browser.
@@ -132,8 +131,7 @@ has all of the following contracts:
   token exchange failure, and encrypted token persistence.
 - Updated Twitch Developer Console redirect URI pointing at the gateway callback.
 
-New platform OAuth flows for YouTube, TikTok, and Kick should be implemented in
-`services/api-gateway` from the start so this exception does not expand.
+YouTube, TikTok, and Kick use the same gateway-owned OAuth pattern.
 
 ## Security Baseline
 

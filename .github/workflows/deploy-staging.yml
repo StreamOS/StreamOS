@@ -145,6 +145,60 @@ jobs:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_STAGING }}
         run: supabase db push --db-url "${SUPABASE_DB_URL}"
 
+  smoke-staging:
+    name: Smoke test Vercel staging
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - deploy-web
+      - deploy-railway
+      - migrate-supabase
+    if: ${{ always() && needs.deploy-web.result == 'success' && needs.migrate-supabase.result == 'success' }}
+    environment:
+      name: staging
+
+    steps:
+      - name: Get Vercel OIDC Token
+        uses: actions/github-script@v9
+        id: oidc-token
+        with:
+          script: |
+            const token = await core.getIDToken();
+            core.setSecret(token);
+            core.setOutput("token", token);
+
+      - name: Smoke protected Vercel deployment
+        env:
+          DEPLOYMENT_URL: ${{ needs.deploy-web.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          check_status() {
+            local path="$1"
+            local expected_status="$2"
+            local status
+
+            status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" \
+              -H "x-vercel-trusted-oidc-idp-token: ${{ steps.oidc-token.outputs.token }}" \
+              "${DEPLOYMENT_URL}${path}")"
+
+            if [ "${status}" != "${expected_status}" ]; then
+              echo "::error::Expected ${path} to return ${expected_status}, got ${status}."
+              exit 1
+            fi
+
+            echo "${path} returned ${status}"
+          }
+
+          check_status "/dashboard" "307"
+          check_status "/api/gateway-connect?provider=twitch" "401"
+          check_status "/api/admin/queues" "404"
+          check_status "/api/cron/youtube-websub-renew" "410"
+          check_status "/api/webhooks/youtube/websub" "410"
+
   comment-pr:
     name: Comment deployment URL on PR
     runs-on: ubuntu-latest
@@ -153,7 +207,8 @@ jobs:
       - deploy-web
       - deploy-railway
       - migrate-supabase
-    if: ${{ always() && needs.deploy-web.result == 'success' && needs.migrate-supabase.result == 'success' }}
+      - smoke-staging
+    if: ${{ always() && needs.deploy-web.result == 'success' && needs.migrate-supabase.result == 'success' && needs.smoke-staging.result == 'success' }}
 
     steps:
       - name: Comment on associated pull request

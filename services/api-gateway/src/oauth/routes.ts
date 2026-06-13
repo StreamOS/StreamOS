@@ -44,6 +44,13 @@ import {
   normalizeTikTokScopes,
 } from "./providers/tiktok.js";
 import {
+  createTwitchAuthorizeUrl,
+  exchangeTwitchCode,
+  fetchTwitchUserProfile,
+  getTwitchOAuthConfig,
+  normalizeTwitchScopes,
+} from "./providers/twitch.js";
+import {
   createYouTubeAuthorizeUrl,
   exchangeYouTubeCode,
   fetchYouTubeChannelProfile,
@@ -51,7 +58,12 @@ import {
   normalizeYouTubeScopes,
 } from "./providers/youtube.js";
 
-export const SUPPORTED_OAUTH_PROVIDERS = ["youtube", "tiktok", "kick"] as const;
+export const SUPPORTED_OAUTH_PROVIDERS = [
+  "twitch",
+  "youtube",
+  "tiktok",
+  "kick",
+] as const;
 const OAUTH_STATE_TTL_MS = 5 * 60 * 1000;
 
 export type CreateOAuthRouterOptions = {
@@ -132,6 +144,37 @@ function getProviderRuntime({
   origin: string;
   provider: SupportedOAuthProvider;
 }): OAuthProviderRuntime {
+  if (provider === "twitch") {
+    const config = getTwitchOAuthConfig({ origin });
+
+    return {
+      createAuthorizeUrl({ codeChallenge, state }) {
+        return createTwitchAuthorizeUrl({ codeChallenge, config, state });
+      },
+      async exchangeCode({ code, codeVerifier, fetchImpl }) {
+        const token = await exchangeTwitchCode({
+          code,
+          codeVerifier,
+          config,
+          fetchImpl,
+        });
+        const profile = await fetchTwitchUserProfile({
+          accessToken: token.access_token,
+          config,
+          fetchImpl,
+        });
+
+        return {
+          accessToken: token.access_token,
+          expiresIn: token.expires_in,
+          profile,
+          refreshToken: token.refresh_token,
+          scopes: normalizeTwitchScopes({ config, token }),
+        };
+      },
+    };
+  }
+
   if (provider === "youtube") {
     const config = getYouTubeOAuthConfig({ origin });
 

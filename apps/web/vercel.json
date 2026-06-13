@@ -2,11 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "corepack enable && pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm --filter @streamos/web... --if-present build",
-  "crons": [
-    {
-      "path": "/api/cron/youtube-websub-renew",
-      "schedule": "0 3 * * *"
-    }
-  ]
+  "buildCommand": "pnpm --filter @streamos/web... --if-present build"
 }

@@ -248,7 +248,7 @@ export type PlatformConnection = {
   status: ConnectionStatus;
 };
 
-export type OAuthProvider = Exclude<StreamPlatform, "twitch">;
+export type OAuthProvider = StreamPlatform;
 
 export type OAuthErrorCode =
   | "invalid_state"

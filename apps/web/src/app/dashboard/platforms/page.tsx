@@ -25,9 +25,12 @@ export default async function PlatformsPage() {
             Twitch, YouTube, TikTok und Kick verwalten
           </h1>
         </div>
-        <a className="btn-primary" href="/api/platforms/twitch/connect">
-          Twitch verbinden
-        </a>
+        <GatewayConnectButton
+          className="btn-primary disabled:cursor-not-allowed disabled:opacity-60"
+          label="Twitch verbinden"
+          pendingLabel="Verbinde..."
+          provider="twitch"
+        />
       </header>
 
       <section className="grid gap-4 md:grid-cols-3">

@@ -3,10 +3,6 @@ export type SupabaseConfig = {
   url: string;
 };
 
-export type SupabaseServiceRoleConfig = SupabaseConfig & {
-  serviceRoleKey: string;
-};
-
 export function getSupabaseConfig(): SupabaseConfig | null {
   if (process.env.STREAMOS_DEMO_MODE === "true") {
     return null;
@@ -20,20 +16,6 @@ export function getSupabaseConfig(): SupabaseConfig | null {
   }
 
   return { anonKey, url };
-}
-
-export function getSupabaseServiceRoleConfig(): SupabaseServiceRoleConfig | null {
-  const baseConfig = getSupabaseConfig();
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!baseConfig || !serviceRoleKey) {
-    return null;
-  }
-
-  return {
-    ...baseConfig,
-    serviceRoleKey,
-  };
 }
 
 export function isSupabaseConfigured(): boolean {
