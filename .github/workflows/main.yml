@@ -108,10 +108,12 @@ jobs:
             vercel_environment="preview"
           fi
 
-          echo "git_ref=${target_ref}" >> "${GITHUB_OUTPUT}"
-          echo "git_sha=${target_sha}" >> "${GITHUB_OUTPUT}"
-          echo "railway_environment=${railway_environment}" >> "${GITHUB_OUTPUT}"
-          echo "vercel_environment=${vercel_environment}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "git_ref=${target_ref}"
+            echo "git_sha=${target_sha}"
+            echo "railway_environment=${railway_environment}"
+            echo "vercel_environment=${vercel_environment}"
+          } >> "${GITHUB_OUTPUT}"
 
           {
             echo "## StreamOS Rollback Target"
@@ -287,15 +289,16 @@ jobs:
             echo "- Supabase schema rollback: not performed"
             echo "- Follow-up: run rollout verification from a Railway shell before re-opening traffic-sensitive workflows"
             echo ""
-            echo '```bash'
-            echo 'pnpm rollout:check -- \'
-            echo '  --env-file=.env \'
-            echo '  --skip-docker \'
-            echo '  --allow-hosted-e2e \'
-            echo '  --api-gateway-url=https://streamos-api-gateway.up.railway.app \'
-            echo '  --automation-service-url=http://automation-service.railway.internal:8000 \'
-            echo '  --expect-private-automation'
-            echo '```'
+            printf '%s\n' \
+              '```bash' \
+              "pnpm rollout:check -- \\" \
+              "  --env-file=.env \\" \
+              "  --skip-docker \\" \
+              "  --allow-hosted-e2e \\" \
+              "  --api-gateway-url=https://streamos-api-gateway.up.railway.app \\" \
+              "  --automation-service-url=http://automation-service.railway.internal:8000 \\" \
+              "  --expect-private-automation" \
+              '```'
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Send Discord notification

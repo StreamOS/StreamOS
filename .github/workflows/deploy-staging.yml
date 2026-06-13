@@ -61,16 +61,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
-      - name: Cache Vercel build output
-        uses: actions/cache@v5
-        with:
-          path: |
-            apps/web/.next/cache
-            apps/web/.vercel/cache
-          key: ${{ runner.os }}-vercel-staging-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**/*', 'apps/web/package.json', 'apps/web/next.config.ts') }}
-          restore-keys: |
-            ${{ runner.os }}-vercel-staging-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-
-
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
 
@@ -84,17 +74,12 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel pull --yes --environment=preview --token="${VERCEL_TOKEN}"
 
-      - name: Build Vercel preview output
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: vercel build --token="${VERCEL_TOKEN}"
-
-      - name: Deploy prebuilt preview
+      - name: Deploy preview on Vercel
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          deployment_url="$(vercel deploy --prebuilt --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
+          deployment_url="$(vercel deploy --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
           echo "url=${deployment_url}" >> "${GITHUB_OUTPUT}"
           echo "Staging frontend URL: ${deployment_url}" >> "${GITHUB_STEP_SUMMARY}"
 
@@ -184,8 +169,10 @@ jobs:
               commit_sha: context.sha,
             });
 
-            if (pulls.length === 0) {
-              core.info("No associated pull request found for this staging deployment.");
+            const openPulls = pulls.filter((pull) => pull.state === "open");
+
+            if (openPulls.length === 0) {
+              core.info("No open associated pull request found for this staging deployment.");
               return;
             }
 
@@ -198,11 +185,19 @@ jobs:
               `- Commit: \`${context.sha.slice(0, 7)}\``,
             ].join("\n");
 
-            for (const pull of pulls) {
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: pull.number,
-                body,
-              });
+            for (const pull of openPulls) {
+              try {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: pull.number,
+                  body,
+                });
+              } catch (error) {
+                core.warning(
+                  `Skipping staging deployment comment for PR #${pull.number}: ${
+                    error instanceof Error ? error.message : String(error)
+                  }`,
+                );
+              }
             }
