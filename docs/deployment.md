@@ -25,6 +25,17 @@ This document defines the production deployment topology for the StreamOS monore
 - Python does not consume BullMQ directly. Redis is the shared backing service, but BullMQ job semantics remain Node-owned.
 - OpenAI, provider client secrets, Supabase service role keys, and Redis credentials are server-only.
 
+## Supabase Migration Connection Strings
+
+GitHub-hosted Actions runners are IPv4-only for this workflow path. The
+`SUPABASE_DB_URL_STAGING` and `SUPABASE_DB_URL_PRODUCTION` secrets must use the
+Supabase Session pooler connection string so the migration jobs can connect
+reliably.
+
+Do not use the direct `db.<ref>.supabase.co` URL here unless the project has
+the Supabase IPv4 add-on enabled. The direct database host is otherwise
+IPv6-only and will fail from the deployment runners.
+
 ## Vercel: `apps/web`
 
 Create a Vercel project with this configuration:

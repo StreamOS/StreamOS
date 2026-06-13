@@ -66,7 +66,7 @@ jobs:
         with:
           path: |
             apps/web/.next/cache
-            .vercel/cache
+            apps/web/.vercel/cache
           key: ${{ runner.os }}-vercel-staging-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**/*', 'apps/web/package.json', 'apps/web/next.config.ts') }}
           restore-keys: |
             ${{ runner.os }}-vercel-staging-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-
@@ -78,26 +78,23 @@ jobs:
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
       - name: Pull Vercel preview environment
-        working-directory: apps/web
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: vercel pull --yes --environment=preview --token="${VERCEL_TOKEN}"
+        run: vercel --cwd apps/web pull --yes --environment=preview --token="${VERCEL_TOKEN}"
 
       - name: Build Vercel preview output
-        working-directory: apps/web
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: vercel build --token="${VERCEL_TOKEN}"
+        run: vercel --cwd apps/web build --token="${VERCEL_TOKEN}"
 
       - name: Deploy prebuilt preview
         id: deploy
-        working-directory: apps/web
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          deployment_url="$(vercel deploy --prebuilt --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
+          deployment_url="$(vercel --cwd apps/web deploy --prebuilt --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
           echo "url=${deployment_url}" >> "${GITHUB_OUTPUT}"
           echo "Staging frontend URL: ${deployment_url}" >> "${GITHUB_STEP_SUMMARY}"
 
@@ -201,6 +198,15 @@ jobs:
             without_quotes="${stripped}"
           fi
 
+          url_without_scheme="${without_quotes#*://}"
+          host_port_and_path="${url_without_scheme#*@}"
+          host_port="${host_port_and_path%%/*}"
+          host="${host_port%%:*}"
+          direct_host="no"
+          if printf '%s' "${host}" | grep -Eq '^db\.[^.]+\.supabase\.co$'; then
+            direct_host="yes"
+          fi
+
           case "${without_quotes}" in
             postgres://*|postgresql://*)
               prefix_ok="yes"
@@ -218,6 +224,7 @@ jobs:
             echo "| Contains leading/trailing whitespace or other whitespace | ${whitespace_issue} |"
             echo "| Wrapped in quotes | ${quote_issue} |"
             echo "| Starts with postgres:// or postgresql:// | ${prefix_ok} |"
+            echo "| Direct db host | ${direct_host} |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
           if [ "${present}" != "yes" ]; then
@@ -227,6 +234,11 @@ jobs:
 
           if [ "${prefix_ok}" != "yes" ]; then
             echo "SUPABASE_DB_URL_STAGING must be a postgres connection string." >&2
+            exit 1
+          fi
+
+          if [ "${direct_host}" = "yes" ]; then
+            echo "SUPABASE_DB_URL_STAGING points at Supabase's direct db host, which is IPv6-only. GitHub-hosted Actions runners are IPv4-only. Replace it with the Session pooler connection string or enable the Supabase IPv4 add-on." >&2
             exit 1
           fi
 

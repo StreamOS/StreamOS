@@ -194,6 +194,11 @@ Use GitHub Environments named `staging` and `production` for environment-scoped
 secrets and enable required reviewers on `production` to enforce manual approval
 before production deploy and migration jobs run.
 
+`SUPABASE_DB_URL_STAGING` and `SUPABASE_DB_URL_PRODUCTION` must point to the
+Supabase Session pooler connection string for GitHub-hosted Actions runners.
+Do not use the direct `db.<ref>.supabase.co` URL unless the project has the
+Supabase IPv4 add-on enabled.
+
 ## Queue Backend
 
 The API gateway uses BullMQ for automation jobs. For Upstash Redis, configure
