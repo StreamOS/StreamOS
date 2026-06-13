@@ -214,7 +214,7 @@ jobs:
         with:
           path: |
             apps/web/.next/cache
-            apps/web/.vercel/cache
+            .vercel/cache
           key: ${{ runner.os }}-vercel-production-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**/*', 'apps/web/package.json', 'apps/web/next.config.ts') }}
           restore-keys: |
             ${{ runner.os }}-vercel-production-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-
@@ -266,11 +266,39 @@ jobs:
         with:
           version: ${{ env.SUPABASE_CLI_VERSION }}
 
+      - name: Prepare Supabase production DB URL
+        id: supabase-db
+        env:
+          SUPABASE_DB_URL_RAW: ${{ secrets.SUPABASE_DB_URL_PRODUCTION }}
+        run: |
+          set -euo pipefail
+
+          cleaned="$(printf '%s' "${SUPABASE_DB_URL_RAW}" | tr -d '\r\n')"
+          cleaned="${cleaned#\"}"
+          cleaned="${cleaned%\"}"
+          cleaned="${cleaned#\'}"
+          cleaned="${cleaned%\'}"
+
+          if [ -z "${cleaned}" ]; then
+            echo "SUPABASE_DB_URL_PRODUCTION is empty after normalization." >&2
+            exit 1
+          fi
+
+          case "${cleaned}" in
+            postgres://*|postgresql://*) ;;
+            *)
+              echo "SUPABASE_DB_URL_PRODUCTION must be a postgres connection string." >&2
+              exit 1
+              ;;
+          esac
+
+          echo "db_url=${cleaned}" >> "${GITHUB_OUTPUT}"
+
       - name: Repair Supabase production migration history
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.repair_supabase_migration_history }}
         working-directory: packages/database
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_PRODUCTION }}
+          SUPABASE_DB_URL: ${{ steps.supabase-db.outputs.db_url }}
         run: |
           supabase migration repair --status reverted \
             20260531211351 \
@@ -284,7 +312,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.repair_supabase_migration_history }}
         working-directory: packages/database
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_PRODUCTION }}
+          SUPABASE_DB_URL: ${{ steps.supabase-db.outputs.db_url }}
         run: |
           supabase migration repair --status applied \
             0001 \
@@ -297,7 +325,7 @@ jobs:
       - name: Push Supabase migrations
         working-directory: packages/database
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_PRODUCTION }}
+          SUPABASE_DB_URL: ${{ steps.supabase-db.outputs.db_url }}
         run: supabase db push --db-url "${SUPABASE_DB_URL}"
 
   notify:
