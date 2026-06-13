@@ -174,7 +174,7 @@ jobs:
             present="no"
           fi
 
-          cleaned="$(printf '%s' "${raw}" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          cleaned="$(printf '%s' "${raw}" | perl -0pe 's/\x{FEFF}//g; s/[\x{200B}\x{200C}\x{200D}]//g; s/^[\s`]+//; s/[\s`]+$//' | tr -d '\r\n')"
 
           if [ "${raw}" != "${cleaned}" ]; then
             whitespace_issue="yes"
