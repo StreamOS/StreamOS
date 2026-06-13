@@ -77,6 +77,13 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
+      - name: Pull Vercel preview environment
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel --cwd apps/web pull --yes --environment=preview --token="${VERCEL_TOKEN}"
+
       - name: Validate Vercel staging project binding
         env:
           EXPECTED_VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -118,13 +125,6 @@ jobs:
             `Verified Vercel staging binding: ${binding.projectName} (${binding.projectId})`,
           );
           NODE
-
-      - name: Pull Vercel preview environment
-        env:
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: vercel --cwd apps/web pull --yes --environment=preview --token="${VERCEL_TOKEN}"
 
       - name: Build Vercel preview output
         env:
