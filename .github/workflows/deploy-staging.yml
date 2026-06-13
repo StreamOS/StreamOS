@@ -157,33 +157,80 @@ jobs:
         with:
           version: ${{ env.SUPABASE_CLI_VERSION }}
 
-      - name: Prepare Supabase staging DB URL
+      - name: Diagnose Supabase staging DB URL
         id: supabase-db
         env:
           SUPABASE_DB_URL_RAW: ${{ secrets.SUPABASE_DB_URL_STAGING }}
         run: |
           set -euo pipefail
 
-          cleaned="$(printf '%s' "${SUPABASE_DB_URL_RAW}" | tr -d '\r\n')"
-          cleaned="${cleaned#\"}"
-          cleaned="${cleaned%\"}"
-          cleaned="${cleaned#\'}"
-          cleaned="${cleaned%\'}"
+          raw="${SUPABASE_DB_URL_RAW-}"
+          present="yes"
+          whitespace_issue="no"
+          quote_issue="no"
+          prefix_ok="no"
 
-          if [ -z "${cleaned}" ]; then
-            echo "SUPABASE_DB_URL_STAGING is empty after normalization." >&2
-            exit 1
+          if [ -z "${raw}" ]; then
+            present="no"
           fi
 
-          case "${cleaned}" in
-            postgres://*|postgresql://*) ;;
-            *)
-              echo "SUPABASE_DB_URL_STAGING must be a postgres connection string." >&2
-              exit 1
+          cleaned="$(printf '%s' "${raw}" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+
+          if [ "${raw}" != "${cleaned}" ]; then
+            whitespace_issue="yes"
+          fi
+
+          case "${raw}" in
+            *[[:space:]]*)
+              whitespace_issue="yes"
               ;;
           esac
 
-          echo "db_url=${cleaned}" >> "${GITHUB_OUTPUT}"
+          without_quotes="${cleaned}"
+          stripped="${without_quotes#\"}"
+          stripped="${stripped%\"}"
+          if [ "${stripped}" != "${without_quotes}" ]; then
+            quote_issue="yes"
+            without_quotes="${stripped}"
+          fi
+
+          stripped="${without_quotes#\'}"
+          stripped="${stripped%\'}"
+          if [ "${stripped}" != "${without_quotes}" ]; then
+            quote_issue="yes"
+            without_quotes="${stripped}"
+          fi
+
+          case "${without_quotes}" in
+            postgres://*|postgresql://*)
+              prefix_ok="yes"
+              ;;
+          esac
+
+          {
+            echo "## Supabase Staging DB URL Diagnostics"
+            echo ""
+            echo "| Check | Value |"
+            echo "| --- | --- |"
+            echo "| Present in staging | ${present} |"
+            echo "| Raw length | ${#raw} |"
+            echo "| Normalized length | ${#without_quotes} |"
+            echo "| Contains leading/trailing whitespace or other whitespace | ${whitespace_issue} |"
+            echo "| Wrapped in quotes | ${quote_issue} |"
+            echo "| Starts with postgres:// or postgresql:// | ${prefix_ok} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [ "${present}" != "yes" ]; then
+            echo "SUPABASE_DB_URL_STAGING is missing in the staging environment scope." >&2
+            exit 1
+          fi
+
+          if [ "${prefix_ok}" != "yes" ]; then
+            echo "SUPABASE_DB_URL_STAGING must be a postgres connection string." >&2
+            exit 1
+          fi
+
+          echo "db_url=${without_quotes}" >> "${GITHUB_OUTPUT}"
 
       - name: Push Supabase migrations
         working-directory: packages/database
