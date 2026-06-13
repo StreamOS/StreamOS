@@ -77,6 +77,48 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
+      - name: Validate Vercel staging project binding
+        env:
+          EXPECTED_VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          const binding = JSON.parse(
+            fs.readFileSync("apps/web/.vercel/project.json", "utf8"),
+          );
+
+          const expectedOrgId = process.env.EXPECTED_VERCEL_ORG_ID?.trim();
+          const expectedProjectId = process.env.EXPECTED_VERCEL_PROJECT_ID?.trim();
+
+          if (!expectedOrgId) {
+            throw new Error("VERCEL_ORG_ID is missing from the GitHub staging environment.");
+          }
+
+          if (!expectedProjectId) {
+            throw new Error("VERCEL_PROJECT_ID is missing from the GitHub staging environment.");
+          }
+
+          if (binding.orgId !== expectedOrgId) {
+            throw new Error(
+              `Staging orgId mismatch: repo has ${binding.orgId}, GitHub staging environment has ${expectedOrgId}.`,
+            );
+          }
+
+          if (binding.projectId !== expectedProjectId) {
+            throw new Error(
+              `Staging projectId mismatch: repo has ${binding.projectId}, GitHub staging environment has ${expectedProjectId}.`,
+            );
+          }
+
+          console.log(
+            `Verified Vercel staging binding: ${binding.projectName} (${binding.projectId})`,
+          );
+          NODE
+
       - name: Pull Vercel preview environment
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -95,6 +137,17 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           deployment_url="$(vercel --cwd apps/web deploy --prebuilt --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
+
+          case "${deployment_url}" in
+            *stream-os-web-staging-*.vercel.app)
+              ;;
+            *)
+              echo "Unexpected staging deployment URL: ${deployment_url}" >&2
+              echo "Expected a stream-os-web-staging-*.vercel.app URL. Check the staging VERCEL_PROJECT_ID." >&2
+              exit 1
+              ;;
+          esac
+
           echo "url=${deployment_url}" >> "${GITHUB_OUTPUT}"
           echo "Staging frontend URL: ${deployment_url}" >> "${GITHUB_STEP_SUMMARY}"
 
