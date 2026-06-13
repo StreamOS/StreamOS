@@ -14,6 +14,9 @@ StreamOS/
 |   |-- api-gateway/             # Backend-for-frontend aggregation service
 |   `-- automation-service/      # FastAPI service for clip and AI pipelines
 |-- workers/
+|   |-- clip-worker/             # BullMQ clip generation worker
+|   |-- content-job-retry-worker/ # Durable content job retry orchestration
+|   |-- stream-job-worker/       # Stream event ingestion worker package
 |   `-- transcription-worker/    # Async media transcription worker
 |-- packages/
 |   |-- config/                  # Shared TypeScript configuration
@@ -68,8 +71,8 @@ pnpm infra:ps
 
 This starts Redis at `localhost:6379`, the API gateway at
 `http://localhost:4000`, the automation service at `http://localhost:8000`,
-`transcription-worker`, and `content-job-retry-worker`. Compose reads
-`SUPABASE_URL`, optional `SUPABASE_DOCKER_URL`, and
+`clip-worker`, `transcription-worker`, and `content-job-retry-worker`.
+Compose reads `SUPABASE_URL`, optional `SUPABASE_DOCKER_URL`, and
 `SUPABASE_SERVICE_ROLE_KEY` from the selected env file for the workers.
 Use `SUPABASE_DOCKER_URL=http://host.docker.internal:54321` when the worker in
 Docker should call a Supabase CLI stack running on your host. The gateway and
@@ -170,6 +173,8 @@ The production deployment topology is documented in
 - `services/api-gateway` deploys to Railway with `Dockerfile.api-gateway`.
 - `services/automation-service` deploys to Railway first, or Fly.io when GPU-backed Whisper becomes required.
 - `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.
+- `workers/clip-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for clip scoring.
+- `workers/content-job-retry-worker` deploys to Railway as a Node.js BullMQ worker that requeues retryable failed `content_jobs`.
 
 ### Required GitHub Secrets
 
@@ -279,20 +284,20 @@ SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 
 Register the same redirect URI in the Twitch Developer Console. If Next.js falls back to another local port, update both `TWITCH_REDIRECT_URI` and the Twitch app settings to match.
 
-## YouTube OAuth
+## Gateway OAuth
 
-YouTube is the first non-Twitch OAuth flow owned by `services/api-gateway`:
+YouTube, TikTok, and Kick OAuth flows are owned by `services/api-gateway`:
 
-- `GET /api/auth/youtube/connect?handoff=<signed-token>`
-- `GET /api/auth/youtube/callback`
+- `GET /api/auth/:provider/connect?handoff=<signed-token>`
+- `GET /api/auth/:provider/callback`
 
 The `handoff` query value is a short-lived HMAC token signed with
 `API_GATEWAY_SECRET`. It carries only `user_id`, `creator_id`, optional
 `return_to`, and `exp`; provider tokens never pass through the browser. The
-gateway stores a one-time `state` plus PKCE `code_verifier`, redirects to
-Google, exchanges the callback code with PKCE, fetches the authenticated
-YouTube channel profile, encrypts access and refresh tokens with
-`APP_ENCRYPTION_KEY`, and upserts `channels` plus `platform_connections`.
+gateway stores a one-time `state` plus PKCE `code_verifier`, redirects to the
+provider, exchanges the callback code with PKCE, fetches the authenticated
+provider profile, encrypts access and refresh tokens with `APP_ENCRYPTION_KEY`,
+and upserts `channels` plus `platform_connections`.
 
 Configure these server-only values in the API gateway environment:
 
@@ -301,13 +306,20 @@ YOUTUBE_CLIENT_ID=
 YOUTUBE_CLIENT_SECRET=
 YOUTUBE_REDIRECT_URI=http://localhost:4000/api/auth/youtube/callback
 YOUTUBE_SCOPES=https://www.googleapis.com/auth/youtube.readonly
+TIKTOK_CLIENT_KEY=
+TIKTOK_CLIENT_SECRET=
+TIKTOK_REDIRECT_URI=http://localhost:4000/api/auth/tiktok/callback
+TIKTOK_SCOPES=user.info.basic
+KICK_CLIENT_ID=
+KICK_CLIENT_SECRET=
+KICK_REDIRECT_URI=http://localhost:4000/api/auth/kick/callback
 APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 API_GATEWAY_SECRET=
 ```
 
-Register the same redirect URI in Google Cloud Console. Run the gateway OAuth
+Register the matching redirect URI with each provider. Run the gateway OAuth
 tests with:
 
 ```bash
@@ -316,7 +328,10 @@ pnpm --filter @streamos/api-gateway test
 
 ## Next Implementation Steps
 
-1. Add TikTok and Kick OAuth behind `services/api-gateway` using the YouTube
-   gateway pattern.
-2. Add BullMQ workers for transcription processing and clip generation.
-3. Move durable AI workflows into `services/automation-service` and keep browser-visible API keys out of client components.
+1. Move Twitch OAuth to `services/api-gateway` after the Supabase session
+   hand-off contract is production-ready.
+2. Harden media storage and export automation around the existing
+   transcription, clip generation, and retry workers.
+3. Build the user-facing branding and monetization workflows on top of the
+   existing `brand_assets`, `monetization_events`, and `monetization_summaries`
+   schema.

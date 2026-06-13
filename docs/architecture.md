@@ -40,33 +40,50 @@ apps/web/src/
 ## Backend Responsibilities
 
 - OAuth and token refresh for YouTube, TikTok, and Kick through
-  `services/api-gateway`.
+  `services/api-gateway` with signed hand-off tokens, PKCE state, encrypted
+  token persistence, and provider profile upserts.
 - Twitch OAuth is the current explicit exception and remains in Next.js server
   route handlers plus dashboard server actions until the gateway owns a
   first-class Supabase user-session hand-off.
 - Webhook validation and event ingestion.
 - Analytics normalization into Supabase PostgreSQL.
-- AI jobs for transcription, clip scoring, title generation, and repurposing.
+- BullMQ orchestration for transcription triggers, clip generation, stream jobs,
+  and durable content-job retries.
+- AI jobs for transcription, clip scoring, title generation, and repurposing in
+  `services/automation-service`.
 - Rate limiting, retry handling, and audit logging for external API calls.
 
-## Data Model Direction
+## Data Model Status
 
-The initial Supabase migration lives in `packages/database/supabase/migrations/0001_initial_streamos_schema.sql`.
+Supabase migrations live in `packages/database/supabase/migrations/` and are
+the source of truth for database state. The baseline starts with
+`0001_initial_streamos_schema.sql`; later migrations add stream automation,
+media pipeline, branding, monetization, webhook tracking, auth profiles, and
+retry semantics.
 
-Core entities currently covered:
+Current tenant-owned and service-managed entities include:
 
 - `creators`
+- `user_profiles`
 - `channels`
 - `platform_connections`
 - `metrics_snapshots`
-
-Entities planned next:
-
 - `streams`
-- `clips`
 - `content_jobs`
+- `vod_assets`
+- `stream_transcripts`
+- `stream_highlights`
+- `clips`
+- `clip_exports`
 - `brand_assets`
 - `monetization_events`
+- `monetization_summaries`
+- `youtube_websub_subscriptions`
+
+`content_jobs` already carries durable retry state through `retry_count`,
+`max_retries`, `error_message`, and `next_retry_at`. Failed jobs can be requeued by
+`workers/content-job-retry-worker` into the transcription or clip-generation
+queues.
 
 Use `user_id` on every Supabase table plus row-level security policies scoped to `user_id = auth.uid()` for tenant isolation. Service-role keys must remain server-only.
 
@@ -76,6 +93,13 @@ Use REST route handlers or the API gateway for simple commands and webhooks:
 
 - `services/api-gateway`: `/api/auth/youtube/connect`
 - `services/api-gateway`: `/api/auth/youtube/callback`
+- `services/api-gateway`: `/api/auth/tiktok/connect`
+- `services/api-gateway`: `/api/auth/tiktok/callback`
+- `services/api-gateway`: `/api/auth/kick/connect`
+- `services/api-gateway`: `/api/auth/kick/callback`
+- `services/api-gateway`: `/api/clips/generate`
+- `services/api-gateway`: `/api/webhooks/streams/ended`
+- `services/api-gateway`: `/api/callbacks/automation`
 - `apps/web`: `/api/platforms/twitch/connect`
 - `apps/web`: `/api/platforms/twitch/callback`
 - `apps/web`: dashboard server action for Twitch token refresh
