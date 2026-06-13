@@ -4,21 +4,18 @@ This document defines the production deployment topology for the StreamOS monore
 
 ## Target Topology
 
-| Path                               | Runtime               | Platform                                                       | Purpose                                                                     |
-| ---------------------------------- | --------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `apps/web`                         | Next.js App Router    | Vercel                                                         | Dashboard, auth surfaces, Twitch OAuth server handlers                      |
-| `services/api-gateway`             | Node.js               | Railway                                                        | Public API gateway, non-Twitch OAuth, webhook ingress, BullMQ job producers |
-| `services/automation-service`      | FastAPI               | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                                     |
-| `workers/transcription-worker`     | Node.js BullMQ Worker | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI                      |
-| `workers/content-job-retry-worker` | Node.js BullMQ Worker | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into BullMQ                        |
+| Path                               | Runtime               | Platform                                                       | Purpose                                                                                          |
+| ---------------------------------- | --------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `apps/web`                         | Next.js App Router    | Vercel                                                         | Dashboard, Supabase SSR Auth, app-facing BFF routes                                              |
+| `services/api-gateway`             | Node.js               | Railway                                                        | Public API gateway, platform OAuth, server-only mutations, webhook ingress, BullMQ job producers |
+| `services/automation-service`      | FastAPI               | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                                                          |
+| `workers/transcription-worker`     | Node.js BullMQ Worker | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI                                           |
+| `workers/content-job-retry-worker` | Node.js BullMQ Worker | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into BullMQ                                             |
 
 ## Service Boundaries
 
 - Browser code must call the Next.js app or `services/api-gateway`; it must not call AI providers directly.
-- `services/api-gateway` is the public backend entrypoint for external webhooks, app-facing backend APIs, and new non-Twitch platform OAuth flows.
-- Twitch OAuth remains in `apps/web` route handlers and dashboard server actions
-  until the gateway owns a signed Supabase user-session hand-off and
-  tenant-safe encrypted token persistence.
+- `services/api-gateway` is the public backend entrypoint for external webhooks, app-facing backend APIs, platform OAuth flows, provider token refresh, metrics writes, and queue-producing commands.
 - `services/automation-service` should use private Railway networking in production. Do not call it from browser code or Vercel client bundles; only Railway services/workers in the same project/environment should call it.
 - `workers/transcription-worker` owns BullMQ consumption, calls `services/automation-service`, and writes job status to Supabase.
 - `workers/content-job-retry-worker` owns retry orchestration for failed `content_jobs`; it uses the Supabase service-role key server-side and requeues only supported job payloads. Row-level `content_jobs.max_retries` is the source of truth for retry budget, including manual retries from the dashboard.
@@ -45,20 +42,23 @@ STREAMOS_DEMO_MODE=false
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
+STREAM_EVENT_WEBHOOK_SECRET=
 TWITCH_CLIENT_ID=
 TWITCH_CLIENT_SECRET=
-TWITCH_REDIRECT_URI=https://app.streamos.example/api/platforms/twitch/callback
-TWITCH_SCOPES=user:read:email
+TWITCH_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/twitch/callback
+TWITCH_SCOPES=user:read:email moderator:read:followers
 API_GATEWAY_URL=https://streamos-api-gateway.up.railway.app
 API_GATEWAY_SECRET=
 ```
 
-Do not set `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_OPENAI_KEY`, or `NEXT_PUBLIC_OPENAI_API_KEY` in the Vercel browser-facing app unless a server route explicitly needs the server-only value.
+Do not set `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`, Redis URLs, Railway private service URLs, non-Twitch provider secrets, `NEXT_PUBLIC_OPENAI_KEY`, or `NEXT_PUBLIC_OPENAI_API_KEY` in the Vercel browser-facing app.
 
-`TWITCH_CLIENT_SECRET` stays in Vercel only for the documented Twitch OAuth
-server-route exception. It must never be exposed with a `NEXT_PUBLIC_*` prefix.
-YouTube, TikTok, and Kick provider secrets should be configured on the API
-gateway when those OAuth flows are implemented there.
+`TWITCH_CLIENT_SECRET` stays in Vercel only as the documented temporary
+whitelist exception. Twitch OAuth, token refresh, disconnect, and metrics sync
+are gateway-owned and must use the API Gateway callback URL. Twitch secrets must
+never be exposed with a `NEXT_PUBLIC_*` prefix.
+YouTube, TikTok, and Kick provider secrets must be configured on the API
+gateway only.
 
 `API_GATEWAY_URL` must be public because Vercel functions are outside the Railway private network. The Automation Service remains private and is reached by Railway workers, not by Vercel.
 
@@ -85,7 +85,6 @@ REDIS_URL=rediss://default:password@host:6379
 QUEUE_DEFAULT_NAME=streamos-media
 CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
-CLIP_WORKER_CONCURRENCY=2
 API_GATEWAY_SECRET=
 API_GATEWAY_ALLOWED_ORIGINS=https://app.streamos.example
 CONNECT_SUCCESS_REDIRECT=https://app.streamos.example/dashboard/platforms
@@ -95,6 +94,10 @@ STREAM_EVENT_WEBHOOK_SECRET=
 APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
+TWITCH_CLIENT_ID=
+TWITCH_CLIENT_SECRET=
+TWITCH_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/twitch/callback
+TWITCH_SCOPES=user:read:email moderator:read:followers
 YOUTUBE_CLIENT_ID=
 YOUTUBE_CLIENT_SECRET=
 YOUTUBE_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/youtube/callback
@@ -111,9 +114,8 @@ KICK_WEBHOOK_SECRET=
 RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 ```
 
-Twitch OAuth variables are not required in the API gateway while the Twitch flow
-remains in `apps/web`. YouTube, TikTok, and Kick are gateway-owned and must use
-the API Gateway callback URLs shown above.
+Twitch, YouTube, TikTok, and Kick OAuth are gateway-owned and must use the API
+Gateway callback URLs shown above.
 
 Use `/health` as the Railway healthcheck path. The endpoint must return HTTP 200 before Railway sends traffic to the new deployment.
 
@@ -126,8 +128,10 @@ Security model:
   with `API_GATEWAY_SECRET`; callbacks validate one-time state plus PKCE before
   encrypted token persistence, then redirect to the safe `return_to` target or
   `CONNECT_SUCCESS_REDIRECT`.
-- TikTok and Kick OAuth are gateway-owned. Their client secrets must stay in
-  Railway only, and provider tokens must never be proxied through browser code.
+- Twitch, YouTube, TikTok, and Kick OAuth are gateway-owned. Their client
+  secrets must stay in Railway, except the documented temporary Vercel Twitch
+  whitelist entry, and provider tokens must never be proxied through browser
+  code.
 - `API_GATEWAY_SECRET` and `STREAM_EVENT_WEBHOOK_SECRET` are mandatory when `NODE_ENV=production`; the service fails during startup if either is missing.
 - CORS allows only `API_GATEWAY_ALLOWED_ORIGINS`; server-to-server calls without an `Origin` header are allowed.
 - Rate limits are fixed-window per client IP, method, and URL. Start with `120` requests per `60000` ms and tighten per endpoint once production traffic is measured.
