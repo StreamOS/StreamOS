@@ -1,18 +1,14 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+
 import {
-  deleteEventSubSubscriptions,
-  getTwitchAppAccessToken,
-} from "@streamos/twitch-eventsub";
-import type { Json, Tables } from "@streamos/database";
-import { getTwitchOAuthConfig } from "@/lib/integrations/twitch";
-import { createServiceRoleClient } from "@/lib/supabase/admin";
+  ApiGatewayConfigurationError,
+  callApiGatewayJson,
+} from "@/lib/api-gateway";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-type JsonRecord = { [key: string]: Json | undefined };
-
-export async function POST(request: NextRequest) {
+export async function POST() {
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getUser();
 
@@ -26,130 +22,32 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const serviceSupabase = createServiceRoleClient();
-  const connectionResult = await serviceSupabase
-    .from("platform_connections")
-    .select("id, metadata")
-    .eq("user_id", data.user.id)
-    .eq("platform", "twitch")
-    .eq("status", "connected")
-    .order("connected_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (connectionResult.error) {
-    return NextResponse.json(
-      {
-        error: "twitch_disconnect_lookup_failed",
-        message: "Twitch connection could not be loaded.",
+  try {
+    const result = await callApiGatewayJson({
+      body: {
+        user_id: data.user.id,
       },
-      { status: 500 },
-    );
-  }
+      path: "/api/platforms/twitch/disconnect",
+    });
 
-  const connection = connectionResult.data as Pick<
-    Tables<"platform_connections">,
-    "id" | "metadata"
-  > | null;
-
-  if (!connection) {
-    return NextResponse.json(
-      {
-        error: "twitch_connection_not_found",
-        message: "No connected Twitch account was found.",
-      },
-      { status: 404 },
-    );
-  }
-
-  const metadata = toJsonRecord(connection.metadata);
-  const subscriptionIds = getEventSubSubscriptionIds(metadata.eventsub);
-  let deleted: string[] = [];
-  let failed: string[] = [];
-
-  if (subscriptionIds.length > 0) {
-    try {
-      const config = getTwitchOAuthConfig(request.nextUrl.origin);
-      const appAccessToken = await getTwitchAppAccessToken({
-        config: {
-          clientId: config.clientId,
-          clientSecret: config.clientSecret,
+    return NextResponse.json(result.data, { status: result.status });
+  } catch (gatewayError) {
+    if (gatewayError instanceof ApiGatewayConfigurationError) {
+      return NextResponse.json(
+        {
+          error: "gateway_not_configured",
+          message: gatewayError.message,
         },
-      });
-      const deletionResult = await deleteEventSubSubscriptions({
-        appAccessToken,
-        clientId: config.clientId,
-        subscriptionIds,
-      });
-
-      deleted = deletionResult.deleted;
-      failed = deletionResult.failed;
-    } catch (deleteError) {
-      console.error("Twitch EventSub cleanup failed during disconnect.", {
-        deleteError,
-        subscriptionIds,
-        userId: data.user.id,
-      });
-      failed = subscriptionIds;
+        { status: 503 },
+      );
     }
-  }
 
-  const updateResult = await serviceSupabase
-    .from("platform_connections")
-    .update({
-      metadata: {
-        ...metadata,
-        eventsub: null,
-      },
-      status: "disconnected",
-    } as never)
-    .eq("user_id", data.user.id)
-    .eq("id", connection.id);
-
-  if (updateResult.error) {
     return NextResponse.json(
       {
-        error: "twitch_disconnect_update_failed",
-        message: "Twitch connection status could not be updated.",
+        error: "twitch_disconnect_failed",
+        message: "Twitch disconnect could not be sent to the API gateway.",
       },
-      { status: 500 },
+      { status: 502 },
     );
   }
-
-  return NextResponse.json({
-    data: {
-      eventsub: {
-        deleted,
-        failed,
-      },
-      platform: "twitch",
-      status: "disconnected",
-    },
-    success: true,
-  });
-}
-
-function getEventSubSubscriptionIds(value: Json | undefined): string[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return [];
-  }
-
-  const subscriptionIds = (value as JsonRecord).subscription_ids;
-
-  if (!Array.isArray(subscriptionIds)) {
-    return [];
-  }
-
-  return subscriptionIds.filter(
-    (subscriptionId): subscriptionId is string =>
-      typeof subscriptionId === "string" && subscriptionId.length > 0,
-  );
-}
-
-function toJsonRecord(value: Json | null | undefined): JsonRecord {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-
-  return value as JsonRecord;
 }
