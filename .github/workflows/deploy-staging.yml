@@ -139,11 +139,11 @@ jobs:
           deployment_url="$(vercel --cwd apps/web deploy --prebuilt --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
 
           case "${deployment_url}" in
-            *stream-os-web-staging-*.vercel.app)
+            *stream-os-web-staging-*.vercel.app|*stream-os-webstaging-*.vercel.app)
               ;;
             *)
               echo "Unexpected staging deployment URL: ${deployment_url}" >&2
-              echo "Expected a stream-os-web-staging-*.vercel.app URL. Check the staging VERCEL_PROJECT_ID." >&2
+              echo "Expected a stream-os-web-staging-*.vercel.app or stream-os-webstaging-*.vercel.app URL. Check the staging VERCEL_PROJECT_ID." >&2
               exit 1
               ;;
           esac
