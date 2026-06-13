@@ -147,6 +147,9 @@ jobs:
 
   smoke-staging:
     name: Smoke test Vercel staging
+    permissions:
+      id-token: write
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs:
@@ -158,17 +161,20 @@ jobs:
       name: staging
 
     steps:
+      - name: Get Vercel OIDC Token
+        uses: actions/github-script@v9
+        id: oidc-token
+        with:
+          script: |
+            const token = await core.getIDToken();
+            core.setSecret(token);
+            core.setOutput("token", token);
+
       - name: Smoke protected Vercel deployment
         env:
           DEPLOYMENT_URL: ${{ needs.deploy-web.outputs.url }}
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           set -euo pipefail
-
-          if [ -z "${VERCEL_AUTOMATION_BYPASS_SECRET}" ]; then
-            echo "::error::VERCEL_AUTOMATION_BYPASS_SECRET is required for protected staging smoke tests."
-            exit 1
-          fi
 
           check_status() {
             local path="$1"
@@ -176,7 +182,7 @@ jobs:
             local status
 
             status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" \
-              -H "x-vercel-protection-bypass: ${VERCEL_AUTOMATION_BYPASS_SECRET}" \
+              -H "x-vercel-trusted-oidc-idp-token: ${{ steps.oidc-token.outputs.token }}" \
               "${DEPLOYMENT_URL}${path}")"
 
             if [ "${status}" != "${expected_status}" ]; then
