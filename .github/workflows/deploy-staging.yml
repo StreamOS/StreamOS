@@ -3,7 +3,7 @@ name: CD - Staging Deployment
 on:
   push:
     branches:
-      - develop
+      - "release/*"
   workflow_dispatch:
     inputs:
       deploy_backend_services:

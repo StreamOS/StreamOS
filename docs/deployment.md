@@ -368,11 +368,27 @@ Vercel because Railway private networking is not public internet.
 
 ## Pre-Merge Checklist
 
-For `fix/railway-live-flow-tooling`, treat the CI gate as a manual reviewer
-check until the private GitHub repository has branch protection or rulesets
-available at the account plan level. The current repository already runs the
-`CI` workflow with the `Validate monorepo` job on pull requests to `main`, but
-that job is not documented here as a technically enforced required check.
+`staging` and `production` are deployment-side protected GitHub environments.
+Jobs that reference those environments must pass the configured deployment gate
+before they start or receive environment secrets.
+
+Current environment gate:
+
+- `production`: required reviewer `thomasdorts-hash`, admin bypass disabled,
+  5-minute wait timer, deployment branch restriction to `main`
+- `staging`: required reviewer `thomasdorts-hash`, admin bypass disabled,
+  deployment branch restriction to `main` and `release/*`
+- GitHub evaluates these reviewer, branch, and wait rules before jobs using
+  those environments can proceed
+
+This deployment gate is separate from the repository merge gate. GitHub now
+also enforces the active `Protect main merges` ruleset for `main` and
+`release/*`, including:
+
+- `CI / Validate monorepo` as a required status check
+- at least one approving review
+- required CODEOWNERS review
+- resolved review threads before merge
 
 Recommended pre-merge sequence:
 
