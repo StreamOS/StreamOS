@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
+const { spawnSync } = require("node:child_process");
 const { existsSync, readFileSync } = require("node:fs");
-const { resolve, join } = require("node:path");
+const { resolve, join, dirname } = require("node:path");
 
 const { consumeValueFlag } = require("./lib/cli-args.cjs");
 const {
@@ -112,6 +113,63 @@ function resolveEnvFilePath({ envFile, environment, vercelDir }) {
   return join(vercelDir, `.env.${environment}.local`);
 }
 
+function loadRemoteEnvKeys({ environment, vercelDir }) {
+  const projectFile = join(vercelDir, "project.json");
+
+  if (!existsSync(projectFile)) {
+    return new Set();
+  }
+
+  const projectDirectory = dirname(vercelDir);
+  const result =
+    process.platform === "win32"
+      ? spawnSync(
+          "powershell.exe",
+          [
+            "-NoProfile",
+            "-Command",
+            `vercel env list ${environment} --cwd '${projectDirectory.replace(/'/g, "''")}' --format json`,
+          ],
+          {
+            encoding: "utf8",
+            env: process.env,
+          },
+        )
+      : spawnSync(
+          "vercel",
+          [
+            "env",
+            "list",
+            environment,
+            "--cwd",
+            projectDirectory,
+            "--format",
+            "json",
+          ],
+          {
+            encoding: "utf8",
+            env: process.env,
+          },
+        );
+
+  if (result.status !== 0) {
+    return new Set();
+  }
+
+  try {
+    const parsed = JSON.parse(result.stdout);
+    return new Set(
+      Array.isArray(parsed?.envs)
+        ? parsed.envs
+            .map((entry) => entry?.key)
+            .filter((key) => typeof key === "string" && key.trim() !== "")
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
 
@@ -122,18 +180,24 @@ function main(argv = process.argv.slice(2)) {
 
   const envFile = resolveEnvFilePath(options);
   const env = loadEnvFile(envFile);
+  const remoteEnvKeys = loadRemoteEnvKeys({
+    environment: options.environment,
+    vercelDir: options.vercelDir,
+  });
 
   if (!existsSync(envFile)) {
     throw new Error(`Vercel env file not found: ${envFile}`);
   }
 
   const issues = collectVercelEnvironmentIssues(env, {
+    knownPresentNames: remoteEnvKeys,
     requireRequired: true,
     validatePublicUrls: true,
   });
 
   assertVercelEnvironment(env, {
     contextLabel: `Vercel ${options.environment} environment (${envFile})`,
+    knownPresentNames: remoteEnvKeys,
     requireRequired: true,
     validatePublicUrls: true,
   });
@@ -158,6 +222,7 @@ module.exports = {
   DEFAULT_VERCEL_DIR,
   DEFAULT_VERCEL_ENVIRONMENT,
   loadEnvFile,
+  loadRemoteEnvKeys,
   main,
   parseArgs,
   printHelp,

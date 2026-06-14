@@ -55,6 +55,18 @@ function isSet(env, name) {
   return normalizeEnvValue(env?.[name]) !== "";
 }
 
+function normalizeKnownPresentNames(knownPresentNames) {
+  if (knownPresentNames instanceof Set) {
+    return knownPresentNames;
+  }
+
+  if (Array.isArray(knownPresentNames)) {
+    return new Set(knownPresentNames);
+  }
+
+  return new Set();
+}
+
 function validatePublicUrl(name, rawValue) {
   let parsedUrl;
 
@@ -100,13 +112,18 @@ function validatePublicUrl(name, rawValue) {
 
 function collectVercelEnvironmentIssues(
   env = {},
-  { requireRequired = false, validatePublicUrls = false } = {},
+  {
+    knownPresentNames = undefined,
+    requireRequired = false,
+    validatePublicUrls = false,
+  } = {},
 ) {
   const issues = [];
+  const presentNames = normalizeKnownPresentNames(knownPresentNames);
 
   if (requireRequired) {
     for (const name of REQUIRED_VERCEL_ENV_NAMES) {
-      if (!isSet(env, name)) {
+      if (!isSet(env, name) && !presentNames.has(name)) {
         issues.push({
           name,
           reason: `${name} is required in the Vercel environment.`,
@@ -115,9 +132,9 @@ function collectVercelEnvironmentIssues(
     }
   }
 
-  for (const name of Object.keys(env).sort((left, right) =>
-    left.localeCompare(right),
-  )) {
+  for (const name of Array.from(
+    new Set([...Object.keys(env), ...presentNames]),
+  ).sort((left, right) => left.localeCompare(right))) {
     if (name.startsWith(FORBIDDEN_OPENAI_PREFIX)) {
       issues.push({
         name,
@@ -184,11 +201,13 @@ function assertVercelEnvironment(
   env = {},
   {
     contextLabel = "Vercel environment",
+    knownPresentNames = undefined,
     requireRequired = false,
     validatePublicUrls = false,
   } = {},
 ) {
   const issues = collectVercelEnvironmentIssues(env, {
+    knownPresentNames,
     requireRequired,
     validatePublicUrls,
   });

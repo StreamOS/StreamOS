@@ -97,6 +97,50 @@ test("collectVercelEnvironmentIssues skips local-only URLs outside Vercel mode",
   assert.deepEqual(issues, []);
 });
 
+test("collectVercelEnvironmentIssues accepts required keys confirmed by Vercel inventory", () => {
+  const maskedEnv = {
+    APP_ENV: "production",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-anon-key",
+    STREAMOS_DEMO_MODE: "false",
+    STREAM_EVENT_WEBHOOK_SECRET: "test-stream-event-secret-123",
+    TWITCH_REDIRECT_URI:
+      "https://gateway.streamos.test/api/auth/twitch/callback",
+    TWITCH_SCOPES: "user:read:email",
+  };
+
+  const issues = collectVercelEnvironmentIssues(maskedEnv, {
+    knownPresentNames: new Set([
+      "APP_ENCRYPTION_KEY",
+      "API_GATEWAY_SECRET",
+      "API_GATEWAY_URL",
+      "NEXT_PUBLIC_APP_URL",
+      "NEXT_PUBLIC_SUPABASE_URL",
+      "TWITCH_CLIENT_ID",
+      "TWITCH_CLIENT_SECRET",
+    ]),
+    requireRequired: true,
+    validatePublicUrls: true,
+  });
+
+  assert.deepEqual(issues, []);
+});
+
+test("collectVercelEnvironmentIssues still blocks forbidden keys from Vercel inventory", () => {
+  const issues = collectVercelEnvironmentIssues(
+    {},
+    {
+      knownPresentNames: new Set(["OPENAI_API_KEY", "REDIS_URL"]),
+      requireRequired: false,
+      validatePublicUrls: false,
+    },
+  );
+
+  assert.match(
+    issues.map((issue) => issue.name).join(","),
+    /OPENAI_API_KEY|REDIS_URL/,
+  );
+});
+
 test("assertVercelEnvironment blocks Railway-only secrets and provider prefixes", () => {
   assert.throws(
     () =>
