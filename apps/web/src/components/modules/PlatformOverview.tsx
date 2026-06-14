@@ -1,5 +1,8 @@
 import type { Tables } from "@streamos/database";
-import { refreshTwitchConnectionAction } from "@/app/dashboard/actions";
+import {
+  disconnectTwitchConnectionAction,
+  refreshTwitchConnectionAction,
+} from "@/app/dashboard/actions";
 import { platforms } from "@/data/dashboard";
 import type { PlatformSummary } from "@/data/dashboard";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -37,14 +40,26 @@ export async function PlatformOverview() {
                 </a>
               )}
               {platform.canRefresh && (
-                <form action={refreshTwitchConnectionAction}>
-                  <button
-                    className="btn-ghost px-3 py-1.5 text-xs"
-                    type="submit"
-                  >
-                    Token erneuern
-                  </button>
-                </form>
+                <div className="flex flex-wrap gap-2">
+                  <form action={refreshTwitchConnectionAction}>
+                    <button
+                      className="btn-ghost px-3 py-1.5 text-xs"
+                      type="submit"
+                    >
+                      Token erneuern
+                    </button>
+                  </form>
+                  {platform.status === "Connected" && (
+                    <form action={disconnectTwitchConnectionAction}>
+                      <button
+                        className="btn-ghost px-3 py-1.5 text-xs"
+                        type="submit"
+                      >
+                        Trennen
+                      </button>
+                    </form>
+                  )}
+                </div>
               )}
             </div>
           </div>

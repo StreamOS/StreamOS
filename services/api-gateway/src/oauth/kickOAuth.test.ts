@@ -19,6 +19,14 @@ const NOW = new Date("2026-06-06T10:00:00.000Z").getTime();
 class RecordingOAuthRepository implements OAuthConnectionRepository {
   readonly persisted: PersistOAuthConnectionInput[] = [];
 
+  async findLatestConnection() {
+    return null;
+  }
+
+  async patchConnection(): Promise<void> {
+    return;
+  }
+
   async persistConnection(
     input: PersistOAuthConnectionInput,
   ): Promise<OAuthConnectionResult> {

@@ -306,6 +306,9 @@ importers:
       "@streamos/redis":
         specifier: workspace:*
         version: link:../../packages/redis
+      "@streamos/twitch-eventsub":
+        specifier: workspace:*
+        version: link:../../packages/twitch-eventsub
       "@streamos/types":
         specifier: workspace:*
         version: link:../../packages/types
