@@ -97,13 +97,6 @@ function normalizeNumber(value) {
   return parsedValue;
 }
 
-function splitDelimitedList(value) {
-  return String(value || "")
-    .split(/[,\s]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function parseVariablePayload(payload) {
   if (Array.isArray(payload)) {
     return Object.fromEntries(

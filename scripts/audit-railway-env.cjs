@@ -11,7 +11,6 @@ const {
   formatMarkdownReport,
   hasBlockingFindings,
   parseServiceListPayload,
-  parseVariablePayload,
 } = require("./lib/railway-audit-core.cjs");
 const {
   requestHealth,

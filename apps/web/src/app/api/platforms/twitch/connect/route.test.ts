@@ -54,7 +54,7 @@ describe("GET /api/platforms/twitch/connect", () => {
     );
     const location = response.headers.get("location");
 
-    expect(response.status).toBe(302);
+    expect(response.status).toBe(307);
     expect(location).toBeTruthy();
 
     const connectUrl = new URL(location ?? "");
@@ -90,9 +90,9 @@ describe("GET /api/platforms/twitch/connect", () => {
     );
     const location = response.headers.get("location");
 
-    expect(response.status).toBe(302);
+    expect(response.status).toBe(307);
     expect(location).toBe(
-      "https://gateway.streamos.test/api/auth/twitch/connect",
+      "http://localhost/auth/login?error=unauthorized&next=%2Fdashboard%2Fplatforms",
     );
     expect(mocks.ensureCreatorForUser).not.toHaveBeenCalled();
   });

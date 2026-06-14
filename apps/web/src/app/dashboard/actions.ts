@@ -29,6 +29,48 @@ export async function refreshTwitchConnectionAction() {
   redirect("/dashboard?platform=twitch&error=twitch-refresh");
 }
 
+export async function disconnectTwitchConnectionAction() {
+  if (!isSupabaseConfigured()) {
+    redirect("/dashboard/platforms?platform=twitch&error=twitch-disconnect");
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getUser();
+
+  if (error || !data.user) {
+    redirect("/login");
+  }
+
+  try {
+    const result = await callApiGatewayJson<{
+      data?: {
+        platform?: string;
+        status?: string;
+      };
+      success?: boolean;
+    }>({
+      body: {
+        user_id: data.user.id,
+      },
+      path: "/api/platforms/twitch/disconnect",
+    });
+
+    if (
+      result.ok &&
+      result.data.success === true &&
+      result.data.data?.status === "disconnected"
+    ) {
+      redirect("/dashboard/platforms?platform=twitch&status=disconnected");
+    }
+  } catch (error) {
+    if (error instanceof ApiGatewayConfigurationError) {
+      redirect("/dashboard/platforms?platform=twitch&error=twitch-disconnect");
+    }
+  }
+
+  redirect("/dashboard/platforms?platform=twitch&error=twitch-disconnect");
+}
+
 export async function syncTwitchAnalyticsAction() {
   if (!isSupabaseConfigured()) {
     redirect("/dashboard/analytics?platform=twitch&error=twitch-sync");
