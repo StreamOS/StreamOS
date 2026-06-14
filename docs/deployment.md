@@ -234,7 +234,7 @@ Recommended Docker configuration:
 | Service Type      | Worker                   |
 | Public Networking | Disabled                 |
 
-Required variables:
+### Required Variables
 
 ```bash
 REDIS_URL=rediss://default:password@host:6379
@@ -243,7 +243,11 @@ SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
 
-Optional variables:
+These variables are mandatory for every Railway deployment of
+`workers/clip-worker`. The worker must fail startup if one of them is missing or
+if `AUTOMATION_SERVICE_URL` resolves to a public host.
+
+### Optional Variables
 
 ```bash
 CLIP_WORKER_CONCURRENCY=2
