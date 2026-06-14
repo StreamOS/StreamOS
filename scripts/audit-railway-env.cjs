@@ -11,7 +11,7 @@ const {
   buildAuditReport,
   formatMarkdownReport,
   hasBlockingFindings,
-  parseServiceListPayload,
+  getServicePublicUrl,
 } = require("./lib/railway-audit-core.cjs");
 const {
   requestHealth,
@@ -288,10 +288,17 @@ Options:
 }
 
 function runCommand(command, args, { allowFailure = false, cwd, env } = {}) {
-  const result = spawnSync(command, args, {
+  const resolvedCommand =
+    process.platform === "win32"
+      ? resolveWindowsCommand(command, env)
+      : command;
+  const needsWindowsShell =
+    process.platform === "win32" && /\.(?:cmd|bat)$/i.test(resolvedCommand);
+  const result = spawnSync(resolvedCommand, args, {
     cwd,
     encoding: "utf8",
     env,
+    shell: needsWindowsShell,
     stdio: "pipe",
   });
 
@@ -309,13 +316,41 @@ function runCommand(command, args, { allowFailure = false, cwd, env } = {}) {
 
   if (result.status !== 0 && !allowFailure) {
     throw new Error(
-      `${command} ${args.join(" ")} failed with exit code ${result.status}: ${
+      `${resolvedCommand} ${args.join(" ")} failed with exit code ${result.status}: ${
         result.stderr?.trim() || result.stdout?.trim() || "no output"
       }`,
     );
   }
 
   return result;
+}
+
+function resolveWindowsCommand(command, env) {
+  if (
+    process.platform !== "win32" ||
+    command.includes("\\") ||
+    command.includes("/") ||
+    /\.[a-z0-9]+$/i.test(command)
+  ) {
+    return command;
+  }
+
+  const lookup = spawnSync("where.exe", [command], {
+    encoding: "utf8",
+    env,
+    stdio: "pipe",
+  });
+
+  if (lookup.status !== 0) {
+    return command;
+  }
+
+  return (
+    lookup.stdout
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .find(Boolean) ?? command
+  );
 }
 
 function parseJsonOutput(output, description) {
@@ -399,6 +434,23 @@ function loadRailwayEnvironmentConfig({
   projectId,
   railwayBin,
 }) {
+  try {
+    return runRailwayJsonCommand(
+      railwayBin,
+      ["environment", "config", "-e", environment],
+      `railway environment config (${environment})`,
+      { env: commandEnv },
+    );
+  } catch (error) {
+    if (
+      !String(error.message).includes("Project not found") &&
+      !String(error.message).includes("No project linked") &&
+      !String(error.message).includes("Unauthorized")
+    ) {
+      throw error;
+    }
+  }
+
   const tempDirectory = mkdtempSync(
     join(os.tmpdir(), "streamos-railway-audit-"),
   );
@@ -465,10 +517,16 @@ function loadFixtureEnvironment(fixturesDir, environment) {
   };
 }
 
-function getServicePublicUrl(serviceList, serviceName) {
-  const services = parseServiceListPayload(serviceList);
-  const service = services.find((entry) => entry.name === serviceName);
-  return service?.url ?? null;
+function isVerificationUnavailableError(error) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+
+  return [
+    "Unauthorized.",
+    "Please login with `railway login`",
+    "does not have access to the resource",
+    "does not have an SSH key",
+    "SSH key",
+  ].some((token) => message.includes(token));
 }
 
 async function runPublicHealthCheck({
@@ -509,6 +567,19 @@ async function runPublicHealthCheck({
       ok: false,
       service,
       target: endpoint.toString(),
+    };
+  }
+}
+
+async function captureCheck(run, fallback) {
+  try {
+    return await run();
+  } catch (error) {
+    return {
+      ...fallback,
+      message: error instanceof Error ? error.message : String(error),
+      ok: false,
+      unverified: isVerificationUnavailableError(error),
     };
   }
 }
@@ -712,44 +783,87 @@ async function runLiveHealthChecks({
   }
 
   checks.push(
-    runNodeServiceHealthCheck({
-      commandEnv,
-      environment,
-      expectedService: "api-gateway",
-      projectId,
-      railwayBin,
-      service: "api-gateway",
-      target: "http://127.0.0.1:4000/health",
-    }),
+    await captureCheck(
+      () =>
+        runNodeServiceHealthCheck({
+          commandEnv,
+          environment,
+          expectedService: "api-gateway",
+          projectId,
+          railwayBin,
+          service: "api-gateway",
+          target: "http://127.0.0.1:4000/health",
+        }),
+      {
+        category: "health",
+        expectedService: "api-gateway",
+        method: "railway-ssh-node",
+        name: "api-gateway-local-health",
+        service: "api-gateway",
+        target: "http://127.0.0.1:4000/health",
+      },
+    ),
   );
   checks.push(
-    runPythonServiceHealthCheck({
-      commandEnv,
-      environment,
-      expectedService: "automation-service",
-      projectId,
-      railwayBin,
-      service: "automation-service",
-      target: "http://127.0.0.1:8000/health",
-    }),
+    await captureCheck(
+      () =>
+        runPythonServiceHealthCheck({
+          commandEnv,
+          environment,
+          expectedService: "automation-service",
+          projectId,
+          railwayBin,
+          service: "automation-service",
+          target: "http://127.0.0.1:8000/health",
+        }),
+      {
+        category: "health",
+        expectedService: "automation-service",
+        method: "railway-ssh-python",
+        name: "automation-service-local-health",
+        service: "automation-service",
+        target: "http://127.0.0.1:8000/health",
+      },
+    ),
   );
   checks.push(
-    runWorkerAutomationHealthCheck({
-      commandEnv,
-      environment,
-      projectId,
-      railwayBin,
-      service: "transcription-worker",
-    }),
+    await captureCheck(
+      () =>
+        runWorkerAutomationHealthCheck({
+          commandEnv,
+          environment,
+          projectId,
+          railwayBin,
+          service: "transcription-worker",
+        }),
+      {
+        category: "health",
+        expectedService: "automation-service",
+        method: "railway-ssh-worker-path",
+        name: "transcription-worker-automation-path",
+        service: "transcription-worker",
+        target: "AUTOMATION_SERVICE_URL/health",
+      },
+    ),
   );
   checks.push(
-    runRedisReachabilityCheck({
-      commandEnv,
-      environment,
-      projectId,
-      railwayBin,
-      service: "api-gateway",
-    }),
+    await captureCheck(
+      () =>
+        runRedisReachabilityCheck({
+          commandEnv,
+          environment,
+          projectId,
+          railwayBin,
+          service: "api-gateway",
+        }),
+      {
+        category: "redis",
+        method: "railway-ssh-node",
+        name: "api-gateway-redis",
+        service: "api-gateway",
+        target: "REDIS_URL",
+      },
+    ),
   );
 
   return checks;
@@ -761,11 +875,24 @@ function loadLiveEnvironment({
   projectId,
   railwayBin,
 }) {
-  const sharedVariables = runRailwayJsonCommand(
+  const environmentConfig = loadRailwayEnvironmentConfig({
+    commandEnv,
+    environment,
+    projectId,
     railwayBin,
-    ["variable", "list", "-p", projectId, "-e", environment],
-    `railway variable list (${environment}, shared)`,
-    { env: commandEnv },
+  });
+  const sharedVariables =
+    environmentConfig?.variables &&
+    typeof environmentConfig.variables === "object"
+      ? environmentConfig.variables
+      : {};
+  const serviceConfigByName = new Map(
+    Object.values(environmentConfig?.services ?? {}).map((serviceConfig) => [
+      serviceConfig?.name ??
+        serviceConfig?.service?.name ??
+        serviceConfig?.serviceName,
+      serviceConfig,
+    ]),
   );
   const serviceList = runRailwayJsonCommand(
     railwayBin,
@@ -776,6 +903,23 @@ function loadLiveEnvironment({
   const serviceVariables = {};
 
   for (const serviceName of Object.keys(whitelist.services)) {
+    const serviceConfig = serviceConfigByName.get(serviceName);
+
+    if (
+      serviceConfig?.variables &&
+      typeof serviceConfig.variables === "object"
+    ) {
+      serviceVariables[serviceName] = Object.fromEntries(
+        Object.entries(serviceConfig.variables)
+          .map(([name, variableConfig]) => [
+            name,
+            variableConfig?.value ?? variableConfig,
+          ])
+          .filter(([, value]) => value !== null && value !== undefined),
+      );
+      continue;
+    }
+
     serviceVariables[serviceName] = runRailwayJsonCommand(
       railwayBin,
       [
@@ -794,12 +938,7 @@ function loadLiveEnvironment({
   }
 
   return {
-    environmentConfig: loadRailwayEnvironmentConfig({
-      commandEnv,
-      environment,
-      projectId,
-      railwayBin,
-    }),
+    environmentConfig,
     serviceList,
     serviceVariables,
     sharedVariables,

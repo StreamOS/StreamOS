@@ -4,7 +4,10 @@ const { join } = require("node:path");
 const { readFileSync } = require("node:fs");
 
 const whitelist = require("./config/railway-env-whitelist.cjs");
-const { buildAuditReport } = require("./lib/railway-audit-core.cjs");
+const {
+  buildAuditReport,
+  hasBlockingFindings,
+} = require("./lib/railway-audit-core.cjs");
 const { validateHealthPayload } = require("./check-deployment.cjs");
 
 const fixturesDir = join(__dirname, "__fixtures__", "railway-audit");
@@ -87,4 +90,79 @@ test("buildAuditReport allows stub mode in staging e2e", () => {
   ].variables.find((row) => row.variable === "TRANSCRIPTION_PROCESSOR_MODE");
 
   assert.equal(stagingRow.status, "✅");
+});
+
+test("buildAuditReport falls back to service list URLs for required public networking", () => {
+  const production = loadEnvironment("production");
+  delete production.environmentConfig.services["svc-api-production"].networking
+    .serviceDomains;
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const apiGatewayRows =
+    report.environments.production.services["api-gateway"].variables;
+  const networkRow = apiGatewayRows.find(
+    (row) => row.variable === "PUBLIC_NETWORKING",
+  );
+
+  assert.equal(networkRow.status, "✅");
+  assert.match(networkRow.summary, /Public networking is enabled/);
+});
+
+test("hasBlockingFindings ignores unverifiable SSH health checks", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      staging: loadEnvironment("staging"),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  report.summary.totalFindings = 0;
+  report.environments.staging.healthChecks = [
+    {
+      category: "health",
+      name: "automation-service-local-health",
+      ok: false,
+      service: "automation-service",
+      unverified: true,
+    },
+  ];
+
+  assert.equal(hasBlockingFindings(report), false);
+});
+
+test("buildAuditReport ignores null-valued Railway tombstone variables", () => {
+  const staging = loadEnvironment("staging");
+  staging.environmentConfig.services["svc-api-staging"].variables = {
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: null,
+  };
+  staging.serviceVariables["api-gateway"] = {
+    ...staging.serviceVariables["api-gateway"],
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: undefined,
+  };
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      staging,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const gatewayRows =
+    report.environments.staging.services["api-gateway"].variables;
+  assert.equal(
+    gatewayRows.some((row) => row.variable === "NEXT_PUBLIC_SUPABASE_ANON_KEY"),
+    false,
+  );
 });

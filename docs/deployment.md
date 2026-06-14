@@ -220,6 +220,49 @@ pnpm --filter @streamos/transcription-worker test
 pnpm --filter @streamos/transcription-worker build
 ```
 
+## Railway Worker Dyno: `workers/clip-worker`
+
+The clip worker is a Node.js BullMQ consumer for clip-generation and scoring
+jobs. It calls the private Automation Service and persists job state with
+Supabase server-side credentials.
+
+Recommended Docker configuration:
+
+| Setting           | Value                    |
+| ----------------- | ------------------------ |
+| Dockerfile Path   | `Dockerfile.clip-worker` |
+| Service Type      | Worker                   |
+| Public Networking | Disabled                 |
+
+Required variables:
+
+```bash
+REDIS_URL=rediss://default:password@host:6379
+AUTOMATION_SERVICE_URL=http://${{automation-service.RAILWAY_PRIVATE_DOMAIN}}:8000
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+```
+
+Optional variables:
+
+```bash
+CLIP_WORKER_CONCURRENCY=2
+CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
+QUEUE_DEFAULT_NAME=streamos-media
+```
+
+`AUTOMATION_SERVICE_URL` must resolve to the private Railway Automation Service
+endpoint. Public `https://*.up.railway.app` URLs are invalid for this worker
+and must not be used as a fallback.
+
+Validation:
+
+```bash
+pnpm --filter @streamos/clip-worker lint
+pnpm --filter @streamos/clip-worker test
+pnpm --filter @streamos/clip-worker build
+```
+
 ## Railway Worker Dyno: `workers/content-job-retry-worker`
 
 The content job retry worker scans failed `content_jobs`, claims retryable rows
@@ -311,3 +354,33 @@ networking is environment-scoped.
 
 The private Automation Service check cannot succeed from a local shell or
 Vercel because Railway private networking is not public internet.
+
+## Pre-Merge Checklist
+
+For `fix/railway-live-flow-tooling`, treat the CI gate as a manual reviewer
+check until the private GitHub repository has branch protection or rulesets
+available at the account plan level. The current repository already runs the
+`CI` workflow with the `Validate monorepo` job on pull requests to `main`, but
+that job is not documented here as a technically enforced required check.
+
+Recommended pre-merge sequence:
+
+```bash
+export RAILWAY_PROJECT_ID=
+export RAILWAY_TOKEN_STAGING=
+export RAILWAY_TOKEN_PRODUCTION=
+
+pnpm validate
+pnpm railway:audit --environments staging,production --format markdown > audit-premerge-cross-env.md
+pnpm railway:audit --env staging --format markdown > audit-baseline-staging.md
+```
+
+Merge expectations:
+
+- `CI / Validate monorepo` is green on the pull request
+- `audit-premerge-cross-env.md` has no `MISSING`, `DANGEROUS_EXPOSURE`, or
+  real `STAGING_DRIFT` blockers
+- `audit-baseline-staging.md` is only committed when the staging-only run has
+  no blocker-worthy findings
+- `audit-premerge-cross-env.md` remains a local review artifact and is not
+  committed
