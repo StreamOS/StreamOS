@@ -109,9 +109,6 @@ importers:
       "@streamos/utils":
         specifier: workspace:*
         version: link:../../packages/utils
-      "@streamos/youtube-websub":
-        specifier: workspace:*
-        version: link:../../packages/youtube-websub
       "@supabase/ssr":
         specifier: ^0.6.1
         version: 0.6.1(@supabase/supabase-js@2.106.2)
