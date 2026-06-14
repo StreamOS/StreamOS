@@ -5,6 +5,7 @@ const os = require("node:os");
 const { join, resolve } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
+const { consumeValueFlag } = require("./lib/cli-args.cjs");
 const whitelist = require("./config/railway-env-whitelist.cjs");
 const {
   buildAuditReport,
@@ -149,32 +150,102 @@ function parseArgs(argv) {
     timeoutMs: DEFAULT_TIMEOUT_MS,
   };
 
-  for (const arg of argv) {
+  const selectedEnvironments = [];
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
     if (arg === "--help" || arg === "-h") {
       options.help = true;
-    } else if (arg.startsWith("--environments=")) {
-      options.environments = arg
-        .slice("--environments=".length)
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean);
-    } else if (arg.startsWith("--fixtures-dir=")) {
-      options.fixturesDir = resolve(arg.slice("--fixtures-dir=".length).trim());
-    } else if (arg.startsWith("--format=")) {
-      options.format = arg.slice("--format=".length).trim();
-    } else if (arg.startsWith("--project-id=")) {
-      options.projectId = arg.slice("--project-id=".length).trim();
-    } else if (arg.startsWith("--project-name=")) {
-      options.projectName = arg.slice("--project-name=".length).trim();
-    } else if (arg.startsWith("--railway-bin=")) {
-      options.railwayBin = arg.slice("--railway-bin=".length).trim();
-    } else if (arg === "--strict") {
-      options.strict = true;
-    } else if (arg.startsWith("--timeout-ms=")) {
-      options.timeoutMs = Number(arg.slice("--timeout-ms=".length).trim());
-    } else {
-      throw new Error(`Unknown argument: ${arg}`);
+      continue;
     }
+
+    if (arg === "--") {
+      continue;
+    }
+
+    const environmentsMatch = consumeValueFlag(argv, index, "environments");
+
+    if (environmentsMatch.matched) {
+      selectedEnvironments.push(
+        ...environmentsMatch.value
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter(Boolean),
+      );
+      index = environmentsMatch.nextIndex;
+      continue;
+    }
+
+    const environmentMatch = consumeValueFlag(argv, index, [
+      "env",
+      "environment",
+    ]);
+
+    if (environmentMatch.matched) {
+      selectedEnvironments.push(environmentMatch.value.trim());
+      index = environmentMatch.nextIndex;
+      continue;
+    }
+
+    const fixturesDirMatch = consumeValueFlag(argv, index, "fixtures-dir");
+
+    if (fixturesDirMatch.matched) {
+      options.fixturesDir = resolve(fixturesDirMatch.value.trim());
+      index = fixturesDirMatch.nextIndex;
+      continue;
+    }
+
+    const formatMatch = consumeValueFlag(argv, index, "format");
+
+    if (formatMatch.matched) {
+      options.format = formatMatch.value.trim();
+      index = formatMatch.nextIndex;
+      continue;
+    }
+
+    const projectIdMatch = consumeValueFlag(argv, index, "project-id");
+
+    if (projectIdMatch.matched) {
+      options.projectId = projectIdMatch.value.trim();
+      index = projectIdMatch.nextIndex;
+      continue;
+    }
+
+    const projectNameMatch = consumeValueFlag(argv, index, "project-name");
+
+    if (projectNameMatch.matched) {
+      options.projectName = projectNameMatch.value.trim();
+      index = projectNameMatch.nextIndex;
+      continue;
+    }
+
+    const railwayBinMatch = consumeValueFlag(argv, index, "railway-bin");
+
+    if (railwayBinMatch.matched) {
+      options.railwayBin = railwayBinMatch.value.trim();
+      index = railwayBinMatch.nextIndex;
+      continue;
+    }
+
+    if (arg === "--strict") {
+      options.strict = true;
+      continue;
+    }
+
+    const timeoutMatch = consumeValueFlag(argv, index, "timeout-ms");
+
+    if (timeoutMatch.matched) {
+      options.timeoutMs = Number(timeoutMatch.value.trim());
+      index = timeoutMatch.nextIndex;
+      continue;
+    }
+
+    throw new Error(`Unknown argument: ${arg}`);
+  }
+
+  if (selectedEnvironments.length > 0) {
+    options.environments = [...new Set(selectedEnvironments)];
   }
 
   if (!["json", "markdown", "both"].includes(options.format)) {
@@ -197,25 +268,30 @@ function printHelp() {
 
 Usage:
   pnpm railway:audit
-  pnpm railway:audit -- --strict --railway-bin=/path/to/railway
-  pnpm railway:audit -- --fixtures-dir=scripts/__fixtures__/railway-audit --format=json
+  pnpm railway:audit --env staging --format markdown > audit-staging.md
+  pnpm railway:audit --env production --format markdown > audit-production.md
+  pnpm railway:audit --environments staging,production --strict
+  pnpm railway:audit --fixtures-dir scripts/__fixtures__/railway-audit --format json
 
 Options:
-  --environments=CSV     Override environments. Default: ${whitelist.environments.join(", ")}.
-  --fixtures-dir=PATH    Read staged JSON fixtures instead of calling Railway.
-  --format=MODE          markdown, json, or both. Default: both.
-  --project-id=ID        Railway project ID. Default: ${whitelist.project.id}.
-  --project-name=NAME    Railway project name for the report header.
-  --railway-bin=PATH     Railway CLI binary. Defaults to railway in PATH.
+  --env ENV              Audit a single Railway environment. Repeatable.
+  --environment ENV      Alias for --env.
+  --environments CSV     Override environments with a comma-separated list.
+  --fixtures-dir PATH    Read staged JSON fixtures instead of calling Railway.
+  --format MODE          markdown, json, or both. Default: both.
+  --project-id ID        Railway project ID. Default: process.env.RAILWAY_PROJECT_ID or ${whitelist.project.id}.
+  --project-name NAME    Railway project name for the report header.
+  --railway-bin PATH     Railway CLI binary. Defaults to railway in PATH.
   --strict               Exit non-zero when any finding or failed health check exists.
-  --timeout-ms=N         Public health-check timeout in milliseconds. Default: ${DEFAULT_TIMEOUT_MS}.
+  --timeout-ms N         Public health-check timeout in milliseconds. Default: ${DEFAULT_TIMEOUT_MS}.
 `);
 }
 
-function runCommand(command, args, { allowFailure = false, cwd } = {}) {
+function runCommand(command, args, { allowFailure = false, cwd, env } = {}) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: "utf8",
+    env,
     stdio: "pipe",
   });
 
@@ -267,44 +343,62 @@ function ensureRailwayCli(railwayBin) {
   }
 }
 
-function resolveProjectId(options, railwayBin) {
-  if (options.projectId) {
-    return {
-      id: options.projectId,
-      name: options.projectName,
-    };
-  }
+function readNonEmptyEnv(env, name) {
+  const value = env[name];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
 
-  if (options.projectName === whitelist.project.name) {
-    return {
-      id: options.defaultProjectId,
-      name: options.projectName,
-    };
-  }
-
-  const projects = runRailwayJsonCommand(
-    railwayBin,
-    ["project", "list"],
-    "railway project list",
-  );
-
-  const matchingProject = projects.find(
-    (project) => project.name === options.projectName,
-  );
-
-  if (!matchingProject) {
-    throw new Error(
-      `Railway project ${options.projectName} was not found. Pass --project-id explicitly.`,
-    );
-  }
-
+function resolveProject(options, env = process.env) {
   return {
-    id: matchingProject.id,
-    name: matchingProject.name,
+    id:
+      options.projectId ??
+      readNonEmptyEnv(env, "RAILWAY_PROJECT_ID") ??
+      options.defaultProjectId,
+    name: options.projectName,
   };
 }
 
-function loadRailwayEnvironmentConfig({ environment, projectId, railwayBin }) {
+function resolveRailwayToken(environment, env = process.env) {
+  const explicitToken = readNonEmptyEnv(env, "RAILWAY_TOKEN");
+
+  if (explicitToken) {
+    return explicitToken;
+  }
+
+  const tokenEnvName =
+    environment === "staging"
+      ? "RAILWAY_TOKEN_STAGING"
+      : environment === "production"
+        ? "RAILWAY_TOKEN_PRODUCTION"
+        : null;
+  const environmentToken = tokenEnvName
+    ? readNonEmptyEnv(env, tokenEnvName)
+    : undefined;
+
+  if (environmentToken) {
+    return environmentToken;
+  }
+
+  throw new Error(
+    tokenEnvName
+      ? `Railway authentication token is not configured for ${environment}. Set RAILWAY_TOKEN or ${tokenEnvName} in the current process environment.`
+      : `Railway authentication token is not configured for ${environment}. Set RAILWAY_TOKEN in the current process environment.`,
+  );
+}
+
+function buildRailwayCommandEnv(environment, env = process.env) {
+  return {
+    ...env,
+    RAILWAY_TOKEN: resolveRailwayToken(environment, env),
+  };
+}
+
+function loadRailwayEnvironmentConfig({
+  commandEnv,
+  environment,
+  projectId,
+  railwayBin,
+}) {
   const tempDirectory = mkdtempSync(
     join(os.tmpdir(), "streamos-railway-audit-"),
   );
@@ -312,13 +406,14 @@ function loadRailwayEnvironmentConfig({ environment, projectId, railwayBin }) {
   try {
     runCommand(railwayBin, ["link", "-p", projectId, "-e", environment], {
       cwd: tempDirectory,
+      env: commandEnv,
     });
 
     return runRailwayJsonCommand(
       railwayBin,
       ["environment", "config", "-e", environment],
       `railway environment config (${environment})`,
-      { cwd: tempDirectory },
+      { cwd: tempDirectory, env: commandEnv },
     );
   } finally {
     rmSync(tempDirectory, { force: true, recursive: true });
@@ -418,11 +513,12 @@ async function runPublicHealthCheck({
   }
 }
 
-function runRailwaySsh(railwayBin, args) {
-  return runCommand(railwayBin, ["ssh", ...args]);
+function runRailwaySsh(railwayBin, args, options = {}) {
+  return runCommand(railwayBin, ["ssh", ...args], options);
 }
 
 function runNodeServiceHealthCheck({
+  commandEnv,
   environment,
   expectedService,
   projectId,
@@ -430,18 +526,22 @@ function runNodeServiceHealthCheck({
   service,
   target,
 }) {
-  const result = runRailwaySsh(railwayBin, [
-    "-p",
-    projectId,
-    "-e",
-    environment,
-    "-s",
-    service,
-    "node",
-    "-e",
-    NODE_SERVICE_HEALTH_SCRIPT,
-    target,
-  ]);
+  const result = runRailwaySsh(
+    railwayBin,
+    [
+      "-p",
+      projectId,
+      "-e",
+      environment,
+      "-s",
+      service,
+      "node",
+      "-e",
+      NODE_SERVICE_HEALTH_SCRIPT,
+      target,
+    ],
+    { env: commandEnv },
+  );
   const payload = parseJsonOutput(
     result.stdout,
     `${service} remote health payload`,
@@ -462,6 +562,7 @@ function runNodeServiceHealthCheck({
 }
 
 function runPythonServiceHealthCheck({
+  commandEnv,
   environment,
   expectedService,
   projectId,
@@ -469,18 +570,22 @@ function runPythonServiceHealthCheck({
   service,
   target,
 }) {
-  const result = runRailwaySsh(railwayBin, [
-    "-p",
-    projectId,
-    "-e",
-    environment,
-    "-s",
-    service,
-    "python",
-    "-c",
-    PYTHON_SERVICE_HEALTH_SCRIPT,
-    target,
-  ]);
+  const result = runRailwaySsh(
+    railwayBin,
+    [
+      "-p",
+      projectId,
+      "-e",
+      environment,
+      "-s",
+      service,
+      "python",
+      "-c",
+      PYTHON_SERVICE_HEALTH_SCRIPT,
+      target,
+    ],
+    { env: commandEnv },
+  );
   const payload = parseJsonOutput(
     result.stdout,
     `${service} remote health payload`,
@@ -501,22 +606,27 @@ function runPythonServiceHealthCheck({
 }
 
 function runWorkerAutomationHealthCheck({
+  commandEnv,
   environment,
   projectId,
   railwayBin,
   service,
 }) {
-  const result = runRailwaySsh(railwayBin, [
-    "-p",
-    projectId,
-    "-e",
-    environment,
-    "-s",
-    service,
-    "node",
-    "-e",
-    NODE_SERVICE_HEALTH_SCRIPT,
-  ]);
+  const result = runRailwaySsh(
+    railwayBin,
+    [
+      "-p",
+      projectId,
+      "-e",
+      environment,
+      "-s",
+      service,
+      "node",
+      "-e",
+      NODE_SERVICE_HEALTH_SCRIPT,
+    ],
+    { env: commandEnv },
+  );
   const payload = parseJsonOutput(
     result.stdout,
     `${service} worker-path health payload`,
@@ -537,22 +647,27 @@ function runWorkerAutomationHealthCheck({
 }
 
 function runRedisReachabilityCheck({
+  commandEnv,
   environment,
   projectId,
   railwayBin,
   service,
 }) {
-  const result = runRailwaySsh(railwayBin, [
-    "-p",
-    projectId,
-    "-e",
-    environment,
-    "-s",
-    service,
-    "node",
-    "-e",
-    REDIS_TCP_CHECK_SCRIPT,
-  ]);
+  const result = runRailwaySsh(
+    railwayBin,
+    [
+      "-p",
+      projectId,
+      "-e",
+      environment,
+      "-s",
+      service,
+      "node",
+      "-e",
+      REDIS_TCP_CHECK_SCRIPT,
+    ],
+    { env: commandEnv },
+  );
   const payload = parseJsonOutput(
     result.stdout,
     `${service} redis TCP payload`,
@@ -570,6 +685,7 @@ function runRedisReachabilityCheck({
 }
 
 async function runLiveHealthChecks({
+  commandEnv,
   environment,
   projectId,
   railwayBin,
@@ -597,6 +713,7 @@ async function runLiveHealthChecks({
 
   checks.push(
     runNodeServiceHealthCheck({
+      commandEnv,
       environment,
       expectedService: "api-gateway",
       projectId,
@@ -607,6 +724,7 @@ async function runLiveHealthChecks({
   );
   checks.push(
     runPythonServiceHealthCheck({
+      commandEnv,
       environment,
       expectedService: "automation-service",
       projectId,
@@ -617,6 +735,7 @@ async function runLiveHealthChecks({
   );
   checks.push(
     runWorkerAutomationHealthCheck({
+      commandEnv,
       environment,
       projectId,
       railwayBin,
@@ -625,6 +744,7 @@ async function runLiveHealthChecks({
   );
   checks.push(
     runRedisReachabilityCheck({
+      commandEnv,
       environment,
       projectId,
       railwayBin,
@@ -635,16 +755,23 @@ async function runLiveHealthChecks({
   return checks;
 }
 
-function loadLiveEnvironment({ environment, projectId, railwayBin }) {
+function loadLiveEnvironment({
+  commandEnv,
+  environment,
+  projectId,
+  railwayBin,
+}) {
   const sharedVariables = runRailwayJsonCommand(
     railwayBin,
     ["variable", "list", "-p", projectId, "-e", environment],
     `railway variable list (${environment}, shared)`,
+    { env: commandEnv },
   );
   const serviceList = runRailwayJsonCommand(
     railwayBin,
     ["service", "list", "-p", projectId, "-e", environment],
     `railway service list (${environment})`,
+    { env: commandEnv },
   );
   const serviceVariables = {};
 
@@ -662,11 +789,13 @@ function loadLiveEnvironment({ environment, projectId, railwayBin }) {
         serviceName,
       ],
       `railway variable list (${environment}, ${serviceName})`,
+      { env: commandEnv },
     );
   }
 
   return {
     environmentConfig: loadRailwayEnvironmentConfig({
+      commandEnv,
       environment,
       projectId,
       railwayBin,
@@ -678,6 +807,7 @@ function loadLiveEnvironment({ environment, projectId, railwayBin }) {
 }
 
 async function loadEnvironmentState({
+  commandEnv,
   environment,
   fixturesDir,
   projectId,
@@ -689,12 +819,14 @@ async function loadEnvironmentState({
   }
 
   const rawEnvironment = loadLiveEnvironment({
+    commandEnv,
     environment,
     projectId,
     railwayBin,
   });
 
   rawEnvironment.healthChecks = await runLiveHealthChecks({
+    commandEnv,
     environment,
     projectId,
     railwayBin,
@@ -720,8 +852,8 @@ function renderOutput(format, report) {
   return `${markdown}\n--- JSON REPORT ---\n${json}\n`;
 }
 
-async function main() {
-  const options = parseArgs(process.argv.slice(2));
+async function main(argv = process.argv.slice(2), env = process.env) {
+  const options = parseArgs(argv);
 
   if (options.help) {
     printHelp();
@@ -733,16 +865,14 @@ async function main() {
   }
 
   const railwayBin = options.railwayBin || "railway";
-  const project = options.fixturesDir
-    ? {
-        id: options.projectId ?? options.defaultProjectId,
-        name: options.projectName,
-      }
-    : resolveProjectId(options, railwayBin);
+  const project = resolveProject(options, env);
   const rawEnvironments = {};
 
   for (const environment of options.environments) {
     rawEnvironments[environment] = await loadEnvironmentState({
+      commandEnv: options.fixturesDir
+        ? undefined
+        : buildRailwayCommandEnv(environment, env),
       environment,
       fixturesDir: options.fixturesDir,
       projectId: project.id,
@@ -765,7 +895,19 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`Railway environment audit failed: ${error.message}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(`Railway environment audit failed: ${error.message}`);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  DEFAULT_TIMEOUT_MS,
+  buildRailwayCommandEnv,
+  main,
+  parseArgs,
+  printHelp,
+  resolveProject,
+  resolveRailwayToken,
+};

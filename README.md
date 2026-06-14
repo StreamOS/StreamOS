@@ -176,6 +176,26 @@ The production deployment topology is documented in
 - `workers/clip-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for clip scoring.
 - `workers/content-job-retry-worker` deploys to Railway as a Node.js BullMQ worker that requeues retryable failed `content_jobs`.
 
+Before the first live Railway deploy, keep the operator secrets only in the
+current shell environment and run the audit per target environment:
+
+```bash
+export RAILWAY_PROJECT_ID=
+export RAILWAY_TOKEN_STAGING=
+export RAILWAY_TOKEN_PRODUCTION=
+
+pnpm validate
+pnpm railway:audit --env staging --format markdown > audit-staging.md
+pnpm railway:audit --env production --format markdown > audit-production.md
+```
+
+`pnpm railway:audit` resolves `RAILWAY_PROJECT_ID` from `process.env` first,
+then falls back to the repo default. For live Railway calls, it injects
+`RAILWAY_TOKEN_STAGING` for `staging` and `RAILWAY_TOKEN_PRODUCTION` for
+`production` unless `RAILWAY_TOKEN` is already set explicitly for the current
+shell. The tokens are not persisted in repo files, fixtures, reports, or error
+messages.
+
 ### Required GitHub Secrets
 
 Set these values in GitHub repository or environment secrets before enabling

@@ -267,27 +267,47 @@ integration tests, signed-webhook tests, the transcription E2E path, and
 service health checks in one ordered command.
 
 ```bash
-pnpm rollout:check -- --env-file=.env.test
+pnpm rollout:check -- --env-file .env.test
 ```
+
+For live Railway audits, export the operator-only Railway secrets into the
+current shell and run the audit once per environment:
+
+```bash
+export RAILWAY_PROJECT_ID=
+export RAILWAY_TOKEN_STAGING=
+export RAILWAY_TOKEN_PRODUCTION=
+
+pnpm railway:audit --env staging --format markdown > audit-staging.md
+pnpm railway:audit --env production --format markdown > audit-production.md
+```
+
+`pnpm railway:audit` reads `RAILWAY_PROJECT_ID`, `RAILWAY_TOKEN_STAGING`, and
+`RAILWAY_TOKEN_PRODUCTION` only from `process.env`. It does not persist those
+values in repo files or generated reports. If `RAILWAY_TOKEN` is explicitly set
+in the current shell, that shared token overrides the env-specific Railway
+tokens for the audit run.
 
 For a deployed release candidate, run the gate from an environment that can
 reach the private Automation Service URL, for example a Railway shell in the
-same project/environment:
+same Railway project and the same Railway environment as the candidate:
 
 ```bash
 pnpm rollout:check -- \
-  --env-file=.env \
+  --env-file .env \
   --skip-docker \
   --allow-hosted-e2e \
-  --api-gateway-url=https://streamos-api-gateway.up.railway.app \
-  --automation-service-url=http://automation-service.railway.internal:8000 \
+  --api-gateway-url https://streamos-api-gateway.up.railway.app \
+  --automation-service-url http://automation-service.railway.internal:8000 \
   --expect-private-automation
 ```
 
 Do not promote when `rollout:check` fails. `--skip-docker` is only valid when
 the target services are already running, and `--allow-hosted-e2e` must only be
 used intentionally because the transcription E2E creates disposable Supabase
-rows via the service-role key.
+rows via the service-role key. Running step 4 from a local shell or from the
+wrong Railway environment is not a valid health gate because Railway private
+networking is environment-scoped.
 
 The private Automation Service check cannot succeed from a local shell or
 Vercel because Railway private networking is not public internet.

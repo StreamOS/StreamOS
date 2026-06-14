@@ -5,6 +5,8 @@ const { existsSync, readFileSync } = require("node:fs");
 const { createInterface } = require("node:readline/promises");
 const { stdin: input, stdout: output } = require("node:process");
 
+const { consumeValueFlag } = require("./lib/cli-args.cjs");
+
 const DEFAULT_WAIT_MS = 180_000;
 const DEFAULT_POLL_MS = 5_000;
 const DEFAULT_ENV_FILE = ".env.test";
@@ -22,30 +24,75 @@ function parseArgs(argv) {
     waitMs: DEFAULT_WAIT_MS,
   };
 
-  for (const arg of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
     if (arg === "--auto-release") {
       options.autoRelease = true;
-    } else if (arg === "--allow-hosted") {
-      options.allowHosted = true;
-    } else if (arg.startsWith("--docker-bin=")) {
-      options.dockerBin = arg.slice("--docker-bin=".length).trim();
-    } else if (arg.startsWith("--env-file=")) {
-      options.envFile = arg.slice("--env-file=".length).trim();
-    } else if (arg === "--help" || arg === "-h") {
-      options.help = true;
-    } else if (arg === "--seed-only") {
-      options.seedOnly = true;
-    } else if (arg === "--skip-docker") {
-      options.skipDocker = true;
-    } else if (arg.startsWith("--poll-ms=")) {
-      options.pollMs = Number(arg.slice("--poll-ms=".length));
-    } else if (arg.startsWith("--wait-ms=")) {
-      options.waitMs = Number(arg.slice("--wait-ms=".length));
-    } else if (arg.startsWith("--user-id=")) {
-      options.userId = arg.slice("--user-id=".length).trim();
-    } else {
-      throw new Error(`Unknown argument: ${arg}`);
+      continue;
     }
+
+    if (arg === "--allow-hosted") {
+      options.allowHosted = true;
+      continue;
+    }
+
+    const dockerBinMatch = consumeValueFlag(argv, index, "docker-bin");
+
+    if (dockerBinMatch.matched) {
+      options.dockerBin = dockerBinMatch.value.trim();
+      index = dockerBinMatch.nextIndex;
+      continue;
+    }
+
+    const envFileMatch = consumeValueFlag(argv, index, "env-file");
+
+    if (envFileMatch.matched) {
+      options.envFile = envFileMatch.value.trim();
+      index = envFileMatch.nextIndex;
+      continue;
+    }
+
+    if (arg === "--help" || arg === "-h") {
+      options.help = true;
+      continue;
+    }
+
+    if (arg === "--seed-only") {
+      options.seedOnly = true;
+      continue;
+    }
+
+    if (arg === "--skip-docker") {
+      options.skipDocker = true;
+      continue;
+    }
+
+    const pollMsMatch = consumeValueFlag(argv, index, "poll-ms");
+
+    if (pollMsMatch.matched) {
+      options.pollMs = Number(pollMsMatch.value.trim());
+      index = pollMsMatch.nextIndex;
+      continue;
+    }
+
+    const waitMsMatch = consumeValueFlag(argv, index, "wait-ms");
+
+    if (waitMsMatch.matched) {
+      options.waitMs = Number(waitMsMatch.value.trim());
+      index = waitMsMatch.nextIndex;
+      continue;
+    }
+
+    const userIdMatch = consumeValueFlag(argv, index, "user-id");
+
+    if (userIdMatch.matched) {
+      options.userId = userIdMatch.value.trim();
+      index = userIdMatch.nextIndex;
+      continue;
+    }
+
+    throw new Error(`Unknown argument: ${arg}`);
   }
 
   if (!Number.isInteger(options.pollMs) || options.pollMs < 500) {
@@ -66,19 +113,19 @@ Usage:
   pnpm e2e:jobs
   pnpm e2e:jobs:local
   pnpm e2e:jobs -- --auto-release
-  pnpm e2e:jobs -- --skip-docker --user-id=<auth-user-uuid>
-  pnpm e2e:jobs -- --env-file=.env --allow-hosted
+  pnpm e2e:jobs -- --skip-docker --user-id <auth-user-uuid>
+  pnpm e2e:jobs -- --env-file .env --allow-hosted
 
 Options:
   --auto-release   Simulate the /dashboard/jobs Retry action through Supabase.
   --allow-hosted   Allow writes to a non-local Supabase URL. Requires intent.
-  --docker-bin=BIN Use a specific Docker-compatible CLI binary.
-  --env-file=PATH  Load E2E env from a file. Default: ${DEFAULT_ENV_FILE}.
+  --docker-bin BIN Use a specific Docker-compatible CLI binary.
+  --env-file PATH  Load E2E env from a file. Default: ${DEFAULT_ENV_FILE}.
   --seed-only      Create the failed content_job and exit.
   --skip-docker    Do not run docker compose up before seeding.
-  --user-id=UUID   Use a specific Supabase auth user. Defaults to E2E_USER_ID, first auth user, or a created E2E user.
-  --wait-ms=N      How long to wait for retry-worker claim. Default: ${DEFAULT_WAIT_MS}.
-  --poll-ms=N      Poll interval while waiting. Default: ${DEFAULT_POLL_MS}.
+  --user-id UUID   Use a specific Supabase auth user. Defaults to E2E_USER_ID, first auth user, or a created E2E user.
+  --wait-ms N      How long to wait for retry-worker claim. Default: ${DEFAULT_WAIT_MS}.
+  --poll-ms N      Poll interval while waiting. Default: ${DEFAULT_POLL_MS}.
 `);
 }
 
@@ -551,7 +598,18 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`E2E failed: ${error.message}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(`E2E failed: ${error.message}`);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  DEFAULT_ENV_FILE,
+  DEFAULT_POLL_MS,
+  DEFAULT_WAIT_MS,
+  TEST_ENV_FILE,
+  parseArgs,
+  printHelp,
+};

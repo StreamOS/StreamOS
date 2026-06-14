@@ -25,3 +25,52 @@ test("audit CLI renders JSON from fixtures without calling Railway", () => {
   assert.ok(report.environments.production);
   assert.ok(report.summary.totalFindings > 0);
 });
+
+test("audit CLI accepts split staging flags with fixture data", () => {
+  const fixturesDir = join(__dirname, "__fixtures__", "railway-audit");
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(__dirname, "audit-railway-env.cjs"),
+      "--fixtures-dir",
+      fixturesDir,
+      "--env",
+      "staging",
+      "--format",
+      "json",
+    ],
+    {
+      encoding: "utf8",
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+
+  const report = JSON.parse(result.stdout);
+
+  assert.ok(report.environments.staging);
+  assert.equal(Object.keys(report.environments).length, 1);
+});
+
+test("audit CLI accepts split production flags with fixture data", () => {
+  const fixturesDir = join(__dirname, "__fixtures__", "railway-audit");
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(__dirname, "audit-railway-env.cjs"),
+      "--fixtures-dir",
+      fixturesDir,
+      "--env",
+      "production",
+      "--format",
+      "markdown",
+    ],
+    {
+      encoding: "utf8",
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /## production/);
+  assert.doesNotMatch(result.stdout, /## staging/);
+});
