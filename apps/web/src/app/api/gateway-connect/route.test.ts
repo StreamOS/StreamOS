@@ -67,7 +67,7 @@ describe("GET /api/gateway-connect", () => {
     expect(verifyHandoffToken(payload.handoff_token)).toMatchObject({
       creator_id: CREATOR_ID,
       exp: new Date("2026-06-08T10:01:00.000Z").getTime(),
-      return_to: "/dashboard/platforms",
+      return_to: "https://app.streamos.test/dashboard/platforms",
       user_id: USER_ID,
     });
   });
