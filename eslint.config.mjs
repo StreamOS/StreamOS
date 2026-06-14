@@ -28,6 +28,7 @@ export default [
       "playwright-report/**",
       "test-results/**",
       "scripts/lib/**/*.d.ts",
+      "scripts/config/**/*.d.ts",
       "**/*.config.js",
       "**/*.config.cjs",
     ],

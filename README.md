@@ -136,9 +136,9 @@ API gateway environment for YouTube.
 
 ## AI Provider Secrets
 
-OpenAI keys are server-only. Do not define `NEXT_PUBLIC_OPENAI_KEY` or
-`NEXT_PUBLIC_OPENAI_API_KEY` in any web environment. The Next.js app fails
-fast if either value is present.
+OpenAI keys are server-only. Do not define any `NEXT_PUBLIC_OPENAI*` variable
+in any web environment. The Next.js app fails fast if any of those values are
+present.
 
 Configure AI provider credentials only for `services/automation-service`:
 

@@ -151,6 +151,10 @@ YouTube, TikTok, and Kick use the same gateway-owned OAuth pattern.
   while writes are performed only by service-role syncs, services, or workers.
 - Refresh provider access tokens on the server and rotate persisted refresh tokens
   when providers return replacements.
+- Centralize Vercel environment policy in `scripts/config/vercel-env-policy.cjs`
+  so `apps/web/next.config.ts` and `pnpm vercel:audit` share the same
+  allowlist. `NEXT_PUBLIC_OPENAI*`, Railway-only secrets, private Railway URLs,
+  and non-Twitch provider secrets must fail fast on Vercel.
 - Dashboard routes are protected in `apps/web/src/app/dashboard/layout.tsx` when Supabase is configured.
 - Supabase session cookies are refreshed in `apps/web/src/middleware.ts`.
 - SSR auth callbacks are handled by `apps/web/src/app/auth/callback/route.ts`; signup email confirmation tokens are handled by the stricter `/auth/confirm` route.

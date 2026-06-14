@@ -51,7 +51,7 @@ API_GATEWAY_URL=https://streamos-api-gateway.up.railway.app
 API_GATEWAY_SECRET=
 ```
 
-Do not set `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`, Redis URLs, Railway private service URLs, non-Twitch provider secrets, `NEXT_PUBLIC_OPENAI_KEY`, or `NEXT_PUBLIC_OPENAI_API_KEY` in the Vercel browser-facing app.
+Do not set `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`, Redis URLs, Railway private service URLs, non-Twitch provider secrets, or any `NEXT_PUBLIC_OPENAI*` variable in the Vercel browser-facing app.
 
 `TWITCH_CLIENT_SECRET` stays in Vercel only as the documented temporary
 whitelist exception. Twitch OAuth, token refresh, disconnect, and metrics sync
@@ -59,6 +59,13 @@ are gateway-owned and must use the API Gateway callback URL. Twitch secrets must
 never be exposed with a `NEXT_PUBLIC_*` prefix.
 YouTube, TikTok, and Kick provider secrets must be configured on the API
 gateway only.
+
+Run `pnpm vercel:audit -- --vercel-dir .vercel --environment preview` or
+`pnpm vercel:audit -- --vercel-dir .vercel --environment production` after
+`vercel pull` and before `vercel build`, depending on the target deployment
+workflow. The same policy is enforced in `apps/web/next.config.ts` during
+Vercel builds and startup, so the web app fails fast if the pulled environment
+still contains Railway-only secrets or private Railway URLs.
 
 `API_GATEWAY_URL` must be public because Vercel functions are outside the Railway private network. The Automation Service remains private and is reached by Railway workers, not by Vercel.
 

@@ -4,12 +4,12 @@ const { existsSync, readFileSync } = require("node:fs");
 
 const { isPrivateAutomationUrl } = require("./lib/private-automation-url.cjs");
 const { consumeValueFlag } = require("./lib/cli-args.cjs");
+const {
+  findForbiddenOpenAIEnvNames,
+  formatForbiddenOpenAIEnvError,
+} = require("./config/vercel-env-policy.cjs");
 
 const DEFAULT_TIMEOUT_MS = 5_000;
-const FORBIDDEN_CLIENT_AI_ENV_NAMES = [
-  "NEXT_PUBLIC_OPENAI_KEY",
-  "NEXT_PUBLIC_OPENAI_API_KEY",
-];
 
 function parseArgs(argv) {
   const options = {
@@ -187,14 +187,10 @@ async function fetchHealth({ expectedService, timeoutMs, url }) {
 }
 
 function assertNoClientAiSecrets(env) {
-  const leakedNames = FORBIDDEN_CLIENT_AI_ENV_NAMES.filter((name) =>
-    env[name]?.trim(),
-  );
+  const leakedNames = findForbiddenOpenAIEnvNames(env);
 
   if (leakedNames.length > 0) {
-    throw new Error(
-      `Remove public OpenAI env var(s): ${leakedNames.join(", ")}.`,
-    );
+    throw new Error(formatForbiddenOpenAIEnvError(leakedNames));
   }
 }
 
@@ -265,7 +261,6 @@ if (require.main === module) {
 
 module.exports = {
   DEFAULT_TIMEOUT_MS,
-  FORBIDDEN_CLIENT_AI_ENV_NAMES,
   assertNoClientAiSecrets,
   fetchHealth,
   isPrivateAutomationUrl,

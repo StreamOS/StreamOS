@@ -17,6 +17,7 @@
     "infra:up": "docker compose up -d redis api-gateway automation-service clip-worker transcription-worker content-job-retry-worker",
     "deployment:check": "node scripts/check-deployment.cjs",
     "railway:audit": "node scripts/audit-railway-env.cjs",
+    "vercel:audit": "node scripts/validate-vercel-env.cjs",
     "db:validate-security": "node scripts/validate-database-security.cjs",
     "rollout:check": "node scripts/rollout-check.cjs",
     "rollout:check:local": "node scripts/rollout-check.cjs --env-file .env.test",
@@ -28,11 +29,12 @@
     "test:gateway": "pnpm --filter @streamos/api-gateway typecheck && pnpm --filter @streamos/api-gateway test",
     "test:fastapi": "node scripts/with-python-312.cjs python -m pytest services/automation-service",
     "test:railway-audit": "node --test scripts/private-automation-url.test.cjs scripts/railway-audit-core.test.cjs scripts/audit-railway-env.test.cjs scripts/operator-cli.test.cjs",
+    "test:vercel-audit": "node --test scripts/vercel-env-policy.test.cjs",
     "test:e2e": "playwright test",
     "test:automation": "pnpm test:fastapi",
     "typecheck": "turbo typecheck",
-    "validate": "pnpm lint && pnpm turbo run lint typecheck test build && pnpm db:validate-security && pnpm test:fastapi",
-    "validate:ci": "pnpm lint && pnpm -r --if-present run lint && pnpm -r --if-present run typecheck && pnpm -r --if-present run build && pnpm -r --if-present run test && pnpm db:validate-security && pnpm test:fastapi",
+    "validate": "pnpm lint && pnpm test:railway-audit && pnpm test:vercel-audit && pnpm turbo run lint typecheck test build && pnpm db:validate-security && pnpm test:fastapi",
+    "validate:ci": "pnpm lint && pnpm test:railway-audit && pnpm test:vercel-audit && pnpm -r --if-present run lint && pnpm -r --if-present run typecheck && pnpm -r --if-present run build && pnpm -r --if-present run test && pnpm db:validate-security && pnpm test:fastapi",
     "format": "prettier --check \"*.{json,md,yml,yaml}\" \"apps/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"docs/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"e2e/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"packages/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"scripts/**/*.{ts,tsx,js,cjs,json,md,yml,yaml}\" \"services/api-gateway/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"workers/**/*.{ts,tsx,js,json,md,yml,yaml}\""
   },
   "lint-staged": {

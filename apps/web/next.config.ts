@@ -1,14 +1,31 @@
 import type { NextConfig } from "next";
 
-const forbiddenClientSecretEnvNames = Object.keys(process.env).filter(
-  (name) => name.startsWith("NEXT_PUBLIC_OPENAI") && Boolean(process.env[name]),
-);
+import {
+  assertVercelEnvironment,
+  findForbiddenOpenAIEnvNames,
+  formatForbiddenOpenAIEnvError,
+} from "../../scripts/config/vercel-env-policy.cjs";
+
+const forbiddenClientSecretEnvNames = findForbiddenOpenAIEnvNames(process.env);
 
 if (forbiddenClientSecretEnvNames.length > 0) {
   throw new Error(
-    `${forbiddenClientSecretEnvNames.join(", ")} must not be configured in the web app. ` +
-      "OpenAI keys are server-only and belong in services/automation-service as OPENAI_API_KEY.",
+    formatForbiddenOpenAIEnvError(
+      forbiddenClientSecretEnvNames,
+      "apps/web Vercel build",
+    ),
   );
+}
+
+const isVercelRuntime =
+  process.env.VERCEL === "1" && process.env.NODE_ENV === "production";
+
+if (isVercelRuntime) {
+  assertVercelEnvironment(process.env, {
+    contextLabel: "apps/web Vercel build",
+    requireRequired: true,
+    validatePublicUrls: true,
+  });
 }
 
 const nextConfig: NextConfig = {

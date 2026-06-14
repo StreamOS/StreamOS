@@ -7,7 +7,10 @@ const {
   resolveProject,
   resolveRailwayToken,
 } = require("./audit-railway-env.cjs");
-const { parseArgs: parseDeploymentArgs } = require("./check-deployment.cjs");
+const {
+  assertNoClientAiSecrets,
+  parseArgs: parseDeploymentArgs,
+} = require("./check-deployment.cjs");
 const {
   buildDeploymentArgs,
   buildTranscriptionArgs,
@@ -96,6 +99,16 @@ test("deployment parser accepts split env-file syntax", () => {
 
   assert.equal(options.envFile, ".env");
   assert.equal(options.apiGatewayUrl, "https://api.example.com");
+});
+
+test("deployment check blocks NEXT_PUBLIC_OPENAI* variables", () => {
+  assert.throws(
+    () =>
+      assertNoClientAiSecrets({
+        NEXT_PUBLIC_OPENAI_SECRET: "sk-client-leak",
+      }),
+    /NEXT_PUBLIC_OPENAI_SECRET/,
+  );
 });
 
 test("rollout parser accepts split env-file syntax and builders emit split args", () => {

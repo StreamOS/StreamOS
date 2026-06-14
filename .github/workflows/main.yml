@@ -215,7 +215,7 @@ jobs:
           path: |
             apps/web/.next/cache
             apps/web/.vercel/cache
-          key: ${{ runner.os }}-vercel-rollback-${{ needs.resolve-target.outputs.vercel_environment }}-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**/*', 'apps/web/package.json', 'apps/web/next.config.ts') }}
+          key: ${{ runner.os }}-vercel-rollback-${{ needs.resolve-target.outputs.vercel_environment }}-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**/*', 'apps/web/package.json', 'apps/web/next.config.ts', 'scripts/config/vercel-env-policy.cjs') }}
           restore-keys: |
             ${{ runner.os }}-vercel-rollback-${{ needs.resolve-target.outputs.vercel_environment }}-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
@@ -235,6 +235,11 @@ jobs:
         run: |
           set -euo pipefail
           vercel pull --yes --environment="${TARGET_VERCEL_ENV}" --token="${VERCEL_TOKEN}"
+
+      - name: Audit Vercel environment
+        env:
+          TARGET_VERCEL_ENV: ${{ needs.resolve-target.outputs.vercel_environment }}
+        run: pnpm vercel:audit -- --vercel-dir .vercel --environment "${TARGET_VERCEL_ENV}"
 
       - name: Build and deploy target ref
         id: deploy
