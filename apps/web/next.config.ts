@@ -1,17 +1,12 @@
 import type { NextConfig } from "next";
 
-const forbiddenClientSecretEnvNames = [
-  "NEXT_PUBLIC_OPENAI_KEY",
-  "NEXT_PUBLIC_OPENAI_API_KEY",
-] as const;
-
-const configuredForbiddenEnvName = forbiddenClientSecretEnvNames.find(
-  (name) => process.env[name],
+const forbiddenClientSecretEnvNames = Object.keys(process.env).filter(
+  (name) => name.startsWith("NEXT_PUBLIC_OPENAI") && Boolean(process.env[name]),
 );
 
-if (configuredForbiddenEnvName) {
+if (forbiddenClientSecretEnvNames.length > 0) {
   throw new Error(
-    `${configuredForbiddenEnvName} must not be configured in the web app. ` +
+    `${forbiddenClientSecretEnvNames.join(", ")} must not be configured in the web app. ` +
       "OpenAI keys are server-only and belong in services/automation-service as OPENAI_API_KEY.",
   );
 }
