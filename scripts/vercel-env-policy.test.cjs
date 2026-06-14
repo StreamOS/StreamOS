@@ -3,7 +3,8 @@ const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
 const { mkdtempSync, mkdirSync, writeFileSync } = require("node:fs");
 const os = require("node:os");
-const { join } = require("node:path");
+const { join, resolve } = require("node:path");
+const { pathToFileURL } = require("node:url");
 
 const {
   assertVercelEnvironment,
@@ -33,13 +34,34 @@ function buildValidVercelEnv(overrides = {}) {
 }
 
 function runNextConfigImport(env = {}) {
+  const nextConfigPath = resolve(process.cwd(), "apps/web/next.config.ts");
+  const policyPath = pathToFileURL(
+    resolve(process.cwd(), "scripts/config/vercel-env-policy.cjs"),
+  ).href;
+
   return spawnSync(
     process.execPath,
     [
-      "--experimental-strip-types",
       "--eval",
       `
-        import('./apps/web/next.config.ts')
+        const fs = require('node:fs');
+        const ts = require('typescript');
+
+        const source = fs.readFileSync(${JSON.stringify(nextConfigPath)}, 'utf8');
+        const transpiled = ts
+          .transpileModule(source, {
+            compilerOptions: {
+              module: ts.ModuleKind.ESNext,
+              target: ts.ScriptTarget.ES2022,
+            },
+            fileName: ${JSON.stringify(nextConfigPath)},
+          })
+          .outputText.replace(
+            "../../scripts/config/vercel-env-policy.cjs",
+            ${JSON.stringify(policyPath)},
+          );
+
+        import('data:text/javascript;base64,' + Buffer.from(transpiled).toString('base64'))
           .then(() => {
             console.log('next-config-import-ok');
           })
