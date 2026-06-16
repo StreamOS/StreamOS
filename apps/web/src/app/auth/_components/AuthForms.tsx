@@ -1,14 +1,13 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { createBrowserClient } from "@supabase/ssr";
 import type { AuthError } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import type { Database } from "@streamos/database";
+import { createOptionalBrowserClient } from "@/lib/supabase/client";
 
 const emailSchema = z.object({
   email: z.string().trim().email("Bitte gib eine gueltige Email-Adresse ein."),
@@ -43,20 +42,6 @@ type SignupValues = z.infer<typeof signupSchema>;
 type ResetPasswordValues = z.infer<typeof emailSchema>;
 type UpdatePasswordValues = z.infer<typeof updatePasswordSchema>;
 
-function createSupabaseBrowserClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !anonKey) {
-    throw new Error("Missing browser Supabase environment variables.");
-  }
-
-  return createBrowserClient<Database, "public", Database["public"]>(
-    url,
-    anonKey,
-  );
-}
-
 function getCurrentOrigin() {
   return window.location.origin;
 }
@@ -83,7 +68,7 @@ function getAuthErrorMessage(error: AuthError) {
 
 export function LoginForm({ next = "/dashboard" }: { next?: string }) {
   const router = useRouter();
-  const supabase = useMemo(createSupabaseBrowserClient, []);
+  const supabase = useMemo(createOptionalBrowserClient, []);
   const [formError, setFormError] = useState<string | null>(null);
   const form = useForm<LoginValues>({
     defaultValues: { email: "", password: "" },
@@ -91,9 +76,15 @@ export function LoginForm({ next = "/dashboard" }: { next?: string }) {
   });
   const isSubmitting = form.formState.isSubmitting;
 
+  if (!supabase) {
+    return <SupabaseUnavailableNotice />;
+  }
+
+  const authClient = supabase;
+
   async function onSubmit(values: LoginValues) {
     setFormError(null);
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error } = await authClient.auth.signInWithPassword({
       email: values.email.toLowerCase(),
       password: values.password,
     });
@@ -112,7 +103,7 @@ export function LoginForm({ next = "/dashboard" }: { next?: string }) {
     const redirectTo = `${getCurrentOrigin()}/auth/callback?next=${encodeURIComponent(
       getSafeClientNextPath(next, "/dashboard"),
     )}`;
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { error } = await authClient.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo },
     });
@@ -156,7 +147,7 @@ export function LoginForm({ next = "/dashboard" }: { next?: string }) {
 
 export function SignupForm() {
   const router = useRouter();
-  const supabase = useMemo(createSupabaseBrowserClient, []);
+  const supabase = useMemo(createOptionalBrowserClient, []);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const form = useForm<SignupValues>({
@@ -165,10 +156,16 @@ export function SignupForm() {
   });
   const isSubmitting = form.formState.isSubmitting;
 
+  if (!supabase) {
+    return <SupabaseUnavailableNotice />;
+  }
+
+  const authClient = supabase;
+
   async function onSubmit(values: SignupValues) {
     setFormError(null);
     setSuccess(null);
-    const { error } = await supabase.auth.signUp({
+    const { error } = await authClient.auth.signUp({
       email: values.email.toLowerCase(),
       password: values.password,
       options: {
@@ -184,7 +181,7 @@ export function SignupForm() {
       return;
     }
 
-    await supabase.auth.signOut();
+    await authClient.auth.signOut();
     setSuccess("Account erstellt. Bitte bestaetige deine Email-Adresse.");
     form.reset();
     router.refresh();
@@ -222,7 +219,7 @@ export function SignupForm() {
 }
 
 export function ResetPasswordForm() {
-  const supabase = useMemo(createSupabaseBrowserClient, []);
+  const supabase = useMemo(createOptionalBrowserClient, []);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const form = useForm<ResetPasswordValues>({
@@ -231,10 +228,16 @@ export function ResetPasswordForm() {
   });
   const isSubmitting = form.formState.isSubmitting;
 
+  if (!supabase) {
+    return <SupabaseUnavailableNotice />;
+  }
+
+  const authClient = supabase;
+
   async function onSubmit(values: ResetPasswordValues) {
     setFormError(null);
     setSuccess(null);
-    const { error } = await supabase.auth.resetPasswordForEmail(
+    const { error } = await authClient.auth.resetPasswordForEmail(
       values.email.toLowerCase(),
       {
         redirectTo: `${getCurrentOrigin()}/auth/callback?next=/auth/update-password`,
@@ -270,7 +273,7 @@ export function ResetPasswordForm() {
 
 export function UpdatePasswordForm() {
   const router = useRouter();
-  const supabase = useMemo(createSupabaseBrowserClient, []);
+  const supabase = useMemo(createOptionalBrowserClient, []);
   const [formError, setFormError] = useState<string | null>(null);
   const form = useForm<UpdatePasswordValues>({
     defaultValues: { password: "", passwordConfirmation: "" },
@@ -278,9 +281,15 @@ export function UpdatePasswordForm() {
   });
   const isSubmitting = form.formState.isSubmitting;
 
+  if (!supabase) {
+    return <SupabaseUnavailableNotice />;
+  }
+
+  const authClient = supabase;
+
   async function onSubmit(values: UpdatePasswordValues) {
     setFormError(null);
-    const { error } = await supabase.auth.updateUser({
+    const { error } = await authClient.auth.updateUser({
       password: values.password,
     });
 
@@ -289,7 +298,7 @@ export function UpdatePasswordForm() {
       return;
     }
 
-    await supabase.auth.signOut();
+    await authClient.auth.signOut();
     router.replace("/auth/login?message=password-updated");
     router.refresh();
   }
@@ -315,6 +324,18 @@ export function UpdatePasswordForm() {
         {isSubmitting ? "Passwort wird gespeichert..." : "Passwort speichern"}
       </button>
     </form>
+  );
+}
+
+function SupabaseUnavailableNotice() {
+  return (
+    <div
+      className="rounded-lg border border-signal-gold/30 bg-signal-gold/10 p-4 text-sm text-signal-gold"
+      role="alert"
+    >
+      Auth ist derzeit nicht verfuegbar, weil die Auth-Konfiguration fuer diese
+      Umgebung fehlt.
+    </div>
   );
 }
 
