@@ -64,6 +64,21 @@ describe("supabase browser client", () => {
     );
   });
 
+  it("falls back to the legacy anon key when publishable key is blank", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://project.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "   ";
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
+
+    expect(createOptionalBrowserClient()).toEqual({
+      anonKey: "anon-key",
+      url: "https://project.supabase.co",
+    });
+    expect(createBrowserClient).toHaveBeenCalledWith(
+      "https://project.supabase.co",
+      "anon-key",
+    );
+  });
+
   it("does not create a browser client in demo mode", () => {
     process.env.STREAMOS_DEMO_MODE = "true";
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://project.supabase.co";

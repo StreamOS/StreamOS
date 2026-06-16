@@ -1,6 +1,7 @@
 import type { CreatorPrimaryLanguage } from "@streamos/types";
 import type { Tables } from "@streamos/database";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { getSupabaseSetupNotice } from "@/lib/supabase/messages";
 import { createClient } from "@/lib/supabase/server";
 import { ProfileForm } from "./ProfileForm";
 
@@ -21,8 +22,7 @@ export default async function OnboardingProfilePage() {
             Creator-Profil
           </h1>
           <p className="mt-3 text-sm leading-6 text-signal-gold">
-            Supabase ist lokal noch nicht konfiguriert. Setze die
-            Supabase-Umgebung, bevor Step 1 gespeichert werden kann.
+            {getSupabaseSetupNotice("du Step 1 speichern kannst")}
           </p>
         </div>
       </section>
