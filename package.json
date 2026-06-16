@@ -23,7 +23,7 @@
     "rollout:check:local": "node scripts/rollout-check.cjs --env-file .env.test",
     "lint-staged": "lint-staged",
     "lint": "eslint . --max-warnings=0",
-    "prepare": "is-ci || husky",
+    "prepare": "node scripts/prepare.cjs",
     "python:version": "node scripts/with-python-312.cjs python --version",
     "test": "turbo test",
     "test:gateway": "pnpm --filter @streamos/api-gateway typecheck && pnpm --filter @streamos/api-gateway test",
