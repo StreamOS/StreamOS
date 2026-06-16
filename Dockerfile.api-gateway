@@ -11,6 +11,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY packages ./packages
 COPY services/api-gateway ./services/api-gateway
 
+ENV CI=true
 RUN pnpm install --frozen-lockfile --filter @streamos/api-gateway...
 RUN pnpm --filter @streamos/api-gateway... --if-present build
 
