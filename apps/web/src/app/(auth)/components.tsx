@@ -6,6 +6,7 @@ import {
   normalizeAuthErrorCode,
   normalizeAuthMessageCode,
 } from "@/lib/auth/errors";
+import { getSupabaseSetupNotice } from "@/lib/supabase/messages";
 
 export type AuthSearchParams = {
   error?: string;
@@ -58,9 +59,7 @@ export function AuthShell({
 export function SupabaseSetupNotice() {
   return (
     <div className="mb-6 rounded-lg border border-signal-gold/30 bg-signal-gold/10 p-4 text-sm text-signal-gold">
-      Supabase ist lokal noch nicht konfiguriert. Fuellen Sie
-      `NEXT_PUBLIC_SUPABASE_URL` und `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in
-      `apps/web/.env.local`, dann sind Login und Dashboard-Schutz aktiv.
+      {getSupabaseSetupNotice("Login und Dashboard-Schutz funktionieren")}
     </div>
   );
 }

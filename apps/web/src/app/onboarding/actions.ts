@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Inserts, Updates } from "@streamos/database";
 import { isSupabaseEmailConfirmed } from "@/lib/auth/dashboard";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { getSupabaseSetupNotice } from "@/lib/supabase/messages";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
 import { createClient } from "@/lib/supabase/server";
 import type { OnboardingActionState } from "./types";
@@ -40,8 +41,7 @@ export async function createOrUpdateCreatorProfileAction(
 ): Promise<OnboardingActionState> {
   if (!isSupabaseConfigured()) {
     return {
-      formError:
-        "Supabase ist lokal noch nicht konfiguriert. Step 1 kann nicht gespeichert werden.",
+      formError: getSupabaseSetupNotice("du Step 1 speichern kannst"),
     };
   }
 

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { continueFromPlatformsAction, skipPlatformsAction } from "../actions";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { getSupabaseSetupNotice } from "@/lib/supabase/messages";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
 import { createClient } from "@/lib/supabase/server";
 import { GatewayConnectButton } from "@/app/dashboard/components/GatewayConnectButton";
@@ -72,8 +73,9 @@ const platformCards: PlatformCard[] = [
 const errorMessages: Record<string, string> = {
   platform_step_update_failed:
     "Plattform-Step konnte nicht gespeichert werden. Bitte versuche es erneut.",
-  supabase_not_configured:
-    "Supabase ist lokal noch nicht konfiguriert. Onboarding kann nicht gespeichert werden.",
+  supabase_not_configured: getSupabaseSetupNotice(
+    "du im Onboarding fortfahren kannst",
+  ),
 };
 
 export default async function OnboardingPlatformsPage({

@@ -8,6 +8,7 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { createOptionalBrowserClient } from "@/lib/supabase/client";
+import { getSupabaseSetupNotice } from "@/lib/supabase/messages";
 
 const emailSchema = z.object({
   email: z.string().trim().email("Bitte gib eine gueltige Email-Adresse ein."),
@@ -333,8 +334,7 @@ function SupabaseUnavailableNotice() {
       className="rounded-lg border border-signal-gold/30 bg-signal-gold/10 p-4 text-sm text-signal-gold"
       role="alert"
     >
-      Auth ist derzeit nicht verfuegbar, weil die Auth-Konfiguration fuer diese
-      Umgebung fehlt.
+      {getSupabaseSetupNotice("du dich in dieser Umgebung anmelden kannst")}
     </div>
   );
 }
