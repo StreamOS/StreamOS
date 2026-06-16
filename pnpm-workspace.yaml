@@ -3,3 +3,14 @@ packages:
   - "services/*"
   - "workers/*"
   - "packages/*"
+
+# pnpm 11 defaults to delaying newly published packages for 24h.
+# StreamOS currently relies on immediate dependency uptake in CI, so keep the
+# pre-v11 behavior explicit instead of inheriting a new implicit default.
+minimumReleaseAge: 0
+
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: true
+  sharp: true
+  unrs-resolver: true
