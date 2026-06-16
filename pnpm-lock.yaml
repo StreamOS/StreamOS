@@ -88,7 +88,7 @@ importers:
     dependencies:
       '@hookform/resolvers':
         specifier: ^5.4.0
-        version: 5.4.0(react-hook-form@7.77.0(react@19.2.6))
+        version: 5.4.0(react-hook-form@7.79.0(react@19.2.6))
       '@streamos/database':
         specifier: workspace:*
         version: link:../../packages/database
@@ -139,7 +139,7 @@ importers:
         version: 19.2.6(react@19.2.6)
       react-hook-form:
         specifier: ^7.77.0
-        version: 7.77.0(react@19.2.6)
+        version: 7.79.0(react@19.2.6)
       recharts:
         specifier: ^2.15.2
         version: 2.15.4(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -3393,8 +3393,8 @@ packages:
     peerDependencies:
       react: ^19.2.6
 
-  react-hook-form@7.77.0:
-    resolution: {integrity: sha512-Sslh9YDYc0GDlWT/lxasnIduNo4v3yyvqRGvmGKUre5AFjDs/HV9/OafHGD8d+sB2yoL4UIL9L8X9i0WlZZebg==}
+  react-hook-form@7.79.0:
+    resolution: {integrity: sha512-mhYp/MTmXvzYX6AJcJVko0rktoIhhmRnEouObj4wF5i/tCttgJvnp1+9wRkpITZjDTqpo4IOSJqu0dBlPlV/Lw==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
       react: ^16.8.0 || ^17 || ^18 || ^19
@@ -4275,10 +4275,10 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
-  '@hookform/resolvers@5.4.0(react-hook-form@7.77.0(react@19.2.6))':
+  '@hookform/resolvers@5.4.0(react-hook-form@7.79.0(react@19.2.6))':
     dependencies:
       '@standard-schema/utils': 0.3.0
-      react-hook-form: 7.77.0(react@19.2.6)
+      react-hook-form: 7.79.0(react@19.2.6)
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -6989,7 +6989,7 @@ snapshots:
       react: 19.2.6
       scheduler: 0.27.0
 
-  react-hook-form@7.77.0(react@19.2.6):
+  react-hook-form@7.79.0(react@19.2.6):
     dependencies:
       react: 19.2.6
 
