@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "clean": "node ./scripts/clean.mjs",
     "lint": "node ./scripts/typecheck.cjs",
     "test": "vitest run",
     "typecheck": "node ./scripts/typecheck.cjs"

@@ -61,6 +61,16 @@ pnpm --filter @streamos/web dev
 
 The dashboard runs at `http://localhost:3000/dashboard`.
 
+If Next.js starts with a stale or corrupt build artifact error such as
+`Cannot find module './7751.js'` or `__webpack_modules__[moduleId] is not a function`,
+reset the web build output and rebuild. The full recovery flow is documented in
+[`docs/troubleshooting.md`](docs/troubleshooting.md):
+
+```bash
+pnpm clean:web
+pnpm --filter @streamos/web dev
+```
+
 Start the local queue infrastructure, API gateway, automation service, and
 workers:
 

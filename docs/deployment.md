@@ -33,6 +33,18 @@ Create a Vercel project with this configuration:
 | Install Command  | `corepack enable && pnpm install --frozen-lockfile` |
 | Build Command    | `pnpm --filter @streamos/web build`                 |
 
+If the web app fails locally or in a preview build with a stale Next.js
+artifact error such as `Cannot find module './7751.js'`, clear the generated
+output before rebuilding:
+
+```bash
+pnpm clean:web
+pnpm --filter @streamos/web build
+```
+
+See [`docs/troubleshooting.md`](docs/troubleshooting.md) for the full local
+recovery flow and additional checks.
+
 Required Vercel environment variables:
 
 ```bash
