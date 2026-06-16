@@ -40,6 +40,7 @@ function run(command, args) {
 
 function acquireLock() {
   try {
+    mkdirSync(path.dirname(typecheckLockDir), { recursive: true });
     mkdirSync(typecheckLockDir, { recursive: false });
     return true;
   } catch (error) {
@@ -56,6 +57,7 @@ function waitForUnlock() {
 
   while (Date.now() < waitUntil) {
     try {
+      mkdirSync(path.dirname(typecheckLockDir), { recursive: true });
       mkdirSync(typecheckLockDir, { recursive: false });
       removePath(typecheckLockDir);
       return;
