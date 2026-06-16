@@ -3,12 +3,13 @@
 const { existsSync, readFileSync } = require("node:fs");
 
 const { isPrivateAutomationUrl } = require("./lib/private-automation-url.cjs");
+const { consumeValueFlag } = require("./lib/cli-args.cjs");
+const {
+  findForbiddenOpenAIEnvNames,
+  formatForbiddenOpenAIEnvError,
+} = require("./config/vercel-env-policy.cjs");
 
 const DEFAULT_TIMEOUT_MS = 5_000;
-const FORBIDDEN_CLIENT_AI_ENV_NAMES = [
-  "NEXT_PUBLIC_OPENAI_KEY",
-  "NEXT_PUBLIC_OPENAI_API_KEY",
-];
 
 function parseArgs(argv) {
   const options = {
@@ -18,24 +19,60 @@ function parseArgs(argv) {
     timeoutMs: DEFAULT_TIMEOUT_MS,
   };
 
-  for (const arg of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
     if (arg === "--expect-private-automation") {
       options.expectPrivateAutomation = true;
-    } else if (arg.startsWith("--api-gateway-url=")) {
-      options.apiGatewayUrl = arg.slice("--api-gateway-url=".length).trim();
-    } else if (arg.startsWith("--automation-service-url=")) {
-      options.automationServiceUrl = arg
-        .slice("--automation-service-url=".length)
-        .trim();
-    } else if (arg.startsWith("--env-file=")) {
-      options.envFile = arg.slice("--env-file=".length).trim();
-    } else if (arg.startsWith("--timeout-ms=")) {
-      options.timeoutMs = Number(arg.slice("--timeout-ms=".length));
-    } else if (arg === "--help" || arg === "-h") {
-      options.help = true;
-    } else {
-      throw new Error(`Unknown argument: ${arg}`);
+      continue;
     }
+
+    if (arg === "--help" || arg === "-h") {
+      options.help = true;
+      continue;
+    }
+
+    if (arg === "--") {
+      continue;
+    }
+
+    const apiGatewayUrlMatch = consumeValueFlag(argv, index, "api-gateway-url");
+
+    if (apiGatewayUrlMatch.matched) {
+      options.apiGatewayUrl = apiGatewayUrlMatch.value.trim();
+      index = apiGatewayUrlMatch.nextIndex;
+      continue;
+    }
+
+    const automationServiceUrlMatch = consumeValueFlag(
+      argv,
+      index,
+      "automation-service-url",
+    );
+
+    if (automationServiceUrlMatch.matched) {
+      options.automationServiceUrl = automationServiceUrlMatch.value.trim();
+      index = automationServiceUrlMatch.nextIndex;
+      continue;
+    }
+
+    const envFileMatch = consumeValueFlag(argv, index, "env-file");
+
+    if (envFileMatch.matched) {
+      options.envFile = envFileMatch.value.trim();
+      index = envFileMatch.nextIndex;
+      continue;
+    }
+
+    const timeoutMatch = consumeValueFlag(argv, index, "timeout-ms");
+
+    if (timeoutMatch.matched) {
+      options.timeoutMs = Number(timeoutMatch.value.trim());
+      index = timeoutMatch.nextIndex;
+      continue;
+    }
+
+    throw new Error(`Unknown argument: ${arg}`);
   }
 
   if (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 500) {
@@ -49,15 +86,15 @@ function printHelp() {
   console.log(`StreamOS deployment checks
 
 Usage:
-  pnpm deployment:check -- --api-gateway-url=https://api.example.com --automation-service-url=http://automation.railway.internal:8000 --expect-private-automation
-  pnpm deployment:check -- --env-file=.env.test
+  pnpm deployment:check -- --api-gateway-url https://api.example.com --automation-service-url http://automation.railway.internal:8000 --expect-private-automation
+  pnpm deployment:check -- --env-file .env.test
 
 Options:
-  --api-gateway-url=URL          API Gateway base URL. Falls back to API_GATEWAY_URL.
-  --automation-service-url=URL   Automation Service base URL. Falls back to AUTOMATION_SERVICE_URL.
-  --env-file=PATH                Load key=value pairs before reading process.env.
+  --api-gateway-url URL          API Gateway base URL. Falls back to API_GATEWAY_URL.
+  --automation-service-url URL   Automation Service base URL. Falls back to AUTOMATION_SERVICE_URL.
+  --env-file PATH                Load key=value pairs before reading process.env.
   --expect-private-automation    Fail if AUTOMATION_SERVICE_URL is public-facing.
-  --timeout-ms=N                 Per-request timeout. Default: ${DEFAULT_TIMEOUT_MS}.
+  --timeout-ms N                 Per-request timeout. Default: ${DEFAULT_TIMEOUT_MS}.
 `);
 }
 
@@ -150,14 +187,10 @@ async function fetchHealth({ expectedService, timeoutMs, url }) {
 }
 
 function assertNoClientAiSecrets(env) {
-  const leakedNames = FORBIDDEN_CLIENT_AI_ENV_NAMES.filter((name) =>
-    env[name]?.trim(),
-  );
+  const leakedNames = findForbiddenOpenAIEnvNames(env);
 
   if (leakedNames.length > 0) {
-    throw new Error(
-      `Remove public OpenAI env var(s): ${leakedNames.join(", ")}.`,
-    );
+    throw new Error(formatForbiddenOpenAIEnvError(leakedNames));
   }
 }
 
@@ -228,7 +261,6 @@ if (require.main === module) {
 
 module.exports = {
   DEFAULT_TIMEOUT_MS,
-  FORBIDDEN_CLIENT_AI_ENV_NAMES,
   assertNoClientAiSecrets,
   fetchHealth,
   isPrivateAutomationUrl,

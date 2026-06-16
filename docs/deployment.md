@@ -51,7 +51,7 @@ API_GATEWAY_URL=https://streamos-api-gateway.up.railway.app
 API_GATEWAY_SECRET=
 ```
 
-Do not set `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`, Redis URLs, Railway private service URLs, non-Twitch provider secrets, `NEXT_PUBLIC_OPENAI_KEY`, or `NEXT_PUBLIC_OPENAI_API_KEY` in the Vercel browser-facing app.
+Do not set `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`, Redis URLs, Railway private service URLs, non-Twitch provider secrets, or any `NEXT_PUBLIC_OPENAI*` variable in the Vercel browser-facing app.
 
 `TWITCH_CLIENT_SECRET` stays in Vercel only as the documented temporary
 whitelist exception. Twitch OAuth, token refresh, disconnect, and metrics sync
@@ -59,6 +59,13 @@ are gateway-owned and must use the API Gateway callback URL. Twitch secrets must
 never be exposed with a `NEXT_PUBLIC_*` prefix.
 YouTube, TikTok, and Kick provider secrets must be configured on the API
 gateway only.
+
+Run `pnpm vercel:audit -- --vercel-dir .vercel --environment preview` or
+`pnpm vercel:audit -- --vercel-dir .vercel --environment production` after
+`vercel pull` and before `vercel build`, depending on the target deployment
+workflow. The same policy is enforced in `apps/web/next.config.ts` during
+Vercel builds and startup, so the web app fails fast if the pulled environment
+still contains Railway-only secrets or private Railway URLs.
 
 `API_GATEWAY_URL` must be public because Vercel functions are outside the Railway private network. The Automation Service remains private and is reached by Railway workers, not by Vercel.
 
@@ -220,6 +227,53 @@ pnpm --filter @streamos/transcription-worker test
 pnpm --filter @streamos/transcription-worker build
 ```
 
+## Railway Worker Dyno: `workers/clip-worker`
+
+The clip worker is a Node.js BullMQ consumer for clip-generation and scoring
+jobs. It calls the private Automation Service and persists job state with
+Supabase server-side credentials.
+
+Recommended Docker configuration:
+
+| Setting           | Value                    |
+| ----------------- | ------------------------ |
+| Dockerfile Path   | `Dockerfile.clip-worker` |
+| Service Type      | Worker                   |
+| Public Networking | Disabled                 |
+
+### Required Variables
+
+```bash
+REDIS_URL=rediss://default:password@host:6379
+AUTOMATION_SERVICE_URL=http://${{automation-service.RAILWAY_PRIVATE_DOMAIN}}:8000
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+```
+
+These variables are mandatory for every Railway deployment of
+`workers/clip-worker`. The worker must fail startup if one of them is missing or
+if `AUTOMATION_SERVICE_URL` resolves to a public host.
+
+### Optional Variables
+
+```bash
+CLIP_WORKER_CONCURRENCY=2
+CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
+QUEUE_DEFAULT_NAME=streamos-media
+```
+
+`AUTOMATION_SERVICE_URL` must resolve to the private Railway Automation Service
+endpoint. Public `https://*.up.railway.app` URLs are invalid for this worker
+and must not be used as a fallback.
+
+Validation:
+
+```bash
+pnpm --filter @streamos/clip-worker lint
+pnpm --filter @streamos/clip-worker test
+pnpm --filter @streamos/clip-worker build
+```
+
 ## Railway Worker Dyno: `workers/content-job-retry-worker`
 
 The content job retry worker scans failed `content_jobs`, claims retryable rows
@@ -267,27 +321,93 @@ integration tests, signed-webhook tests, the transcription E2E path, and
 service health checks in one ordered command.
 
 ```bash
-pnpm rollout:check -- --env-file=.env.test
+pnpm rollout:check -- --env-file .env.test
 ```
+
+For live Railway audits, export the operator-only Railway secrets into the
+current shell and run the audit once per environment:
+
+```bash
+export RAILWAY_PROJECT_ID=
+export RAILWAY_TOKEN_STAGING=
+export RAILWAY_TOKEN_PRODUCTION=
+
+pnpm railway:audit --env staging --format markdown > audit-staging.md
+pnpm railway:audit --env production --format markdown > audit-production.md
+```
+
+`pnpm railway:audit` reads `RAILWAY_PROJECT_ID`, `RAILWAY_TOKEN_STAGING`, and
+`RAILWAY_TOKEN_PRODUCTION` only from `process.env`. It does not persist those
+values in repo files or generated reports. If `RAILWAY_TOKEN` is explicitly set
+in the current shell, that shared token overrides the env-specific Railway
+tokens for the audit run.
 
 For a deployed release candidate, run the gate from an environment that can
 reach the private Automation Service URL, for example a Railway shell in the
-same project/environment:
+same Railway project and the same Railway environment as the candidate:
 
 ```bash
 pnpm rollout:check -- \
-  --env-file=.env \
+  --env-file .env \
   --skip-docker \
   --allow-hosted-e2e \
-  --api-gateway-url=https://streamos-api-gateway.up.railway.app \
-  --automation-service-url=http://automation-service.railway.internal:8000 \
+  --api-gateway-url https://streamos-api-gateway.up.railway.app \
+  --automation-service-url http://automation-service.railway.internal:8000 \
   --expect-private-automation
 ```
 
 Do not promote when `rollout:check` fails. `--skip-docker` is only valid when
 the target services are already running, and `--allow-hosted-e2e` must only be
 used intentionally because the transcription E2E creates disposable Supabase
-rows via the service-role key.
+rows via the service-role key. Running step 4 from a local shell or from the
+wrong Railway environment is not a valid health gate because Railway private
+networking is environment-scoped.
 
 The private Automation Service check cannot succeed from a local shell or
 Vercel because Railway private networking is not public internet.
+
+## Pre-Merge Checklist
+
+`staging` and `production` are deployment-side protected GitHub environments.
+Jobs that reference those environments must pass the configured deployment gate
+before they start or receive environment secrets.
+
+Current environment gate:
+
+- `production`: required reviewer `thomasdorts-hash`, admin bypass disabled,
+  5-minute wait timer, deployment branch restriction to `main`
+- `staging`: required reviewer `thomasdorts-hash`, admin bypass disabled,
+  deployment branch restriction to `main` and `release/*`
+- GitHub evaluates these reviewer, branch, and wait rules before jobs using
+  those environments can proceed
+
+This deployment gate is separate from the repository merge gate. GitHub now
+also enforces the active `Protect main merges` ruleset for `main` and
+`release/*`, including:
+
+- `CI / Validate monorepo` as a required status check
+- at least one approving review
+- required CODEOWNERS review
+- resolved review threads before merge
+
+Recommended pre-merge sequence:
+
+```bash
+export RAILWAY_PROJECT_ID=
+export RAILWAY_TOKEN_STAGING=
+export RAILWAY_TOKEN_PRODUCTION=
+
+pnpm validate
+pnpm railway:audit --environments staging,production --format markdown > audit-premerge-cross-env.md
+pnpm railway:audit --env staging --format markdown > audit-baseline-staging.md
+```
+
+Merge expectations:
+
+- `CI / Validate monorepo` is green on the pull request
+- `audit-premerge-cross-env.md` has no `MISSING`, `DANGEROUS_EXPOSURE`, or
+  real `STAGING_DRIFT` blockers
+- `audit-baseline-staging.md` is only committed when the staging-only run has
+  no blocker-worthy findings
+- `audit-premerge-cross-env.md` remains a local review artifact and is not
+  committed

@@ -130,7 +130,11 @@ function parseVariablePayload(payload) {
 
     return Object.fromEntries(
       Object.entries(payload).filter(
-        ([key]) => typeof key === "string" && key.length > 0,
+        ([key, value]) =>
+          typeof key === "string" &&
+          key.length > 0 &&
+          value !== null &&
+          value !== undefined,
       ),
     );
   }
@@ -148,6 +152,12 @@ function parseServiceListPayload(payload) {
   }
 
   return [];
+}
+
+function getServicePublicUrl(serviceList, serviceName) {
+  const services = parseServiceListPayload(serviceList);
+  const service = services.find((entry) => entry.name === serviceName);
+  return service?.url ?? null;
 }
 
 function parseEnvironmentConfigPayload(payload) {
@@ -850,10 +860,20 @@ function createNetworkRow({
   environment,
   serviceConfig,
   serviceDomains,
+  servicePublicUrl,
   serviceName,
   whitelist,
 }) {
-  const publicDomains = Array.isArray(serviceDomains) ? serviceDomains : [];
+  const publicDomains = Array.isArray(serviceDomains)
+    ? [...serviceDomains]
+    : [];
+  const fallbackPublicUrl =
+    typeof servicePublicUrl === "string" ? servicePublicUrl.trim() : "";
+
+  if (publicDomains.length === 0 && fallbackPublicUrl) {
+    publicDomains.push(fallbackPublicUrl);
+  }
+
   const expectsPublicDomain = serviceConfig.publicNetworking === "required";
   const expectsPrivateOnly = serviceConfig.publicNetworking === "disabled";
   const findings = [];
@@ -1099,6 +1119,10 @@ function auditEnvironment({
       environment,
       serviceConfig,
       serviceDomains: environmentServiceConfig?.networking?.serviceDomains,
+      servicePublicUrl: getServicePublicUrl(
+        rawEnvironment.serviceList,
+        serviceName,
+      ),
       serviceName,
       whitelist,
     });
@@ -1111,7 +1135,7 @@ function auditEnvironment({
     );
 
     for (const check of serviceHealthChecks) {
-      if (!check.ok) {
+      if (!check.ok && !check.unverified) {
         prioritizedFixes.push(
           createFinding({
             environment,
@@ -1170,7 +1194,7 @@ function auditEnvironment({
   }
 
   for (const redisCheck of redisChecks) {
-    if (!redisCheck.ok) {
+    if (!redisCheck.ok && !redisCheck.unverified) {
       prioritizedFixes.push(
         createFinding({
           environment,
@@ -1324,6 +1348,10 @@ function groupFindingsByPriority(findings) {
 }
 
 function formatHealthStatus(check) {
+  if (check.unverified) {
+    return "unverified";
+  }
+
   if (check.ok) {
     return "200 / payload ok";
   }
@@ -1462,7 +1490,9 @@ function hasBlockingFindings(report) {
   return (
     report.summary.totalFindings > 0 ||
     Object.values(report.environments).some((environmentReport) =>
-      environmentReport.healthChecks.some((check) => !check.ok),
+      environmentReport.healthChecks.some(
+        (check) => !check.ok && !check.unverified,
+      ),
     )
   );
 }
@@ -1471,6 +1501,7 @@ module.exports = {
   buildAuditReport,
   buildOwnershipIndex,
   formatMarkdownReport,
+  getServicePublicUrl,
   hasBlockingFindings,
   parseEnvironmentConfigPayload,
   parseServiceListPayload,

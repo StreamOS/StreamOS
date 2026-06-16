@@ -15,6 +15,7 @@
     "e2e/**/*.ts",
     "packages/**/*.ts",
     "packages/**/*.tsx",
+    "scripts/**/*.d.ts",
     "services/**/*.ts",
     "workers/**/*.ts"
   ],

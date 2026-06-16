@@ -4,6 +4,8 @@ const { execFileSync, spawnSync } = require("node:child_process");
 const { createHmac, randomUUID } = require("node:crypto");
 const { existsSync, readFileSync } = require("node:fs");
 
+const { consumeValueFlag } = require("./lib/cli-args.cjs");
+
 const DEFAULT_API_GATEWAY_URL = "http://localhost:4000";
 const DEFAULT_ENV_FILE = ".env.test";
 const DEFAULT_POLL_MS = 2_000;
@@ -21,30 +23,81 @@ function parseArgs(argv) {
     waitMs: DEFAULT_WAIT_MS,
   };
 
-  for (const arg of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
     if (arg === "--allow-hosted") {
       options.allowHosted = true;
-    } else if (arg.startsWith("--api-gateway-url=")) {
-      options.apiGatewayUrl = arg.slice("--api-gateway-url=".length).trim();
-    } else if (arg.startsWith("--docker-bin=")) {
-      options.dockerBin = arg.slice("--docker-bin=".length).trim();
-    } else if (arg.startsWith("--env-file=")) {
-      options.envFile = arg.slice("--env-file=".length).trim();
-    } else if (arg.startsWith("--expect=")) {
-      options.expect = arg.slice("--expect=".length).trim();
-    } else if (arg === "--help" || arg === "-h") {
-      options.help = true;
-    } else if (arg.startsWith("--poll-ms=")) {
-      options.pollMs = Number(arg.slice("--poll-ms=".length));
-    } else if (arg === "--skip-docker") {
-      options.skipDocker = true;
-    } else if (arg.startsWith("--user-id=")) {
-      options.userId = arg.slice("--user-id=".length).trim();
-    } else if (arg.startsWith("--wait-ms=")) {
-      options.waitMs = Number(arg.slice("--wait-ms=".length));
-    } else {
-      throw new Error(`Unknown argument: ${arg}`);
+      continue;
     }
+
+    const apiGatewayUrlMatch = consumeValueFlag(argv, index, "api-gateway-url");
+
+    if (apiGatewayUrlMatch.matched) {
+      options.apiGatewayUrl = apiGatewayUrlMatch.value.trim();
+      index = apiGatewayUrlMatch.nextIndex;
+      continue;
+    }
+
+    const dockerBinMatch = consumeValueFlag(argv, index, "docker-bin");
+
+    if (dockerBinMatch.matched) {
+      options.dockerBin = dockerBinMatch.value.trim();
+      index = dockerBinMatch.nextIndex;
+      continue;
+    }
+
+    const envFileMatch = consumeValueFlag(argv, index, "env-file");
+
+    if (envFileMatch.matched) {
+      options.envFile = envFileMatch.value.trim();
+      index = envFileMatch.nextIndex;
+      continue;
+    }
+
+    const expectMatch = consumeValueFlag(argv, index, "expect");
+
+    if (expectMatch.matched) {
+      options.expect = expectMatch.value.trim();
+      index = expectMatch.nextIndex;
+      continue;
+    }
+
+    if (arg === "--help" || arg === "-h") {
+      options.help = true;
+      continue;
+    }
+
+    const pollMsMatch = consumeValueFlag(argv, index, "poll-ms");
+
+    if (pollMsMatch.matched) {
+      options.pollMs = Number(pollMsMatch.value.trim());
+      index = pollMsMatch.nextIndex;
+      continue;
+    }
+
+    if (arg === "--skip-docker") {
+      options.skipDocker = true;
+      continue;
+    }
+
+    const userIdMatch = consumeValueFlag(argv, index, "user-id");
+
+    if (userIdMatch.matched) {
+      options.userId = userIdMatch.value.trim();
+      index = userIdMatch.nextIndex;
+      continue;
+    }
+
+    const waitMsMatch = consumeValueFlag(argv, index, "wait-ms");
+
+    if (waitMsMatch.matched) {
+      options.waitMs = Number(waitMsMatch.value.trim());
+      index = waitMsMatch.nextIndex;
+      continue;
+    }
+
+    throw new Error(`Unknown argument: ${arg}`);
   }
 
   if (!["done", "failed"].includes(options.expect)) {
@@ -68,19 +121,19 @@ function printHelp() {
 Usage:
   pnpm e2e:transcription
   pnpm e2e:transcription:local
-  pnpm e2e:transcription -- --expect=failed
-  pnpm e2e:transcription -- --skip-docker --user-id=<auth-user-uuid>
+  pnpm e2e:transcription -- --expect failed
+  pnpm e2e:transcription -- --skip-docker --user-id <auth-user-uuid>
 
 Options:
   --allow-hosted             Allow writes to a non-local Supabase URL. Requires intent.
-  --api-gateway-url=URL      API Gateway base URL. Default: ${DEFAULT_API_GATEWAY_URL}.
-  --docker-bin=BIN           Use a specific Docker-compatible CLI binary.
-  --env-file=PATH            Load E2E env from a file. Default: ${DEFAULT_ENV_FILE}.
-  --expect=done|failed       Expected final content_jobs.status. Default: done.
+  --api-gateway-url URL      API Gateway base URL. Default: ${DEFAULT_API_GATEWAY_URL}.
+  --docker-bin BIN           Use a specific Docker-compatible CLI binary.
+  --env-file PATH            Load E2E env from a file. Default: ${DEFAULT_ENV_FILE}.
+  --expect done|failed       Expected final content_jobs.status. Default: done.
   --skip-docker              Do not run docker compose up before testing.
-  --user-id=UUID             Use a specific Supabase auth user.
-  --wait-ms=N                How long to wait for terminal status. Default: ${DEFAULT_WAIT_MS}.
-  --poll-ms=N                Poll interval while waiting. Default: ${DEFAULT_POLL_MS}.
+  --user-id UUID             Use a specific Supabase auth user.
+  --wait-ms N                How long to wait for terminal status. Default: ${DEFAULT_WAIT_MS}.
+  --poll-ms N                Poll interval while waiting. Default: ${DEFAULT_POLL_MS}.
 `);
 }
 
@@ -649,7 +702,18 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`E2E failed: ${error.message}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(`E2E failed: ${error.message}`);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  DEFAULT_API_GATEWAY_URL,
+  DEFAULT_ENV_FILE,
+  DEFAULT_POLL_MS,
+  DEFAULT_WAIT_MS,
+  parseArgs,
+  printHelp,
+};
