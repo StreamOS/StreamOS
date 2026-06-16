@@ -1,0 +1,15 @@
+{
+  "HOST": "::",
+  "OPENAI_API_KEY": "sk-production",
+  "OPENAI_BASE_URL": "https://api.openai.com/v1",
+  "OPENAI_MAX_TRANSCRIPTION_MEDIA_BYTES": "25000000",
+  "OPENAI_MODEL": "gpt-4o",
+  "OPENAI_TIMEOUT_SECONDS": "30",
+  "OPENAI_TITLE_MODEL": "gpt-4o-mini",
+  "OPENAI_TRANSCRIPTION_MODEL": "gpt-4o-transcribe",
+  "PORT": "8000",
+  "RAILWAY_HEALTHCHECK_TIMEOUT_SEC": "30",
+  "REPLICATE_API_TOKEN": "r8-production",
+  "STREAMOS_E2E_MODE": "false",
+  "TRANSCRIPTION_PROCESSOR_MODE": "fail"
+}

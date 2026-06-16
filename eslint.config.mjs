@@ -27,6 +27,7 @@ export default [
       "node_modules/**",
       "playwright-report/**",
       "test-results/**",
+      "scripts/lib/**/*.d.ts",
       "**/*.config.js",
       "**/*.config.cjs",
     ],

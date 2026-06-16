@@ -1,19 +1,14 @@
-import { randomBytes } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
+
+import { ensureCreatorForUser } from "@/lib/supabase/creator";
 import { createClient } from "@/lib/supabase/server";
-import { assertEncryptionConfigured } from "@/lib/security/encryption";
-import {
-  createTwitchAuthorizeUrl,
-  getTwitchOAuthConfig,
-  TWITCH_OAUTH_STATE_COOKIE,
-} from "@/lib/integrations/twitch";
 
 export const runtime = "nodejs";
 
-const TWITCH_OAUTH_NEXT_COOKIE = "streamos_twitch_oauth_next";
+const HANDOFF_TTL_MS = 60_000;
 
 export async function GET(request: NextRequest) {
-  const dashboardUrl = new URL("/dashboard", request.url);
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getUser();
 
@@ -28,42 +23,58 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  let authorizeUrl: URL;
+  const gatewayUrl = process.env.API_GATEWAY_URL?.trim();
+  const apiGatewaySecret = process.env.API_GATEWAY_SECRET?.trim();
 
-  try {
-    assertEncryptionConfigured();
-    const config = getTwitchOAuthConfig(request.nextUrl.origin);
-    const state = randomBytes(24).toString("base64url");
-    const nextPath = getSafeNextPath(request.nextUrl.searchParams.get("next"));
-    authorizeUrl = createTwitchAuthorizeUrl(config, state);
-
-    const response = NextResponse.redirect(authorizeUrl);
-    response.cookies.set(TWITCH_OAUTH_STATE_COOKIE, state, {
-      httpOnly: true,
-      maxAge: 10 * 60,
-      path: "/",
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    });
-    response.cookies.set(TWITCH_OAUTH_NEXT_COOKIE, nextPath, {
-      httpOnly: true,
-      maxAge: 10 * 60,
-      path: "/",
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    });
-
-    return response;
-  } catch {
+  if (!gatewayUrl || !apiGatewaySecret) {
+    const dashboardUrl = new URL("/dashboard/platforms", request.url);
     dashboardUrl.searchParams.set("platform", "twitch");
-    dashboardUrl.searchParams.set("error", "twitch-setup");
+    dashboardUrl.searchParams.set("error", "gateway-not-configured");
+
     return NextResponse.redirect(dashboardUrl);
   }
+
+  const creator = await ensureCreatorForUser(supabase, data.user);
+  const handoffToken = createOAuthHandoffToken(
+    {
+      creator_id: creator.id,
+      exp: Date.now() + HANDOFF_TTL_MS,
+      return_to: getSafeNextPath(request.nextUrl.searchParams.get("next")),
+      user_id: data.user.id,
+    },
+    apiGatewaySecret,
+  );
+  const connectUrl = new URL(
+    "/api/auth/twitch/connect",
+    gatewayUrl.replace(/\/+$/, ""),
+  );
+  connectUrl.searchParams.set("handoff", handoffToken);
+
+  return NextResponse.redirect(connectUrl);
+}
+
+function createOAuthHandoffToken(
+  payload: {
+    creator_id: string;
+    exp: number;
+    return_to: string;
+    user_id: string;
+  },
+  secret: string,
+): string {
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
+    "base64url",
+  );
+  const signature = createHmac("sha256", secret)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
 }
 
 function getSafeNextPath(value: string | null) {
   if (!value || !value.startsWith("/") || value.startsWith("//")) {
-    return "/dashboard";
+    return "/dashboard/platforms";
   }
 
   return value;
