@@ -38,7 +38,6 @@ export function getSupabaseServiceRoleConfig(): SupabaseServiceRoleConfig | null
     serviceRoleKey,
   };
 }
-
 export function isSupabaseConfigured(): boolean {
   return getSupabaseConfig() !== null;
 }

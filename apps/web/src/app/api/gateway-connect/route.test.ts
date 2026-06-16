@@ -98,7 +98,7 @@ describe("GET /api/gateway-connect", () => {
 
   it("returns 400 for unsupported gateway OAuth providers", async () => {
     const { GET } = await import("./route");
-    const response = await GET(createRequest("twitch"));
+    const response = await GET(createRequest("instagram"));
     const payload = await response.json();
 
     expect(response.status).toBe(400);

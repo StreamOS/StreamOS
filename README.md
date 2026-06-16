@@ -14,10 +14,10 @@ StreamOS/
 |   |-- api-gateway/             # Backend-for-frontend aggregation service
 |   `-- automation-service/      # FastAPI service for clip and AI pipelines
 |-- workers/
-|   |-- transcription-worker/    # BullMQ transcription consumer
-|   |-- clip-worker/             # BullMQ clip generation consumer
-|   |-- content-job-retry-worker/ # Failed content_jobs retry orchestrator
-|   `-- stream-job-worker/       # Stream webhook event materializer
+|   |-- clip-worker/             # BullMQ clip generation worker
+|   |-- content-job-retry-worker/ # Durable content job retry orchestration
+|   |-- stream-job-worker/       # Stream event ingestion worker package
+|   `-- transcription-worker/    # Async media transcription worker
 |-- packages/
 |   |-- config/                  # Shared TypeScript configuration
 |   |-- database/                # Supabase contracts and migration helpers
@@ -61,16 +61,6 @@ pnpm --filter @streamos/web dev
 
 The dashboard runs at `http://localhost:3000/dashboard`.
 
-If Next.js starts with a stale or corrupt build artifact error such as
-`Cannot find module './7751.js'` or `__webpack_modules__[moduleId] is not a function`,
-reset the web build output and rebuild. The full recovery flow is documented in
-[`docs/troubleshooting.md`](docs/troubleshooting.md):
-
-```bash
-pnpm clean:web
-pnpm --filter @streamos/web dev
-```
-
 Start the local queue infrastructure, API gateway, automation service, and
 workers:
 
@@ -81,8 +71,8 @@ pnpm infra:ps
 
 This starts Redis at `localhost:6379`, the API gateway at
 `http://localhost:4000`, the automation service at `http://localhost:8000`,
-`transcription-worker`, `clip-worker`, and `content-job-retry-worker`. Compose reads
-`SUPABASE_URL`, optional `SUPABASE_DOCKER_URL`, and
+`clip-worker`, `transcription-worker`, and `content-job-retry-worker`.
+Compose reads `SUPABASE_URL`, optional `SUPABASE_DOCKER_URL`, and
 `SUPABASE_SERVICE_ROLE_KEY` from the selected env file for the workers.
 Use `SUPABASE_DOCKER_URL=http://host.docker.internal:54321` when the worker in
 Docker should call a Supabase CLI stack running on your host. The gateway and
@@ -183,8 +173,8 @@ The production deployment topology is documented in
 - `services/api-gateway` deploys to Railway with `Dockerfile.api-gateway`.
 - `services/automation-service` deploys to Railway first, or Fly.io when GPU-backed Whisper becomes required.
 - `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.
-- `workers/clip-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for clip scoring/generation.
-- `workers/content-job-retry-worker` deploys to Railway as a Node.js BullMQ worker and requeues failed `content_jobs`.
+- `workers/clip-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for clip scoring.
+- `workers/content-job-retry-worker` deploys to Railway as a Node.js BullMQ worker that requeues retryable failed `content_jobs`.
 
 ### Required GitHub Secrets
 
@@ -198,8 +188,8 @@ VERCEL_PROJECT_ID=
 RAILWAY_PROJECT_ID=
 RAILWAY_TOKEN_STAGING=
 RAILWAY_TOKEN_PRODUCTION=
-SUPABASE_DB_URL_STAGING=postgresql://postgres.<project-ref>:<password>@<pooler-host>:5432/postgres
-SUPABASE_DB_URL_PRODUCTION=postgresql://postgres.<project-ref>:<password>@<pooler-host>:5432/postgres
+SUPABASE_DB_URL_STAGING=
+SUPABASE_DB_URL_PRODUCTION=
 DISCORD_WEBHOOK_URL=
 ```
 
@@ -294,30 +284,20 @@ SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 
 Register the same redirect URI in the Twitch Developer Console. If Next.js falls back to another local port, update both `TWITCH_REDIRECT_URI` and the Twitch app settings to match.
 
-## Gateway OAuth: YouTube, TikTok, Kick
+## Gateway OAuth
 
 YouTube, TikTok, and Kick OAuth flows are owned by `services/api-gateway`:
 
-- `GET /api/auth/youtube/connect?handoff=<signed-token>`
-- `GET /api/auth/youtube/callback`
-- `GET /api/auth/tiktok/connect?handoff=<signed-token>`
-- `GET /api/auth/tiktok/callback`
-- `GET /api/auth/kick/connect?handoff=<signed-token>`
-- `GET /api/auth/kick/callback`
+- `GET /api/auth/:provider/connect?handoff=<signed-token>`
+- `GET /api/auth/:provider/callback`
 
 The `handoff` query value is a short-lived HMAC token signed with
 `API_GATEWAY_SECRET`. It carries only `user_id`, `creator_id`, optional
 `return_to`, and `exp`; provider tokens never pass through the browser. The
-Next.js dashboard creates these handoff URLs through `/api/gateway-connect`.
-The gateway stores a one-time `state` plus PKCE `code_verifier`, redirects to
-the provider, exchanges the callback code with PKCE, fetches the authenticated
-channel/profile, encrypts access and refresh tokens with `APP_ENCRYPTION_KEY`,
+gateway stores a one-time `state` plus PKCE `code_verifier`, redirects to the
+provider, exchanges the callback code with PKCE, fetches the authenticated
+provider profile, encrypts access and refresh tokens with `APP_ENCRYPTION_KEY`,
 and upserts `channels` plus `platform_connections`.
-
-YouTube additionally records the initial WebSub subscription in
-`youtube_websub_subscriptions` when subscription setup succeeds. Token refresh
-for Twitch, YouTube, and TikTok is handled by the server-side metrics sync path;
-Kick refresh still fails closed when a refresh is required but unavailable.
 
 Configure these server-only values in the API gateway environment:
 
@@ -333,42 +313,25 @@ TIKTOK_SCOPES=user.info.basic
 KICK_CLIENT_ID=
 KICK_CLIENT_SECRET=
 KICK_REDIRECT_URI=http://localhost:4000/api/auth/kick/callback
-KICK_SCOPES=user:read channel:read events:subscribe channel:follow channel:subscription
 APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 API_GATEWAY_SECRET=
 ```
 
-Register the same redirect URIs in the provider developer consoles. Run the
-gateway OAuth tests with:
+Register the matching redirect URI with each provider. Run the gateway OAuth
+tests with:
 
 ```bash
 pnpm --filter @streamos/api-gateway test
 ```
 
-## Current Implementation Status And Next Focus
+## Next Implementation Steps
 
-Implemented now:
-
-- Twitch OAuth remains the explicit Next.js server-route exception.
-- YouTube, TikTok, and Kick OAuth are gateway-owned with signed handoff, PKCE,
-  one-time state, encrypted token persistence, and tests.
-- Supabase migrations exist through
-  `packages/database/supabase/migrations/0027_media_content_jobs.sql`, covering
-  streams, clips, content jobs, brand assets, monetization, media assets,
-  WebSub tracking, RLS, grants, and server-managed mutation boundaries.
-- BullMQ producers and workers exist for transcription, clip generation, and
-  failed `content_jobs` retry orchestration.
-- Manual retry from `/dashboard/jobs` and automatic retry via
-  `workers/content-job-retry-worker` share `content_jobs.max_retries` and
-  `next_retry_at` as the database source of truth.
-
-Next focus:
-
-1. Harden deployed OAuth/webhook smoke tests against real provider sandbox or
-   staging apps.
-2. Expand durable automation outputs for repurposing, title generation, render
-   status, and export status.
-3. Continue product UI work in Branding, Monetization, and Analytics using the
-   existing Supabase contracts.
+1. Move Twitch OAuth to `services/api-gateway` after the Supabase session
+   hand-off contract is production-ready.
+2. Harden media storage and export automation around the existing
+   transcription, clip generation, and retry workers.
+3. Build the user-facing branding and monetization workflows on top of the
+   existing `brand_assets`, `monetization_events`, and `monetization_summaries`
+   schema.

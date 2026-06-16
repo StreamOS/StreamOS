@@ -3,7 +3,6 @@ import type { Tables } from "@streamos/database";
 import {
   CheckCircle2,
   Clapperboard,
-  ExternalLink,
   PlaySquare,
   Radio,
   Video,
@@ -23,9 +22,8 @@ type OnboardingPlatformsPageProps = {
 
 type PlatformCard = {
   accentClassName: string;
-  connectHref?: string;
   description: string;
-  gatewayProvider?: OAuthProvider;
+  gatewayProvider: OAuthProvider;
   icon: typeof Radio;
   id: StreamPlatform;
   label: string;
@@ -39,8 +37,8 @@ type ConnectionSummary = Pick<
 const platformCards: PlatformCard[] = [
   {
     accentClassName: "border-brand-500/40 bg-brand-500/10 text-brand-200",
-    connectHref: "/api/platforms/twitch/connect?next=/onboarding/platforms",
-    description: "Verbinde Twitch OAuth fuer Live-Analytics und Kanalstatus.",
+    description: "Verbinde Twitch OAuth ueber den API Gateway.",
+    gatewayProvider: "twitch",
     icon: Radio,
     id: "twitch",
     label: "Twitch",
@@ -169,8 +167,6 @@ function PlatformConnectorCard({
   platform: PlatformCard;
 }) {
   const Icon = platform.icon;
-  const isGatewayOAuth = Boolean(platform.gatewayProvider);
-  const isComingSoon = !platform.connectHref && !isGatewayOAuth;
 
   return (
     <article className="rounded-lg border border-white/10 bg-white/5 p-5">
@@ -184,10 +180,6 @@ function PlatformConnectorCard({
           <span className="inline-flex items-center gap-1 rounded-full border border-signal-green/30 bg-signal-green/10 px-2.5 py-1 text-xs font-semibold text-signal-green">
             <CheckCircle2 className="h-3.5 w-3.5" />
             Verbunden
-          </span>
-        ) : isComingSoon ? (
-          <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-slate-400">
-            Coming Soon
           </span>
         ) : (
           <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-slate-300">
@@ -203,31 +195,13 @@ function PlatformConnectorCard({
         {platform.description}
       </p>
 
-      {platform.connectHref ? (
-        <a
-          className="btn-primary mt-4 gap-2 px-3 py-1.5 text-xs"
-          href={platform.connectHref}
-        >
-          {isConnected ? "Neu verbinden" : "Verbinden"}
-          <ExternalLink className="h-3.5 w-3.5" />
-        </a>
-      ) : platform.gatewayProvider ? (
-        <GatewayConnectButton
-          className="btn-primary mt-4 px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
-          label={isConnected ? "Neu verbinden" : "Verbinden"}
-          pendingLabel="Verbinde..."
-          provider={platform.gatewayProvider}
-          returnTo="/onboarding/complete"
-        />
-      ) : (
-        <button
-          className="btn-ghost mt-4 cursor-not-allowed px-3 py-1.5 text-xs opacity-60"
-          disabled
-          type="button"
-        >
-          Noch nicht verfuegbar
-        </button>
-      )}
+      <GatewayConnectButton
+        className="btn-primary mt-4 px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+        label={isConnected ? "Neu verbinden" : "Verbinden"}
+        pendingLabel="Verbinde..."
+        provider={platform.gatewayProvider}
+        returnTo="/onboarding/complete"
+      />
     </article>
   );
 }

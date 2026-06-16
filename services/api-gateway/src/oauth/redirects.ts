@@ -1,7 +1,7 @@
 const DEFAULT_OAUTH_SUCCESS_REDIRECT = "/dashboard/integrations";
 const YOUTUBE_CONNECT_ERROR = "youtube_connect_failed";
 
-type OAuthRedirectProvider = "youtube" | "tiktok" | "kick";
+type OAuthRedirectProvider = "twitch" | "youtube" | "tiktok" | "kick";
 
 type ResolveRedirectTargetInput = {
   allowedOrigins: readonly string[];

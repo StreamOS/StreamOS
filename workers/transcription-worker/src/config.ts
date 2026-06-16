@@ -1,3 +1,5 @@
+import { assertPrivateAutomationServiceUrl } from "../../../scripts/lib/private-automation-url.cjs";
+
 export const DEFAULT_TRANSCRIPTION_QUEUE_NAME = "streamos-transcription";
 export const DEFAULT_CLIP_GENERATION_QUEUE_NAME = "streamos-clip-generation";
 export const DEFAULT_MEDIA_QUEUE_NAME = "streamos-media";
@@ -47,7 +49,12 @@ export function loadWorkerConfig(
   source: NodeJS.ProcessEnv = process.env,
 ): WorkerConfig {
   return {
-    automationServiceUrl: requireEnv(source, "AUTOMATION_SERVICE_URL"),
+    automationServiceUrl: assertPrivateAutomationServiceUrl(
+      requireEnv(source, "AUTOMATION_SERVICE_URL"),
+      {
+        consumerName: "transcription-worker",
+      },
+    ),
     clipGenerationQueueName:
       source.CLIP_GENERATION_QUEUE_NAME?.trim() ||
       DEFAULT_CLIP_GENERATION_QUEUE_NAME,

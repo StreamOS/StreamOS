@@ -15,6 +15,11 @@ out/
 .turbo/
 *.tsbuildinfo
 
+# Vercel local state
+/.vercel/
+/apps/web/.vercel/*
+!/apps/web/.vercel/project.json
+
 # Logs
 *.log
 npm-debug.log*

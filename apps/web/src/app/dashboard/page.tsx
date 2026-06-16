@@ -166,12 +166,14 @@ function TwitchConnectionNotice({
 
   const message =
     error === "twitch-setup"
-      ? "Twitch OAuth ist noch nicht vollstaendig konfiguriert. Setze TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_REDIRECT_URI und APP_ENCRYPTION_KEY."
+      ? "Twitch OAuth ist noch nicht vollstaendig konfiguriert. Pruefe API_GATEWAY_URL, API_GATEWAY_SECRET und die Twitch-Redirect-URI im Gateway."
       : error === "twitch-state"
         ? "Twitch OAuth wurde aus Sicherheitsgruenden abgebrochen. Starte die Verbindung erneut."
         : error === "twitch-refresh"
-          ? "Twitch Token konnte nicht erneuert werden. Verbinde Twitch erneut, falls der Refresh Token abgelaufen oder widerrufen wurde."
-          : "Twitch konnte nicht verbunden werden. Pruefe OAuth-App, Redirect URI und Twitch-Konfiguration.";
+          ? "Twitch Token konnte nicht erneuert werden. Der Gateway-Refresh ist fehlgeschlagen oder der Refresh Token wurde widerrufen."
+          : error === "twitch-disconnect"
+            ? "Twitch konnte nicht getrennt werden. Der Gateway-Disconnect ist fehlgeschlagen."
+            : "Twitch konnte nicht verbunden werden. Pruefe OAuth-App, Redirect URI und Twitch-Konfiguration.";
 
   return (
     <section className="rounded-lg border border-signal-red/30 bg-signal-red/10 p-4 text-sm text-signal-red">

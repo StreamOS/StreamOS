@@ -1,3 +1,5 @@
+import { assertPrivateAutomationServiceUrl } from "../../../scripts/lib/private-automation-url.cjs";
+
 export const DEFAULT_CLIP_GENERATION_QUEUE_NAME = "streamos-clip-generation";
 
 export type WorkerConfig = {
@@ -39,7 +41,12 @@ export function loadWorkerConfig(
   source: NodeJS.ProcessEnv = process.env,
 ): WorkerConfig {
   return {
-    automationServiceUrl: requireEnv(source, "AUTOMATION_SERVICE_URL"),
+    automationServiceUrl: assertPrivateAutomationServiceUrl(
+      requireEnv(source, "AUTOMATION_SERVICE_URL"),
+      {
+        consumerName: "clip-worker",
+      },
+    ),
     concurrency: parseConcurrency(source.CLIP_WORKER_CONCURRENCY),
     queueName:
       source.CLIP_GENERATION_QUEUE_NAME?.trim() ||

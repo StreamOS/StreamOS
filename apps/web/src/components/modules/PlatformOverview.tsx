@@ -1,5 +1,9 @@
 import type { Tables } from "@streamos/database";
-import { refreshTwitchConnectionAction } from "@/app/dashboard/actions";
+import {
+  disconnectTwitchConnectionAction,
+  refreshTwitchConnectionAction,
+} from "@/app/dashboard/actions";
+import { GatewayConnectButton } from "@/app/dashboard/components/GatewayConnectButton";
 import { platforms } from "@/data/dashboard";
 import type { PlatformSummary } from "@/data/dashboard";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -38,15 +42,35 @@ export async function PlatformOverview() {
                   {platform.actionLabel}
                 </a>
               )}
+              {platform.gatewayProvider && platform.actionLabel && (
+                <GatewayConnectButton
+                  className="btn-primary px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+                  label={platform.actionLabel}
+                  pendingLabel="Verbinde..."
+                  provider={platform.gatewayProvider}
+                />
+              )}
               {platform.canRefresh && (
-                <form action={refreshTwitchConnectionAction}>
-                  <button
-                    className="btn-ghost px-3 py-1.5 text-xs"
-                    type="submit"
-                  >
-                    Twitch-Token erneuern
-                  </button>
-                </form>
+                <div className="flex flex-wrap gap-2">
+                  <form action={refreshTwitchConnectionAction}>
+                    <button
+                      className="btn-ghost px-3 py-1.5 text-xs"
+                      type="submit"
+                    >
+                      Token erneuern
+                    </button>
+                  </form>
+                  {platform.status === "Verbunden" && (
+                    <form action={disconnectTwitchConnectionAction}>
+                      <button
+                        className="btn-ghost px-3 py-1.5 text-xs"
+                        type="submit"
+                      >
+                        Trennen
+                      </button>
+                    </form>
+                  )}
+                </div>
               )}
             </div>
           </div>

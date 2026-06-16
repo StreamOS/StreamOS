@@ -1,10 +1,13 @@
 "use server";
 
-import type { Tables, Updates } from "@streamos/database";
+import type { Tables } from "@streamos/database";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import {
+  ApiGatewayConfigurationError,
+  callApiGatewayJson,
+} from "@/lib/api-gateway";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export async function requestContentJobRetryAction(formData: FormData) {
@@ -19,7 +22,6 @@ export async function requestContentJobRetryAction(formData: FormData) {
   }
 
   const supabase = await createClient();
-  const serviceSupabase = createServiceRoleClient();
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
   if (userError || !userData.user) {
@@ -54,23 +56,48 @@ export async function requestContentJobRetryAction(formData: FormData) {
 
   const retryCount = Number(job.retry_count ?? 0);
   const currentMaxRetries = Number(job.max_retries ?? 3);
-  const updatePayload: Updates<"content_jobs"> = {
-    error_message: "Manual retry requested.",
-    max_retries: Math.max(currentMaxRetries, retryCount + 1),
-    next_retry_at: null,
-    updated_at: new Date().toISOString(),
-  };
-  const { error: serviceUpdateError } = await serviceSupabase
-    .from("content_jobs")
-    .update(updatePayload as never)
-    .eq("id", job.id)
-    .eq("user_id", userData.user.id)
-    .eq("status", "failed");
+  const result = await requestGatewayRetry({
+    currentMaxRetries,
+    jobId: job.id,
+    retryCount,
+    userId: userData.user.id,
+  });
 
-  if (serviceUpdateError) {
+  if (!result) {
     redirect("/dashboard/jobs?error=retry-update-failed");
   }
 
   revalidatePath("/dashboard/jobs");
   redirect("/dashboard/jobs?status=retry-requested");
+}
+
+async function requestGatewayRetry({
+  currentMaxRetries,
+  jobId,
+  retryCount,
+  userId,
+}: {
+  currentMaxRetries: number;
+  jobId: string;
+  retryCount: number;
+  userId: string;
+}): Promise<boolean> {
+  try {
+    const response = await callApiGatewayJson({
+      body: {
+        job_id: jobId,
+        max_retries: Math.max(currentMaxRetries, retryCount + 1),
+        user_id: userId,
+      },
+      path: "/api/content-jobs/retry",
+    });
+
+    return response.ok;
+  } catch (error) {
+    if (error instanceof ApiGatewayConfigurationError) {
+      return false;
+    }
+
+    return false;
+  }
 }

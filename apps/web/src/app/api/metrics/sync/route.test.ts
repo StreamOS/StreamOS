@@ -1,11 +1,9 @@
 import { NextRequest } from "next/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import { getMetricsSyncJobId } from "@streamos/queue";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   authGetUser: vi.fn(),
-  gatewayFetch: vi.fn(),
+  callApiGatewayJson: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -16,66 +14,28 @@ vi.mock("@/lib/supabase/server", () => ({
   })),
 }));
 
-describe("POST /api/metrics/sync", () => {
-  const originalEnv = { ...process.env };
+vi.mock("@/lib/api-gateway", () => ({
+  ApiGatewayConfigurationError: class ApiGatewayConfigurationError extends Error {},
+  callApiGatewayJson: mocks.callApiGatewayJson,
+}));
 
+describe("POST /api/metrics/sync", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    vi.stubGlobal("fetch", mocks.gatewayFetch);
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-06-08T10:15:30.000Z"));
-
-    process.env.API_GATEWAY_URL = "https://gateway.streamos.test";
-    process.env.API_GATEWAY_SECRET = "gateway-secret";
 
     mocks.authGetUser.mockResolvedValue({
-      data: { user: { id: "user-1" } },
+      data: { user: { id: "11111111-1111-4111-8111-111111111111" } },
       error: null,
     });
-    mocks.gatewayFetch.mockImplementation(() => {
-      throw new Error("Unexpected gateway fetch.");
+    mocks.callApiGatewayJson.mockResolvedValue({
+      data: {
+        failed: [],
+        synced: ["twitch"],
+      },
+      ok: true,
+      status: 200,
     });
-  });
-
-  afterEach(() => {
-    process.env = { ...originalEnv };
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
-
-  it("requires an authenticated Supabase session before parsing sync input", async () => {
-    mocks.authGetUser.mockResolvedValue({
-      data: { user: null },
-      error: null,
-    });
-
-    const { POST } = await import("./route");
-    const response = await POST(createJsonRequest("{"));
-    const payload = await response.json();
-
-    expect(response.status).toBe(401);
-    expect(payload).toEqual({
-      code: "UNAUTHORIZED",
-      error: "An authenticated Supabase session is required.",
-    });
-  });
-
-  it("rejects unsupported or empty provider lists", async () => {
-    const { POST } = await import("./route");
-    const response = await POST(
-      createJsonRequest({
-        providers: ["twitch", "instagram"],
-      }),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(payload).toEqual({
-      code: "INVALID_REQUEST",
-      error: "Request body must be { providers: SupportedProvider[] }.",
-    });
-    expect(mocks.gatewayFetch).not.toHaveBeenCalled();
   });
 
   it("rejects oversized request bodies before touching Supabase", async () => {
@@ -98,60 +58,82 @@ describe("POST /api/metrics/sync", () => {
       error: "Request body exceeds the metrics sync size limit.",
     });
     expect(mocks.authGetUser).not.toHaveBeenCalled();
+    expect(mocks.callApiGatewayJson).not.toHaveBeenCalled();
   });
 
-  it("forwards the sync request to the gateway and returns the queued job", async () => {
-    const jobId = getMetricsSyncJobId("user-1", ["twitch", "kick"]);
-    mocks.gatewayFetch.mockResolvedValue(
-      Response.json(
-        {
-          job_id: jobId,
-          providers: ["twitch", "kick"],
-          queue_job_id: jobId,
-          status: "queued",
-        },
-        { status: 202 },
-      ),
-    );
+  it("requires an authenticated Supabase session before parsing sync input", async () => {
+    mocks.authGetUser.mockResolvedValue({
+      data: { user: null },
+      error: null,
+    });
 
+    const { POST } = await import("./route");
+    const response = await POST(createJsonRequest("{"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(payload).toEqual({
+      code: "UNAUTHORIZED",
+      error: "An authenticated Supabase session is required.",
+    });
+    expect(mocks.callApiGatewayJson).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported or empty provider lists", async () => {
     const { POST } = await import("./route");
     const response = await POST(
       createJsonRequest({
-        providers: ["kick", "twitch", "kick"],
+        providers: ["twitch", "instagram"],
       }),
     );
     const payload = await response.json();
 
-    expect(response.status).toBe(202);
+    expect(response.status).toBe(400);
     expect(payload).toEqual({
-      job_id: jobId,
-      providers: ["twitch", "kick"],
-      queue_job_id: jobId,
-      status: "queued",
+      code: "INVALID_REQUEST",
+      error: "Request body must be { providers: SupportedProvider[] }.",
     });
-    expect(mocks.gatewayFetch).toHaveBeenCalledTimes(1);
+    expect(mocks.callApiGatewayJson).not.toHaveBeenCalled();
+  });
 
-    const [requestUrl, requestInit] = mocks.gatewayFetch.mock.calls[0] ?? [];
-    expect(String(requestUrl)).toBe(
-      "https://gateway.streamos.test/api/metrics/sync-request",
+  it("forwards a deduplicated provider list and authenticated user id to the gateway", async () => {
+    const { POST } = await import("./route");
+    const response = await POST(
+      createJsonRequest({
+        providers: ["twitch", "twitch"],
+      }),
     );
-    expect(requestInit).toMatchObject({
-      headers: {
-        Authorization: "Bearer gateway-secret",
-        "Content-Type": "application/json",
-      },
-      method: "POST",
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({
+      failed: [],
+      synced: ["twitch"],
     });
-    expect(JSON.parse(String(requestInit?.body))).toEqual({
-      providers: ["kick", "twitch", "kick"],
-      user_id: "user-1",
+    expect(mocks.callApiGatewayJson).toHaveBeenCalledWith({
+      body: {
+        providers: ["twitch"],
+        user_id: "11111111-1111-4111-8111-111111111111",
+      },
+      path: "/api/metrics/sync",
     });
   });
 
-  it("returns a configured gateway error payload when the producer fails", async () => {
-    mocks.gatewayFetch.mockResolvedValue(
-      new Response("queue unavailable", { status: 503 }),
-    );
+  it("preserves gateway multi-status responses", async () => {
+    mocks.callApiGatewayJson.mockResolvedValue({
+      data: {
+        failed: [
+          {
+            code: "CONNECTION_NOT_FOUND",
+            provider: "twitch",
+            reason: "No twitch connection found for this user.",
+          },
+        ],
+        synced: [],
+      },
+      ok: true,
+      status: 207,
+    });
 
     const { POST } = await import("./route");
     const response = await POST(
@@ -161,11 +143,8 @@ describe("POST /api/metrics/sync", () => {
     );
     const payload = await response.json();
 
-    expect(response.status).toBe(503);
-    expect(payload).toEqual({
-      error: "gateway_response_unparseable",
-      message: "queue unavailable",
-    });
+    expect(response.status).toBe(207);
+    expect(payload.failed[0].code).toBe("CONNECTION_NOT_FOUND");
   });
 });
 

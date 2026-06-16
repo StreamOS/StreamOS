@@ -309,6 +309,7 @@ describe("api-gateway", () => {
 
   it("queues clip generation idempotently by stream_id", async () => {
     const jobIds = new Set<string>();
+    const contentJobUpserts: unknown[] = [];
     const clipGenerationQueue: ClipGenerationQueue = {
       async add(_name, _data, opts) {
         const jobId = String(opts.jobId);
@@ -317,7 +318,28 @@ describe("api-gateway", () => {
         return { id: jobId };
       },
     };
-    const app = createApp({ clipGenerationQueue });
+    const originalSupabaseUrl = process.env.SUPABASE_URL;
+    const originalServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    process.env.SUPABASE_URL = "https://supabase.streamos.test";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
+
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = input.toString();
+
+      if (
+        url.startsWith("https://supabase.streamos.test/rest/v1/content_jobs")
+      ) {
+        contentJobUpserts.push(JSON.parse(init?.body?.toString() ?? "{}"));
+
+        return new Response(null, { status: 201 });
+      }
+
+      return new Response("Unexpected URL", { status: 500 });
+    };
+    const app = createApp({
+      clipGenerationQueue,
+      oauth: { fetchImpl },
+    });
     const server = app.listen(0);
 
     try {
@@ -358,8 +380,20 @@ describe("api-gateway", () => {
       expect(secondResponse.status).toBe(202);
       expect(firstBody.job_id).toBe(secondBody.job_id);
       expect(jobIds.size).toBe(1);
+      expect(contentJobUpserts).toHaveLength(2);
     } finally {
       server.close();
+      if (originalSupabaseUrl === undefined) {
+        delete process.env.SUPABASE_URL;
+      } else {
+        process.env.SUPABASE_URL = originalSupabaseUrl;
+      }
+
+      if (originalServiceRoleKey === undefined) {
+        delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+      } else {
+        process.env.SUPABASE_SERVICE_ROLE_KEY = originalServiceRoleKey;
+      }
     }
   });
 

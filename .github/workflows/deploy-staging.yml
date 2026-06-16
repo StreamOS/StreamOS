@@ -97,16 +97,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
-      - name: Cache Vercel build output
-        uses: actions/cache@v5
-        with:
-          path: |
-            apps/web/.next/cache
-            apps/web/.vercel/cache
-          key: ${{ runner.os }}-vercel-staging-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**/*', 'apps/web/package.json', 'apps/web/next.config.ts') }}
-          restore-keys: |
-            ${{ runner.os }}-vercel-staging-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-
-
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
 
@@ -236,6 +226,60 @@ jobs:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_STAGING }}
         run: supabase db push --db-url "${SUPABASE_DB_URL}"
 
+  smoke-staging:
+    name: Smoke test Vercel staging
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - deploy-web
+      - deploy-railway
+      - migrate-supabase
+    if: ${{ always() && needs.deploy-web.result == 'success' && needs.migrate-supabase.result == 'success' }}
+    environment:
+      name: staging
+
+    steps:
+      - name: Get Vercel OIDC Token
+        uses: actions/github-script@v9
+        id: oidc-token
+        with:
+          script: |
+            const token = await core.getIDToken();
+            core.setSecret(token);
+            core.setOutput("token", token);
+
+      - name: Smoke protected Vercel deployment
+        env:
+          DEPLOYMENT_URL: ${{ needs.deploy-web.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          check_status() {
+            local path="$1"
+            local expected_status="$2"
+            local status
+
+            status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" \
+              -H "x-vercel-trusted-oidc-idp-token: ${{ steps.oidc-token.outputs.token }}" \
+              "${DEPLOYMENT_URL}${path}")"
+
+            if [ "${status}" != "${expected_status}" ]; then
+              echo "::error::Expected ${path} to return ${expected_status}, got ${status}."
+              exit 1
+            fi
+
+            echo "${path} returned ${status}"
+          }
+
+          check_status "/dashboard" "307"
+          check_status "/api/gateway-connect?provider=twitch" "401"
+          check_status "/api/admin/queues" "404"
+          check_status "/api/cron/youtube-websub-renew" "410"
+          check_status "/api/webhooks/youtube/websub" "410"
+
   comment-pr:
     name: Comment deployment URL on PR
     runs-on: ubuntu-latest
@@ -244,7 +288,8 @@ jobs:
       - deploy-web
       - deploy-railway
       - migrate-supabase
-    if: ${{ always() && needs.deploy-web.result == 'success' && (needs.migrate-supabase.result == 'success' || needs.migrate-supabase.result == 'skipped') }}
+      - smoke-staging
+    if: ${{ always() && needs.deploy-web.result == 'success' && needs.migrate-supabase.result == 'success' && needs.smoke-staging.result == 'success' }}
 
     steps:
       - name: Comment on associated pull request
@@ -260,8 +305,10 @@ jobs:
               commit_sha: context.sha,
             });
 
-            if (pulls.length === 0) {
-              core.info("No associated pull request found for this staging deployment.");
+            const openPulls = pulls.filter((pull) => pull.state === "open");
+
+            if (openPulls.length === 0) {
+              core.info("No open associated pull request found for this staging deployment.");
               return;
             }
 
@@ -274,13 +321,21 @@ jobs:
               `- Commit: \`${context.sha.slice(0, 7)}\``,
             ].join("\n");
 
-            for (const pull of pulls) {
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: pull.number,
-                body,
-              });
+            for (const pull of openPulls) {
+              try {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: pull.number,
+                  body,
+                });
+              } catch (error) {
+                core.warning(
+                  `Skipping staging deployment comment for PR #${pull.number}: ${
+                    error instanceof Error ? error.message : String(error)
+                  }`,
+                );
+              }
             }
 
   notify:

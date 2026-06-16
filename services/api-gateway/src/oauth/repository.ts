@@ -1,4 +1,5 @@
 import type {
+  ConnectionStatus,
   OAuthConnectionResult,
   OAuthProvider,
   OAuthProviderProfile,
@@ -6,6 +7,21 @@ import type {
 import type { WebSubSubscription } from "@streamos/youtube-websub";
 
 type JsonRecord = { [key: string]: unknown };
+
+export type OAuthConnectionRecord = {
+  accessTokenCiphertext: string | null;
+  channelId: string | null;
+  creatorId: string;
+  expiresAt: string | null;
+  id: string;
+  metadata: JsonRecord;
+  platform: OAuthProvider;
+  providerAccountId: string;
+  refreshTokenCiphertext: string | null;
+  scopes: string[];
+  status: ConnectionStatus;
+  userId: string;
+};
 
 export type PersistOAuthConnectionInput = {
   accessTokenCiphertext: string;
@@ -19,9 +35,19 @@ export type PersistOAuthConnectionInput = {
 };
 
 export type OAuthConnectionRepository = {
+  findLatestConnection(input: {
+    creatorId: string;
+    provider: OAuthProvider;
+    userId: string;
+  }): Promise<OAuthConnectionRecord | null>;
   persistConnection(
     input: PersistOAuthConnectionInput,
   ): Promise<OAuthConnectionResult>;
+  patchConnection(input: {
+    connectionId: string;
+    patch: Record<string, unknown>;
+    userId: string;
+  }): Promise<void>;
   recordYouTubeWebSubSubscription?(
     input: RecordYouTubeWebSubSubscriptionInput,
   ): Promise<void>;
@@ -96,6 +122,103 @@ export class SupabaseOAuthConnectionRepository implements OAuthConnectionReposit
       profile: input.profile,
       scopes: input.scopes,
     };
+  }
+
+  async findLatestConnection({
+    creatorId,
+    provider,
+    userId,
+  }: {
+    creatorId: string;
+    provider: OAuthProvider;
+    userId: string;
+  }): Promise<OAuthConnectionRecord | null> {
+    const url = new URL(
+      "/rest/v1/platform_connections",
+      this.config.supabaseUrl,
+    );
+    url.searchParams.set(
+      "select",
+      "id,user_id,creator_id,channel_id,platform,provider_account_id,metadata,access_token_ciphertext,refresh_token_ciphertext,scopes,expires_at,status",
+    );
+    url.searchParams.set("user_id", `eq.${userId}`);
+    url.searchParams.set("creator_id", `eq.${creatorId}`);
+    url.searchParams.set("platform", `eq.${provider}`);
+    url.searchParams.set("order", "connected_at.desc");
+    url.searchParams.set("limit", "1");
+
+    const response = await this.fetchImpl(url, {
+      headers: {
+        apikey: this.config.serviceRoleKey,
+        Authorization: `Bearer ${this.config.serviceRoleKey}`,
+      },
+      method: "GET",
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Supabase platform_connections lookup failed with status ${response.status}.`,
+      );
+    }
+
+    const rows = (await response.json()) as Array<{
+      access_token_ciphertext?: string | null;
+      channel_id?: string | null;
+      creator_id?: string;
+      expires_at?: string | null;
+      id?: string;
+      metadata?: unknown;
+      platform?: OAuthProvider;
+      provider_account_id?: string;
+      refresh_token_ciphertext?: string | null;
+      scopes?: string[] | null;
+      status?: ConnectionStatus;
+      user_id?: string;
+    }>;
+    const row = rows[0];
+
+    if (
+      !row ||
+      !row.id ||
+      !row.user_id ||
+      !row.creator_id ||
+      !row.platform ||
+      !row.provider_account_id ||
+      !row.status
+    ) {
+      return null;
+    }
+
+    return {
+      accessTokenCiphertext: row.access_token_ciphertext ?? null,
+      channelId: row.channel_id ?? null,
+      creatorId: row.creator_id,
+      expiresAt: row.expires_at ?? null,
+      id: row.id,
+      metadata: toJsonRecord(row.metadata),
+      platform: row.platform,
+      providerAccountId: row.provider_account_id,
+      refreshTokenCiphertext: row.refresh_token_ciphertext ?? null,
+      scopes: row.scopes ?? [],
+      status: row.status,
+      userId: row.user_id,
+    };
+  }
+
+  async patchConnection({
+    connectionId,
+    patch,
+    userId,
+  }: {
+    connectionId: string;
+    patch: Record<string, unknown>;
+    userId: string;
+  }): Promise<void> {
+    await this.patch({
+      filter: `id=eq.${connectionId}&user_id=eq.${userId}`,
+      payload: patch,
+      table: "platform_connections",
+    });
   }
 
   async recordYouTubeWebSubSubscription({
@@ -186,15 +309,17 @@ export class SupabaseOAuthConnectionRepository implements OAuthConnectionReposit
     table: string;
   }): Promise<void> {
     const url = new URL(`/rest/v1/${table}`, this.config.supabaseUrl);
-    const separatorIndex = filter.indexOf("=");
-    const key = filter.slice(0, separatorIndex);
-    const value = filter.slice(separatorIndex + 1);
+    for (const clause of filter.split("&")) {
+      const separatorIndex = clause.indexOf("=");
+      const key = clause.slice(0, separatorIndex);
+      const value = clause.slice(separatorIndex + 1);
 
-    if (separatorIndex < 1 || !value) {
-      throw new Error("Supabase patch filter is invalid.");
+      if (separatorIndex < 1 || !value) {
+        throw new Error("Supabase patch filter is invalid.");
+      }
+
+      url.searchParams.set(key, value);
     }
-
-    url.searchParams.set(key, value);
 
     const response = await this.fetchImpl(url, {
       body: JSON.stringify(payload),

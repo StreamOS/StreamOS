@@ -1,15 +1,13 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import type { MetricsSyncResponse } from "@streamos/types";
+
 import {
-  getTwitchOAuthConfig,
-  refreshTwitchConnection,
-  syncTwitchAnalytics,
-} from "@/lib/integrations/twitch";
+  ApiGatewayConfigurationError,
+  callApiGatewayJson,
+} from "@/lib/api-gateway";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { ensureCreatorForUser } from "@/lib/supabase/creator";
-import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export async function refreshTwitchConnectionAction() {
@@ -24,35 +22,53 @@ export async function refreshTwitchConnectionAction() {
     redirect("/login");
   }
 
-  const headerStore = await headers();
-  const origin =
-    headerStore.get("origin") ??
-    process.env.NEXT_PUBLIC_APP_URL ??
-    "http://localhost:3000";
+  if (await syncTwitchViaGateway(data.user.id)) {
+    redirect("/dashboard?platform=twitch&status=refreshed");
+  }
 
-  let refreshFailed = false;
+  redirect("/dashboard?platform=twitch&error=twitch-refresh");
+}
+
+export async function disconnectTwitchConnectionAction() {
+  if (!isSupabaseConfigured()) {
+    redirect("/dashboard/platforms?platform=twitch&error=twitch-disconnect");
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getUser();
+
+  if (error || !data.user) {
+    redirect("/login");
+  }
 
   try {
-    const creator = await ensureCreatorForUser(supabase, data.user);
-    const serviceSupabase = createServiceRoleClient();
-    const config = getTwitchOAuthConfig(origin);
-
-    await refreshTwitchConnection({
-      connectionSupabase: serviceSupabase,
-      config,
-      creatorId: creator.id,
-      supabase,
-      userId: data.user.id,
+    const result = await callApiGatewayJson<{
+      data?: {
+        platform?: string;
+        status?: string;
+      };
+      success?: boolean;
+    }>({
+      body: {
+        user_id: data.user.id,
+      },
+      path: "/api/platforms/twitch/disconnect",
     });
-  } catch {
-    refreshFailed = true;
+
+    if (
+      result.ok &&
+      result.data.success === true &&
+      result.data.data?.status === "disconnected"
+    ) {
+      redirect("/dashboard/platforms?platform=twitch&status=disconnected");
+    }
+  } catch (error) {
+    if (error instanceof ApiGatewayConfigurationError) {
+      redirect("/dashboard/platforms?platform=twitch&error=twitch-disconnect");
+    }
   }
 
-  if (refreshFailed) {
-    redirect("/dashboard?platform=twitch&error=twitch-refresh");
-  }
-
-  redirect("/dashboard?platform=twitch&status=refreshed");
+  redirect("/dashboard/platforms?platform=twitch&error=twitch-disconnect");
 }
 
 export async function syncTwitchAnalyticsAction() {
@@ -67,34 +83,32 @@ export async function syncTwitchAnalyticsAction() {
     redirect("/login");
   }
 
-  const headerStore = await headers();
-  const origin =
-    headerStore.get("origin") ??
-    process.env.NEXT_PUBLIC_APP_URL ??
-    "http://localhost:3000";
+  if (await syncTwitchViaGateway(data.user.id)) {
+    redirect("/dashboard/analytics?platform=twitch&status=synced");
+  }
 
-  let syncFailed = false;
+  redirect("/dashboard/analytics?platform=twitch&error=twitch-sync");
+}
 
+async function syncTwitchViaGateway(userId: string): Promise<boolean> {
   try {
-    const creator = await ensureCreatorForUser(supabase, data.user);
-    const serviceSupabase = createServiceRoleClient();
-    const config = getTwitchOAuthConfig(origin);
-
-    await syncTwitchAnalytics({
-      connectionSupabase: serviceSupabase,
-      config,
-      creatorId: creator.id,
-      metricsSupabase: serviceSupabase,
-      supabase,
-      userId: data.user.id,
+    const result = await callApiGatewayJson<MetricsSyncResponse>({
+      body: {
+        providers: ["twitch"],
+        user_id: userId,
+      },
+      path: "/api/metrics/sync",
     });
-  } catch {
-    syncFailed = true;
-  }
 
-  if (syncFailed) {
-    redirect("/dashboard/analytics?platform=twitch&error=twitch-sync");
-  }
+    return (
+      result.ok &&
+      !result.data.failed.some((failure) => failure.provider === "twitch")
+    );
+  } catch (error) {
+    if (error instanceof ApiGatewayConfigurationError) {
+      return false;
+    }
 
-  redirect("/dashboard/analytics?platform=twitch&status=synced");
+    return false;
+  }
 }
