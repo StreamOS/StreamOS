@@ -134,20 +134,12 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
 
-      - name: Cache Python virtualenv
-        uses: actions/cache@v5
-        with:
-          path: services/automation-service/.venv
-          key: ${{ runner.os }}-security-python-${{ env.PYTHON_VERSION }}-${{ hashFiles('services/automation-service/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-security-python-${{ env.PYTHON_VERSION }}-
-
       - name: Install Python dependencies and audit tooling
         run: |
           python -m venv services/automation-service/.venv
           . services/automation-service/.venv/bin/activate
           python -m pip install --upgrade pip pip-audit
-          python -m pip install -e "./services/automation-service[dev]"
+          python -m pip install --upgrade --upgrade-strategy eager -e "./services/automation-service[dev]"
 
       - name: Run pip-audit
         run: |
