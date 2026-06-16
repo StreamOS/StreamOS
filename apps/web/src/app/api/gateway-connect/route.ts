@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import type { GatewayConnectResponse, OAuthProvider } from "@streamos/types";
 
+import { resolveGatewayReturnTo } from "@/lib/gateway/redirects";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
 import { createClient } from "@/lib/supabase/server";
 
@@ -69,7 +70,10 @@ export async function GET(request: NextRequest) {
       {
         creator_id: creator.id,
         exp: Date.now() + HANDOFF_TTL_MS,
-        return_to: "/dashboard/platforms",
+        return_to: resolveGatewayReturnTo({
+          request,
+          value: "/dashboard/platforms",
+        }),
         user_id: data.user.id,
       },
       apiGatewaySecret,

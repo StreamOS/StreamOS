@@ -1,6 +1,8 @@
 import { createHmac } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { getSafeNextPath } from "@/lib/auth/redirects";
+import { resolveGatewayReturnTo } from "@/lib/gateway/redirects";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
 import { createClient } from "@/lib/supabase/server";
 
@@ -17,7 +19,10 @@ export async function GET(request: NextRequest) {
     loginUrl.searchParams.set("error", "unauthorized");
     loginUrl.searchParams.set(
       "next",
-      getSafeNextPath(request.nextUrl.searchParams.get("next")),
+      getSafeNextPath(
+        request.nextUrl.searchParams.get("next"),
+        "/dashboard/platforms",
+      ),
     );
 
     return NextResponse.redirect(loginUrl);
@@ -39,7 +44,10 @@ export async function GET(request: NextRequest) {
     {
       creator_id: creator.id,
       exp: Date.now() + HANDOFF_TTL_MS,
-      return_to: getSafeNextPath(request.nextUrl.searchParams.get("next")),
+      return_to: resolveGatewayReturnTo({
+        request,
+        value: request.nextUrl.searchParams.get("next"),
+      }),
       user_id: data.user.id,
     },
     apiGatewaySecret,
@@ -70,12 +78,4 @@ function createOAuthHandoffToken(
     .digest("base64url");
 
   return `${encodedPayload}.${signature}`;
-}
-
-function getSafeNextPath(value: string | null) {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) {
-    return "/dashboard/platforms";
-  }
-
-  return value;
 }

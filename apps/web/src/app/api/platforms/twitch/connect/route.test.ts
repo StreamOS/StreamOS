@@ -73,7 +73,7 @@ describe("GET /api/platforms/twitch/connect", () => {
     expect(handoff).toEqual({
       creator_id: "creator-1",
       exp: Date.now() + 60_000,
-      return_to: "/dashboard/platforms",
+      return_to: "http://localhost/dashboard/platforms",
       user_id: "user-1",
     });
   });
