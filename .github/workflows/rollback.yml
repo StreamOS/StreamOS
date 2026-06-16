@@ -108,10 +108,12 @@ jobs:
             vercel_environment="preview"
           fi
 
-          echo "git_ref=${target_ref}" >> "${GITHUB_OUTPUT}"
-          echo "git_sha=${target_sha}" >> "${GITHUB_OUTPUT}"
-          echo "railway_environment=${railway_environment}" >> "${GITHUB_OUTPUT}"
-          echo "vercel_environment=${vercel_environment}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "git_ref=${target_ref}"
+            echo "git_sha=${target_sha}"
+            echo "railway_environment=${railway_environment}"
+            echo "vercel_environment=${vercel_environment}"
+          } >> "${GITHUB_OUTPUT}"
 
           {
             echo "## StreamOS Rollback Target"
