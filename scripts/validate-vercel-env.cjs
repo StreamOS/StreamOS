@@ -6,8 +6,8 @@ const { resolve, join, dirname } = require("node:path");
 
 const { consumeValueFlag } = require("./lib/cli-args.cjs");
 const {
+  collectUnexpectedVercelEnvNames,
   assertVercelEnvironment,
-  collectVercelEnvironmentIssues,
 } = require("./config/vercel-env-policy.cjs");
 
 const DEFAULT_VERCEL_DIR = ".vercel";
@@ -189,12 +189,6 @@ function main(argv = process.argv.slice(2)) {
     throw new Error(`Vercel env file not found: ${envFile}`);
   }
 
-  const issues = collectVercelEnvironmentIssues(env, {
-    knownPresentNames: remoteEnvKeys,
-    requireRequired: true,
-    validatePublicUrls: true,
-  });
-
   assertVercelEnvironment(env, {
     contextLabel: `Vercel ${options.environment} environment (${envFile})`,
     knownPresentNames: remoteEnvKeys,
@@ -202,11 +196,23 @@ function main(argv = process.argv.slice(2)) {
     validatePublicUrls: true,
   });
 
+  const unexpectedEnvNames = collectUnexpectedVercelEnvNames(
+    env,
+    remoteEnvKeys,
+  );
+
+  if (unexpectedEnvNames.length > 0) {
+    console.warn(
+      [
+        `Unexpected Vercel ${options.environment} environment variables detected:`,
+        ...unexpectedEnvNames.map((name) => `- ${name}`),
+      ].join("\n"),
+    );
+  }
+
   console.log(
     `Vercel ${options.environment} environment audit passed: ${envFile}`,
   );
-
-  return issues;
 }
 
 if (require.main === module) {

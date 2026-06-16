@@ -1,24 +1,28 @@
 import type { NextConfig } from "next";
 
 import {
+  assertNoForbiddenVercelEnv,
   assertVercelEnvironment,
-  findForbiddenOpenAIEnvNames,
-  formatForbiddenOpenAIEnvError,
+  collectUnexpectedVercelEnvNames,
+  formatUnexpectedVercelEnvWarning,
 } from "../../scripts/config/vercel-env-policy.cjs";
 
-const forbiddenClientSecretEnvNames = findForbiddenOpenAIEnvNames(process.env);
+assertNoForbiddenVercelEnv(process.env, {
+  contextLabel: "apps/web Vercel build",
+});
 
-if (forbiddenClientSecretEnvNames.length > 0) {
-  throw new Error(
-    formatForbiddenOpenAIEnvError(
-      forbiddenClientSecretEnvNames,
+const unexpectedVercelEnvNames = collectUnexpectedVercelEnvNames(process.env);
+
+if (unexpectedVercelEnvNames.length > 0) {
+  console.warn(
+    formatUnexpectedVercelEnvWarning(
+      unexpectedVercelEnvNames,
       "apps/web Vercel build",
     ),
   );
 }
 
-const isVercelRuntime =
-  process.env.VERCEL === "1" && process.env.NODE_ENV === "production";
+const isVercelRuntime = process.env.VERCEL === "1";
 
 if (isVercelRuntime) {
   assertVercelEnvironment(process.env, {

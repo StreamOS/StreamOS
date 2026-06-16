@@ -7,10 +7,15 @@ const { join, resolve } = require("node:path");
 const { pathToFileURL } = require("node:url");
 
 const {
+  assertNoForbiddenVercelEnv,
   assertVercelEnvironment,
+  collectUnexpectedVercelEnvNames,
   collectVercelEnvironmentIssues,
+  findForbiddenVercelEnvNames,
+  formatForbiddenVercelEnvError,
   findForbiddenOpenAIEnvNames,
   formatForbiddenOpenAIEnvError,
+  formatUnexpectedVercelEnvWarning,
 } = require("./config/vercel-env-policy.cjs");
 
 function buildValidVercelEnv(overrides = {}) {
@@ -61,7 +66,7 @@ function runNextConfigImport(env = {}) {
             ${JSON.stringify(policyPath)},
           );
 
-        import('data:text/javascript;base64,' + Buffer.from(transpiled).toString('base64'))
+        import(\`data:text/javascript;base64,\${Buffer.from(transpiled).toString('base64')}\`)
           .then(() => {
             console.log('next-config-import-ok');
           })
@@ -163,6 +168,28 @@ test("collectVercelEnvironmentIssues still blocks forbidden keys from Vercel inv
   );
 });
 
+test("findForbiddenVercelEnvNames catches Railway-only names and prefixes", () => {
+  const names = findForbiddenVercelEnvNames({
+    OPENAI_API_KEY: "sk-test",
+    RAILWAY_PRIVATE_DOMAIN: "internal",
+    REDIS_URL: "redis://localhost:6379/0",
+    SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+    YOUTUBE_CLIENT_SECRET: "youtube-secret",
+  });
+
+  assert.deepEqual(names, [
+    "OPENAI_API_KEY",
+    "RAILWAY_PRIVATE_DOMAIN",
+    "REDIS_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "YOUTUBE_CLIENT_SECRET",
+  ]);
+  assert.match(
+    formatForbiddenVercelEnvError(names, "apps/web Vercel build"),
+    /This secret must only be set on Railway, not on Vercel\./,
+  );
+});
+
 test("assertVercelEnvironment blocks Railway-only secrets and provider prefixes", () => {
   assert.throws(
     () =>
@@ -179,6 +206,20 @@ test("assertVercelEnvironment blocks Railway-only secrets and provider prefixes"
         { requireRequired: false, validatePublicUrls: false },
       ),
     /OPENAI_API_KEY|REDIS_URL|SUPABASE_DB_URL|SUPABASE_SERVICE_ROLE_KEY|TIKTOK_CLIENT_SECRET|YOUTUBE_CLIENT_ID|KICK_WEBHOOK_SECRET/,
+  );
+});
+
+test("assertNoForbiddenVercelEnv uses the Railway-only secret guidance", () => {
+  assert.throws(
+    () =>
+      assertNoForbiddenVercelEnv(
+        {
+          OPENAI_API_KEY: "sk-test",
+          SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+        },
+        { contextLabel: "apps/web Vercel build" },
+      ),
+    /OPENAI_API_KEY[\s\S]*SUPABASE_SERVICE_ROLE_KEY[\s\S]*This secret must only be set on Railway, not on Vercel\./,
   );
 });
 
@@ -204,6 +245,21 @@ test("assertVercelEnvironment allows localhost values during local development",
       },
       { requireRequired: false, validatePublicUrls: false },
     ),
+  );
+});
+
+test("collectUnexpectedVercelEnvNames returns unknown non-blocked names", () => {
+  const names = collectUnexpectedVercelEnvNames({
+    APP_ENV: "production",
+    CUSTOM_DEBUG_FLAG: "1",
+    PATH: "/usr/bin",
+    VERCEL_URL: "streamos-web.vercel.app",
+  });
+
+  assert.deepEqual(names, ["CUSTOM_DEBUG_FLAG", "PATH"]);
+  assert.match(
+    formatUnexpectedVercelEnvWarning(names, "apps/web Vercel build"),
+    /CUSTOM_DEBUG_FLAG[\s\S]*PATH/,
   );
 });
 
@@ -271,8 +327,6 @@ test("next.config.ts still allows local development-only Vercel-style values", (
   const result = runNextConfigImport({
     API_GATEWAY_URL: "http://localhost:4000",
     APP_ENV: "development",
-    OPENAI_API_KEY: "sk-server-only",
-    REDIS_URL: "redis://localhost:6379/0",
     STREAMOS_DEMO_MODE: "false",
     NEXT_PUBLIC_APP_URL: "http://localhost:3000",
     NEXT_PUBLIC_SUPABASE_ANON_KEY: "local-anon-key",
@@ -294,6 +348,28 @@ test("next.config.ts fails fast on NEXT_PUBLIC_OPENAI prefixes", () => {
 
   assert.notEqual(result.status, 0);
   assert.match(`${result.stdout}${result.stderr}`, /NEXT_PUBLIC_OPENAI_SECRET/);
+});
+
+test("next.config.ts fails fast on Railway-only secrets outside Vercel mode", () => {
+  const result = runNextConfigImport({
+    OPENAI_API_KEY: "sk-server-only",
+    REDIS_URL: "redis://localhost:6379/0",
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(
+    `${result.stdout}${result.stderr}`,
+    /OPENAI_API_KEY[\s\S]*REDIS_URL[\s\S]*This secret must only be set on Railway, not on Vercel\./,
+  );
+});
+
+test("next.config.ts warns on unknown non-blocked env keys", () => {
+  const result = runNextConfigImport({
+    CUSTOM_DEBUG_FLAG: "1",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(`${result.stdout}${result.stderr}`, /CUSTOM_DEBUG_FLAG/);
 });
 
 test("next.config.ts enforces the Vercel policy when VERCEL is set", () => {
