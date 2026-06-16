@@ -164,5 +164,10 @@ function parseStoredOAuthState(payload: string): StoredOAuthState | null {
 }
 
 function isOAuthProvider(value: unknown): value is OAuthProvider {
-  return value === "youtube" || value === "tiktok" || value === "kick";
+  return (
+    value === "youtube" ||
+    value === "tiktok" ||
+    value === "kick" ||
+    value === "twitch"
+  );
 }

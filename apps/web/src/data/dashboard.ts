@@ -63,9 +63,9 @@ export const platforms: PlatformSummary[] = [
     name: "Twitch",
     followers: "Ready",
     status: "Not connected",
-    reach: "OAuth",
-    actionHref: "/api/platforms/twitch/connect",
+    reach: "Gateway OAuth",
     actionLabel: "Verbinden",
+    gatewayProvider: "twitch",
   },
   {
     id: "youtube",

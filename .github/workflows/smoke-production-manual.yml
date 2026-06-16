@@ -1,0 +1,70 @@
+name: Production OIDC Smoke (Manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke protected Vercel production
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: production
+
+    steps:
+      - name: Get Vercel OIDC Token
+        uses: actions/github-script@v9
+        id: oidc-token
+        with:
+          script: |
+            const token = await core.getIDToken();
+            core.setSecret(token);
+            core.setOutput("token", token);
+
+      - name: Production Smoke
+        env:
+          PROD_APP_URL: ${{ vars.PROD_APP_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${PROD_APP_URL}" ]; then
+            echo "::error::PROD_APP_URL repository variable is not configured."
+            exit 1
+          fi
+
+          check_status() {
+            local path="$1"
+            local expected_pattern="$2"
+            local status
+
+            status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" \
+              -H "x-vercel-trusted-oidc-idp-token: ${{ steps.oidc-token.outputs.token }}" \
+              "${PROD_APP_URL}${path}")"
+
+            if ! [[ "${status}" =~ ${expected_pattern} ]]; then
+              echo "::error::Expected ${path} to match ${expected_pattern}, got ${status}."
+              exit 1
+            fi
+
+            echo "${path} returned ${status}"
+          }
+
+          check_status "/dashboard" "^(200|307)$"
+          check_status "/api/admin/queues" "^404$"
+
+      - name: Write Step Summary
+        if: always()
+        env:
+          PROD_APP_URL: ${{ vars.PROD_APP_URL }}
+        run: |
+          {
+            echo "## Production OIDC Smoke"
+            echo "- Triggered manually at: $(date -u)"
+            echo "- Target: ${PROD_APP_URL}"
+          } >> "${GITHUB_STEP_SUMMARY}"

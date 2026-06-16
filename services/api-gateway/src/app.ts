@@ -8,8 +8,8 @@ import { assertRedisTls } from "@streamos/redis";
 import { ZodError } from "zod";
 
 import {
-  clipGenerationPayloadSchema,
   enqueueClipGenerationJob,
+  getClipGenerationJobId,
   type ClipGenerationQueue,
 } from "./jobs/clipGenerationQueue.js";
 import {
@@ -28,7 +28,17 @@ import {
 import { attachRawBodyMiddleware } from "./middleware/raw-body.js";
 import { createAuthHandoffRouter } from "./routes/auth/handoff.js";
 import { createAutomationCallbackRouter } from "./routes/callbacks/automation.js";
+import {
+  clipGenerationRequestSchema,
+  createContentJobsRouter,
+  getClipQueuePayload,
+  type ClipGenerationRequest,
+  upsertClipContentJob,
+} from "./routes/contentJobs.js";
 import { createRoutes } from "./routes/index.js";
+import { createMetricsSyncRouter } from "./routes/metricsSync.js";
+import { createPlatformConnectionsRouter } from "./routes/platformConnections.js";
+import { createSupabaseRestClient } from "./lib/supabaseRest.js";
 import { createProviderWebhookRouter } from "./webhooks/providerRoutes.js";
 import type { ProviderWebhookDispatcher } from "./webhooks/providerEvents.js";
 
@@ -559,6 +569,43 @@ function createDefaultDeduplicationClient(
   };
 }
 
+async function upsertFailedClipContentJob({
+  error,
+  fetchImpl,
+  input,
+}: {
+  error: unknown;
+  fetchImpl?: typeof fetch;
+  input: ClipGenerationRequest;
+}): Promise<void> {
+  try {
+    const supabase = createSupabaseRestClient({ fetchImpl });
+
+    await upsertClipContentJob({
+      errorMessage:
+        error instanceof Error
+          ? error.message
+          : "Clip generation queue request failed.",
+      input,
+      queueJobId: getClipGenerationJobId(input.stream_id),
+      result: {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Clip generation queue request failed.",
+      },
+      status: "failed",
+      supabase,
+    });
+  } catch (updateError) {
+    console.error("Clip content job failure update failed.", {
+      error: updateError instanceof Error ? updateError.message : updateError,
+      streamId: input.stream_id,
+      userId: input.requested_by,
+    });
+  }
+}
+
 export function createApp(options: CreateAppOptions = {}): Express {
   const app = express();
   const securityConfig = resolveSecurityConfig(options);
@@ -653,6 +700,28 @@ export function createApp(options: CreateAppOptions = {}): Express {
       apiGatewaySecret: securityConfig.apiGatewaySecret,
     }),
   );
+  app.use(
+    "/api/metrics",
+    requireAppApiSecret(securityConfig.apiGatewaySecret),
+    createMetricsSyncRouter({
+      fetchImpl: options.oauth?.fetchImpl,
+      now: securityConfig.webhookNow,
+    }),
+  );
+  app.use(
+    "/api/content-jobs",
+    requireAppApiSecret(securityConfig.apiGatewaySecret),
+    createContentJobsRouter({
+      fetchImpl: options.oauth?.fetchImpl,
+    }),
+  );
+  app.use(
+    "/api/platforms",
+    requireAppApiSecret(securityConfig.apiGatewaySecret),
+    createPlatformConnectionsRouter({
+      fetchImpl: options.oauth?.fetchImpl,
+    }),
+  );
 
   app.get(
     "/api/platforms",
@@ -660,7 +729,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
     (_request, response) => {
       response.status(200).json({
         platforms: ["twitch", "youtube", "tiktok", "kick"],
-        next: "Gateway OAuth is available at /api/auth/:provider/connect for youtube, tiktok, and kick.",
+        next: "Gateway OAuth is available at /api/auth/:provider/connect for twitch, youtube, tiktok, and kick.",
       });
     },
   );
@@ -679,7 +748,22 @@ export function createApp(options: CreateAppOptions = {}): Express {
       }
 
       try {
-        const payload = clipGenerationPayloadSchema.parse(request.body);
+        const input = clipGenerationRequestSchema.parse(request.body);
+        const payload = getClipQueuePayload(input);
+        const queueJobId = getClipGenerationJobId(input.stream_id);
+        const supabase = createSupabaseRestClient({
+          fetchImpl: options.oauth?.fetchImpl,
+        });
+
+        await upsertClipContentJob({
+          errorMessage: null,
+          input,
+          queueJobId,
+          result: null,
+          status: "pending",
+          supabase,
+        });
+
         const job = await enqueueClipGenerationJob(
           options.clipGenerationQueue,
           payload,
@@ -698,6 +782,24 @@ export function createApp(options: CreateAppOptions = {}): Express {
             issues: error.issues,
           });
           return;
+        }
+
+        if (error instanceof Error && error.message.includes("SUPABASE_URL")) {
+          response.status(503).json({
+            error: "supabase_not_configured",
+            message: "Supabase service credentials are required.",
+          });
+          return;
+        }
+
+        const parsedInput = clipGenerationRequestSchema.safeParse(request.body);
+
+        if (parsedInput.success) {
+          await upsertFailedClipContentJob({
+            error,
+            fetchImpl: options.oauth?.fetchImpl,
+            input: parsedInput.data,
+          });
         }
 
         response.status(502).json({

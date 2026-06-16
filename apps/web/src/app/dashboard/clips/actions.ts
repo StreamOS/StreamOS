@@ -1,17 +1,19 @@
 "use server";
 
-import type { Inserts, Json, Tables, Updates } from "@streamos/database";
+import type { Inserts, Tables } from "@streamos/database";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
   buildClipGenerationQueuePayload,
-  getClipGenerationQueueJobId,
   getClipPlatformStreamId,
   parseClipAnalysisFormData,
 } from "./jobContract";
+import {
+  ApiGatewayConfigurationError,
+  callApiGatewayJson,
+} from "@/lib/api-gateway";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
-import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
@@ -23,13 +25,6 @@ export async function startClipAnalysisAction(formData: FormData) {
     redirect("/dashboard/clips?error=supabase-not-configured");
   }
 
-  const apiGatewayUrl = process.env.API_GATEWAY_URL?.trim();
-  const apiGatewaySecret = process.env.API_GATEWAY_SECRET?.trim();
-
-  if (!apiGatewayUrl) {
-    redirect("/dashboard/clips?error=api-gateway-not-configured");
-  }
-
   let values: ReturnType<typeof parseClipAnalysisFormData>;
 
   try {
@@ -39,7 +34,6 @@ export async function startClipAnalysisAction(formData: FormData) {
   }
 
   const supabase = await createClient();
-  const serviceSupabase = createServiceRoleClient();
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
   if (userError || !userData.user) {
@@ -74,69 +68,29 @@ export async function startClipAnalysisAction(formData: FormData) {
     streamId: stream.id,
     transcript: values.transcript,
   });
-  const expectedQueueJobId = getClipGenerationQueueJobId(stream.id);
-
-  await upsertContentJob({
-    patch: {
-      error_message: null,
-      payload: {
-        ...queuePayload,
-        category: values.category,
-        chat_activity: values.chatActivity,
-      },
-      queue_job_id: expectedQueueJobId,
-      result: null,
-      status: "pending",
-    },
-    streamId: stream.id,
-    supabase: serviceSupabase,
-    userId,
-  });
 
   try {
-    const response = await fetch(
-      new URL("/api/clips/generate", apiGatewayUrl),
-      {
-        body: JSON.stringify(queuePayload),
-        cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-          ...(apiGatewaySecret
-            ? { Authorization: `Bearer ${apiGatewaySecret}` }
-            : {}),
-        },
-        method: "POST",
+    const result = await callApiGatewayJson({
+      body: {
+        ...queuePayload,
+        category: values.category,
+        channel_id: channel.id,
+        chat_activity: values.chatActivity,
       },
-    );
+      path: "/api/clips/generate",
+    });
 
-    if (!response.ok) {
-      throw new Error(`API gateway returned ${response.status}.`);
+    if (!result.ok) {
+      throw new Error(result.error);
     }
   } catch (error) {
-    await upsertContentJob({
-      patch: {
-        error_message:
-          error instanceof Error
-            ? error.message
-            : "Clip generation queue request failed.",
-        payload: {
-          ...queuePayload,
-          category: values.category,
-          chat_activity: values.chatActivity,
-        },
-        queue_job_id: expectedQueueJobId,
-        result: {
-          error:
-            error instanceof Error
-              ? error.message
-              : "Clip generation queue request failed.",
-        },
-        status: "failed",
-      },
-      streamId: stream.id,
-      supabase: serviceSupabase,
-      userId,
-    });
+    if (!(error instanceof ApiGatewayConfigurationError)) {
+      console.error("Clip generation gateway request failed.", {
+        error: error instanceof Error ? error.message : "Unknown error",
+        streamId: stream.id,
+        userId,
+      });
+    }
     revalidatePath("/dashboard/clips");
     redirect("/dashboard/clips?error=clip-queue-failed");
   }
@@ -221,69 +175,4 @@ async function ensureStreamForVod({
   }
 
   return created.data as StreamRow;
-}
-
-async function upsertContentJob({
-  patch,
-  streamId,
-  supabase,
-  userId,
-}: {
-  patch: Pick<
-    Inserts<"content_jobs">,
-    "error_message" | "payload" | "queue_job_id" | "result" | "status"
-  >;
-  streamId: string;
-  supabase: SupabaseServerClient;
-  userId: string;
-}) {
-  const existing = await supabase
-    .from("content_jobs")
-    .select("id")
-    .eq("queue_job_id", patch.queue_job_id ?? "")
-    .maybeSingle();
-
-  if (existing.error) {
-    throw existing.error;
-  }
-
-  if (existing.data) {
-    const updatePayload: Updates<"content_jobs"> = {
-      error_message: patch.error_message,
-      next_retry_at: null,
-      payload: patch.payload as Json,
-      result: patch.result as Json | null,
-      status: patch.status,
-    };
-    const updated = await supabase
-      .from("content_jobs")
-      .update(updatePayload as never)
-      .eq("user_id", userId)
-      .eq("id", (existing.data as Pick<Tables<"content_jobs">, "id">).id);
-
-    if (updated.error) {
-      throw updated.error;
-    }
-
-    return;
-  }
-
-  const insertPayload: Inserts<"content_jobs"> = {
-    error_message: patch.error_message,
-    job_type: "clip_scoring",
-    next_retry_at: null,
-    payload: patch.payload,
-    queue_job_id: patch.queue_job_id,
-    result: patch.result,
-    status: patch.status,
-    stream_id: streamId,
-    user_id: userId,
-  };
-  const inserted = await supabase
-    .from("content_jobs")
-    .insert(insertPayload as never);
-
-  if (inserted.error) {
-    throw inserted.error;
-  }
 }

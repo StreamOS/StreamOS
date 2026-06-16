@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 const { existsSync, readFileSync } = require("node:fs");
-const { isIP } = require("node:net");
+
+const { isPrivateAutomationUrl } = require("./lib/private-automation-url.cjs");
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const FORBIDDEN_CLIENT_AI_ENV_NAMES = [
@@ -94,64 +95,58 @@ function requireUrl(env, name, override) {
   }
 }
 
-function isPrivateIp(hostname) {
-  if (isIP(hostname) === 0) {
-    return false;
+function validateHealthPayload({ endpoint, expectedService, text }) {
+  let payload;
+
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch (error) {
+    throw new Error(`${endpoint} returned invalid JSON: ${text}`, {
+      cause: error,
+    });
   }
 
-  if (hostname === "::1" || hostname === "127.0.0.1") {
-    return true;
+  if (payload?.service !== expectedService || payload?.status !== "ok") {
+    throw new Error(`${endpoint} returned unexpected health payload: ${text}`);
   }
 
-  const octets = hostname.split(".").map(Number);
-
-  if (octets.length !== 4 || octets.some((octet) => Number.isNaN(octet))) {
-    return false;
-  }
-
-  return (
-    octets[0] === 10 ||
-    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-    (octets[0] === 192 && octets[1] === 168)
-  );
+  return payload;
 }
 
-function isPrivateAutomationUrl(url) {
-  const hostname = url.hostname.toLowerCase();
-
-  return (
-    hostname === "localhost" ||
-    hostname === "automation-service" ||
-    hostname.endsWith(".railway.internal") ||
-    hostname.endsWith(".internal") ||
-    isPrivateIp(hostname)
-  );
-}
-
-async function fetchHealth({ expectedService, timeoutMs, url }) {
+async function requestHealth({ timeoutMs, url, fetchFn = fetch }) {
   const endpoint = new URL("/health", url);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(endpoint, { signal: controller.signal });
+    const response = await fetchFn(endpoint, { signal: controller.signal });
     const text = await response.text();
-    const payload = text ? JSON.parse(text) : null;
 
-    if (!response.ok) {
-      throw new Error(`${endpoint} returned HTTP ${response.status}: ${text}`);
-    }
-
-    if (payload?.service !== expectedService || payload?.status !== "ok") {
-      throw new Error(
-        `${endpoint} returned unexpected health payload: ${text}`,
-      );
-    }
-
-    return payload;
+    return {
+      endpoint,
+      ok: response.ok,
+      status: response.status,
+      text,
+    };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchHealth({ expectedService, timeoutMs, url }) {
+  const result = await requestHealth({ timeoutMs, url });
+
+  if (!result.ok) {
+    throw new Error(
+      `${result.endpoint} returned HTTP ${result.status}: ${result.text}`,
+    );
+  }
+
+  return validateHealthPayload({
+    endpoint: result.endpoint,
+    expectedService,
+    text: result.text,
+  });
 }
 
 function assertNoClientAiSecrets(env) {
@@ -224,7 +219,23 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`Deployment check failed: ${error.message}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(`Deployment check failed: ${error.message}`);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  DEFAULT_TIMEOUT_MS,
+  FORBIDDEN_CLIENT_AI_ENV_NAMES,
+  assertNoClientAiSecrets,
+  fetchHealth,
+  isPrivateAutomationUrl,
+  loadEnvFile,
+  parseArgs,
+  printHelp,
+  requestHealth,
+  requireUrl,
+  validateHealthPayload,
+};

@@ -9,7 +9,12 @@ import { createClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 
 const HANDOFF_TTL_MS = 60_000;
-const GATEWAY_OAUTH_PROVIDERS = ["youtube", "tiktok", "kick"] as const;
+const GATEWAY_OAUTH_PROVIDERS = [
+  "twitch",
+  "youtube",
+  "tiktok",
+  "kick",
+] as const;
 
 type ErrorResponse = {
   code: string;

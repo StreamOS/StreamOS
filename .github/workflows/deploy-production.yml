@@ -364,6 +364,47 @@ jobs:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_PRODUCTION }}
         run: supabase db push --db-url "${SUPABASE_DB_URL}"
 
+  smoke-production:
+    name: Smoke test Vercel production
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - release
+      - deploy-web
+    if: ${{ always() && inputs.deploy_frontend && needs.release.result == 'success' && needs.deploy-web.result == 'success' }}
+    environment:
+      name: production
+
+    steps:
+      - name: Get Vercel OIDC Token
+        uses: actions/github-script@v9
+        id: oidc-token
+        with:
+          script: |
+            const token = await core.getIDToken();
+            core.setSecret(token);
+            core.setOutput("token", token);
+
+      - name: Smoke protected Vercel deployment
+        env:
+          DEPLOYMENT_URL: ${{ needs.deploy-web.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" \
+            -H "x-vercel-trusted-oidc-idp-token: ${{ steps.oidc-token.outputs.token }}" \
+            "${DEPLOYMENT_URL}/dashboard")"
+
+          if ! [[ "${status}" =~ ^(200|307)$ ]]; then
+            echo "::error::Expected /dashboard to return 200 or 307, got ${status}."
+            exit 1
+          fi
+
+          echo "/dashboard returned ${status}"
+
   notify:
     name: Deployment notification
     runs-on: ubuntu-latest
@@ -374,7 +415,8 @@ jobs:
       - deploy-web
       - deploy-railway
       - migrate-supabase
-    if: ${{ always() && needs.production-approval.result == 'success' }}
+      - smoke-production
+    if: ${{ always() && needs.production-approval.result == 'success' && (!inputs.deploy_frontend || needs.smoke-production.result == 'success') }}
 
     steps:
       - name: Write GitHub deployment summary

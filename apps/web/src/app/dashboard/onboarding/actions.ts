@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { isSupabaseEmailConfirmed } from "@/lib/auth/dashboard";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
-import { createServiceRoleAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export async function completeCreatorProfileAction() {
@@ -26,15 +25,13 @@ export async function completeCreatorProfileAction() {
   try {
     await ensureCreatorForUser(supabase, data.user);
 
-    const adminSupabase = createServiceRoleAdminClient();
     const metadata = data.user.user_metadata ?? {};
-    const { error: metadataError } =
-      await adminSupabase.auth.admin.updateUserById(data.user.id, {
-        user_metadata: {
-          ...metadata,
-          profile_created: true,
-        },
-      });
+    const { error: metadataError } = await supabase.auth.updateUser({
+      data: {
+        ...metadata,
+        profile_created: true,
+      },
+    });
 
     if (metadataError) {
       throw metadataError;
