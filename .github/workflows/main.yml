@@ -209,16 +209,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
-      - name: Cache Vercel build output
-        uses: actions/cache@v5
-        with:
-          path: |
-            apps/web/.next/cache
-            apps/web/.vercel/cache
-          key: ${{ runner.os }}-vercel-rollback-${{ needs.resolve-target.outputs.vercel_environment }}-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**/*', 'apps/web/package.json', 'apps/web/next.config.ts') }}
-          restore-keys: |
-            ${{ runner.os }}-vercel-rollback-${{ needs.resolve-target.outputs.vercel_environment }}-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}-
-
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
 
@@ -236,22 +226,21 @@ jobs:
           set -euo pipefail
           vercel pull --yes --environment="${TARGET_VERCEL_ENV}" --token="${VERCEL_TOKEN}"
 
-      - name: Build and deploy target ref
+      - name: Deploy target ref on Vercel
         id: deploy
         env:
-          STREAMOS_REQUIRE_SUPABASE_ENV: "true"
           TARGET_VERCEL_ENV: ${{ needs.resolve-target.outputs.vercel_environment }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
 
           if [ "${TARGET_VERCEL_ENV}" = "production" ]; then
-            vercel build --prod --token="${VERCEL_TOKEN}"
-            deployment_url="$(vercel deploy --prebuilt --prod --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
+            deployment_url="$(vercel deploy --prod --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
           else
-            vercel build --token="${VERCEL_TOKEN}"
-            deployment_url="$(vercel deploy --prebuilt --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
+            deployment_url="$(vercel deploy --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
           fi
 
           echo "url=${deployment_url}" >> "${GITHUB_OUTPUT}"
