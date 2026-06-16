@@ -1,0 +1,17 @@
+# Default owner for protected branches and dependency PRs.
+* @thomasdorts-hash
+
+# Repo operations and delivery
+/.github/ @thomasdorts-hash
+/docs/ @thomasdorts-hash
+/scripts/ @thomasdorts-hash
+/e2e/ @thomasdorts-hash
+/tests/ @thomasdorts-hash
+/src/ @thomasdorts-hash
+
+# Monorepo workspaces
+/apps/web/ @thomasdorts-hash
+/services/api-gateway/ @thomasdorts-hash
+/services/automation-service/ @thomasdorts-hash
+/workers/ @thomasdorts-hash
+/packages/ @thomasdorts-hash
