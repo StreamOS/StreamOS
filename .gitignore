@@ -56,4 +56,6 @@ release/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# Local deployment metadata
 .vercel/
