@@ -20,6 +20,7 @@ const {
 
 function buildValidVercelEnv(overrides = {}) {
   return {
+    APP_URL: "https://app.streamos.test",
     APP_ENCRYPTION_KEY: `base64:${Buffer.alloc(32, 7).toString("base64")}`,
     APP_ENV: "production",
     API_GATEWAY_SECRET: "test-api-gateway-secret-123",
@@ -233,6 +234,19 @@ test("assertVercelEnvironment rejects private Railway URLs in Vercel mode", () =
         { requireRequired: true, validatePublicUrls: true },
       ),
     /API_GATEWAY_URL/,
+  );
+});
+
+test("assertVercelEnvironment validates optional APP_URL when present", () => {
+  assert.throws(
+    () =>
+      assertVercelEnvironment(
+        buildValidVercelEnv({
+          APP_URL: "http://streamos-web-production.up.railway.app",
+        }),
+        { requireRequired: true, validatePublicUrls: true },
+      ),
+    /APP_URL/,
   );
 });
 

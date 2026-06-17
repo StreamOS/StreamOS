@@ -33,9 +33,12 @@ Create a Vercel project with this configuration:
 | Install Command  | `corepack enable && pnpm install --frozen-lockfile` |
 | Build Command    | `pnpm --filter @streamos/web build`                 |
 
-Required Vercel environment variables:
+Required Vercel environment variables, plus an optional server-only
+canonical-origin override:
 
 ```bash
+# Optional server-only canonical origin override for OAuth handoff redirects.
+APP_URL=https://app.streamos.example
 NEXT_PUBLIC_APP_URL=https://app.streamos.example
 APP_ENV=production
 STREAMOS_DEMO_MODE=false
@@ -66,6 +69,12 @@ Run `pnpm vercel:audit -- --vercel-dir .vercel --environment preview` or
 workflow. The same policy is enforced in `apps/web/next.config.ts` during
 Vercel builds and startup, so the web app fails fast if the pulled environment
 still contains Railway-only secrets or private Railway URLs.
+
+`APP_URL` is the preferred server-side canonical origin for web-owned OAuth
+handoff redirects such as `/api/gateway-connect`. `NEXT_PUBLIC_APP_URL` remains
+required for browser-safe routing and client-visible configuration. In
+production, the web app must have a canonical app origin configured, and
+`APP_URL` takes precedence when both values are present.
 
 `API_GATEWAY_URL` must be public because Vercel functions are outside the Railway private network. The Automation Service remains private and is reached by Railway workers, not by Vercel.
 

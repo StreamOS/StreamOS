@@ -78,6 +78,33 @@ describe("GET /api/platforms/twitch/connect", () => {
     });
   });
 
+  it("uses the configured canonical app origin for the Twitch handoff target", async () => {
+    process.env.APP_URL = "https://app.streamos.test";
+    mocks.authGetUser.mockResolvedValue({
+      data: { user: { id: "user-1" } },
+      error: null,
+    });
+
+    const { GET } = await import("./route");
+    const response = await GET(
+      new NextRequest(
+        "https://streamos-web-production.up.railway.app/api/platforms/twitch/connect?next=/dashboard/platforms",
+      ),
+    );
+    const location = response.headers.get("location");
+    const connectUrl = new URL(location ?? "");
+    const handoff = verifyOAuthHandoffToken({
+      now: () => Date.now(),
+      secret: process.env.API_GATEWAY_SECRET,
+      token: connectUrl.searchParams.get("handoff") ?? undefined,
+    });
+
+    expect(response.status).toBe(307);
+    expect(handoff.return_to).toBe(
+      "https://app.streamos.test/dashboard/platforms",
+    );
+  });
+
   it("redirects unauthenticated users directly to the gateway connect endpoint", async () => {
     mocks.authGetUser.mockResolvedValue({
       data: { user: null },

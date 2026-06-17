@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-import { getSafeNextPath } from "@/lib/auth/redirects";
+import { getSafeNextPath, resolveAppOrigin } from "@/lib/auth/redirects";
 
 export function resolveGatewayReturnTo({
   fallbackPath = "/dashboard/platforms",
@@ -12,6 +12,9 @@ export function resolveGatewayReturnTo({
   value: string | null;
 }) {
   const nextPath = getSafeNextPath(value, fallbackPath);
+  const origin = resolveAppOrigin({
+    fallbackOrigin: request.url,
+  });
 
-  return new URL(nextPath, request.url).toString();
+  return new URL(nextPath, origin).toString();
 }

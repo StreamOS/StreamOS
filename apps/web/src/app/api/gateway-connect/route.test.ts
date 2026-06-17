@@ -83,6 +83,23 @@ describe("GET /api/gateway-connect", () => {
     expect(connectUrl.pathname).toBe("/api/auth/youtube/connect");
   });
 
+  it("uses the configured canonical app origin for handoff redirects", async () => {
+    process.env.APP_URL = "https://app.streamos.test";
+
+    const { GET } = await import("./route");
+    const response = await GET(
+      new NextRequest(
+        "https://streamos-web-production.up.railway.app/api/gateway-connect?provider=kick",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(verifyHandoffToken(payload.handoff_token)).toMatchObject({
+      return_to: "https://app.streamos.test/dashboard/platforms",
+    });
+  });
+
   it("returns 400 for unsupported gateway OAuth providers", async () => {
     const { GET } = await import("./route");
     const response = await GET(createRequest("instagram"));
