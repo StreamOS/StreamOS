@@ -32,6 +32,7 @@ export type ClipGenerationQueue = {
     data: ClipGenerationJobData,
     opts: JobsOptions,
   ): Promise<ClipGenerationQueueJob>;
+  close?(): Promise<void>;
 };
 
 export type EnqueuedClipGenerationJob = {
