@@ -390,7 +390,6 @@ jobs:
   smoke-production:
     name: Smoke test Vercel production
     permissions:
-      id-token: write
       contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -402,37 +401,33 @@ jobs:
       name: production
 
     steps:
-      - name: Get Vercel OIDC Token
-        uses: actions/github-script@v9
-        id: oidc-token
-        with:
-          script: |
-            const token = await core.getIDToken();
-            core.setSecret(token);
-            core.setOutput("token", token);
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Vercel CLI
+        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
       - name: Smoke protected Vercel deployment
         env:
           DEPLOYMENT_URL: ${{ needs.deploy-web.outputs.url }}
-          PROD_APP_URL: ${{ vars.PROD_APP_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
 
-          if [ -z "${PROD_APP_URL}" ]; then
-            echo "::error::PROD_APP_URL repository variable is not configured."
+          if [ -z "${DEPLOYMENT_URL}" ]; then
+            echo "::error::Deployment URL output is empty."
             exit 1
           fi
 
-          status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" \
-            -H "x-vercel-trusted-oidc-idp-token: ${{ steps.oidc-token.outputs.token }}" \
-            "${PROD_APP_URL}/dashboard")"
+          status="$(vercel --token="${VERCEL_TOKEN}" curl "${DEPLOYMENT_URL}/dashboard" \
+            -s -o /dev/null -w "%{http_code}" 2>/dev/null)"
 
           if ! [[ "${status}" =~ ^(200|307)$ ]]; then
-            echo "::error::Expected ${PROD_APP_URL}/dashboard to return 200 or 307, got ${status}."
+            echo "::error::Expected ${DEPLOYMENT_URL}/dashboard to return 200 or 307, got ${status}."
             exit 1
           fi
 
-          echo "${PROD_APP_URL}/dashboard returned ${status}"
+          echo "${DEPLOYMENT_URL}/dashboard returned ${status}"
 
   notify:
     name: Deployment notification
