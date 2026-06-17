@@ -414,19 +414,25 @@ jobs:
       - name: Smoke protected Vercel deployment
         env:
           DEPLOYMENT_URL: ${{ needs.deploy-web.outputs.url }}
+          PROD_APP_URL: ${{ vars.PROD_APP_URL }}
         run: |
           set -euo pipefail
 
-          status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" \
-            -H "x-vercel-trusted-oidc-idp-token: ${{ steps.oidc-token.outputs.token }}" \
-            "${DEPLOYMENT_URL}/dashboard")"
-
-          if ! [[ "${status}" =~ ^(200|307)$ ]]; then
-            echo "::error::Expected /dashboard to return 200 or 307, got ${status}."
+          if [ -z "${PROD_APP_URL}" ]; then
+            echo "::error::PROD_APP_URL repository variable is not configured."
             exit 1
           fi
 
-          echo "/dashboard returned ${status}"
+          status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" \
+            -H "x-vercel-trusted-oidc-idp-token: ${{ steps.oidc-token.outputs.token }}" \
+            "${PROD_APP_URL}/dashboard")"
+
+          if ! [[ "${status}" =~ ^(200|307)$ ]]; then
+            echo "::error::Expected ${PROD_APP_URL}/dashboard to return 200 or 307, got ${status}."
+            exit 1
+          fi
+
+          echo "${PROD_APP_URL}/dashboard returned ${status}"
 
   notify:
     name: Deployment notification
