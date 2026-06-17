@@ -2,6 +2,7 @@ FROM node:22-slim AS app
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
+ENV DOCKER_BUILD=true
 
 WORKDIR /app
 
@@ -9,6 +10,7 @@ RUN corepack enable
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY packages ./packages
+COPY scripts ./scripts
 COPY workers/content-job-retry-worker ./workers/content-job-retry-worker
 
 RUN pnpm install --frozen-lockfile --filter @streamos/content-job-retry-worker...

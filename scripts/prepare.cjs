@@ -1,5 +1,9 @@
 "use strict";
 
+if (process.env.CI || process.env.DOCKER_BUILD) {
+  process.exit(0);
+}
+
 function isCiEnvironment() {
   if (process.env.CI === "true" || process.env.CI === "1") {
     return true;
