@@ -169,6 +169,17 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
+      - name: Link Vercel project
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          vercel link --yes \
+            --project "${VERCEL_PROJECT_ID}" \
+            --team "${VERCEL_ORG_ID}" \
+            --token="${VERCEL_TOKEN}"
+
       - name: Smoke protected Vercel deployment
         env:
           DEPLOYMENT_URL: ${{ needs.deploy-web.outputs.url }}
@@ -181,11 +192,15 @@ jobs:
             local expected_status="$2"
             local status
 
-            status="$(vercel --token="${VERCEL_TOKEN}" curl "${DEPLOYMENT_URL}${path}" \
-              -s -o /dev/null -w "%{http_code}" 2>/dev/null)"
+            if ! status="$(vercel --token="${VERCEL_TOKEN}" curl "${DEPLOYMENT_URL}${path}" \
+              -s -o /dev/null -w "%{http_code}" 2>smoke.stderr)"; then
+              cat smoke.stderr
+              exit 1
+            fi
 
             if [ "${status}" != "${expected_status}" ]; then
               echo "::error::Expected ${path} to return ${expected_status}, got ${status}."
+              cat smoke.stderr
               exit 1
             fi
 
