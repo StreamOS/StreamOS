@@ -220,4 +220,47 @@ describe("Twitch OAuth gateway routes", () => {
       server.close();
     }
   });
+
+  it("resolves relative callback return_to paths against the configured success redirect", async () => {
+    process.env.CONNECT_SUCCESS_REDIRECT =
+      "https://app.streamos.test/dashboard/platforms";
+
+    const repository = new RecordingOAuthRepository();
+    const { fetchImpl } = createSuccessfulProviderFetch();
+    const app = createApp({
+      allowedOrigins: ["https://app.streamos.test"],
+      apiGatewaySecret: API_SECRET,
+      oauth: { fetchImpl, repository },
+      rateLimit: { enabled: false },
+      webhookNow: () => NOW,
+    });
+    const server = createServer(app);
+
+    try {
+      const connectResponse = await fetch(
+        server.url(
+          `/api/auth/twitch/connect?handoff=${encodeURIComponent(
+            createHandoffToken("/dashboard/platforms"),
+          )}`,
+        ),
+        { redirect: "manual" },
+      );
+      const authorizeUrl = new URL(
+        connectResponse.headers.get("location") ?? "",
+      );
+      const state = authorizeUrl.searchParams.get("state");
+
+      const callbackResponse = await fetch(
+        server.url(`/api/auth/twitch/callback?code=auth-code&state=${state}`),
+        { redirect: "manual" },
+      );
+
+      expect(callbackResponse.status).toBe(302);
+      expect(callbackResponse.headers.get("location")).toBe(
+        "https://app.streamos.test/dashboard/platforms",
+      );
+    } finally {
+      server.close();
+    }
+  });
 });

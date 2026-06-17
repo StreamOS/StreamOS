@@ -95,7 +95,11 @@ function resolveSafeRedirect({
   target: string;
 }): string {
   if (isRelativePath(target)) {
-    return target;
+    return resolveRelativeRedirect({
+      allowedOrigins,
+      fallback,
+      target,
+    });
   }
 
   const allowedOriginSet = new Set(
@@ -118,6 +122,25 @@ function resolveSafeRedirect({
   }
 
   return fallback;
+}
+
+function resolveRelativeRedirect({
+  allowedOrigins,
+  fallback,
+  target,
+}: {
+  allowedOrigins: readonly string[];
+  fallback: string;
+  target: string;
+}): string {
+  const absoluteBase =
+    normalizeOrigin(fallback) ?? getFirstAllowedOrigin(allowedOrigins);
+
+  if (!absoluteBase) {
+    return target;
+  }
+
+  return new URL(target, absoluteBase).toString();
 }
 
 function isRelativePath(value: string): boolean {
@@ -146,4 +169,18 @@ function normalizeOrigin(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+function getFirstAllowedOrigin(
+  allowedOrigins: readonly string[],
+): string | null {
+  for (const origin of allowedOrigins) {
+    const normalized = normalizeOrigin(origin);
+
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
 }

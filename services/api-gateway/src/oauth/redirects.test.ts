@@ -16,6 +16,16 @@ describe("OAuth redirect resolution", () => {
     ).toBe("/dashboard/platforms");
   });
 
+  it("resolves relative return_to paths against a safe absolute fallback", () => {
+    expect(
+      resolveOAuthRedirectTarget({
+        allowedOrigins: ["https://app.streamos.test"],
+        fallbackPath: "https://app.streamos.test/dashboard/platforms",
+        returnTo: "/dashboard/platforms",
+      }),
+    ).toBe("https://app.streamos.test/dashboard/platforms");
+  });
+
   it("allows absolute return_to URLs with an allowlisted origin", () => {
     expect(
       resolveOAuthRedirectTarget({
@@ -32,7 +42,7 @@ describe("OAuth redirect resolution", () => {
         fallbackPath: "/dashboard/integrations",
         returnTo: "https://evil.example/phishing",
       }),
-    ).toBe("/dashboard/integrations");
+    ).toBe("https://app.streamos.test/dashboard/integrations");
 
     expect(
       resolveOAuthRedirectTarget({
@@ -40,7 +50,7 @@ describe("OAuth redirect resolution", () => {
         fallbackPath: "/dashboard/integrations",
         returnTo: "//evil.example/phishing",
       }),
-    ).toBe("/dashboard/integrations");
+    ).toBe("https://app.streamos.test/dashboard/integrations");
   });
 
   it("adds the YouTube error marker to the fallback redirect", () => {

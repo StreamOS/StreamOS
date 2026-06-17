@@ -131,15 +131,18 @@ function createSuccessfulProviderFetch() {
 }
 
 async function connect({
+  allowedOrigins,
   fetchImpl,
   repository,
   stateStore,
 }: {
+  allowedOrigins?: string[];
   fetchImpl: typeof fetch;
   repository: RecordingOAuthRepository;
   stateStore: RecordingOAuthStateStore;
 }) {
   const app = createApp({
+    allowedOrigins,
     apiGatewaySecret: API_SECRET,
     oauth: { fetchImpl, repository, stateStore },
     rateLimit: { enabled: false },
@@ -265,10 +268,14 @@ describe("Kick OAuth gateway routes", () => {
   });
 
   it("exchanges a valid callback, persists encrypted Kick tokens, and redirects to return_to", async () => {
+    process.env.CONNECT_SUCCESS_REDIRECT =
+      "https://app.streamos.test/dashboard/platforms";
+
     const repository = new RecordingOAuthRepository();
     const stateStore = new RecordingOAuthStateStore();
     const { fetchImpl, tokenExchangeBodies } = createSuccessfulProviderFetch();
     const { response, server } = await connect({
+      allowedOrigins: ["https://app.streamos.test"],
       fetchImpl,
       repository,
       stateStore,
@@ -288,11 +295,11 @@ describe("Kick OAuth gateway routes", () => {
 
       expect(callbackResponse.status).toBe(302);
       expect(callbackResponse.headers.get("location")).toBe(
-        "/dashboard/platforms",
+        "https://app.streamos.test/dashboard/platforms",
       );
       expect(replayResponse.status).toBe(302);
       expect(replayResponse.headers.get("location")).toBe(
-        "/dashboard/integrations?error=kick_oauth_failed",
+        "https://app.streamos.test/dashboard/platforms?error=kick_oauth_failed",
       );
       expect(tokenExchangeBodies).toHaveLength(1);
       expect(tokenExchangeBodies[0]?.get("code_verifier")).toBe(
