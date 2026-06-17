@@ -306,21 +306,28 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: vercel pull --yes --environment=production --token="${VERCEL_TOKEN}"
+        run: |
+          unset RAILWAY_CLI_VERSION RAILWAY_ENVIRONMENT
+          vercel pull --yes --environment=production --token="${VERCEL_TOKEN}"
 
       - name: Audit Vercel production environment
-        run: pnpm vercel:audit -- --vercel-dir .vercel --environment production
+        run: |
+          unset RAILWAY_CLI_VERSION RAILWAY_ENVIRONMENT
+          pnpm vercel:audit -- --vercel-dir .vercel --environment production
 
       - name: Build Vercel production output
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: vercel build --prod --token="${VERCEL_TOKEN}"
+        run: |
+          unset RAILWAY_CLI_VERSION RAILWAY_ENVIRONMENT
+          vercel build --prod --token="${VERCEL_TOKEN}"
 
       - name: Deploy prebuilt production
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
+          unset RAILWAY_CLI_VERSION RAILWAY_ENVIRONMENT
           deployment_url="$(vercel deploy --prebuilt --prod --archive=tgz --token="${VERCEL_TOKEN}" | tail -n 1)"
           echo "url=${deployment_url}" >> "${GITHUB_OUTPUT}"
           echo "Production frontend URL: ${deployment_url}" >> "${GITHUB_STEP_SUMMARY}"
