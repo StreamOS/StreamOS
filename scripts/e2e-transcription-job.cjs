@@ -12,6 +12,10 @@ const DEFAULT_POLL_MS = 2_000;
 const DEFAULT_WAIT_MS = 120_000;
 const DEFAULT_STREAM_EVENT_WEBHOOK_SECRET = "local-streamos-webhook-secret";
 
+function getExpectedTranscriptionQueueJobId(streamId) {
+  return `transcription-trigger-${streamId}`;
+}
+
 function parseArgs(argv) {
   const options = {
     allowHosted: false,
@@ -256,8 +260,15 @@ function isLocalSupabaseUrl(value) {
   }
 }
 
-async function waitForHttpHealth(url, serviceName, waitMs) {
+async function waitForHttpHealth(
+  url,
+  serviceName,
+  waitMs,
+  { skipDocker = false } = {},
+) {
   const deadline = Date.now() + waitMs;
+  let lastConnectionError = null;
+  let lastStatus = null;
 
   while (Date.now() < deadline) {
     try {
@@ -265,14 +276,28 @@ async function waitForHttpHealth(url, serviceName, waitMs) {
       if (response.ok) {
         return;
       }
-    } catch {
-      // Retry until the container healthcheck and host port are both ready.
+
+      lastStatus = `${response.status} ${response.statusText}`.trim();
+    } catch (error) {
+      lastConnectionError = error;
     }
 
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
 
-  throw new Error(`${serviceName} did not become healthy within ${waitMs}ms.`);
+  const details =
+    lastStatus !== null
+      ? ` Last health response: ${lastStatus}.`
+      : lastConnectionError instanceof Error
+        ? ` Last connection error: ${lastConnectionError.message}.`
+        : "";
+  const guidance = skipDocker
+    ? ` Start ${serviceName} manually or rerun without --skip-docker so Compose can bootstrap the local stack.`
+    : " Check Docker Desktop, `docker compose ps`, and the service logs before retrying.";
+
+  throw new Error(
+    `${serviceName} did not become healthy within ${waitMs}ms.${details}${guidance}`,
+  );
 }
 
 async function supabaseFetch({ body, env, method = "GET", path, query }) {
@@ -473,6 +498,7 @@ async function seedStreamGraph(env, userId) {
 }
 
 async function triggerTranscription({ apiGatewayUrl, env, graph, userId }) {
+  const expectedQueueJobId = getExpectedTranscriptionQueueJobId(graph.streamId);
   const body = JSON.stringify({
     channel_id: graph.channelId,
     creator_id: graph.creatorId,
@@ -518,6 +544,17 @@ async function triggerTranscription({ apiGatewayUrl, env, graph, userId }) {
 
   if (data?.status !== "queued" || !data.queue_job_id) {
     throw new Error(`API Gateway did not return a queued job: ${text}`);
+  }
+
+  if (data.queue_job_id !== expectedQueueJobId || data.job_id !== expectedQueueJobId) {
+    throw new Error(
+      `API Gateway returned a non-canonical queue job id. Expected ${expectedQueueJobId}, got ${JSON.stringify(
+        {
+          job_id: data.job_id,
+          queue_job_id: data.queue_job_id,
+        },
+      )}`,
+    );
   }
 
   return data;
@@ -635,22 +672,40 @@ async function main() {
     console.log(
       `Starting Docker Compose transcription stack with ${containerCli}...`,
     );
-    run(
-      containerCli,
-      getComposeArgs(options.envFile, [
-        "up",
-        "-d",
-        "redis",
-        "api-gateway",
-        "automation-service",
-        "transcription-worker",
-      ]),
-      { env: processEnv },
-    );
+    try {
+      run(
+        containerCli,
+        getComposeArgs(options.envFile, [
+          "up",
+          "-d",
+          "redis",
+          "api-gateway",
+          "automation-service",
+          "stream-job-worker",
+          "transcription-worker",
+        ]),
+        { env: processEnv },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (
+        message.includes("failed to connect to the docker API") ||
+        message.includes("dockerDesktopLinuxEngine")
+      ) {
+        throw new Error(
+          "Docker daemon is not reachable. Start Docker Desktop or rerun with --skip-docker against an already running local stack.",
+        );
+      }
+
+      throw error;
+    }
   }
 
   const apiGatewayUrl = options.apiGatewayUrl ?? DEFAULT_API_GATEWAY_URL;
-  await waitForHttpHealth(apiGatewayUrl, "api-gateway", 60_000);
+  await waitForHttpHealth(apiGatewayUrl, "api-gateway", 60_000, {
+    skipDocker: options.skipDocker,
+  });
 
   const userId =
     options.userId || env.E2E_USER_ID || (await getFirstAuthUserId(env));

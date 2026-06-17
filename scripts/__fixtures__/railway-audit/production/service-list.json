@@ -15,6 +15,11 @@
     "url": null
   },
   {
+    "id": "svc-stream-job-production",
+    "name": "stream-job-worker",
+    "url": null
+  },
+  {
     "id": "svc-retry-production",
     "name": "content-job-retry-worker",
     "url": null
@@ -22,6 +27,11 @@
   {
     "id": "svc-clip-production",
     "name": "clip-worker",
+    "url": null
+  },
+  {
+    "id": "svc-release-gate-runner-production",
+    "name": "release-gate-runner",
     "url": null
   }
 ]

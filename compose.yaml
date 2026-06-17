@@ -91,10 +91,26 @@ services:
         condition: service_healthy
     environment:
       REDIS_URL: redis://redis:6379/0
-      QUEUE_DEFAULT_NAME: streamos-media
       TRANSCRIPTION_QUEUE_NAME: streamos-transcription
       AUTOMATION_SERVICE_URL: http://automation-service:8000
       TRANSCRIPTION_WORKER_CONCURRENCY: ${TRANSCRIPTION_WORKER_CONCURRENCY:-1}
+      SUPABASE_URL: ${SUPABASE_DOCKER_URL:-${SUPABASE_URL:-}}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+
+  stream-job-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.stream-job-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_DEFAULT_NAME: streamos-media
+      STREAM_JOB_QUEUE_NAME: streamos-media
+      TRANSCRIPTION_QUEUE_NAME: streamos-transcription
+      STREAM_JOB_WORKER_CONCURRENCY: ${STREAM_JOB_WORKER_CONCURRENCY:-1}
       SUPABASE_URL: ${SUPABASE_DOCKER_URL:-${SUPABASE_URL:-}}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
 

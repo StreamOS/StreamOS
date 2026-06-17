@@ -3,12 +3,15 @@
 This runbook verifies the local backend path:
 
 1. Docker Compose starts Redis, API Gateway, Automation Service, and
-   `transcription-worker`.
+   `stream-job-worker` plus `transcription-worker`.
 2. The E2E helper seeds a Supabase auth user, creator, channel, and stream.
 3. The helper calls `POST /api/webhooks/streams/ended`.
-4. API Gateway returns `status=queued` and writes a BullMQ job to Redis.
-5. `transcription-worker` consumes the job and calls Automation Service.
-6. The worker upserts `content_jobs` from `running` to `done` or `failed`.
+4. API Gateway returns `status=queued` and writes a normalized `stream.offline`
+   media event to `streamos-media`.
+5. `stream-job-worker` materializes the stream state and enqueues the canonical
+   `transcription.trigger` job into `streamos-transcription`.
+6. `transcription-worker` consumes the downstream job, calls Automation
+   Service, and upserts `content_jobs` from `running` to `done` or `failed`.
 
 ## Local Supabase Prerequisites
 
@@ -43,24 +46,50 @@ pnpm e2e:transcription
 Expected result:
 
 - API Gateway returns `status=queued`.
+- Redis contains a BullMQ job in `streamos-media`.
 - Redis contains a BullMQ job in `streamos-transcription`.
 - `content_jobs.status` becomes `done`.
 - `content_jobs.result.transcript` contains the deterministic local E2E
   transcript.
 
-## Rollout Gate
+## Rollout Modes
 
-Before promoting a release candidate, run the bundled rollout gate instead of
-calling this E2E helper manually:
+For local troubleshooting, use the bundled local diagnostic instead of calling
+the E2E helper manually:
 
 ```bash
-pnpm rollout:check -- --env-file=.env.test
+pnpm rollout:check:local
 ```
 
-For deployed services, run the same gate with `--skip-docker`,
-`--allow-hosted-e2e`, and the deployed API Gateway URL. This keeps the signed
-webhook trigger, BullMQ worker consumption, Supabase `content_jobs` write, and
-service health checks mandatory for rollout.
+This mode keeps the same hard queue/job invariants, but it is diagnostic only
+and never counts as a promotable release gate.
+
+For deployed services, run the production gate from the dedicated
+`release-gate-runner` runtime, or another Railway runtime with the same
+gate-required release-candidate snapshot, that can reach the private
+Automation Service URL:
+
+```bash
+pnpm rollout:check:production -- \
+  --api-gateway-url https://streamos-api-gateway.up.railway.app \
+  --automation-service-url http://automation-service.railway.internal:8000
+```
+
+Only this production gate counts for rollout. A local failure caused by missing
+Docker or a missing local `api-gateway` is acceptable as diagnosis, but not as
+promotion evidence.
+
+The runner must exist as its own Railway service in the target environment and
+must be deployed from the same release-candidate commit as the services under
+test. Generic helper shells such as `railway-function-shell*` are not valid
+proof runtimes, and a stopped runner cannot produce a promotable gate result.
+
+The hosted proof runtime must contain the current root `package.json`,
+`scripts/rollout-check.cjs`, `scripts/check-deployment.cjs`,
+`scripts/e2e-transcription-job.cjs`, and the required workspace sources. The
+gate now fails early with `snapshot_not_proof_capable` if a selectively copied
+runtime image cannot prove the release-candidate snapshot, the generated
+runner-provenance marker, or the current gate-sequence contract.
 
 ## Failure Path
 
@@ -72,7 +101,9 @@ The helper starts Compose with `TRANSCRIPTION_PROCESSOR_MODE=fail`, so the
 Automation Service returns a controlled failure. Expected result:
 
 - API Gateway still returns `status=queued`.
-- The worker calls Automation Service and persists the failure.
+- `stream-job-worker` still materializes the stream and enqueues the canonical
+  downstream job.
+- `transcription-worker` calls Automation Service and persists the failure.
 - `content_jobs.status` becomes `failed`.
 - `content_jobs.error_message` contains the automation-service failure.
 

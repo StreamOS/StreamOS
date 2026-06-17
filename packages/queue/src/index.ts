@@ -3,6 +3,8 @@ import { Redis } from "ioredis";
 import { assertRedisTls } from "@streamos/redis";
 
 export const STREAM_JOB_QUEUE_NAME = "streamos-media";
+export const TRANSCRIPTION_TRIGGER_JOB_NAME = "transcription.trigger";
+export const CLIP_GENERATION_JOB_NAME = "clip.generate";
 
 export const STREAMOS_JOB_TYPES = [
   "stream.online",
@@ -14,17 +16,20 @@ export const STREAMOS_JOB_TYPES = [
 
 export type StreamOSJobType = (typeof STREAMOS_JOB_TYPES)[number];
 
-export type StreamProvider = "twitch" | "youtube";
+export type StreamProvider = "twitch" | "youtube" | "tiktok" | "kick";
 
 export type StreamOSJob = {
   id: string;
   type: StreamOSJobType;
   provider: StreamProvider;
-  channelId: string;
+  channelId?: string;
   enqueuedAt?: string;
+  internalStreamId?: string;
+  language?: string;
   streamId?: string;
   userId?: string;
   videoId?: string;
+  vodAssetUrl?: string;
   title?: string;
   gameName?: string;
   viewerCount?: number;
@@ -39,6 +44,22 @@ export type StreamOSJob = {
 };
 
 export type StreamJobQueue = Queue<StreamOSJob, void, StreamOSJobType>;
+
+function sanitizeDeterministicSegment(value: string): string {
+  return value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-");
+}
+
+function getDeterministicJobId(prefix: string, streamId: string): string {
+  return `${prefix}-${sanitizeDeterministicSegment(streamId)}`;
+}
+
+export function getTranscriptionTriggerJobId(streamId: string): string {
+  return getDeterministicJobId("transcription-trigger", streamId);
+}
+
+export function getClipGenerationJobId(streamId: string): string {
+  return getDeterministicJobId("clip-generation", streamId);
+}
 
 export const STREAM_JOB_OPTIONS: JobsOptions = {
   attempts: 3,

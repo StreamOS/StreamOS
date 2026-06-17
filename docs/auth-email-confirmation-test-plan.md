@@ -19,7 +19,9 @@ Validates the Supabase Auth signup confirmation flow for StreamOS:
 
 ```text
 NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<local anon key from supabase status>
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<local publishable key from supabase status>
+# Legacy compatibility only when older local setups still use anon-key naming:
+# NEXT_PUBLIC_SUPABASE_ANON_KEY=<local anon key from supabase status>
 ```
 
 ## Local Test Steps

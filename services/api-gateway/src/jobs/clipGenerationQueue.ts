@@ -1,14 +1,13 @@
 import type { ClipGenerationJobData } from "@streamos/types";
 import type { JobsOptions } from "bullmq";
 import { Queue } from "bullmq";
+import { getClipGenerationJobId } from "@streamos/queue";
 import { z } from "zod";
 
-import {
-  createRedisConnectionOptions,
-  getDeterministicJobId,
-} from "./redisConnection.js";
+import { createRedisConnectionOptions } from "./redisConnection.js";
 
 export type { ClipGenerationJobData };
+export { getClipGenerationJobId };
 
 export const CLIP_GENERATION_JOB_NAME = "clip.generate";
 export const DEFAULT_CLIP_GENERATION_QUEUE_NAME = "streamos-clip-generation";
@@ -32,7 +31,6 @@ export type ClipGenerationQueue = {
     data: ClipGenerationJobData,
     opts: JobsOptions,
   ): Promise<ClipGenerationQueueJob>;
-  close?(): Promise<void>;
 };
 
 export type EnqueuedClipGenerationJob = {
@@ -55,10 +53,6 @@ const clipGenerationJobOptions: JobsOptions = {
     age: 604_800,
   },
 };
-
-export function getClipGenerationJobId(streamId: string): string {
-  return getDeterministicJobId("clip-generation", streamId);
-}
 
 export async function enqueueClipGenerationJob(
   queue: ClipGenerationQueue,

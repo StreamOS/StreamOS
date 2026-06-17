@@ -166,3 +166,22 @@ test("buildAuditReport ignores null-valued Railway tombstone variables", () => {
     false,
   );
 });
+
+test("buildAuditReport includes release-gate-runner as a private service", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironment("production"),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const runnerRows =
+    report.environments.production.services["release-gate-runner"].variables;
+  const networkRow = runnerRows.find((row) => row.variable === "PUBLIC_NETWORKING");
+
+  assert.ok(report.environments.production.services["release-gate-runner"]);
+  assert.equal(networkRow.status, "✅");
+  assert.match(networkRow.summary, /Service remains private as expected/);
+});

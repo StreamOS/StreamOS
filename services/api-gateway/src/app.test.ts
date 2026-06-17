@@ -1,8 +1,8 @@
 import { createHmac } from "node:crypto";
+import type { StreamOSJob } from "@streamos/queue";
 import { describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
 import type { ClipGenerationQueue } from "./jobs/clipGenerationQueue.js";
-import type { TranscriptionQueue } from "./jobs/transcriptionQueue.js";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const CREATOR_ID = "22222222-2222-4222-8222-222222222222";
@@ -12,6 +12,8 @@ const WEBHOOK_SECRET = "test-stream-webhook-secret-123";
 const TWITCH_EVENTSUB_SECRET = "test-twitch-eventsub-secret-123";
 const YOUTUBE_WEBHOOK_SECRET = "test-youtube-webhook-secret-123";
 const WEBHOOK_NOW = new Date("2026-06-06T10:00:00.000Z");
+const SUPABASE_URL = "https://supabase.streamos.test";
+const SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
 
 function createClipGenerationQueue(): ClipGenerationQueue {
   return {
@@ -21,11 +23,28 @@ function createClipGenerationQueue(): ClipGenerationQueue {
   };
 }
 
-function createTranscriptionQueue(): TranscriptionQueue {
-  return {
-    async add(_name, _data, opts) {
-      return { id: String(opts.jobId) };
-    },
+function createProviderWebhookDispatcher() {
+  return async (_event: StreamOSJob) => undefined;
+}
+
+function setSupabaseEnv() {
+  const originalSupabaseUrl = process.env.SUPABASE_URL;
+  const originalServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  process.env.SUPABASE_URL = SUPABASE_URL;
+  process.env.SUPABASE_SERVICE_ROLE_KEY = SUPABASE_SERVICE_ROLE_KEY;
+
+  return () => {
+    if (originalSupabaseUrl === undefined) {
+      delete process.env.SUPABASE_URL;
+    } else {
+      process.env.SUPABASE_URL = originalSupabaseUrl;
+    }
+
+    if (originalServiceRoleKey === undefined) {
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    } else {
+      process.env.SUPABASE_SERVICE_ROLE_KEY = originalServiceRoleKey;
+    }
   };
 }
 
@@ -81,7 +100,6 @@ describe("api-gateway", () => {
         allowedOrigins: ["https://app.streamos.test"],
         streamEventWebhookSecret: WEBHOOK_SECRET,
         clipGenerationQueue: createClipGenerationQueue(),
-        transcriptionQueue: createTranscriptionQueue(),
       }),
     ).toThrow("API_GATEWAY_SECRET is required in production.");
 
@@ -101,7 +119,6 @@ describe("api-gateway", () => {
         clipGenerationQueue: createClipGenerationQueue(),
         nodeEnv: "production",
         streamEventWebhookSecret: WEBHOOK_SECRET,
-        transcriptionQueue: createTranscriptionQueue(),
       }),
     ).toThrow("TWITCH_EVENTSUB_SECRET is required in production.");
 
@@ -112,7 +129,6 @@ describe("api-gateway", () => {
         clipGenerationQueue: createClipGenerationQueue(),
         nodeEnv: "production",
         streamEventWebhookSecret: WEBHOOK_SECRET,
-        transcriptionQueue: createTranscriptionQueue(),
         twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
       }),
     ).toThrow("YOUTUBE_WEBHOOK_SECRET is required in production.");
@@ -124,7 +140,6 @@ describe("api-gateway", () => {
         clipGenerationQueue: createClipGenerationQueue(),
         nodeEnv: "production",
         streamEventWebhookSecret: WEBHOOK_SECRET,
-        transcriptionQueue: createTranscriptionQueue(),
         twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
         youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
       }),
@@ -138,7 +153,6 @@ describe("api-gateway", () => {
         clipGenerationQueue: createClipGenerationQueue(),
         nodeEnv: "production",
         streamEventWebhookSecret: WEBHOOK_SECRET,
-        transcriptionQueue: createTranscriptionQueue(),
         twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
         youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
       }),
@@ -153,7 +167,6 @@ describe("api-gateway", () => {
         clipGenerationQueue: createClipGenerationQueue(),
         nodeEnv: "production",
         streamEventWebhookSecret: WEBHOOK_SECRET,
-        transcriptionQueue: createTranscriptionQueue(),
         twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
         youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
       }),
@@ -167,7 +180,6 @@ describe("api-gateway", () => {
         nodeEnv: "production",
         rateLimit: { enabled: false },
         streamEventWebhookSecret: WEBHOOK_SECRET,
-        transcriptionQueue: createTranscriptionQueue(),
         twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
         youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
       }),
@@ -178,6 +190,7 @@ describe("api-gateway", () => {
         allowedOrigins: ["https://app.streamos.test"],
         apiGatewaySecret: API_SECRET,
         nodeEnv: "production",
+        providerWebhookDispatcher: createProviderWebhookDispatcher(),
         streamEventWebhookSecret: WEBHOOK_SECRET,
         twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
         youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
@@ -380,18 +393,30 @@ describe("api-gateway", () => {
   });
 
   it("queues transcription trigger after stream end idempotently by stream_id", async () => {
+    const restoreEnv = setSupabaseEnv();
     const jobIds = new Set<string>();
-    const transcriptionQueue: TranscriptionQueue = {
-      async add(_name, _data, opts) {
-        const jobId = String(opts.jobId);
-        jobIds.add(jobId);
-
-        return { id: jobId };
-      },
-    };
+    const dispatchedEvents: StreamOSJob[] = [];
     const app = createApp({
+      oauth: {
+        fetchImpl: async (input) => {
+          const url = input.toString();
+
+          if (url.startsWith(`${SUPABASE_URL}/rest/v1/streams`)) {
+            return new Response(JSON.stringify([{ id: STREAM_ID }]), {
+              status: 200,
+            });
+          }
+
+          return new Response("Unexpected URL", { status: 500 });
+        },
+      },
+      providerWebhookDispatcher: async (event) => {
+        dispatchedEvents.push(event);
+        if (event.internalStreamId) {
+          jobIds.add(event.internalStreamId);
+        }
+      },
       streamEventWebhookSecret: WEBHOOK_SECRET,
-      transcriptionQueue,
       webhookNow: () => WEBHOOK_NOW.getTime(),
     });
     const server = app.listen(0);
@@ -445,22 +470,94 @@ describe("api-gateway", () => {
       expect(firstResponse.status).toBe(202);
       expect(secondResponse.status).toBe(202);
       expect(firstBody.job_id).toBe(secondBody.job_id);
+      expect(firstBody.queue_job_id).toBe(firstBody.job_id);
       expect(firstBody.stream_id).toBe(STREAM_ID);
+      expect(dispatchedEvents).toHaveLength(2);
+      expect(dispatchedEvents[0]).toMatchObject({
+        endedAt: "2026-06-01T10:00:00.000Z",
+        internalStreamId: STREAM_ID,
+        language: "auto",
+        provider: "twitch",
+        type: "stream.offline",
+        userId: USER_ID,
+        vodAssetUrl: "https://cdn.example.com/vods/stream-123.mp4",
+      });
       expect(jobIds.size).toBe(1);
     } finally {
+      restoreEnv();
+      server.close();
+    }
+  });
+
+  it("rejects stream-ended webhooks when the internal stream_id does not exist", async () => {
+    const restoreEnv = setSupabaseEnv();
+    let dispatchCalls = 0;
+    const app = createApp({
+      oauth: {
+        fetchImpl: async (input) => {
+          const url = input.toString();
+
+          if (url.startsWith(`${SUPABASE_URL}/rest/v1/streams`)) {
+            return new Response(JSON.stringify([]), {
+              status: 200,
+            });
+          }
+
+          return new Response("Unexpected URL", { status: 500 });
+        },
+      },
+      providerWebhookDispatcher: async () => {
+        dispatchCalls += 1;
+      },
+      streamEventWebhookSecret: WEBHOOK_SECRET,
+      webhookNow: () => WEBHOOK_NOW.getTime(),
+    });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const body = JSON.stringify({
+        user_id: USER_ID,
+        stream_id: STREAM_ID,
+        platform: "twitch",
+        creator_id: CREATOR_ID,
+        vod_asset_url: "https://cdn.example.com/vods/stream-123.mp4",
+      });
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/api/webhooks/streams/ended`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...createSignedWebhookHeaders({
+              body,
+              eventId: "stream-ended-missing",
+            }),
+          },
+          body,
+        },
+      );
+      const responseBody = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(responseBody.error).toBe("stream_not_found");
+      expect(dispatchCalls).toBe(0);
+    } finally {
+      restoreEnv();
       server.close();
     }
   });
 
   it("rejects stream-ended webhooks with an invalid signature", async () => {
-    const transcriptionQueue: TranscriptionQueue = {
-      async add() {
+    const app = createApp({
+      providerWebhookDispatcher: async () => {
         throw new Error("Queue should not be called.");
       },
-    };
-    const app = createApp({
       streamEventWebhookSecret: WEBHOOK_SECRET,
-      transcriptionQueue,
       webhookNow: () => WEBHOOK_NOW.getTime(),
     });
     const server = app.listen(0);
@@ -499,10 +596,9 @@ describe("api-gateway", () => {
   });
 
   it("rejects stream-ended webhooks outside the replay window", async () => {
-    const transcriptionQueue = createTranscriptionQueue();
     const app = createApp({
+      providerWebhookDispatcher: createProviderWebhookDispatcher(),
       streamEventWebhookSecret: WEBHOOK_SECRET,
-      transcriptionQueue,
       webhookNow: () => WEBHOOK_NOW.getTime(),
     });
     const server = app.listen(0);

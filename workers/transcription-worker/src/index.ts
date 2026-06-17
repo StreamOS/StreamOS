@@ -7,27 +7,19 @@ import { Redis } from "ioredis";
 
 import { createAutomationClient } from "./automationClient.js";
 import { loadWorkerConfig } from "./config.js";
-import { createContentJobStore } from "./contentJobStore.js";
-import { handleStreamOnlineJob } from "./handlers/stream-online.handler.js";
-import { handleVideoPublishedJob } from "./handlers/video-published.handler.js";
-import {
-  mediaJobPayloadSchema,
-  type MediaJobPayload,
-} from "./mediaJobSchema.js";
-import { createTwitchClient, createYouTubeClient } from "./providerClients.js";
 import { createRedisConnectionOptions } from "./redisConnection.js";
 import { createSupabaseJobStatusStore } from "./statusStore.js";
 import { processTranscriptionJob } from "./worker.js";
+import type {
+  TRANSCRIPTION_TRIGGER_JOB_NAME,
+  TranscriptionTriggerJobData,
+} from "@streamos/types";
 
 const config = loadWorkerConfig();
 const automationClient = createAutomationClient({
   automationServiceUrl: config.automationServiceUrl,
 });
 const statusStore = createSupabaseJobStatusStore({
-  serviceRoleKey: config.supabaseServiceRoleKey,
-  supabaseUrl: config.supabaseUrl,
-});
-const contentJobStore = createContentJobStore({
   serviceRoleKey: config.supabaseServiceRoleKey,
   supabaseUrl: config.supabaseUrl,
 });
@@ -43,18 +35,12 @@ const clipGenerationQueue = new Queue<
 >(config.clipGenerationQueueName, {
   connection: redisConnection,
 });
-const mediaQueue = new Queue<MediaJobPayload>(config.mediaQueueName, {
+const transcriptionTriggerQueue = new Queue<
+  TranscriptionTriggerJobData,
+  void,
+  typeof TRANSCRIPTION_TRIGGER_JOB_NAME
+>(config.queueName, {
   connection: redisConnection,
-});
-const twitchClient = createTwitchClient({
-  clientId: config.twitchClientId,
-  clientSecret: config.twitchClientSecret,
-  tokenCache: heartbeatRedis,
-});
-const youtubeClient = createYouTubeClient({
-  clientId: config.youtubeClientId,
-  clientSecret: config.youtubeClientSecret,
-  store: contentJobStore,
 });
 
 const worker = new Worker(
@@ -65,61 +51,6 @@ const worker = new Worker(
       clipGenerationQueue,
       statusStore,
     }),
-  {
-    concurrency: config.concurrency,
-    connection: redisConnection,
-  },
-);
-
-const mediaWorker = new Worker<unknown>(
-  config.mediaQueueName,
-  async (job) => {
-    const payload = mediaJobPayloadSchema.safeParse(job.data);
-
-    if (!payload.success) {
-      console.warn(
-        JSON.stringify({
-          level: "warn",
-          message: "unknown_media_job_payload",
-          jobId: job.id,
-          issues: payload.error.issues,
-        }),
-      );
-      return;
-    }
-
-    switch (payload.data.type) {
-      case "STREAM_ONLINE":
-        await handleStreamOnlineJob(
-          {
-            data: payload.data,
-            id: job.id,
-            name: job.name,
-            opts: job.opts,
-          },
-          {
-            automationClient,
-            contentJobStore,
-            mediaQueue,
-            twitchClient,
-          },
-        );
-        return;
-      case "NEW_VIDEO_PUBLISHED":
-        await handleVideoPublishedJob(
-          {
-            data: payload.data,
-            id: job.id,
-          },
-          {
-            automationClient,
-            contentJobStore,
-            youtubeClient,
-          },
-        );
-        return;
-    }
-  },
   {
     concurrency: config.concurrency,
     connection: redisConnection,
@@ -142,20 +73,11 @@ worker.on("failed", (job, error) => {
   console.error(`transcription job failed: ${job?.id}`, error);
 });
 
-mediaWorker.on("completed", (job) => {
-  console.log(`media job completed: ${job.id}`);
-});
-
-mediaWorker.on("failed", (job, error) => {
-  console.error(`media job failed: ${job?.id}`, error);
-});
-
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
   console.log(`received ${signal}; closing transcription-worker`);
   clearInterval(heartbeat);
   await worker.close();
-  await mediaWorker.close();
-  await mediaQueue.close();
+  await transcriptionTriggerQueue.close();
   await clipGenerationQueue.close();
   heartbeatRedis.disconnect();
   process.exit(0);
