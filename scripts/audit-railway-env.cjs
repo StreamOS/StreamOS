@@ -20,7 +20,9 @@ const {
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const NODE_SERVICE_HEALTH_SCRIPT = `
-let target = process.argv[1];
+const cliTarget =
+  process.argv.length > 2 ? process.argv[2] : process.argv[1] !== "-" ? process.argv[1] : undefined;
+let target = cliTarget;
 (async () => {
   try {
     if (!target) {
@@ -54,7 +56,7 @@ import json
 import sys
 from urllib import request, error
 
-target = sys.argv[1]
+target = sys.argv[1].strip() if len(sys.argv) > 1 else ""
 try:
     with request.urlopen(target, timeout=5) as response:
         body = response.read().decode("utf-8")
@@ -287,7 +289,11 @@ Options:
 `);
 }
 
-function runCommand(command, args, { allowFailure = false, cwd, env } = {}) {
+function runCommand(
+  command,
+  args,
+  { allowFailure = false, cwd, env, input } = {},
+) {
   const resolvedCommand =
     process.platform === "win32"
       ? resolveWindowsCommand(command, env)
@@ -298,6 +304,7 @@ function runCommand(command, args, { allowFailure = false, cwd, env } = {}) {
     cwd,
     encoding: "utf8",
     env,
+    input,
     shell: needsWindowsShell,
     stdio: "pipe",
   });
@@ -354,8 +361,10 @@ function resolveWindowsCommand(command, env) {
 }
 
 function parseJsonOutput(output, description) {
+  const normalizedOutput = output.trim();
+
   try {
-    return JSON.parse(output);
+    return JSON.parse(normalizedOutput);
   } catch (error) {
     throw new Error(`${description} did not return valid JSON.`, {
       cause: error,
@@ -414,17 +423,15 @@ function resolveRailwayToken(environment, env = process.env) {
     return environmentToken;
   }
 
-  throw new Error(
-    tokenEnvName
-      ? `Railway authentication token is not configured for ${environment}. Set RAILWAY_TOKEN or ${tokenEnvName} in the current process environment.`
-      : `Railway authentication token is not configured for ${environment}. Set RAILWAY_TOKEN in the current process environment.`,
-  );
+  return undefined;
 }
 
 function buildRailwayCommandEnv(environment, env = process.env) {
+  const railwayToken = resolveRailwayToken(environment, env);
+
   return {
     ...env,
-    RAILWAY_TOKEN: resolveRailwayToken(environment, env),
+    ...(railwayToken ? { RAILWAY_TOKEN: railwayToken } : {}),
   };
 }
 
@@ -445,6 +452,7 @@ function loadRailwayEnvironmentConfig({
     if (
       !String(error.message).includes("Project not found") &&
       !String(error.message).includes("No project linked") &&
+      !String(error.message).includes("No linked project found") &&
       !String(error.message).includes("Unauthorized")
     ) {
       throw error;
@@ -606,12 +614,15 @@ function runNodeServiceHealthCheck({
       environment,
       "-s",
       service,
+      "--",
       "node",
-      "-e",
-      NODE_SERVICE_HEALTH_SCRIPT,
+      "-",
       target,
     ],
-    { env: commandEnv },
+    {
+      env: commandEnv,
+      input: NODE_SERVICE_HEALTH_SCRIPT,
+    },
   );
   const payload = parseJsonOutput(
     result.stdout,
@@ -650,12 +661,15 @@ function runPythonServiceHealthCheck({
       environment,
       "-s",
       service,
+      "--",
       "python",
-      "-c",
-      PYTHON_SERVICE_HEALTH_SCRIPT,
+      "-",
       target,
     ],
-    { env: commandEnv },
+    {
+      env: commandEnv,
+      input: PYTHON_SERVICE_HEALTH_SCRIPT,
+    },
   );
   const payload = parseJsonOutput(
     result.stdout,
@@ -685,18 +699,11 @@ function runWorkerAutomationHealthCheck({
 }) {
   const result = runRailwaySsh(
     railwayBin,
-    [
-      "-p",
-      projectId,
-      "-e",
-      environment,
-      "-s",
-      service,
-      "node",
-      "-e",
-      NODE_SERVICE_HEALTH_SCRIPT,
-    ],
-    { env: commandEnv },
+    ["-p", projectId, "-e", environment, "-s", service, "--", "node", "-"],
+    {
+      env: commandEnv,
+      input: NODE_SERVICE_HEALTH_SCRIPT,
+    },
   );
   const payload = parseJsonOutput(
     result.stdout,
@@ -726,18 +733,11 @@ function runRedisReachabilityCheck({
 }) {
   const result = runRailwaySsh(
     railwayBin,
-    [
-      "-p",
-      projectId,
-      "-e",
-      environment,
-      "-s",
-      service,
-      "node",
-      "-e",
-      REDIS_TCP_CHECK_SCRIPT,
-    ],
-    { env: commandEnv },
+    ["-p", projectId, "-e", environment, "-s", service, "--", "node", "-"],
+    {
+      env: commandEnv,
+      input: REDIS_TCP_CHECK_SCRIPT,
+    },
   );
   const payload = parseJsonOutput(
     result.stdout,
@@ -755,6 +755,13 @@ function runRedisReachabilityCheck({
   };
 }
 
+function getServiceLocalHealthTarget(rawEnvironment, service, fallbackPort) {
+  const port =
+    rawEnvironment?.serviceVariables?.[service]?.PORT ?? String(fallbackPort);
+
+  return `http://127.0.0.1:${port}/health`;
+}
+
 async function runLiveHealthChecks({
   commandEnv,
   environment,
@@ -767,6 +774,16 @@ async function runLiveHealthChecks({
   const apiGatewayPublicUrl = getServicePublicUrl(
     rawEnvironment.serviceList,
     "api-gateway",
+  );
+  const apiGatewayLocalHealthTarget = getServiceLocalHealthTarget(
+    rawEnvironment,
+    "api-gateway",
+    4000,
+  );
+  const automationServiceLocalHealthTarget = getServiceLocalHealthTarget(
+    rawEnvironment,
+    "automation-service",
+    8000,
   );
 
   if (apiGatewayPublicUrl) {
@@ -792,7 +809,7 @@ async function runLiveHealthChecks({
           projectId,
           railwayBin,
           service: "api-gateway",
-          target: "http://127.0.0.1:4000/health",
+          target: apiGatewayLocalHealthTarget,
         }),
       {
         category: "health",
@@ -800,7 +817,7 @@ async function runLiveHealthChecks({
         method: "railway-ssh-node",
         name: "api-gateway-local-health",
         service: "api-gateway",
-        target: "http://127.0.0.1:4000/health",
+        target: apiGatewayLocalHealthTarget,
       },
     ),
   );
@@ -814,7 +831,7 @@ async function runLiveHealthChecks({
           projectId,
           railwayBin,
           service: "automation-service",
-          target: "http://127.0.0.1:8000/health",
+          target: automationServiceLocalHealthTarget,
         }),
       {
         category: "health",
@@ -822,7 +839,7 @@ async function runLiveHealthChecks({
         method: "railway-ssh-python",
         name: "automation-service-local-health",
         service: "automation-service",
-        target: "http://127.0.0.1:8000/health",
+        target: automationServiceLocalHealthTarget,
       },
     ),
   );
@@ -849,6 +866,26 @@ async function runLiveHealthChecks({
   checks.push(
     await captureCheck(
       () =>
+        runWorkerAutomationHealthCheck({
+          commandEnv,
+          environment,
+          projectId,
+          railwayBin,
+          service: "clip-worker",
+        }),
+      {
+        category: "health",
+        expectedService: "automation-service",
+        method: "railway-ssh-worker-path",
+        name: "clip-worker-automation-path",
+        service: "clip-worker",
+        target: "AUTOMATION_SERVICE_URL/health",
+      },
+    ),
+  );
+  checks.push(
+    await captureCheck(
+      () =>
         runRedisReachabilityCheck({
           commandEnv,
           environment,
@@ -861,6 +898,63 @@ async function runLiveHealthChecks({
         method: "railway-ssh-node",
         name: "api-gateway-redis",
         service: "api-gateway",
+        target: "REDIS_URL",
+      },
+    ),
+  );
+  checks.push(
+    await captureCheck(
+      () =>
+        runRedisReachabilityCheck({
+          commandEnv,
+          environment,
+          projectId,
+          railwayBin,
+          service: "transcription-worker",
+        }),
+      {
+        category: "redis",
+        method: "railway-ssh-node",
+        name: "transcription-worker-redis",
+        service: "transcription-worker",
+        target: "REDIS_URL",
+      },
+    ),
+  );
+  checks.push(
+    await captureCheck(
+      () =>
+        runRedisReachabilityCheck({
+          commandEnv,
+          environment,
+          projectId,
+          railwayBin,
+          service: "clip-worker",
+        }),
+      {
+        category: "redis",
+        method: "railway-ssh-node",
+        name: "clip-worker-redis",
+        service: "clip-worker",
+        target: "REDIS_URL",
+      },
+    ),
+  );
+  checks.push(
+    await captureCheck(
+      () =>
+        runRedisReachabilityCheck({
+          commandEnv,
+          environment,
+          projectId,
+          railwayBin,
+          service: "content-job-retry-worker",
+        }),
+      {
+        category: "redis",
+        method: "railway-ssh-node",
+        name: "content-job-retry-worker-redis",
+        service: "content-job-retry-worker",
         target: "REDIS_URL",
       },
     ),

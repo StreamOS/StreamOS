@@ -82,11 +82,14 @@ test("audit token resolution lets explicit RAILWAY_TOKEN override env-specific t
   assert.equal(commandEnv.RAILWAY_TOKEN, "shared-token");
 });
 
-test("audit token resolution fails cleanly when the environment token is missing", () => {
-  assert.throws(
-    () => resolveRailwayToken("staging", {}),
-    /Set RAILWAY_TOKEN or RAILWAY_TOKEN_STAGING/,
-  );
+test("audit token resolution allows ambient railway login sessions", () => {
+  assert.equal(resolveRailwayToken("staging", {}), undefined);
+
+  const commandEnv = buildRailwayCommandEnv("staging", {
+    PATH: process.env.PATH,
+  });
+
+  assert.equal(commandEnv.RAILWAY_TOKEN, undefined);
 });
 
 test("deployment parser accepts split env-file syntax", () => {

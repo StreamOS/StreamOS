@@ -32,6 +32,7 @@ export type TranscriptionQueue = {
     data: TranscriptionTriggerJobData,
     opts: JobsOptions,
   ): Promise<TranscriptionQueueJob>;
+  close?(): Promise<void>;
 };
 
 export type EnqueuedTranscriptionTriggerJob = {
