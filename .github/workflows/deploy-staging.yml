@@ -151,7 +151,6 @@ jobs:
   smoke-staging:
     name: Smoke test Vercel staging
     permissions:
-      id-token: write
       contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -164,18 +163,16 @@ jobs:
       name: staging
 
     steps:
-      - name: Get Vercel OIDC Token
-        uses: actions/github-script@v9
-        id: oidc-token
-        with:
-          script: |
-            const token = await core.getIDToken();
-            core.setSecret(token);
-            core.setOutput("token", token);
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Vercel CLI
+        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
       - name: Smoke protected Vercel deployment
         env:
           DEPLOYMENT_URL: ${{ needs.deploy-web.outputs.url }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -184,9 +181,8 @@ jobs:
             local expected_status="$2"
             local status
 
-            status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" \
-              -H "x-vercel-trusted-oidc-idp-token: ${{ steps.oidc-token.outputs.token }}" \
-              "${DEPLOYMENT_URL}${path}")"
+            status="$(vercel --token="${VERCEL_TOKEN}" curl "${DEPLOYMENT_URL}${path}" \
+              -s -o /dev/null -w "%{http_code}" 2>/dev/null)"
 
             if [ "${status}" != "${expected_status}" ]; then
               echo "::error::Expected ${path} to return ${expected_status}, got ${status}."
