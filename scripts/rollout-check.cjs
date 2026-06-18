@@ -42,6 +42,12 @@ const API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES = [
     path: "packages/youtube-websub",
   },
 ];
+const STREAM_JOB_WORKER_RUNTIME_WORKSPACE_PACKAGES = [
+  {
+    name: "@streamos/types",
+    path: "packages/types",
+  },
+];
 const TRANSCRIPTION_WORKER_RUNTIME_WORKSPACE_PACKAGES = [
   {
     name: "@streamos/types",
@@ -68,12 +74,14 @@ const PROOF_SNAPSHOT_REQUIRED_PATHS = [
   "packages/database",
   ...new Set([
     ...API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.path),
+    ...STREAM_JOB_WORKER_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.path),
     ...TRANSCRIPTION_WORKER_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.path),
   ]),
 ];
 const API_GATEWAY_TEST_LABEL =
   "API Gateway integration and signed-webhook tests";
 const API_GATEWAY_BUILD_LABEL = "API Gateway build";
+const STREAM_JOB_WORKER_TEST_LABEL = "stream-job-worker tests";
 const TRANSCRIPTION_WORKER_TEST_LABEL = "transcription-worker tests";
 const TRANSCRIPTION_E2E_LABEL = "Transcription E2E path";
 
@@ -247,7 +255,7 @@ Usage:
   pnpm rollout:check:production -- --env-file .env --api-gateway-url https://api.example.com --automation-service-url http://automation-service.railway.internal:8000
   pnpm rollout:check -- --mode production-gate --env-file .env --skip-docker --allow-hosted-e2e --api-gateway-url https://api.example.com --automation-service-url http://automation-service.railway.internal:8000 --expect-private-automation
 
-Required checks:
+  Required checks:
   1. Supabase migration/RLS/index validator
   2. API Gateway typecheck
   3. API Gateway runtime package build: @streamos/redis
@@ -255,13 +263,14 @@ Required checks:
   5. API Gateway runtime package build: @streamos/youtube-websub
   6. API Gateway integration and signed-webhook tests
   7. API Gateway build
-  8. Stream-job-worker test and build
-  9. transcription-worker runtime package build: @streamos/types
-  10. transcription-worker runtime package build: @streamos/queue
-  11. transcription-worker runtime package build: @streamos/redis
-  12. Transcription-worker test and build
-  13. Transcription E2E: webhook -> BullMQ -> worker -> content_jobs write
-  14. Deployment health checks for API Gateway and Automation Service
+  8. stream-job-worker runtime package build: @streamos/types
+  9. Stream-job-worker test and build
+  10. transcription-worker runtime package build: @streamos/types
+  11. transcription-worker runtime package build: @streamos/queue
+  12. transcription-worker runtime package build: @streamos/redis
+  13. Transcription-worker test and build
+  14. Transcription E2E: webhook -> BullMQ -> worker -> content_jobs write
+  15. Deployment health checks for API Gateway and Automation Service
 
 Production-gate runtime:
   - Must run from the dedicated Railway service release-gate-runner, or an equivalent
@@ -312,6 +321,13 @@ function getApiGatewayRuntimePackageBuildSteps() {
   );
 }
 
+function getStreamJobWorkerRuntimePackageBuildSteps() {
+  return getRuntimePackageBuildSteps(
+    STREAM_JOB_WORKER_RUNTIME_WORKSPACE_PACKAGES,
+    "stream-job-worker runtime package build",
+  );
+}
+
 function getTranscriptionWorkerRuntimePackageBuildSteps() {
   return getRuntimePackageBuildSteps(
     TRANSCRIPTION_WORKER_RUNTIME_WORKSPACE_PACKAGES,
@@ -321,6 +337,8 @@ function getTranscriptionWorkerRuntimePackageBuildSteps() {
 
 function getExpectedGateContract() {
   const apiGatewayRuntimePackageSteps = getApiGatewayRuntimePackageBuildSteps();
+  const streamJobWorkerRuntimePackageSteps =
+    getStreamJobWorkerRuntimePackageBuildSteps();
   const transcriptionWorkerRuntimePackageSteps =
     getTranscriptionWorkerRuntimePackageBuildSteps();
   const contract = {
@@ -332,6 +350,11 @@ function getExpectedGateContract() {
     apiGatewayRuntimePackageSteps: apiGatewayRuntimePackageSteps.map(
       (step) => step.label,
     ),
+    streamJobWorkerRuntimePackages:
+      STREAM_JOB_WORKER_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.name),
+    streamJobWorkerRuntimePackageSteps: streamJobWorkerRuntimePackageSteps.map(
+      (step) => step.label,
+    ),
     transcriptionWorkerRuntimePackages:
       TRANSCRIPTION_WORKER_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.name),
     transcriptionWorkerRuntimePackageSteps:
@@ -339,6 +362,7 @@ function getExpectedGateContract() {
     transcriptionWorkerTestLabel: TRANSCRIPTION_WORKER_TEST_LABEL,
     sharedRuntimePackageSteps: [
       ...apiGatewayRuntimePackageSteps.map((step) => step.label),
+      ...streamJobWorkerRuntimePackageSteps.map((step) => step.label),
       ...transcriptionWorkerRuntimePackageSteps.map((step) => step.label),
     ],
     transcriptionE2eLabel: TRANSCRIPTION_E2E_LABEL,
@@ -362,6 +386,7 @@ function collectGateContractIssues(
   const apiGatewayBuildIndex = labels.indexOf(
     expectedContract.apiGatewayBuildLabel,
   );
+  const streamJobWorkerTestIndex = labels.indexOf(STREAM_JOB_WORKER_TEST_LABEL);
   const transcriptionWorkerTestIndex = labels.indexOf(
     expectedContract.transcriptionWorkerTestLabel,
   );
@@ -381,6 +406,19 @@ function collectGateContractIssues(
       issues.push(
         `${label} must run before ${expectedContract.apiGatewayTestLabel}`,
       );
+    }
+  }
+
+  for (const label of expectedContract.streamJobWorkerRuntimePackageSteps) {
+    const index = labels.indexOf(label);
+
+    if (index < 0) {
+      issues.push(`missing gate contract step ${label}`);
+      continue;
+    }
+
+    if (streamJobWorkerTestIndex >= 0 && index > streamJobWorkerTestIndex) {
+      issues.push(`${label} must run before ${STREAM_JOB_WORKER_TEST_LABEL}`);
     }
   }
 
@@ -406,6 +444,10 @@ function collectGateContractIssues(
     issues.push(
       `missing gate contract step ${expectedContract.apiGatewayBuildLabel}`,
     );
+  }
+
+  if (streamJobWorkerTestIndex < 0) {
+    issues.push(`missing gate contract step ${STREAM_JOB_WORKER_TEST_LABEL}`);
   }
 
   if (transcriptionWorkerTestIndex < 0) {
@@ -935,9 +977,10 @@ function getCheckSequence(options) {
       label: API_GATEWAY_BUILD_LABEL,
       runner: "pnpm",
     },
+    ...getStreamJobWorkerRuntimePackageBuildSteps(),
     {
       args: ["--filter", "stream-job-worker", "test"],
-      label: "stream-job-worker tests",
+      label: STREAM_JOB_WORKER_TEST_LABEL,
       runner: "pnpm",
     },
     {
@@ -1043,6 +1086,9 @@ module.exports = {
   RELEASE_GATE_RUNNER_SERVICE,
   RUNNER_PROVENANCE_PATH,
   RUNNER_PROVENANCE_SCHEMA_VERSION,
+  STREAM_JOB_WORKER_TEST_LABEL,
+  STREAM_JOB_WORKER_RUNTIME_WORKSPACE_PACKAGES,
+  getStreamJobWorkerRuntimePackageBuildSteps,
   TRANSCRIPTION_WORKER_RUNTIME_WORKSPACE_PACKAGES,
   TRANSCRIPTION_WORKER_TEST_LABEL,
   TRANSCRIPTION_E2E_LABEL,

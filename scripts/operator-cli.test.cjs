@@ -19,6 +19,8 @@ const {
   RUNNER_PROVENANCE_SCHEMA_VERSION,
   SNAPSHOT_NOT_PROOF_CAPABLE,
   PRODUCTION_GATE_MODE,
+  STREAM_JOB_WORKER_RUNTIME_WORKSPACE_PACKAGES,
+  STREAM_JOB_WORKER_TEST_LABEL,
   TRANSCRIPTION_WORKER_RUNTIME_WORKSPACE_PACKAGES,
   TRANSCRIPTION_WORKER_TEST_LABEL,
   assertProofCapableSnapshot,
@@ -28,6 +30,7 @@ const {
   collectProofSnapshotIssues,
   collectRunnerProvenanceIssues,
   getApiGatewayRuntimePackageBuildSteps,
+  getStreamJobWorkerRuntimePackageBuildSteps,
   getTranscriptionWorkerRuntimePackageBuildSteps,
   getCheckSequence,
   parseArgs: parseRolloutArgs,
@@ -425,6 +428,7 @@ test("rollout gate contract check requires shared package builds before api-gate
     "API Gateway runtime package build: @streamos/redis",
     "API Gateway runtime package build: @streamos/queue",
     "API Gateway runtime package build: @streamos/youtube-websub",
+    "stream-job-worker runtime package build: @streamos/types",
     "transcription-worker runtime package build: @streamos/types",
     "transcription-worker runtime package build: @streamos/queue",
     "transcription-worker runtime package build: @streamos/redis",
@@ -498,6 +502,42 @@ test("rollout check builds shared runtime packages before api-gateway tests", ()
   }
 });
 
+test("rollout check builds stream-job-worker runtime packages before stream-job-worker tests", () => {
+  const sequence = getCheckSequence(
+    parseRolloutArgs([
+      "--mode",
+      "production-gate",
+      "--skip-docker",
+      "--allow-hosted-e2e",
+      "--expect-private-automation",
+      "--api-gateway-url",
+      "https://api.example.com",
+      "--automation-service-url",
+      "http://automation-service.railway.internal:8000",
+    ]),
+  );
+
+  const labels = sequence.map((step) => step.label);
+  const streamJobWorkerTestIndex = labels.indexOf(STREAM_JOB_WORKER_TEST_LABEL);
+
+  assert.ok(streamJobWorkerTestIndex > 0);
+  assert.deepEqual(
+    getStreamJobWorkerRuntimePackageBuildSteps().map((step) => step.label),
+    ["stream-job-worker runtime package build: @streamos/types"],
+  );
+
+  for (const label of getStreamJobWorkerRuntimePackageBuildSteps().map(
+    (step) => step.label,
+  )) {
+    const index = labels.indexOf(label);
+    assert.ok(index >= 0, `${label} should be part of the rollout gate`);
+    assert.ok(
+      index < streamJobWorkerTestIndex,
+      `${label} should run before the stream-job-worker tests`,
+    );
+  }
+});
+
 test("rollout check builds transcription-worker runtime packages before transcription-worker tests", () => {
   const sequence = getCheckSequence(
     parseRolloutArgs([
@@ -554,6 +594,13 @@ test("transcription-worker runtime package inventory is explicit and includes ty
   );
 });
 
+test("stream-job-worker runtime package inventory is explicit and includes types", () => {
+  assert.deepEqual(
+    STREAM_JOB_WORKER_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.name),
+    ["@streamos/types"],
+  );
+});
+
 test("rollout gate contract fails closed when a transcription-worker runtime package step is missing", () => {
   const sequence = getCheckSequence(
     parseRolloutArgs([
@@ -578,6 +625,32 @@ test("rollout gate contract fails closed when a transcription-worker runtime pac
   assert.match(
     result.issues.join("; "),
     /missing gate contract step transcription-worker runtime package build: @streamos\/types/,
+  );
+});
+
+test("rollout gate contract fails closed when a stream-job-worker runtime package step is missing", () => {
+  const sequence = getCheckSequence(
+    parseRolloutArgs([
+      "--mode",
+      "production-gate",
+      "--skip-docker",
+      "--allow-hosted-e2e",
+      "--expect-private-automation",
+      "--api-gateway-url",
+      "https://api.example.com",
+      "--automation-service-url",
+      "http://automation-service.railway.internal:8000",
+    ]),
+  ).filter(
+    (step) =>
+      step.label !== "stream-job-worker runtime package build: @streamos/types",
+  );
+
+  const result = collectGateContractIssues(sequence);
+
+  assert.match(
+    result.issues.join("; "),
+    /missing gate contract step stream-job-worker runtime package build: @streamos\/types/,
   );
 });
 
