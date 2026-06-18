@@ -1,15 +1,14 @@
 import type { TranscriptionTriggerJobData } from "@streamos/types";
 import type { JobsOptions } from "bullmq";
 import { Queue } from "bullmq";
+import { getTranscriptionTriggerJobId } from "@streamos/queue";
 import { z } from "zod";
 
-import {
-  createRedisConnectionOptions,
-  getDeterministicJobId,
-} from "./redisConnection.js";
+import { createRedisConnectionOptions } from "./redisConnection.js";
 
 export const TRANSCRIPTION_TRIGGER_JOB_NAME = "transcription.trigger";
 export const DEFAULT_TRANSCRIPTION_QUEUE_NAME = "streamos-transcription";
+export { getTranscriptionTriggerJobId };
 
 export const streamEndedPayloadSchema = z.object({
   user_id: z.string().uuid(),
@@ -55,10 +54,6 @@ const transcriptionTriggerJobOptions: JobsOptions = {
     age: 604_800,
   },
 };
-
-export function getTranscriptionTriggerJobId(streamId: string): string {
-  return getDeterministicJobId("transcription-trigger", streamId);
-}
 
 export async function enqueueTranscriptionTriggerJob(
   queue: TranscriptionQueue,

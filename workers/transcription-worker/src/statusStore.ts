@@ -6,7 +6,11 @@ import type {
 
 export type ContentJobPatch = {
   error_message?: string;
+  last_retried_at?: string | null;
+  max_retries?: number;
+  next_retry_at?: string | null;
   result?: Record<string, unknown>;
+  retry_count?: number;
   status: ContentJobStatus;
 };
 
@@ -140,10 +144,13 @@ function buildContentJobWrite({
   return {
     error_message: patch.error_message ?? null,
     job_type: jobType,
-    next_retry_at: null,
+    last_retried_at: patch.last_retried_at,
+    max_retries: patch.max_retries,
+    next_retry_at: patch.next_retry_at ?? null,
     payload,
     queue_job_id: jobId,
     result: patch.result ?? null,
+    retry_count: patch.retry_count,
     status: patch.status,
     stream_id: streamId,
     updated_at: new Date().toISOString(),

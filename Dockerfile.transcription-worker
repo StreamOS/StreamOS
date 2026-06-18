@@ -8,6 +8,8 @@ WORKDIR /app
 RUN corepack enable
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY scripts/prepare.cjs ./scripts/prepare.cjs
+COPY scripts/lib ./scripts/lib
 COPY packages ./packages
 COPY scripts/prepare.cjs ./scripts/prepare.cjs
 COPY scripts/check-deployment.cjs ./scripts/check-deployment.cjs

@@ -15,7 +15,7 @@ on:
         required: false
         type: string
       deploy_backend_services:
-        description: Redeploy Railway backend services and workers
+        description: Redeploy Railway backend services, workers, and release-gate-runner
         required: true
         default: true
         type: boolean
@@ -139,15 +139,49 @@ jobs:
         service:
           - api-gateway
           - automation-service
+          - stream-job-worker
+          - repurposing-worker
           - clip-worker
           - transcription-worker
           - content-job-retry-worker
+          - release-gate-runner
 
     steps:
       - name: Checkout rollback target
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.resolve-target.outputs.git_sha }}
+
+      - name: Stamp release-gate-runner provenance
+        if: ${{ matrix.service == 'release-gate-runner' }}
+        shell: bash
+        env:
+          TARGET_ENV: ${{ needs.resolve-target.outputs.railway_environment }}
+        run: |
+          set -euo pipefail
+
+          git_sha="$(git rev-parse HEAD)"
+
+          node scripts/write-release-gate-runner-provenance.cjs \
+            --git-sha "${git_sha}" \
+            --git-ref "${{ needs.resolve-target.outputs.git_ref }}" \
+            --environment "${TARGET_ENV}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --workflow "${GITHUB_WORKFLOW}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}"
+
+          contract_hash="$(node -e "const p=require('./scripts/.release-gate-runner-provenance.json'); process.stdout.write(p.gateContract.contractHash.slice(0, 12))")"
+
+          {
+            echo "## release-gate-runner rollback provenance"
+            echo ""
+            echo "- Environment: ${TARGET_ENV}"
+            echo "- Service: release-gate-runner"
+            echo "- Commit: \`${git_sha}\`"
+            echo "- Gate contract hash: \`${contract_hash}\`"
+            echo "- Snapshot marker: \`scripts/.release-gate-runner-provenance.json\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -171,6 +205,14 @@ jobs:
             export RAILWAY_TOKEN="${RAILWAY_TOKEN_PRODUCTION}"
           else
             export RAILWAY_TOKEN="${RAILWAY_TOKEN_STAGING}"
+          fi
+
+          if [ "${{ matrix.service }}" = "release-gate-runner" ]; then
+            railway up --ci --no-gitignore \
+              --project "${RAILWAY_PROJECT_ID}" \
+              --environment "${TARGET_ENV}" \
+              --service "${{ matrix.service }}"
+            exit 0
           fi
 
           railway up --ci \
@@ -292,17 +334,13 @@ jobs:
             echo "- Frontend: ${FRONTEND_RESULT}"
             echo "- Frontend URL: ${FRONTEND_URL}"
             echo "- Supabase schema rollback: not performed"
-            echo "- Follow-up: run rollout verification from a Railway shell before re-opening traffic-sensitive workflows"
+            echo "- Follow-up: run rollout verification from release-gate-runner in the same Railway environment before re-opening traffic-sensitive workflows"
             echo ""
             printf '%s\n' \
               '```bash' \
-              "pnpm rollout:check -- \\" \
-              "  --env-file .env \\" \
-              "  --skip-docker \\" \
-              "  --allow-hosted-e2e \\" \
+              "pnpm rollout:check:production -- \\" \
               "  --api-gateway-url https://streamos-api-gateway.up.railway.app \\" \
-              "  --automation-service-url http://automation-service.railway.internal:8000 \\" \
-              "  --expect-private-automation" \
+              "  --automation-service-url http://automation-service.railway.internal:8000" \
               '```'
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -329,7 +367,7 @@ jobs:
             --arg backend "${BACKEND_RESULT}" \
             --arg frontend "${FRONTEND_RESULT}" \
             --arg reason "${{ inputs.reason || 'not provided' }}" \
-            '{content: ("StreamOS rollback finished\nEnvironment: " + $environment + "\nGit ref: " + $ref + "\nCommit: `" + $sha + "`\nRailway services: " + $backend + "\nFrontend: " + $frontend + "\nReason: " + $reason + "\nSupabase schema rollback: not performed\nFollow-up: run `pnpm rollout:check ... --expect-private-automation` from a Railway shell.")}' \
+            '{content: ("StreamOS rollback finished\nEnvironment: " + $environment + "\nGit ref: " + $ref + "\nCommit: `" + $sha + "`\nRailway services: " + $backend + "\nFrontend: " + $frontend + "\nReason: " + $reason + "\nSupabase schema rollback: not performed\nFollow-up: run `pnpm rollout:check:production -- --api-gateway-url https://streamos-api-gateway.up.railway.app --automation-service-url http://automation-service.railway.internal:8000` from release-gate-runner in the same Railway environment. Generic shell services are not valid proof runtimes.")}' \
           )"
 
           curl --fail --silent --show-error \

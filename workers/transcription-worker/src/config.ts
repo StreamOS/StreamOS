@@ -2,21 +2,15 @@ import { assertPrivateAutomationServiceUrl } from "../../../scripts/lib/private-
 
 export const DEFAULT_TRANSCRIPTION_QUEUE_NAME = "streamos-transcription";
 export const DEFAULT_CLIP_GENERATION_QUEUE_NAME = "streamos-clip-generation";
-export const DEFAULT_MEDIA_QUEUE_NAME = "streamos-media";
 
 export type WorkerConfig = {
   automationServiceUrl: string;
   clipGenerationQueueName: string;
   concurrency: number;
-  mediaQueueName: string;
   queueName: string;
   redisUrl: string;
   supabaseServiceRoleKey: string;
   supabaseUrl: string;
-  twitchClientId?: string;
-  twitchClientSecret?: string;
-  youtubeClientId?: string;
-  youtubeClientSecret?: string;
 };
 
 function requireEnv(
@@ -59,10 +53,6 @@ export function loadWorkerConfig(
       source.CLIP_GENERATION_QUEUE_NAME?.trim() ||
       DEFAULT_CLIP_GENERATION_QUEUE_NAME,
     concurrency: parseConcurrency(source.TRANSCRIPTION_WORKER_CONCURRENCY),
-    mediaQueueName:
-      source.QUEUE_DEFAULT_NAME?.trim() ||
-      source.STREAM_JOB_QUEUE_NAME?.trim() ||
-      DEFAULT_MEDIA_QUEUE_NAME,
     queueName:
       source.TRANSCRIPTION_QUEUE_NAME?.trim() ||
       DEFAULT_TRANSCRIPTION_QUEUE_NAME,
@@ -73,9 +63,5 @@ export function loadWorkerConfig(
       "SUPABASE_URL",
       source.NEXT_PUBLIC_SUPABASE_URL,
     ),
-    twitchClientId: source.TWITCH_CLIENT_ID?.trim() || undefined,
-    twitchClientSecret: source.TWITCH_CLIENT_SECRET?.trim() || undefined,
-    youtubeClientId: source.YOUTUBE_CLIENT_ID?.trim() || undefined,
-    youtubeClientSecret: source.YOUTUBE_CLIENT_SECRET?.trim() || undefined,
   };
 }

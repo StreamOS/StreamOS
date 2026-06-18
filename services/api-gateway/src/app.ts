@@ -3,7 +3,11 @@ import express from "express";
 import type { Express, NextFunction, Request, Response } from "express";
 import helmet from "helmet";
 import { Redis } from "ioredis";
-import { dispatchStreamOSJob } from "@streamos/queue";
+import {
+  dispatchStreamOSJob,
+  getTranscriptionTriggerJobId,
+  type StreamOSJob,
+} from "@streamos/queue";
 import { assertRedisTls } from "@streamos/redis";
 import { ZodError } from "zod";
 
@@ -12,11 +16,7 @@ import {
   getClipGenerationJobId,
   type ClipGenerationQueue,
 } from "./jobs/clipGenerationQueue.js";
-import {
-  enqueueTranscriptionTriggerJob,
-  streamEndedPayloadSchema,
-  type TranscriptionQueue,
-} from "./jobs/transcriptionQueue.js";
+import { streamEndedPayloadSchema } from "./jobs/transcriptionQueue.js";
 import {
   createOAuthRouter,
   type CreateOAuthRouterOptions,
@@ -38,7 +38,11 @@ import {
 import { createRoutes } from "./routes/index.js";
 import { createMetricsSyncRouter } from "./routes/metricsSync.js";
 import { createPlatformConnectionsRouter } from "./routes/platformConnections.js";
-import { createSupabaseRestClient } from "./lib/supabaseRest.js";
+import {
+  createSupabaseRestClient,
+  readSupabaseRows,
+} from "./lib/supabaseRest.js";
+import type { ApiGatewayRuntimeProvenance } from "./runtimeProvenance.js";
 import { createProviderWebhookRouter } from "./webhooks/providerRoutes.js";
 import type { ProviderWebhookDispatcher } from "./webhooks/providerEvents.js";
 
@@ -52,8 +56,8 @@ type CreateAppOptions = {
   >;
   providerWebhookDispatcher?: ProviderWebhookDispatcher;
   rateLimit?: Partial<RateLimitConfig>;
+  runtimeProvenance?: ApiGatewayRuntimeProvenance | null;
   streamEventWebhookSecret?: string;
-  transcriptionQueue?: TranscriptionQueue;
   twitchEventSubSecret?: string;
   webhookDeduplicationClient?: RedisDeduplicationClient;
   webhookNow?: () => number;
@@ -92,6 +96,13 @@ const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 120;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
 const MIN_PRODUCTION_SECRET_LENGTH = 24;
 const WEBHOOK_TIMESTAMP_TOLERANCE_MS = 10 * 60 * 1000;
+
+class StreamNotFoundError extends Error {
+  constructor(message = "Stream could not be resolved for this request.") {
+    super(message);
+    this.name = "StreamNotFoundError";
+  }
+}
 
 function hasValidSecret(
   headerValue: string | string[] | undefined,
@@ -606,6 +617,33 @@ async function upsertFailedClipContentJob({
   }
 }
 
+async function assertKnownStreamForTranscription({
+  fetchImpl,
+  streamId,
+  userId,
+}: {
+  fetchImpl?: typeof fetch;
+  streamId: string;
+  userId: string;
+}): Promise<void> {
+  const supabase = createSupabaseRestClient({ fetchImpl });
+  const rows = await readSupabaseRows<{ id: string }>({
+    client: supabase,
+    params: {
+      id: `eq.${streamId}`,
+      select: "id",
+      user_id: `eq.${userId}`,
+    },
+    table: "streams",
+  });
+
+  if (rows.length === 0) {
+    throw new StreamNotFoundError(
+      `No stream found for stream_id=${streamId} and user_id=${userId}.`,
+    );
+  }
+}
+
 export function createApp(options: CreateAppOptions = {}): Express {
   const app = express();
   const securityConfig = resolveSecurityConfig(options);
@@ -618,7 +656,8 @@ export function createApp(options: CreateAppOptions = {}): Express {
 
   if (
     isProduction(nodeEnv) &&
-    (!options.clipGenerationQueue || !options.transcriptionQueue)
+    (!options.clipGenerationQueue ||
+      (!options.providerWebhookDispatcher && !process.env.REDIS_URL?.trim()))
   ) {
     throw new Error(
       "REDIS_URL is required in production for API Gateway queues.",
@@ -679,6 +718,21 @@ export function createApp(options: CreateAppOptions = {}): Express {
   );
 
   app.get("/health", (_request, response) => {
+    if (options.runtimeProvenance) {
+      response.setHeader(
+        "x-streamos-runtime-service",
+        options.runtimeProvenance.service,
+      );
+      response.setHeader(
+        "x-streamos-runtime-commit",
+        options.runtimeProvenance.gitCommit,
+      );
+      response.setHeader(
+        "x-streamos-runtime-environment",
+        options.runtimeProvenance.environment,
+      );
+    }
+
     response.status(200).json({ service: "api-gateway", status: "ok" });
   });
 
@@ -817,26 +871,38 @@ export function createApp(options: CreateAppOptions = {}): Express {
       now: securityConfig.webhookNow,
     }),
     async (request, response) => {
-      if (!options.transcriptionQueue) {
-        response.status(503).json({
-          error: "transcription_queue_unavailable",
-          message:
-            "REDIS_URL is required before transcription jobs can be queued.",
-        });
-        return;
-      }
-
       try {
         const payload = streamEndedPayloadSchema.parse(request.body);
-        const job = await enqueueTranscriptionTriggerJob(
-          options.transcriptionQueue,
-          payload,
-        );
+        await assertKnownStreamForTranscription({
+          fetchImpl: options.oauth?.fetchImpl,
+          streamId: payload.stream_id,
+          userId: payload.user_id,
+        });
+        const signedHeaders = getSignedWebhookHeaders(request);
+        const queueJobId = getTranscriptionTriggerJobId(payload.stream_id);
+        const mediaJob: StreamOSJob = {
+          id:
+            signedHeaders.eventId ??
+            `stream-ended:${payload.stream_id}:${securityConfig.webhookNow()}`,
+          provider: payload.platform,
+          type: "stream.offline",
+          enqueuedAt: new Date(securityConfig.webhookNow()).toISOString(),
+          endedAt: payload.ended_at,
+          internalStreamId: payload.stream_id,
+          language: payload.language,
+          raw: payload,
+          receivedAt: new Date(securityConfig.webhookNow()).toISOString(),
+          streamId: undefined,
+          userId: payload.user_id,
+          vodAssetUrl: payload.vod_asset_url,
+        };
+
+        await providerWebhookDispatcher(mediaJob);
 
         response.status(202).json({
-          job_id: job.jobId,
-          queue_job_id: job.queueJobId,
-          stream_id: job.streamId,
+          job_id: queueJobId,
+          queue_job_id: queueJobId,
+          stream_id: payload.stream_id,
           status: "queued",
         });
       } catch (error) {
@@ -848,9 +914,25 @@ export function createApp(options: CreateAppOptions = {}): Express {
           return;
         }
 
+        if (error instanceof StreamNotFoundError) {
+          response.status(404).json({
+            error: "stream_not_found",
+            message: error.message,
+          });
+          return;
+        }
+
+        if (error instanceof Error && error.message.includes("SUPABASE_URL")) {
+          response.status(503).json({
+            error: "supabase_not_configured",
+            message: "Supabase service credentials are required.",
+          });
+          return;
+        }
+
         response.status(502).json({
           error: "transcription_queue_failed",
-          message: "Transcription trigger job could not be queued.",
+          message: "Stream-ended event could not be queued for transcription.",
         });
       }
     },

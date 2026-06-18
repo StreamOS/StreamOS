@@ -15,10 +15,24 @@
         "serviceDomains": []
       }
     },
+    "svc-repurposing-staging": {
+      "name": "repurposing-worker",
+      "networking": {
+        "privateNetworkEndpoint": "repurposing-worker-staging",
+        "serviceDomains": []
+      }
+    },
     "svc-transcription-staging": {
       "name": "transcription-worker",
       "networking": {
         "privateNetworkEndpoint": "transcription-worker-staging",
+        "serviceDomains": []
+      }
+    },
+    "svc-stream-job-staging": {
+      "name": "stream-job-worker",
+      "networking": {
+        "privateNetworkEndpoint": "stream-job-worker-staging",
         "serviceDomains": []
       }
     },
@@ -33,6 +47,13 @@
       "name": "clip-worker",
       "networking": {
         "privateNetworkEndpoint": "clip-worker-staging",
+        "serviceDomains": []
+      }
+    },
+    "svc-release-gate-runner-staging": {
+      "name": "release-gate-runner",
+      "networking": {
+        "privateNetworkEndpoint": "release-gate-runner-staging",
         "serviceDomains": []
       }
     }

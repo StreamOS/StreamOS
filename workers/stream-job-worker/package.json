@@ -8,10 +8,12 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/**/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@streamos/queue": "workspace:*",
+    "@streamos/types": "workspace:*",
     "@streamos/redis": "workspace:*",
     "@supabase/supabase-js": "^2.49.4",
     "bullmq": "^5.77.7",

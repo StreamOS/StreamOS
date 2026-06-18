@@ -10,8 +10,18 @@
     "url": "https://automation-service-production.up.railway.app"
   },
   {
+    "id": "svc-repurposing-production",
+    "name": "repurposing-worker",
+    "url": null
+  },
+  {
     "id": "svc-transcription-production",
     "name": "transcription-worker",
+    "url": null
+  },
+  {
+    "id": "svc-stream-job-production",
+    "name": "stream-job-worker",
     "url": null
   },
   {
@@ -22,6 +32,11 @@
   {
     "id": "svc-clip-production",
     "name": "clip-worker",
+    "url": null
+  },
+  {
+    "id": "svc-release-gate-runner-production",
+    "name": "release-gate-runner",
     "url": null
   }
 ]

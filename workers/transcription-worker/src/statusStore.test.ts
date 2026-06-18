@@ -123,4 +123,45 @@ describe("createSupabaseJobStatusStore", () => {
       "Supabase /rest/v1/content_jobs write failed with 404: missing table",
     );
   });
+
+  it("persists retry metadata for retryable transcription failures", async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    const store = createSupabaseJobStatusStore({
+      fetchFn,
+      serviceRoleKey: "service-role-key",
+      supabaseUrl: "https://project.supabase.co",
+    });
+
+    await store.update("queue-job-2", payload, {
+      error_message:
+        "provider_rate_limited: Upstream transcription provider rate limited the request.",
+      last_retried_at: "2026-06-18T12:00:00.000Z",
+      max_retries: 5,
+      next_retry_at: null,
+      result: {
+        error:
+          "provider_rate_limited: Upstream transcription provider rate limited the request.",
+        error_code: "provider_rate_limited",
+        next_attempt_in_ms: 60_000,
+        retry_owner: "bullmq",
+        retryable: true,
+      },
+      retry_count: 1,
+      status: "pending",
+    });
+
+    const [, init] = fetchFn.mock.calls[0]!;
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      error_message:
+        "provider_rate_limited: Upstream transcription provider rate limited the request.",
+      last_retried_at: "2026-06-18T12:00:00.000Z",
+      max_retries: 5,
+      next_retry_at: null,
+      queue_job_id: "queue-job-2",
+      retry_count: 1,
+      status: "pending",
+    });
+  });
 });

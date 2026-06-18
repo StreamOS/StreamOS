@@ -1,4 +1,6 @@
 import json
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import urljoin
 
@@ -7,12 +9,30 @@ import httpx
 from schemas import (
     ClipAnalysisRequest,
     ClipAnalysisResponse,
+    RepurposingPlanRequest,
+    RepurposingPlanResponse,
     TranscriptionProcessRequest,
     TranscriptionProcessResponse,
     TranscriptionSegment,
 )
 from settings import Settings
 from ssrf import HostnameResolver, UnsafeAssetUrlError, validate_public_https_url
+
+
+class ProviderRateLimitError(Exception):
+    def __init__(
+        self,
+        *,
+        message: str,
+        provider: str,
+        retry_after_seconds: int | None = None,
+        upstream_status: int = 429,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.provider = provider
+        self.retry_after_seconds = retry_after_seconds
+        self.upstream_status = upstream_status
 
 
 class OpenAIClipAnalyzer:
@@ -102,6 +122,15 @@ class OpenAIClipAnalyzer:
             },
         )
 
+        if response.status_code == 429:
+            raise ProviderRateLimitError(
+                message="Upstream clip analysis provider rate limited the request.",
+                provider="openai",
+                retry_after_seconds=_parse_retry_after_seconds(
+                    response.headers.get("retry-after")
+                ),
+            )
+
         response.raise_for_status()
         analysis = json.loads(_extract_output_text(response.json()))
 
@@ -115,6 +144,182 @@ class OpenAIClipAnalyzer:
             repurpose_summary=analysis["repurpose_summary"],
             provider="openai",
         )
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self.http_client.aclose()
+
+
+class OpenAIRepurposingPlanner:
+    def __init__(
+        self,
+        settings: Settings,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self.settings = settings
+        self.http_client = http_client or httpx.AsyncClient(
+            timeout=settings.openai_timeout_seconds
+        )
+        self._owns_client = http_client is None
+
+    async def plan_repurposing(
+        self, payload: RepurposingPlanRequest
+    ) -> RepurposingPlanResponse:
+        response = await self.http_client.post(
+            f"{self.settings.openai_base_url}/responses",
+            headers={
+                "Authorization": f"Bearer {self.settings.openai_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self.settings.openai_model,
+                "input": [
+                    {
+                        "role": "developer",
+                        "content": (
+                            "You design a manual-review-only repurposing plan for a creator video. "
+                            "Return only JSON that matches the provided schema. "
+                            "Do not schedule publishing, cross-posting, exports, rendering, or any automatic platform action."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "asset_reference": (
+                                    payload.asset_reference.model_dump()
+                                    if payload.asset_reference
+                                    else None
+                                ),
+                                "brand_context": payload.brand_context,
+                                "content_job_id": payload.content_job_id,
+                                "content_policy_hints": payload.content_policy_hints,
+                                "language": payload.language,
+                                "locale": payload.locale,
+                                "manual_review_required": payload.manual_review_required,
+                                "provider": payload.provider,
+                                "provider_video_id": payload.provider_video_id,
+                                "queue_job_id": payload.queue_job_id,
+                                "source_event_type": payload.source_event_type,
+                                "source_metadata": payload.source_metadata,
+                                "target_platforms": payload.target_platforms,
+                                "transcript_reference": (
+                                    payload.transcript_reference.model_dump()
+                                    if payload.transcript_reference
+                                    else None
+                                ),
+                                "user_id": payload.user_id,
+                            },
+                            separators=(",", ":"),
+                        ),
+                    },
+                ],
+                "text": {
+                    "format": {
+                        "type": "json_schema",
+                        "name": "streamos_repurposing_plan",
+                        "strict": True,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": [
+                                "captions",
+                                "confidence",
+                                "content_job_id",
+                                "descriptions",
+                                "hashtag_sets",
+                                "hook_ideas",
+                                "manual_review_required",
+                                "model",
+                                "provider",
+                                "queue_job_id",
+                                "review_notes",
+                                "short_form_plan",
+                                "title_suggestions",
+                                "warnings",
+                            ],
+                            "properties": {
+                                "captions": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "maxItems": 10,
+                                    "items": {"type": "string"},
+                                },
+                                "confidence": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 100,
+                                },
+                                "content_job_id": {"type": "string"},
+                                "descriptions": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "maxItems": 10,
+                                    "items": {"type": "string"},
+                                },
+                                "hashtag_sets": {
+                                    "type": "array",
+                                    "minItems": 0,
+                                    "maxItems": 8,
+                                    "items": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "maxItems": 12,
+                                        "items": {"type": "string"},
+                                    },
+                                },
+                                "hook_ideas": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "maxItems": 10,
+                                    "items": {"type": "string"},
+                                },
+                                "manual_review_required": {
+                                    "const": True,
+                                    "type": "boolean",
+                                },
+                                "model": {"type": "string"},
+                                "provider": {"type": "string"},
+                                "queue_job_id": {"type": "string"},
+                                "review_notes": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "maxItems": 10,
+                                    "items": {"type": "string"},
+                                },
+                                "short_form_plan": {"type": "string"},
+                                "title_suggestions": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "maxItems": 10,
+                                    "items": {"type": "string"},
+                                },
+                                "warnings": {
+                                    "type": "array",
+                                    "minItems": 0,
+                                    "maxItems": 10,
+                                    "items": {"type": "string"},
+                                },
+                            },
+                        },
+                    }
+                },
+            },
+        )
+
+        if response.status_code == 429:
+            raise ProviderRateLimitError(
+                message="Upstream repurposing provider rate limited the request.",
+                provider="openai",
+                retry_after_seconds=_parse_retry_after_seconds(
+                    response.headers.get("retry-after")
+                ),
+            )
+
+        response.raise_for_status()
+        plan = json.loads(_extract_output_text(response.json()))
+
+        return RepurposingPlanResponse.model_validate(plan)
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -146,7 +351,7 @@ class OpenAITranscriptionProcessor:
 
         data = {
             "model": self.settings.openai_transcription_model,
-            "response_format": "verbose_json",
+            "response_format": "json",
         }
         if payload.language != "auto":
             data["language"] = payload.language
@@ -165,6 +370,15 @@ class OpenAITranscriptionProcessor:
                 )
             },
         )
+        if transcription_response.status_code == 429:
+            raise ProviderRateLimitError(
+                message="Upstream transcription provider rate limited the request.",
+                provider="openai",
+                retry_after_seconds=_parse_retry_after_seconds(
+                    transcription_response.headers.get("retry-after")
+                ),
+            )
+
         transcription_response.raise_for_status()
         response_payload = transcription_response.json()
         transcript = response_payload.get("text")
@@ -228,6 +442,33 @@ def _extract_output_text(response_payload: dict[str, Any]) -> str:
                 return text
 
     raise ValueError("OpenAI response did not include text output.")
+
+
+def _parse_retry_after_seconds(value: str | None) -> int | None:
+    if value is None:
+        return None
+
+    normalized_value = value.strip()
+
+    if not normalized_value:
+        return None
+
+    if normalized_value.isdigit():
+        return max(int(normalized_value), 0)
+
+    try:
+        retry_after_datetime = parsedate_to_datetime(normalized_value)
+    except (TypeError, ValueError, IndexError):
+        return None
+
+    if retry_after_datetime.tzinfo is None:
+        retry_after_datetime = retry_after_datetime.replace(tzinfo=timezone.utc)
+
+    delta_seconds = int(
+        (retry_after_datetime - datetime.now(timezone.utc)).total_seconds()
+    )
+
+    return max(delta_seconds, 0)
 
 
 def _filename_from_url(asset_url: str) -> str:

@@ -1,15 +1,13 @@
 import { createApp } from "./app.js";
 import { createBullMqClipGenerationQueue } from "./jobs/clipGenerationQueue.js";
-import { createBullMqTranscriptionQueue } from "./jobs/transcriptionQueue.js";
+import { readApiGatewayRuntimeProvenance } from "./runtimeProvenance.js";
 
 const clipGenerationQueue = process.env.REDIS_URL
   ? createBullMqClipGenerationQueue()
   : undefined;
-const transcriptionQueue = process.env.REDIS_URL
-  ? createBullMqTranscriptionQueue()
-  : undefined;
+const runtimeProvenance = readApiGatewayRuntimeProvenance();
 
-const app = createApp({ clipGenerationQueue, transcriptionQueue });
+const app = createApp({ clipGenerationQueue, runtimeProvenance });
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST?.trim() || "0.0.0.0";
 
@@ -59,7 +57,6 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   const results = await Promise.allSettled([
     closeServer(),
     closeQueue("clip-generation queue", clipGenerationQueue),
-    closeQueue("transcription queue", transcriptionQueue),
   ]);
   const failures = results.filter(
     (result): result is PromiseRejectedResult => result.status === "rejected",

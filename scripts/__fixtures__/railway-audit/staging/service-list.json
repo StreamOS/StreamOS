@@ -10,8 +10,18 @@
     "url": null
   },
   {
+    "id": "svc-repurposing-staging",
+    "name": "repurposing-worker",
+    "url": null
+  },
+  {
     "id": "svc-transcription-staging",
     "name": "transcription-worker",
+    "url": null
+  },
+  {
+    "id": "svc-stream-job-staging",
+    "name": "stream-job-worker",
     "url": null
   },
   {
@@ -22,6 +32,11 @@
   {
     "id": "svc-clip-staging",
     "name": "clip-worker",
+    "url": null
+  },
+  {
+    "id": "svc-release-gate-runner-staging",
+    "name": "release-gate-runner",
     "url": null
   }
 ]

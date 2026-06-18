@@ -21,20 +21,12 @@ const {
 function buildValidVercelEnv(overrides = {}) {
   return {
     APP_URL: "https://app.streamos.test",
-    APP_ENCRYPTION_KEY: `base64:${Buffer.alloc(32, 7).toString("base64")}`,
-    APP_ENV: "production",
     API_GATEWAY_SECRET: "test-api-gateway-secret-123",
     API_GATEWAY_URL: "https://gateway.streamos.test",
     NEXT_PUBLIC_APP_URL: "https://app.streamos.test",
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-anon-key",
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
     NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
     STREAMOS_DEMO_MODE: "false",
-    STREAM_EVENT_WEBHOOK_SECRET: "test-stream-event-secret-123",
-    TWITCH_CLIENT_ID: "twitch-client-id",
-    TWITCH_CLIENT_SECRET: "twitch-client-secret",
-    TWITCH_REDIRECT_URI:
-      "https://gateway.streamos.test/api/auth/twitch/callback",
-    TWITCH_SCOPES: "user:read:email",
     ...overrides,
   };
 }
@@ -127,24 +119,16 @@ test("collectVercelEnvironmentIssues skips local-only URLs outside Vercel mode",
 
 test("collectVercelEnvironmentIssues accepts required keys confirmed by Vercel inventory", () => {
   const maskedEnv = {
-    APP_ENV: "production",
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-anon-key",
+    NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
     STREAMOS_DEMO_MODE: "false",
-    STREAM_EVENT_WEBHOOK_SECRET: "test-stream-event-secret-123",
-    TWITCH_REDIRECT_URI:
-      "https://gateway.streamos.test/api/auth/twitch/callback",
-    TWITCH_SCOPES: "user:read:email",
   };
 
   const issues = collectVercelEnvironmentIssues(maskedEnv, {
     knownPresentNames: new Set([
-      "APP_ENCRYPTION_KEY",
       "API_GATEWAY_SECRET",
       "API_GATEWAY_URL",
       "NEXT_PUBLIC_APP_URL",
-      "NEXT_PUBLIC_SUPABASE_URL",
-      "TWITCH_CLIENT_ID",
-      "TWITCH_CLIENT_SECRET",
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
     ]),
     requireRequired: true,
     validatePublicUrls: true,
@@ -171,6 +155,7 @@ test("collectVercelEnvironmentIssues still blocks forbidden keys from Vercel inv
 
 test("findForbiddenVercelEnvNames catches Railway-only names and prefixes", () => {
   const names = findForbiddenVercelEnvNames({
+    APP_ENCRYPTION_KEY: `base64:${Buffer.alloc(32, 7).toString("base64")}`,
     OPENAI_API_KEY: "sk-test",
     RAILWAY_PRIVATE_DOMAIN: "internal",
     REDIS_URL: "redis://localhost:6379/0",
@@ -179,6 +164,7 @@ test("findForbiddenVercelEnvNames catches Railway-only names and prefixes", () =
   });
 
   assert.deepEqual(names, [
+    "APP_ENCRYPTION_KEY",
     "OPENAI_API_KEY",
     "RAILWAY_PRIVATE_DOMAIN",
     "REDIS_URL",
@@ -187,40 +173,45 @@ test("findForbiddenVercelEnvNames catches Railway-only names and prefixes", () =
   ]);
   assert.match(
     formatForbiddenVercelEnvError(names, "apps/web Vercel build"),
-    /This secret must only be set on Railway, not on Vercel\./,
+    /APP_ENCRYPTION_KEY[\s\S]*YOUTUBE_CLIENT_SECRET[\s\S]*(belong|must not be configured)/i,
   );
 });
 
-test("assertVercelEnvironment blocks Railway-only secrets and provider prefixes", () => {
+test("assertVercelEnvironment blocks Railway-only secrets and provider secrets", () => {
   assert.throws(
     () =>
       assertVercelEnvironment(
         {
+          APP_ENCRYPTION_KEY: `base64:${Buffer.alloc(32, 7).toString("base64")}`,
+          CRON_SECRET: "cron-secret",
+          KICK_CLIENT_SECRET: "kick-secret",
+          KICK_WEBHOOK_SECRET: "kick-webhook-secret",
           OPENAI_API_KEY: "sk-test",
           REDIS_URL: "redis://localhost:6379/0",
           SUPABASE_DB_URL: "postgres://localhost:5432/postgres",
           SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
           TIKTOK_CLIENT_SECRET: "tiktok-secret",
-          YOUTUBE_CLIENT_ID: "youtube-client-id",
-          KICK_WEBHOOK_SECRET: "kick-secret",
+          TWITCH_CLIENT_SECRET: "twitch-secret",
+          YOUTUBE_CLIENT_SECRET: "youtube-client-secret",
         },
         { requireRequired: false, validatePublicUrls: false },
       ),
-    /OPENAI_API_KEY|REDIS_URL|SUPABASE_DB_URL|SUPABASE_SERVICE_ROLE_KEY|TIKTOK_CLIENT_SECRET|YOUTUBE_CLIENT_ID|KICK_WEBHOOK_SECRET/,
+    /APP_ENCRYPTION_KEY|CRON_SECRET|KICK_CLIENT_SECRET|KICK_WEBHOOK_SECRET|OPENAI_API_KEY|REDIS_URL|SUPABASE_DB_URL|SUPABASE_SERVICE_ROLE_KEY|TIKTOK_CLIENT_SECRET|TWITCH_CLIENT_SECRET|YOUTUBE_CLIENT_SECRET/,
   );
 });
 
-test("assertNoForbiddenVercelEnv uses the Railway-only secret guidance", () => {
+test("assertNoForbiddenVercelEnv uses runtime-specific secret guidance", () => {
   assert.throws(
     () =>
       assertNoForbiddenVercelEnv(
         {
+          APP_ENCRYPTION_KEY: `base64:${Buffer.alloc(32, 7).toString("base64")}`,
           OPENAI_API_KEY: "sk-test",
           SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
         },
         { contextLabel: "apps/web Vercel build" },
       ),
-    /OPENAI_API_KEY[\s\S]*SUPABASE_SERVICE_ROLE_KEY[\s\S]*This secret must only be set on Railway, not on Vercel\./,
+    /APP_ENCRYPTION_KEY[\s\S]*OPENAI_API_KEY[\s\S]*SUPABASE_SERVICE_ROLE_KEY[\s\S]*(belong|must not be configured)/i,
   );
 });
 
@@ -262,18 +253,50 @@ test("assertVercelEnvironment allows localhost values during local development",
   );
 });
 
+test("assertVercelEnvironment requires a public Supabase key in Vercel mode", () => {
+  assert.throws(
+    () =>
+      assertVercelEnvironment(
+        {
+          API_GATEWAY_SECRET: "test-api-gateway-secret-123",
+          API_GATEWAY_URL: "https://gateway.streamos.test",
+          NEXT_PUBLIC_APP_URL: "https://app.streamos.test",
+          NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
+        },
+        { requireRequired: true, validatePublicUrls: true },
+      ),
+    /NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \| NEXT_PUBLIC_SUPABASE_ANON_KEY/,
+  );
+});
+
+test("assertVercelEnvironment requires a canonical app origin in Vercel mode", () => {
+  assert.throws(
+    () =>
+      assertVercelEnvironment(
+        {
+          API_GATEWAY_SECRET: "test-api-gateway-secret-123",
+          API_GATEWAY_URL: "https://gateway.streamos.test",
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
+          NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
+        },
+        { requireRequired: true, validatePublicUrls: true },
+      ),
+    /APP_URL \| NEXT_PUBLIC_APP_URL/,
+  );
+});
+
 test("collectUnexpectedVercelEnvNames returns unknown non-blocked names", () => {
   const names = collectUnexpectedVercelEnvNames({
-    APP_ENV: "production",
     CUSTOM_DEBUG_FLAG: "1",
     PATH: "/usr/bin",
+    TWITCH_CLIENT_ID: "legacy-client-id",
     VERCEL_URL: "streamos-web.vercel.app",
   });
 
-  assert.deepEqual(names, ["CUSTOM_DEBUG_FLAG", "PATH"]);
+  assert.deepEqual(names, ["CUSTOM_DEBUG_FLAG", "PATH", "TWITCH_CLIENT_ID"]);
   assert.match(
     formatUnexpectedVercelEnvWarning(names, "apps/web Vercel build"),
-    /CUSTOM_DEBUG_FLAG[\s\S]*PATH/,
+    /CUSTOM_DEBUG_FLAG[\s\S]*PATH[\s\S]*TWITCH_CLIENT_ID/,
   );
 });
 
@@ -340,15 +363,9 @@ test("Vercel env runner fails fast on forbidden NEXT_PUBLIC_OPENAI vars", () => 
 test("next.config.ts still allows local development-only Vercel-style values", () => {
   const result = runNextConfigImport({
     API_GATEWAY_URL: "http://localhost:4000",
-    APP_ENV: "development",
-    STREAMOS_DEMO_MODE: "false",
     NEXT_PUBLIC_APP_URL: "http://localhost:3000",
     NEXT_PUBLIC_SUPABASE_ANON_KEY: "local-anon-key",
     NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321",
-    TWITCH_CLIENT_ID: "local-twitch-client-id",
-    TWITCH_CLIENT_SECRET: "local-twitch-client-secret",
-    TWITCH_REDIRECT_URI: "http://localhost:4000/api/auth/twitch/callback",
-    TWITCH_SCOPES: "user:read:email",
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -366,6 +383,7 @@ test("next.config.ts fails fast on NEXT_PUBLIC_OPENAI prefixes", () => {
 
 test("next.config.ts fails fast on Railway-only secrets outside Vercel mode", () => {
   const result = runNextConfigImport({
+    APP_ENCRYPTION_KEY: `base64:${Buffer.alloc(32, 7).toString("base64")}`,
     OPENAI_API_KEY: "sk-server-only",
     REDIS_URL: "redis://localhost:6379/0",
   });
@@ -373,7 +391,7 @@ test("next.config.ts fails fast on Railway-only secrets outside Vercel mode", ()
   assert.notEqual(result.status, 0);
   assert.match(
     `${result.stdout}${result.stderr}`,
-    /OPENAI_API_KEY[\s\S]*REDIS_URL[\s\S]*This secret must only be set on Railway, not on Vercel\./,
+    /APP_ENCRYPTION_KEY[\s\S]*OPENAI_API_KEY[\s\S]*REDIS_URL[\s\S]*(belong|must not be configured)/i,
   );
 });
 

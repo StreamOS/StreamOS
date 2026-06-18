@@ -5,12 +5,14 @@ export type RetryWorkerConfig = {
   clipGenerationQueueName: string;
   pollIntervalMs: number;
   redisUrl: string;
+  repurposingQueueName: string;
   supabaseServiceRoleKey: string;
   supabaseUrl: string;
   transcriptionQueueName: string;
 };
 
 export const DEFAULT_CLIP_GENERATION_QUEUE_NAME = "streamos-clip-generation";
+export const DEFAULT_REPURPOSING_QUEUE_NAME = "streamos-repurposing";
 export const DEFAULT_TRANSCRIPTION_QUEUE_NAME = "streamos-transcription";
 
 function requireEnv(
@@ -90,6 +92,10 @@ export function loadRetryWorkerConfig(
       value: "60000",
     }),
     redisUrl: requireEnv(source, "REDIS_URL"),
+    repurposingQueueName:
+      source.REPURPOSING_QUEUE_NAME?.trim() ||
+      source.QUEUE_DEFAULT_NAME?.trim() ||
+      DEFAULT_REPURPOSING_QUEUE_NAME,
     supabaseServiceRoleKey: requireEnv(source, "SUPABASE_SERVICE_ROLE_KEY"),
     supabaseUrl: requireEnv(
       source,

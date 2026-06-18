@@ -5,11 +5,17 @@ import json
 import httpx
 import pytest
 
-from main import app, get_clip_analyzer, get_transcription_processor
-from openai_client import OpenAIClipAnalyzer, OpenAITranscriptionProcessor
+from main import app, get_clip_analyzer, get_repurposing_planner, get_transcription_processor
+from openai_client import (
+    OpenAIClipAnalyzer,
+    OpenAITranscriptionProcessor,
+    ProviderRateLimitError,
+)
 from schemas import (
     ClipAnalysisRequest,
     ClipAnalysisResponse,
+    RepurposingPlanRequest,
+    RepurposingPlanResponse,
     TranscriptionProcessRequest,
     TranscriptionProcessResponse,
     TranscriptionSegment,
@@ -60,11 +66,55 @@ class StubTranscriptionProcessor:
         )
 
 
+class StubRepurposingPlanner:
+    async def plan_repurposing(
+        self, payload: RepurposingPlanRequest
+    ) -> RepurposingPlanResponse:
+        return RepurposingPlanResponse(
+            captions=["Repurpose this moment."],
+            confidence=87,
+            content_job_id=payload.content_job_id,
+            descriptions=["Review-only description."],
+            hashtag_sets=[["#streamos"]],
+            hook_ideas=["Open with the strongest beat."],
+            manual_review_required=True,
+            model="gpt-4o",
+            provider="test",
+            queue_job_id=payload.queue_job_id,
+            review_notes=["Manual approval is required."],
+            short_form_plan="Draft a review-only repurposing plan.",
+            title_suggestions=["The moment everyone missed"],
+            warnings=["No automatic publishing."],
+        )
+
+
 class UnsafeUrlTranscriptionProcessor:
     async def process_transcription(
         self, _payload: TranscriptionProcessRequest
     ) -> TranscriptionProcessResponse:
         raise UnsafeAssetUrlError("Asset URL resolves to a non-public IP address.")
+
+
+class RateLimitedTranscriptionProcessor:
+    async def process_transcription(
+        self, _payload: TranscriptionProcessRequest
+    ) -> TranscriptionProcessResponse:
+        raise ProviderRateLimitError(
+            message="Upstream transcription provider rate limited the request.",
+            provider="openai",
+            retry_after_seconds=45,
+        )
+
+
+class RateLimitedRepurposingPlanner:
+    async def plan_repurposing(
+        self, _payload: RepurposingPlanRequest
+    ) -> RepurposingPlanResponse:
+        raise ProviderRateLimitError(
+            message="Upstream repurposing provider rate limited the request.",
+            provider="openai",
+            retry_after_seconds=30,
+        )
 
 
 def test_settings_reject_public_openai_keys() -> None:
@@ -155,6 +205,104 @@ def test_transcription_endpoint_uses_server_side_processor() -> None:
     }
 
 
+def test_repurposing_endpoint_uses_server_side_planner() -> None:
+    app.dependency_overrides[get_repurposing_planner] = StubRepurposingPlanner
+
+    try:
+        response = asyncio.run(
+            post_json(
+                "/repurposing/plan",
+                {
+                    "asset_reference": {
+                        "kind": "vod",
+                        "status": "asset_available",
+                        "url": "https://cdn.example.com/vods/test.mp4",
+                    },
+                    "brand_context": {"brand_profile_id": "brand-1"},
+                    "content_job_id": "job-123",
+                    "content_policy_hints": {"content_policy_profile": "safe"},
+                    "language": "en",
+                    "locale": "en",
+                    "manual_review_required": True,
+                    "provider": "youtube",
+                    "provider_video_id": "video-123",
+                    "queue_job_id": "repurposing-plan-job-123",
+                    "source_event_type": "video.published",
+                    "source_metadata": {
+                        "source_provider": "youtube",
+                        "source_video_id": "video-123",
+                        "stream_id": "stream-123",
+                        "user_id": "11111111-1111-4111-8111-111111111111",
+                        "vod_asset_url": "https://cdn.example.com/vods/test.mp4",
+                        "workflow": "repurposing_plan",
+                    },
+                    "target_platforms": ["youtube", "tiktok"],
+                    "transcript_reference": {
+                        "stream_id": "stream-123",
+                        "transcript_id": "transcript-1",
+                    },
+                    "user_id": "11111111-1111-4111-8111-111111111111",
+                },
+            )
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "captions": ["Repurpose this moment."],
+        "confidence": 87,
+        "content_job_id": "job-123",
+        "descriptions": ["Review-only description."],
+        "hashtag_sets": [["#streamos"]],
+        "hook_ideas": ["Open with the strongest beat."],
+        "manual_review_required": True,
+        "model": "gpt-4o",
+        "provider": "test",
+        "queue_job_id": "repurposing-plan-job-123",
+        "review_notes": ["Manual approval is required."],
+        "short_form_plan": "Draft a review-only repurposing plan.",
+        "title_suggestions": ["The moment everyone missed"],
+        "warnings": ["No automatic publishing."],
+    }
+
+
+def test_repurposing_endpoint_returns_structured_503_for_provider_rate_limit() -> (
+    None
+):
+    app.dependency_overrides[get_repurposing_planner] = RateLimitedRepurposingPlanner
+
+    try:
+        response = asyncio.run(
+            post_json(
+                "/repurposing/plan",
+                {
+                    "content_job_id": "job-123",
+                    "manual_review_required": True,
+                    "provider": "youtube",
+                    "queue_job_id": "repurposing-plan-job-123",
+                    "source_event_type": "video.published",
+                    "source_metadata": {},
+                    "user_id": "11111111-1111-4111-8111-111111111111",
+                },
+            )
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {
+            "code": "provider_rate_limited",
+            "message": "Upstream repurposing provider rate limited the request.",
+            "provider": "openai",
+            "retryable": True,
+            "retry_after_seconds": 30,
+            "upstream_status": 429,
+        }
+    }
+
+
 def test_transcription_endpoint_returns_400_for_unsafe_asset_url() -> None:
     app.dependency_overrides[get_transcription_processor] = (
         UnsafeUrlTranscriptionProcessor
@@ -178,6 +326,42 @@ def test_transcription_endpoint_returns_400_for_unsafe_asset_url() -> None:
 
     assert response.status_code == 400
     assert response.json() == {"detail": "Transcription asset URL is not allowed."}
+
+
+def test_transcription_endpoint_returns_structured_503_for_provider_rate_limit() -> (
+    None
+):
+    app.dependency_overrides[get_transcription_processor] = (
+        RateLimitedTranscriptionProcessor
+    )
+
+    try:
+        response = asyncio.run(
+            post_json(
+                "/transcriptions/process",
+                {
+                    "job_id": "job-123",
+                    "stream_id": "stream-123",
+                    "source_platform": "twitch",
+                    "asset_url": "https://cdn.example.com/audio.mp4",
+                    "language": "en",
+                },
+            )
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {
+            "code": "provider_rate_limited",
+            "message": "Upstream transcription provider rate limited the request.",
+            "provider": "openai",
+            "retryable": True,
+            "retry_after_seconds": 45,
+            "upstream_status": 429,
+        }
+    }
 
 
 def test_missing_server_openai_key_returns_503(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -281,6 +465,13 @@ def test_openai_transcription_processor_downloads_media_and_calls_audio_endpoint
 
         assert request.url == "https://api.openai.test/v1/audio/transcriptions"
         assert request.headers["Authorization"] == "Bearer sk-server"
+        transcription_payload = request.content.decode("utf-8", errors="ignore")
+
+        assert 'name="model"' in transcription_payload
+        assert "gpt-4o-transcribe" in transcription_payload
+        assert 'name="response_format"' in transcription_payload
+        assert "verbose_json" not in transcription_payload
+        assert "\r\njson\r\n" in transcription_payload
 
         return httpx.Response(
             status_code=200,
@@ -438,4 +629,68 @@ def test_openai_transcription_processor_rejects_private_redirect_targets() -> No
 
     assert [str(request.url) for request in requests] == [
         "https://cdn.example.com/audio.mp4"
+    ]
+
+
+def test_openai_transcription_processor_classifies_provider_429() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+
+        if request.url == "https://cdn.example.com/audio.mp4":
+            return httpx.Response(
+                status_code=200,
+                headers={"content-type": "audio/mp4"},
+                content=b"fake-audio-bytes",
+            )
+
+        assert request.url == "https://api.openai.test/v1/audio/transcriptions"
+        return httpx.Response(
+            status_code=429,
+            headers={"retry-after": "120"},
+            json={"error": {"message": "Rate limit exceeded."}},
+        )
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.AsyncClient(transport=transport)
+    processor = OpenAITranscriptionProcessor(
+        Settings(
+            streamos_e2e_mode=False,
+            openai_api_key="sk-server",
+            openai_model="gpt-4o",
+            openai_title_model="gpt-4o-mini",
+            openai_transcription_model="gpt-4o-transcribe",
+            openai_base_url="https://api.openai.test/v1",
+            openai_timeout_seconds=30,
+            max_transcription_media_bytes=25_000_000,
+            transcription_processor_mode="openai",
+        ),
+        http_client=http_client,
+        asset_url_resolver=lambda _hostname: [ipaddress.ip_address("93.184.216.34")],
+    )
+
+    async def run_transcription() -> None:
+        try:
+            await processor.process_transcription(
+                TranscriptionProcessRequest(
+                    job_id="job-123",
+                    stream_id="stream-123",
+                    source_platform="twitch",
+                    asset_url="https://cdn.example.com/audio.mp4",
+                    language="en",
+                )
+            )
+        finally:
+            await http_client.aclose()
+
+    with pytest.raises(ProviderRateLimitError) as error_info:
+        asyncio.run(run_transcription())
+
+    assert error_info.value.provider == "openai"
+    assert error_info.value.retry_after_seconds == 120
+    assert error_info.value.upstream_status == 429
+    assert [str(request.url) for request in requests] == [
+        "https://cdn.example.com/audio.mp4",
+        "https://api.openai.test/v1/audio/transcriptions",
     ]

@@ -7,6 +7,8 @@ import type {
 import {
   clipGenerationPayloadSchema,
   CLIP_GENERATION_JOB_NAME,
+  repurposingPlanJobPayloadSchema,
+  REPURPOSING_PLAN_JOB_NAME,
   transcriptionTriggerJobDataSchema,
   TRANSCRIPTION_TRIGGER_JOB_NAME,
 } from "./jobSchemas.js";
@@ -50,13 +52,65 @@ function getNextRetryAt({
   return new Date(now.getTime() + backoffMs * multiplier);
 }
 
-function buildRetryQueueJob(job: RetryableContentJob): RetryQueueJob {
+function buildRepurposingQueueJob(
+  job: RetryableContentJob,
+  queueJobId: string,
+): RetryQueueJob {
+  const durablePayload = repurposingPlanJobPayloadSchema.parse(job.payload);
+
+  return {
+    data: {
+      asset_reference: {
+        kind: "vod",
+        status: "asset_available",
+        url: durablePayload.vod_asset_url,
+      },
+      brand_context: durablePayload.brand_profile_id
+        ? {
+            brand_profile_id: durablePayload.brand_profile_id,
+          }
+        : undefined,
+      content_job_id: job.id,
+      content_policy_hints: durablePayload.content_policy_profile
+        ? {
+            content_policy_profile: durablePayload.content_policy_profile,
+          }
+        : undefined,
+      language: undefined,
+      locale: undefined,
+      manual_review_required: true,
+      provider: durablePayload.source_provider,
+      provider_video_id: durablePayload.source_video_id,
+      queue_job_id: queueJobId,
+      source_event_type: "video.published",
+      source_metadata: durablePayload,
+      target_platforms: durablePayload.target_platforms,
+      transcript_reference: durablePayload.stream_id
+        ? {
+            stream_id: durablePayload.stream_id,
+          }
+        : undefined,
+      user_id: job.user_id,
+    },
+    name: REPURPOSING_PLAN_JOB_NAME,
+    queue: "repurposing",
+  };
+}
+
+function buildRetryQueueJob(
+  job: RetryableContentJob,
+  queueJobId: string,
+): RetryQueueJob {
   if (job.job_type === "clip_scoring") {
     return {
       data: clipGenerationPayloadSchema.parse(job.payload),
       name: CLIP_GENERATION_JOB_NAME,
       queue: "clip_generation",
     };
+  }
+
+  if (job.job_type === "repurposing") {
+    return buildRepurposingQueueJob(job, queueJobId);
   }
 
   if (job.job_type === "transcription") {
@@ -98,16 +152,27 @@ export async function retryFailedContentJobs({
   for (const job of jobs) {
     const effectiveMaxRetries = job.max_retries;
 
+    if (isManualReviewRequiredRepurposingJob(job)) {
+      await store.markUnretryable({
+        errorMessage: "Repurposing plan requires manual review.",
+        job,
+        now,
+      });
+      result.exhausted += 1;
+      continue;
+    }
+
     if (job.retry_count >= effectiveMaxRetries) {
       result.exhausted += 1;
       continue;
     }
 
     const retryCount = job.retry_count + 1;
+    const queueJobId = getQueueJobId(job, retryCount);
     let retryQueueJob: RetryQueueJob;
 
     try {
-      retryQueueJob = buildRetryQueueJob(job);
+      retryQueueJob = buildRetryQueueJob(job, queueJobId);
     } catch (error) {
       await store.markUnretryable({
         errorMessage: getErrorMessage(error),
@@ -118,7 +183,6 @@ export async function retryFailedContentJobs({
       continue;
     }
 
-    const queueJobId = getQueueJobId(job, retryCount);
     const claimed = await store.claimForRetry({
       job,
       now,
@@ -163,4 +227,24 @@ export async function retryFailedContentJobs({
   }
 
   return result;
+}
+
+function isManualReviewRequiredRepurposingJob(
+  job: RetryableContentJob,
+): boolean {
+  if (job.job_type !== "repurposing") {
+    return false;
+  }
+
+  if (!isRecord(job.result)) {
+    return false;
+  }
+
+  return (
+    job.result.review_required === true || job.result.retry_owner === "manual"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

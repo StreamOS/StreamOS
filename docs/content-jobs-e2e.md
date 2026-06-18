@@ -62,7 +62,9 @@ hosted project. The helper blocks non-local Supabase URLs unless
 SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_DOCKER_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+# Legacy compatibility only when older local setups still use anon-key naming:
+# NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
 

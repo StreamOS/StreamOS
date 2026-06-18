@@ -16,16 +16,19 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
     "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/**/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@streamos/redis": "workspace:*",
+    "@streamos/types": "workspace:*",
     "bullmq": "^5.77.7",
     "ioredis": "^5.8.2"
   },
   "devDependencies": {
     "@streamos/config": "workspace:*",
     "@types/node": "^22.13.14",
+    "tsx": "^4.20.6",
     "typescript": "^6.0.3"
   }
 }

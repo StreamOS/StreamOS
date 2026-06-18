@@ -44,7 +44,7 @@ specific Python 3.12 executable.
 Create local environment values:
 
 ```bash
-cp .env.example apps/web/.env.local
+cp apps/web/.env.local.example apps/web/.env.local
 cp .env.compose.example .env
 ```
 
@@ -71,7 +71,8 @@ pnpm infra:ps
 
 This starts Redis at `localhost:6379`, the API gateway at
 `http://localhost:4000`, the automation service at `http://localhost:8000`,
-`clip-worker`, `transcription-worker`, and `content-job-retry-worker`.
+`stream-job-worker`, `clip-worker`, `transcription-worker`, and
+`content-job-retry-worker`.
 Compose reads `SUPABASE_URL`, optional `SUPABASE_DOCKER_URL`, and
 `SUPABASE_SERVICE_ROLE_KEY` from the selected env file for the workers.
 Use `SUPABASE_DOCKER_URL=http://host.docker.internal:54321` when the worker in
@@ -106,11 +107,24 @@ pnpm e2e:jobs
 ```
 
 To prove the full transcription path through Redis, API Gateway,
-`transcription-worker`, and `automation-service`, run:
+`stream-job-worker`, `transcription-worker`, and `automation-service`, run:
 
 ```bash
 pnpm e2e:transcription
 pnpm e2e:transcription -- --expect=failed
+```
+
+For a promotable hosted `production-gate`, the transcription E2E also needs an
+explicit non-sensitive public fixture asset via
+`TRANSCRIPTION_E2E_FIXTURE_ASSET_URL` or `--fixture-asset-url`. Placeholder
+hosts such as `example.com`, localhost/private URLs, signed query-string URLs,
+and Railway private URLs are rejected before the gate can enqueue work.
+
+For an operator-level diagnostic that keeps the same hard invariants but still
+targets your local stack, run:
+
+```bash
+pnpm rollout:check:local
 ```
 
 The retry worker scans failed `content_jobs`, claims eligible rows by
@@ -131,8 +145,8 @@ node -e "console.log('base64:' + require('crypto').randomBytes(32).toString('bas
 ```
 
 Set the generated value as `APP_ENCRYPTION_KEY` in the server runtime that owns
-the provider flow. Today that means `apps/web/.env.local` for Twitch and the
-API gateway environment for YouTube.
+the provider flow. In the current architecture that means the API gateway and
+other trusted Railway services, never `apps/web` on Vercel.
 
 ## AI Provider Secrets
 
@@ -149,7 +163,9 @@ OPENAI_TITLE_MODEL=gpt-4o-mini
 ```
 
 Use `OPENAI_MODEL=gpt-4o` for complex clip analysis and repurposing tasks.
-Use `OPENAI_TITLE_MODEL=gpt-4o-mini` for low-latency title generation.
+Keep `OPENAI_TITLE_MODEL` reserved for a future canonical title-generation or
+repurposing contract. The active production endpoints are `/clips/analyze`,
+`/repurposing/plan`, and `/transcriptions/process`.
 
 Browser code should call StreamOS API routes or backend services. It must never
 call OpenAI directly.
@@ -172,9 +188,24 @@ The production deployment topology is documented in
 - `apps/web` deploys to Vercel as the Next.js App Router dashboard.
 - `services/api-gateway` deploys to Railway with `Dockerfile.api-gateway`.
 - `services/automation-service` deploys to Railway first, or Fly.io when GPU-backed Whisper becomes required.
+- `workers/stream-job-worker` deploys to Railway as the canonical `streamos-media` consumer and materializes durable stream/content-job state.
+- `workers/repurposing-worker` deploys to Railway as the canonical `streamos-repurposing` consumer and calls `POST /repurposing/plan` for manual-review-only repurposing plans.
 - `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.
 - `workers/clip-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for clip scoring.
 - `workers/content-job-retry-worker` deploys to Railway as a Node.js BullMQ worker that requeues retryable failed `content_jobs`.
+- `release-gate-runner` deploys to Railway as a private operator runtime built from `Dockerfile.release-gate-runner`; it exists only to run the promotable `production-gate` from the same release-candidate snapshot and environment.
+
+Only `pnpm rollout:check:production` counts as a promotable release gate. Run
+it from `release-gate-runner` or another Railway runtime that can reach the
+private Automation Service URL and contains the same gate-required
+release-candidate snapshot. A green local diagnostic is useful, but it is not a
+production pass.
+The Railway service itself must exist in the target environment; generic shell
+services are not a valid substitute, and a stopped runner cannot provide proof.
+The gate now fails early with `snapshot_not_proof_capable` if the runtime is
+missing `scripts/rollout-check.cjs`, the root `rollout:check:production`
+script, required workspace sources, or the current runner-provenance / gate-contract
+marker generated from the deployed checkout.
 
 ### Required GitHub Secrets
 
@@ -218,13 +249,45 @@ CONTENT_JOB_RETRY_ATTEMPTS=3
 CONTENT_JOB_RETRY_BACKOFF_MS=30000
 ```
 
-`POST /api/webhooks/streams/ended` queues the first automation job,
-`transcription.trigger`. Re-sending the same `stream_id` reuses the same BullMQ
-`jobId`, so one ended stream cannot enqueue duplicate transcription work.
-In production, `services/api-gateway` fails startup unless both
-`API_GATEWAY_SECRET` and `STREAM_EVENT_WEBHOOK_SECRET` are set. App-facing
-gateway routes accept `Authorization: Bearer $API_GATEWAY_SECRET`; external
-webhooks use `X-StreamOS-Webhook-Secret`.
+`POST /api/webhooks/streams/ended` first validates the internal `stream_id`
+server-side. Unknown streams return `404 stream_not_found` and do not enqueue
+anything.
+
+Known streams enqueue a normalized `stream.offline` media event into
+`streamos-media`. The API Gateway opportunistically enriches that event from
+existing `vod_assets` when `vodAssetUrl` is missing, then `stream-job-worker`
+remains the canonical consumer of that queue and only fans out to the
+downstream `transcription.trigger` job in `streamos-transcription` when the
+event carries or resolves complete transcription input.
+
+The API response stays aligned to the later canonical downstream ID:
+`job_id` and `queue_job_id` both resolve to `transcription-trigger-<stream_id>`.
+This keeps UI and monitoring stable even though the first queued job is the
+media event, not the transcription worker job.
+
+`transcription-worker` consumes only `streamos-transcription` and calls
+`POST /transcriptions/process`. `video.published` can now create a durable
+`repurposing` plan content job and enqueue `repurposing.plan` into
+`streamos-repurposing` when server-side enrichment resolves `asset_available`
+and the connected platform metadata explicitly opts in. The dedicated
+`repurposing-worker` consumes only `streamos-repurposing`, calls
+`POST /repurposing/plan`, and persists a manual-review-only plan in
+`content_jobs.result`. It does not auto-publish, export, render, or
+crosspost. Raw provider events without a direct `vodAssetUrl` still rely on
+server-side enrichment against existing assets before they can trigger
+automatic transcription.
+
+`GET /api/observability` is a protected server-to-server snapshot route for
+operator use. It requires `API_GATEWAY_SECRET`, returns the current
+observability backend (`redis` in production, `memory` only for local/test
+fallback), and exposes only the counters `dedupe_hits`,
+`rate_limit_rejects`, `webhook_validation_failures`, and
+`queue_enqueue_failures`.
+
+In production, `services/api-gateway` fails startup unless
+`API_GATEWAY_SECRET`, `STREAM_EVENT_WEBHOOK_SECRET`, and `REDIS_URL` are set.
+App-facing gateway routes accept `Authorization: Bearer $API_GATEWAY_SECRET`;
+external webhooks use `X-StreamOS-Webhook-Secret`.
 
 ## Supabase Auth
 
@@ -248,45 +311,9 @@ Also allow your local and deployed `/auth/callback` and `/auth/confirm` URLs in
 Supabase Auth URL configuration. The manual local Inbucket test plan is in
 `docs/auth-email-confirmation-test-plan.md`.
 
-## Twitch OAuth
+## Gateway-Owned OAuth
 
-The first platform connector intentionally lives in the web app server
-boundary:
-
-- `/api/platforms/twitch/connect`
-- `/api/platforms/twitch/callback`
-
-This is a documented exception to the long-term gateway direction. Twitch uses
-the Supabase SSR session from HTTP-only Next.js cookies to verify the user, then
-uses a server-only service-role client for encrypted `platform_connections`
-token reads and writes. Do not move this flow to `services/api-gateway` until
-the gateway has a signed user-session hand-off from `apps/web`, a tenant-safe
-Supabase client strategy, and integration coverage for callback success and
-failure paths.
-
-Connected Twitch accounts store encrypted access and refresh tokens in Supabase.
-The dashboard exposes a server-side token refresh action so expired access tokens
-can be renewed without exposing provider credentials to the browser.
-The first analytics sync is available from `/dashboard/analytics`; it reads
-Twitch channel, live stream, and follower count data, updates the linked channel,
-and writes a `metrics_snapshots` row.
-
-Configure these server-only values in `apps/web/.env.local`:
-
-```bash
-TWITCH_CLIENT_ID=
-TWITCH_CLIENT_SECRET=
-TWITCH_REDIRECT_URI=http://localhost:3000/api/platforms/twitch/callback
-TWITCH_SCOPES=user:read:email
-APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
-SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
-```
-
-Register the same redirect URI in the Twitch Developer Console. If Next.js falls back to another local port, update both `TWITCH_REDIRECT_URI` and the Twitch app settings to match.
-
-## Gateway OAuth
-
-YouTube, TikTok, and Kick OAuth flows are owned by `services/api-gateway`:
+Twitch, YouTube, TikTok, and Kick OAuth flows are owned by `services/api-gateway`:
 
 - `GET /api/auth/:provider/connect?handoff=<signed-token>`
 - `GET /api/auth/:provider/callback`
@@ -299,9 +326,28 @@ provider, exchanges the callback code with PKCE, fetches the authenticated
 provider profile, encrypts access and refresh tokens with `APP_ENCRYPTION_KEY`,
 and upserts `channels` plus `platform_connections`.
 
+`apps/web` only keeps the minimal server-side handoff boundary:
+
+```bash
+APP_URL=http://localhost:3000
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+API_GATEWAY_URL=http://localhost:4000
+API_GATEWAY_SECRET=
+```
+
+Do not place `APP_ENCRYPTION_KEY`, provider client secrets, webhook secrets,
+Redis credentials, `SUPABASE_SERVICE_ROLE_KEY`, or any `OPENAI_*` variable in
+`apps/web/.env.local`.
+
 Configure these server-only values in the API gateway environment:
 
 ```bash
+TWITCH_CLIENT_ID=
+TWITCH_CLIENT_SECRET=
+TWITCH_REDIRECT_URI=http://localhost:4000/api/auth/twitch/callback
+TWITCH_SCOPES=user:read:email
 YOUTUBE_CLIENT_ID=
 YOUTUBE_CLIENT_SECRET=
 YOUTUBE_REDIRECT_URI=http://localhost:4000/api/auth/youtube/callback
@@ -328,8 +374,8 @@ pnpm --filter @streamos/api-gateway test
 
 ## Next Implementation Steps
 
-1. Move Twitch OAuth to `services/api-gateway` after the Supabase session
-   hand-off contract is production-ready.
+1. Expand integration coverage for gateway-owned OAuth handoff, callback
+   failure paths, and encrypted token persistence across all providers.
 2. Harden media storage and export automation around the existing
    transcription, clip generation, and retry workers.
 3. Build the user-facing branding and monetization workflows on top of the

@@ -42,16 +42,22 @@ apps/web/src/
 - OAuth and token refresh for YouTube, TikTok, and Kick through
   `services/api-gateway` with signed hand-off tokens, PKCE state, encrypted
   token persistence, and provider profile upserts.
-- Twitch OAuth is the current explicit exception and remains in Next.js server
-  route handlers plus dashboard server actions until the gateway owns a
-  first-class Supabase user-session hand-off.
+- OAuth handoff initiation for the dashboard stays in `apps/web`, but provider
+  secrets, PKCE state, callback handling, encrypted token persistence, token
+  refresh, disconnect, and provider webhooks are gateway-owned in
+  `services/api-gateway`.
 - Webhook validation and event ingestion.
 - Analytics normalization into Supabase PostgreSQL.
 - BullMQ orchestration for transcription triggers, clip generation, stream jobs,
   and durable content-job retries.
-- AI jobs for transcription, clip scoring, title generation, and repurposing in
-  `services/automation-service`.
+- AI jobs for transcription and clip scoring in `services/automation-service`.
+  Title generation and broader repurposing remain future server-side contracts
+  and are not active media-worker endpoints today.
 - Rate limiting, retry handling, and audit logging for external API calls.
+- `GET /api/observability` is a protected server-to-server snapshot route for
+  operator use. In production it must be backed by Redis so rate limiting,
+  replay protection, and observability counters share cluster-wide state; the
+  memory backend is only for local and test runs.
 
 ## Data Model Status
 
@@ -111,14 +117,40 @@ Use REST route handlers or the API gateway for simple commands and webhooks:
 
 Use realtime channels or server-sent events for live viewer counts, stream status, ingestion progress, and notifications.
 
+## Queue Ownership
+
+- `services/api-gateway` produces normalized provider and app-facing media
+  events into `streamos-media`.
+- `workers/stream-job-worker` is the only canonical `streamos-media` consumer.
+  It materializes `streams`, writes durable `content_jobs`, and enqueues
+  canonical `transcription.trigger` jobs when the media event carries enough
+  transcription input, including provider-enriched events that resolved a
+  missing `vodAssetUrl` on the server side.
+- `workers/repurposing-worker` is the canonical `streamos-repurposing`
+  consumer. It receives durable `repurposing.plan` jobs, calls
+  `services/automation-service` at `POST /repurposing/plan`, and persists a
+  manual-review-only plan result in `content_jobs.result`.
+- `workers/transcription-worker` consumes only `streamos-transcription`, calls
+  `services/automation-service`, and persists `vod_assets`,
+  `stream_transcripts`, clip follow-up jobs, and transcription job status.
+- `video.published` can now materialize a durable `repurposing` plan
+  `content_jobs` row and enqueue `repurposing.plan` when provider enrichment
+  resolves `asset_available` and the connected platform metadata explicitly
+  enables repurposing. The durable job remains review-oriented only: it does
+  not auto-publish, export, render, or crosspost. Provider enrichment is
+  classified as `asset_available`, `enrichment_required`,
+  `enrichment_retryable`, `enrichment_failed`, or `unsupported`; only
+  `asset_available` plus explicit opt-in may feed the plan row and downstream
+  repurposing queue.
+
 ## Twitch OAuth Placement Decision
 
 Twitch OAuth is gateway-owned. The web app issues a short-lived signed handoff
 after validating the Supabase SSR session, then the API Gateway owns PKCE,
 provider callback validation, encrypted token persistence, token refresh,
-disconnect, and metrics writes. `apps/web` must not require Supabase
-service-role, Redis, OpenAI, Railway private URLs, or non-Twitch provider
-secrets in Vercel.
+disconnect, and metrics writes. `apps/web` must not require
+`SUPABASE_SERVICE_ROLE_KEY`, `APP_ENCRYPTION_KEY`, provider client secrets,
+provider webhook secrets, Redis, OpenAI, or Railway private URLs in Vercel.
 
 This keeps Twitch tied to the authenticated browser session while avoiding
 browser-visible token grants. The migration depends on these gateway contracts:

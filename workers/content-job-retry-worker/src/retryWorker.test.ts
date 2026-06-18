@@ -5,6 +5,7 @@ import type {
   RetryableContentJob,
 } from "./contentJobStore.js";
 import type { ContentJobRetryQueues } from "./retryQueues.js";
+import { REPURPOSING_PLAN_JOB_NAME } from "./jobSchemas.js";
 import { retryFailedContentJobs } from "./retryWorker.js";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -60,6 +61,43 @@ function createFailedClipJob(
   };
 }
 
+function createFailedRepurposingJob(
+  overrides: Partial<RetryableContentJob> = {},
+): RetryableContentJob {
+  return {
+    error_message: "previous failure",
+    id: JOB_ID,
+    job_type: "repurposing",
+    max_retries: 3,
+    next_retry_at: null,
+    payload: {
+      auto_repurpose_enabled: true,
+      channel_id: "youtube-channel-1",
+      content_policy_profile: "short-form-safe",
+      creator_id: USER_ID,
+      enrichment_status: "asset_available",
+      manual_review_required: true,
+      published_at: "2026-06-17T12:10:00.000Z",
+      source_event_type: "video.published",
+      source_provider: "youtube",
+      source_video_id: "video-123",
+      source_video_title: "New VOD",
+      stream_id: STREAM_ID,
+      target_platforms: ["youtube"],
+      updated_at: "2026-06-17T12:10:00.000Z",
+      user_id: USER_ID,
+      vod_asset_url: "https://video.example.com/vod.mp4",
+      workflow: "repurposing_plan",
+    },
+    queue_job_id: "old-queue-job",
+    retry_count: 0,
+    status: "failed",
+    stream_id: STREAM_ID,
+    user_id: USER_ID,
+    ...overrides,
+  };
+}
+
 describe("retryFailedContentJobs", () => {
   it("claims and requeues a failed clip_scoring content job", async () => {
     const store = createStore([createFailedClipJob()]);
@@ -96,6 +134,95 @@ describe("retryFailedContentJobs", () => {
       queue: "clip_generation",
       queueJobId: `content-job-clip_scoring-${JOB_ID}-retry-1`,
     });
+  });
+
+  it("claims and requeues a failed repurposing content job", async () => {
+    const store = createStore([createFailedRepurposingJob()]);
+    const queues = createQueues();
+
+    await expect(
+      retryFailedContentJobs({
+        bullMqAttempts: 3,
+        bullMqBackoffMs: 30_000,
+        now: NOW,
+        queues,
+        store,
+      }),
+    ).resolves.toEqual({
+      claimed: 1,
+      exhausted: 0,
+      failed: 0,
+      requeued: 1,
+      scanned: 1,
+      skipped: 0,
+    });
+
+    expect(store.claimForRetry).toHaveBeenCalledWith({
+      job: expect.objectContaining({ id: JOB_ID }),
+      now: NOW,
+      queueJobId: `content-job-repurposing-${JOB_ID}-retry-1`,
+      retryCount: 1,
+    });
+    expect(queues.add).toHaveBeenCalledWith({
+      backoffMs: 30_000,
+      bullMqAttempts: 3,
+      data: expect.objectContaining({
+        asset_reference: expect.objectContaining({
+          kind: "vod",
+          status: "asset_available",
+        }),
+        content_job_id: JOB_ID,
+        manual_review_required: true,
+        provider: "youtube",
+        queue_job_id: `content-job-repurposing-${JOB_ID}-retry-1`,
+        source_event_type: "video.published",
+        target_platforms: ["youtube"],
+        user_id: USER_ID,
+      }),
+      name: REPURPOSING_PLAN_JOB_NAME,
+      queue: "repurposing",
+      queueJobId: `content-job-repurposing-${JOB_ID}-retry-1`,
+    });
+  });
+
+  it("marks repurposing jobs that require manual review as unretryable", async () => {
+    const store = createStore([
+      createFailedRepurposingJob({
+        result: {
+          error: "Repurposing plan requires manual review.",
+          error_code: "manual_review_required",
+          retry_owner: "manual",
+          review_required: true,
+        },
+        retry_count: 0,
+      }),
+    ]);
+    const queues = createQueues();
+
+    await expect(
+      retryFailedContentJobs({
+        bullMqAttempts: 3,
+        bullMqBackoffMs: 30_000,
+        now: NOW,
+        queues,
+        store,
+      }),
+    ).resolves.toMatchObject({
+      exhausted: 1,
+      requeued: 0,
+      scanned: 1,
+    });
+
+    expect(store.markUnretryable).toHaveBeenCalledWith({
+      errorMessage: "Repurposing plan requires manual review.",
+      job: expect.objectContaining({
+        id: JOB_ID,
+        job_type: "repurposing",
+      }),
+      now: NOW,
+    });
+    expect(store.claimForRetry).not.toHaveBeenCalled();
+    expect(queues.add).not.toHaveBeenCalled();
   });
 
   it("marks unsupported job types as unretryable", async () => {
