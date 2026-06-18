@@ -35,6 +35,20 @@ const API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES = [
     path: "packages/youtube-websub",
   },
 ];
+const TRANSCRIPTION_WORKER_RUNTIME_WORKSPACE_PACKAGES = [
+  {
+    name: "@streamos/types",
+    path: "packages/types",
+  },
+  {
+    name: "@streamos/queue",
+    path: "packages/queue",
+  },
+  {
+    name: "@streamos/redis",
+    path: "packages/redis",
+  },
+];
 const PROOF_SNAPSHOT_REQUIRED_PATHS = [
   "pnpm-workspace.yaml",
   "turbo.json",
@@ -44,12 +58,16 @@ const PROOF_SNAPSHOT_REQUIRED_PATHS = [
   "services/api-gateway",
   "workers/stream-job-worker",
   "workers/transcription-worker",
-  "packages/types",
   "packages/database",
-  ...API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.path),
+  ...new Set([
+    ...API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.path),
+    ...TRANSCRIPTION_WORKER_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.path),
+  ]),
 ];
-const API_GATEWAY_TEST_LABEL = "API Gateway integration and signed-webhook tests";
+const API_GATEWAY_TEST_LABEL =
+  "API Gateway integration and signed-webhook tests";
 const API_GATEWAY_BUILD_LABEL = "API Gateway build";
+const TRANSCRIPTION_WORKER_TEST_LABEL = "transcription-worker tests";
 const TRANSCRIPTION_E2E_LABEL = "Transcription E2E path";
 
 function parseArgs(argv) {
@@ -192,9 +210,7 @@ function parseArgs(argv) {
     throw new Error("--expect must be either done or failed.");
   }
 
-  if (
-    ![LOCAL_DIAGNOSTIC_MODE, PRODUCTION_GATE_MODE].includes(options.mode)
-  ) {
+  if (![LOCAL_DIAGNOSTIC_MODE, PRODUCTION_GATE_MODE].includes(options.mode)) {
     throw new Error(
       `--mode must be either ${LOCAL_DIAGNOSTIC_MODE} or ${PRODUCTION_GATE_MODE}.`,
     );
@@ -221,9 +237,12 @@ Required checks:
   6. API Gateway integration and signed-webhook tests
   7. API Gateway build
   8. Stream-job-worker test and build
-  9. Transcription-worker test and build
-  10. Transcription E2E: webhook -> BullMQ -> worker -> content_jobs write
-  11. Deployment health checks for API Gateway and Automation Service
+  9. transcription-worker runtime package build: @streamos/types
+  10. transcription-worker runtime package build: @streamos/queue
+  11. transcription-worker runtime package build: @streamos/redis
+  12. Transcription-worker test and build
+  13. Transcription E2E: webhook -> BullMQ -> worker -> content_jobs write
+  14. Deployment health checks for API Gateway and Automation Service
 
 Production-gate runtime:
   - Must run from the dedicated Railway service release-gate-runner, or an equivalent
@@ -258,25 +277,50 @@ function createContractCheckOptions() {
   };
 }
 
-function getApiGatewayRuntimePackageBuildSteps() {
-  return API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => ({
+function getRuntimePackageBuildSteps(packages, labelPrefix) {
+  return packages.map((pkg) => ({
     args: ["--filter", pkg.name, "build"],
-    label: `API Gateway runtime package build: ${pkg.name}`,
+    label: `${labelPrefix}: ${pkg.name}`,
     runner: "pnpm",
   }));
 }
 
+function getApiGatewayRuntimePackageBuildSteps() {
+  return getRuntimePackageBuildSteps(
+    API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES,
+    "API Gateway runtime package build",
+  );
+}
+
+function getTranscriptionWorkerRuntimePackageBuildSteps() {
+  return getRuntimePackageBuildSteps(
+    TRANSCRIPTION_WORKER_RUNTIME_WORKSPACE_PACKAGES,
+    "transcription-worker runtime package build",
+  );
+}
+
 function getExpectedGateContract() {
-  const runtimePackageSteps = getApiGatewayRuntimePackageBuildSteps();
+  const apiGatewayRuntimePackageSteps = getApiGatewayRuntimePackageBuildSteps();
+  const transcriptionWorkerRuntimePackageSteps =
+    getTranscriptionWorkerRuntimePackageBuildSteps();
   const contract = {
     apiGatewayBuildLabel: API_GATEWAY_BUILD_LABEL,
     apiGatewayTestLabel: API_GATEWAY_TEST_LABEL,
     apiGatewayRuntimePackages: API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES.map(
       (pkg) => pkg.name,
     ),
-    sharedRuntimePackageSteps: runtimePackageSteps.map(
+    apiGatewayRuntimePackageSteps: apiGatewayRuntimePackageSteps.map(
       (step) => step.label,
     ),
+    transcriptionWorkerRuntimePackages:
+      TRANSCRIPTION_WORKER_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.name),
+    transcriptionWorkerRuntimePackageSteps:
+      transcriptionWorkerRuntimePackageSteps.map((step) => step.label),
+    transcriptionWorkerTestLabel: TRANSCRIPTION_WORKER_TEST_LABEL,
+    sharedRuntimePackageSteps: [
+      ...apiGatewayRuntimePackageSteps.map((step) => step.label),
+      ...transcriptionWorkerRuntimePackageSteps.map((step) => step.label),
+    ],
     transcriptionE2eLabel: TRANSCRIPTION_E2E_LABEL,
   };
 
@@ -286,15 +330,26 @@ function getExpectedGateContract() {
   };
 }
 
-function collectGateContractIssues(sequence = getCheckSequence(createContractCheckOptions())) {
+function collectGateContractIssues(
+  sequence = getCheckSequence(createContractCheckOptions()),
+) {
   const labels = sequence.map((step) => step.label);
   const expectedContract = getExpectedGateContract();
   const issues = [];
-  const apiGatewayTestIndex = labels.indexOf(expectedContract.apiGatewayTestLabel);
-  const apiGatewayBuildIndex = labels.indexOf(expectedContract.apiGatewayBuildLabel);
-  const transcriptionE2eIndex = labels.indexOf(expectedContract.transcriptionE2eLabel);
+  const apiGatewayTestIndex = labels.indexOf(
+    expectedContract.apiGatewayTestLabel,
+  );
+  const apiGatewayBuildIndex = labels.indexOf(
+    expectedContract.apiGatewayBuildLabel,
+  );
+  const transcriptionWorkerTestIndex = labels.indexOf(
+    expectedContract.transcriptionWorkerTestLabel,
+  );
+  const transcriptionE2eIndex = labels.indexOf(
+    expectedContract.transcriptionE2eLabel,
+  );
 
-  for (const label of expectedContract.sharedRuntimePackageSteps) {
+  for (const label of expectedContract.apiGatewayRuntimePackageSteps) {
     const index = labels.indexOf(label);
 
     if (index < 0) {
@@ -303,16 +358,46 @@ function collectGateContractIssues(sequence = getCheckSequence(createContractChe
     }
 
     if (apiGatewayTestIndex >= 0 && index > apiGatewayTestIndex) {
-      issues.push(`${label} must run before ${expectedContract.apiGatewayTestLabel}`);
+      issues.push(
+        `${label} must run before ${expectedContract.apiGatewayTestLabel}`,
+      );
+    }
+  }
+
+  for (const label of expectedContract.transcriptionWorkerRuntimePackageSteps) {
+    const index = labels.indexOf(label);
+
+    if (index < 0) {
+      issues.push(`missing gate contract step ${label}`);
+      continue;
+    }
+
+    if (
+      transcriptionWorkerTestIndex >= 0 &&
+      index > transcriptionWorkerTestIndex
+    ) {
+      issues.push(
+        `${label} must run before ${expectedContract.transcriptionWorkerTestLabel}`,
+      );
     }
   }
 
   if (apiGatewayBuildIndex < 0) {
-    issues.push(`missing gate contract step ${expectedContract.apiGatewayBuildLabel}`);
+    issues.push(
+      `missing gate contract step ${expectedContract.apiGatewayBuildLabel}`,
+    );
+  }
+
+  if (transcriptionWorkerTestIndex < 0) {
+    issues.push(
+      `missing gate contract step ${expectedContract.transcriptionWorkerTestLabel}`,
+    );
   }
 
   if (transcriptionE2eIndex < 0) {
-    issues.push(`missing gate contract step ${expectedContract.transcriptionE2eLabel}`);
+    issues.push(
+      `missing gate contract step ${expectedContract.transcriptionE2eLabel}`,
+    );
   }
 
   if (
@@ -394,9 +479,7 @@ function collectRunnerProvenanceIssues({
   const runtimeEnvironmentName =
     runtimeEnv.RAILWAY_ENVIRONMENT_NAME || runtimeEnv.RAILWAY_ENVIRONMENT || "";
 
-  if (
-    provenanceRecord.schemaVersion !== RUNNER_PROVENANCE_SCHEMA_VERSION
-  ) {
+  if (provenanceRecord.schemaVersion !== RUNNER_PROVENANCE_SCHEMA_VERSION) {
     issues.push(
       `${RUNNER_PROVENANCE_PATH} has unsupported schema version ${String(
         provenanceRecord.schemaVersion,
@@ -447,7 +530,8 @@ function collectRunnerProvenanceIssues({
   }
 
   if (
-    provenanceRecord.gateContract?.contractHash !== expectedContract.contractHash
+    provenanceRecord.gateContract?.contractHash !==
+    expectedContract.contractHash
   ) {
     issues.push(
       `${RUNNER_PROVENANCE_PATH} gate contract hash does not match the expected rollout-check sequence`,
@@ -461,9 +545,7 @@ function collectRunnerProvenanceIssues({
     readFile(join(repoRoot, "package.json"), "utf8"),
   );
 
-  if (
-    provenanceRecord.snapshot?.rolloutCheckSha256 !== rolloutCheckSha256
-  ) {
+  if (provenanceRecord.snapshot?.rolloutCheckSha256 !== rolloutCheckSha256) {
     issues.push(
       `${RUNNER_PROVENANCE_PATH} rollout-check hash does not match the runtime snapshot`,
     );
@@ -642,12 +724,9 @@ function buildTranscriptionArgs(options) {
 }
 
 function isLocalRuntimeUrl(url) {
-  return [
-    "localhost",
-    "127.0.0.1",
-    "::1",
-    "host.docker.internal",
-  ].includes(url.hostname);
+  return ["localhost", "127.0.0.1", "::1", "host.docker.internal"].includes(
+    url.hostname,
+  );
 }
 
 function getRolloutEnv(options) {
@@ -691,9 +770,7 @@ function validateRolloutMode(options, env = process.env) {
   }
 
   if (!options.expectPrivateAutomation) {
-    throw new Error(
-      "production-gate requires --expect-private-automation.",
-    );
+    throw new Error("production-gate requires --expect-private-automation.");
   }
 
   const apiGatewayUrl = requireUrl(
@@ -800,9 +877,10 @@ function getCheckSequence(options) {
       label: "stream-job-worker build",
       runner: "pnpm",
     },
+    ...getTranscriptionWorkerRuntimePackageBuildSteps(),
     {
       args: ["--filter", "@streamos/transcription-worker", "test"],
-      label: "transcription-worker tests",
+      label: TRANSCRIPTION_WORKER_TEST_LABEL,
       runner: "pnpm",
     },
     {
@@ -897,8 +975,11 @@ module.exports = {
   RELEASE_GATE_RUNNER_SERVICE,
   RUNNER_PROVENANCE_PATH,
   RUNNER_PROVENANCE_SCHEMA_VERSION,
+  TRANSCRIPTION_WORKER_RUNTIME_WORKSPACE_PACKAGES,
+  TRANSCRIPTION_WORKER_TEST_LABEL,
   TRANSCRIPTION_E2E_LABEL,
   getApiGatewayRuntimePackageBuildSteps,
+  getTranscriptionWorkerRuntimePackageBuildSteps,
   assertProofCapableSnapshot,
   buildDeploymentArgs,
   buildTranscriptionArgs,

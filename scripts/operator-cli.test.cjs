@@ -18,6 +18,8 @@ const {
   RUNNER_PROVENANCE_SCHEMA_VERSION,
   SNAPSHOT_NOT_PROOF_CAPABLE,
   PRODUCTION_GATE_MODE,
+  TRANSCRIPTION_WORKER_RUNTIME_WORKSPACE_PACKAGES,
+  TRANSCRIPTION_WORKER_TEST_LABEL,
   assertProofCapableSnapshot,
   buildDeploymentArgs,
   buildTranscriptionArgs,
@@ -25,6 +27,7 @@ const {
   collectProofSnapshotIssues,
   collectRunnerProvenanceIssues,
   getApiGatewayRuntimePackageBuildSteps,
+  getTranscriptionWorkerRuntimePackageBuildSteps,
   getCheckSequence,
   parseArgs: parseRolloutArgs,
   validateRolloutMode,
@@ -269,7 +272,8 @@ test("rollout snapshot check fails closed when the production script is missing"
   assert.throws(
     () =>
       assertProofCapableSnapshot({
-        exists: (filePath) => filePath.replace(/\\/g, "/") !== "/repo/package.json",
+        exists: (filePath) =>
+          filePath.replace(/\\/g, "/") !== "/repo/package.json",
         readFile: () => JSON.stringify({ scripts: {} }),
         repoRoot: "/repo",
       }),
@@ -313,6 +317,9 @@ test("rollout gate contract check requires shared package builds before api-gate
     "API Gateway runtime package build: @streamos/redis",
     "API Gateway runtime package build: @streamos/queue",
     "API Gateway runtime package build: @streamos/youtube-websub",
+    "transcription-worker runtime package build: @streamos/types",
+    "transcription-worker runtime package build: @streamos/queue",
+    "transcription-worker runtime package build: @streamos/redis",
   ]);
 });
 
@@ -371,7 +378,9 @@ test("rollout check builds shared runtime packages before api-gateway tests", ()
     ],
   );
 
-  for (const label of getApiGatewayRuntimePackageBuildSteps().map((step) => step.label)) {
+  for (const label of getApiGatewayRuntimePackageBuildSteps().map(
+    (step) => step.label,
+  )) {
     const index = labels.indexOf(label);
     assert.ok(index >= 0, `${label} should be part of the rollout gate`);
     assert.ok(
@@ -381,14 +390,86 @@ test("rollout check builds shared runtime packages before api-gateway tests", ()
   }
 });
 
+test("rollout check builds transcription-worker runtime packages before transcription-worker tests", () => {
+  const sequence = getCheckSequence(
+    parseRolloutArgs([
+      "--mode",
+      "production-gate",
+      "--skip-docker",
+      "--allow-hosted-e2e",
+      "--expect-private-automation",
+      "--api-gateway-url",
+      "https://api.example.com",
+      "--automation-service-url",
+      "http://automation-service.railway.internal:8000",
+    ]),
+  );
+
+  const labels = sequence.map((step) => step.label);
+  const transcriptionWorkerTestIndex = labels.indexOf(
+    TRANSCRIPTION_WORKER_TEST_LABEL,
+  );
+
+  assert.ok(transcriptionWorkerTestIndex > 0);
+  assert.deepEqual(
+    getTranscriptionWorkerRuntimePackageBuildSteps().map((step) => step.label),
+    [
+      "transcription-worker runtime package build: @streamos/types",
+      "transcription-worker runtime package build: @streamos/queue",
+      "transcription-worker runtime package build: @streamos/redis",
+    ],
+  );
+
+  for (const label of getTranscriptionWorkerRuntimePackageBuildSteps().map(
+    (step) => step.label,
+  )) {
+    const index = labels.indexOf(label);
+    assert.ok(index >= 0, `${label} should be part of the rollout gate`);
+    assert.ok(
+      index < transcriptionWorkerTestIndex,
+      `${label} should run before the transcription-worker tests`,
+    );
+  }
+});
+
 test("api-gateway runtime package inventory is explicit and includes youtube-websub", () => {
   assert.deepEqual(
     API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.name),
-    [
-      "@streamos/redis",
-      "@streamos/queue",
-      "@streamos/youtube-websub",
-    ],
+    ["@streamos/redis", "@streamos/queue", "@streamos/youtube-websub"],
+  );
+});
+
+test("transcription-worker runtime package inventory is explicit and includes types, queue, and redis", () => {
+  assert.deepEqual(
+    TRANSCRIPTION_WORKER_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.name),
+    ["@streamos/types", "@streamos/queue", "@streamos/redis"],
+  );
+});
+
+test("rollout gate contract fails closed when a transcription-worker runtime package step is missing", () => {
+  const sequence = getCheckSequence(
+    parseRolloutArgs([
+      "--mode",
+      "production-gate",
+      "--skip-docker",
+      "--allow-hosted-e2e",
+      "--expect-private-automation",
+      "--api-gateway-url",
+      "https://api.example.com",
+      "--automation-service-url",
+      "http://automation-service.railway.internal:8000",
+    ]),
+  ).filter(
+    (step) =>
+      step.label !==
+      "transcription-worker runtime package build: @streamos/types",
+  );
+
+  const result = collectGateContractIssues(sequence);
+
+  assert.match(
+    result.issues.join("; "),
+    /missing gate contract step transcription-worker runtime package build: @streamos\/types/,
   );
 });
 
@@ -446,7 +527,9 @@ test("rollout production gate requires runner provenance with current gate contr
     readFile: (filePath) => {
       const normalized = filePath.replace(/\\/g, "/");
 
-      if (normalized.endsWith("/scripts/.release-gate-runner-provenance.json")) {
+      if (
+        normalized.endsWith("/scripts/.release-gate-runner-provenance.json")
+      ) {
         return JSON.stringify(provenance);
       }
 
@@ -468,7 +551,10 @@ test("rollout production gate requires runner provenance with current gate contr
   });
 
   assert.deepEqual(issues.issues, []);
-  assert.equal(issues.provenance.schemaVersion, RUNNER_PROVENANCE_SCHEMA_VERSION);
+  assert.equal(
+    issues.provenance.schemaVersion,
+    RUNNER_PROVENANCE_SCHEMA_VERSION,
+  );
 });
 
 test("rollout production gate rejects stale runner provenance hashes", () => {
@@ -478,7 +564,9 @@ test("rollout production gate rejects stale runner provenance hashes", () => {
     readFile: (filePath) => {
       const normalized = filePath.replace(/\\/g, "/");
 
-      if (normalized.endsWith("/scripts/.release-gate-runner-provenance.json")) {
+      if (
+        normalized.endsWith("/scripts/.release-gate-runner-provenance.json")
+      ) {
         return JSON.stringify({
           environment: "production",
           gateContract: {
@@ -589,14 +677,8 @@ test("release-gate-runner provenance payload stays non-secret and hash-bound", (
   ]);
   assert.equal(provenance.runnerService, "release-gate-runner");
   assert.equal(provenance.environment, "production");
-  assert.equal(
-    provenance.snapshot.proofPaths.includes("packages/redis"),
-    true,
-  );
-  assert.equal(
-    JSON.stringify(provenance).includes("SECRET"),
-    false,
-  );
+  assert.equal(provenance.snapshot.proofPaths.includes("packages/redis"), true);
+  assert.equal(JSON.stringify(provenance).includes("SECRET"), false);
 });
 
 test("rollout production gate rejects public automation urls", () => {
