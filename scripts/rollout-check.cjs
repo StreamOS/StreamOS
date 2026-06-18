@@ -486,7 +486,7 @@ function collectRunnerProvenanceIssues({
 
   try {
     provenanceRecord = JSON.parse(readFile(provenancePath, "utf8"));
-  } catch (error) {
+  } catch {
     issues.push(`${RUNNER_PROVENANCE_PATH} is unreadable`);
     return {
       issues,
@@ -598,7 +598,7 @@ function collectProofSnapshotIssues({
 
     try {
       packageJson = JSON.parse(readFile(packageJsonPath, "utf8"));
-    } catch (error) {
+    } catch {
       issues.push("root package.json is unreadable");
     }
 
