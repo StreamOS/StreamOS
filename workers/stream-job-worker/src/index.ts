@@ -61,6 +61,18 @@ type StreamRecordWithChannel = StreamRecord & {
   channel: ChannelRecord;
 };
 
+type ContentJobRecord = {
+  id: string;
+  queue_job_id: string | null;
+  status: string;
+};
+
+type StreamLifecycleRecord = {
+  ended_at: string | null;
+  id: string;
+  status: string;
+};
+
 type ContentJobType = "repurposing" | "transcription";
 type ContentJobStatus = "failed" | "pending";
 
@@ -349,17 +361,31 @@ export function createSupabaseStreamJobStore(
       stream: StreamRecord;
       userId: string;
     }): Promise<void> {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("streams")
         .update({
           ended_at: endedAt,
           status: "ended",
         })
         .eq("id", stream.id)
-        .eq("user_id", userId);
+        .eq("user_id", userId)
+        .select("id,status,ended_at")
+        .maybeSingle<StreamLifecycleRecord>();
 
       if (error) {
         throw new Error(`Stream offline update failed: ${error.message}`);
+      }
+
+      if (!data) {
+        throw new Error(
+          `Stream offline update matched no rows for stream_id=${stream.id}.`,
+        );
+      }
+
+      if (data.status !== "ended") {
+        throw new Error(
+          `Stream offline update did not persist status=ended for stream_id=${stream.id}. Got status=${data.status}.`,
+        );
       }
     },
 
@@ -445,7 +471,7 @@ export function createSupabaseStreamJobStore(
       result?: Record<string, unknown> | null;
       status: ContentJobStatus;
     }): Promise<void> {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("content_jobs")
         .update({
           error_message: errorMessage ?? null,
@@ -453,10 +479,18 @@ export function createSupabaseStreamJobStore(
           status,
           updated_at: new Date().toISOString(),
         })
-        .eq("queue_job_id", queueJobId);
+        .eq("queue_job_id", queueJobId)
+        .select("id,queue_job_id,status")
+        .maybeSingle<ContentJobRecord>();
 
       if (error) {
         throw new Error(`Content job update failed: ${error.message}`);
+      }
+
+      if (!data) {
+        throw new Error(
+          `Content job update matched no rows for queue_job_id=${queueJobId}.`,
+        );
       }
     },
 
@@ -481,25 +515,41 @@ export function createSupabaseStreamJobStore(
       streamId: string | null;
       userId: string;
     }): Promise<void> {
-      const { error } = await supabase.from("content_jobs").upsert(
-        {
-          user_id: userId,
-          channel_id: channelId,
-          stream_id: streamId,
-          queue_job_id: queueJobId,
-          job_type: jobType,
-          type: jobType,
-          status,
-          error_message: errorMessage ?? null,
-          result: result ?? null,
-          payload,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "queue_job_id" },
-      );
+      const { data, error } = await supabase
+        .from("content_jobs")
+        .upsert(
+          {
+            user_id: userId,
+            channel_id: channelId,
+            stream_id: streamId,
+            queue_job_id: queueJobId,
+            job_type: jobType,
+            type: jobType,
+            status,
+            error_message: errorMessage ?? null,
+            result: result ?? null,
+            payload,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "queue_job_id" },
+        )
+        .select("id,queue_job_id,status")
+        .maybeSingle<ContentJobRecord>();
 
       if (error) {
         throw new Error(`Content job upsert failed: ${error.message}`);
+      }
+
+      if (!data) {
+        throw new Error(
+          `Content job upsert returned no row for queue_job_id=${queueJobId}.`,
+        );
+      }
+
+      if (data.queue_job_id !== queueJobId) {
+        throw new Error(
+          `Content job upsert returned queue_job_id=${String(data.queue_job_id)} for expected queue_job_id=${queueJobId}.`,
+        );
       }
     },
 
@@ -599,6 +649,15 @@ async function handleStreamOffline(
   { store, transcriptionQueue }: ProcessStreamJobDependencies,
   event: StreamOSJob,
 ): Promise<void> {
+  console.info("[stream-job-worker] stream.offline received", {
+    hasVodAssetUrl: Boolean(event.vodAssetUrl),
+    id: event.id,
+    internalStreamId: event.internalStreamId ?? null,
+    provider: event.provider,
+    streamId: event.streamId ?? null,
+    userId: event.userId ?? null,
+  });
+
   const streamWithChannel = await resolveOfflineStreamContext(store, event);
   const endedAt = event.endedAt ?? event.receivedAt;
 
@@ -608,7 +667,17 @@ async function handleStreamOffline(
     userId: streamWithChannel.channel.user_id,
   });
 
+  console.info("[stream-job-worker] stream.offline materialized", {
+    endedAt,
+    streamId: streamWithChannel.id,
+    status: "ended",
+  });
+
   if (!event.vodAssetUrl) {
+    console.warn("[stream-job-worker] stream.offline skipped downstream", {
+      reason: "missing_vod_asset_url",
+      streamId: streamWithChannel.id,
+    });
     return;
   }
 
@@ -629,10 +698,21 @@ async function handleStreamOffline(
     userId: streamWithChannel.channel.user_id,
   });
 
+  console.info("[stream-job-worker] content job upserted", {
+    queueJobId,
+    streamId: streamWithChannel.id,
+  });
+
   try {
     await transcriptionQueue.add(TRANSCRIPTION_TRIGGER_JOB_NAME, payload, {
       ...transcriptionTriggerJobOptions,
       jobId: queueJobId,
+    });
+
+    console.info("[stream-job-worker] downstream transcription enqueued", {
+      queue: TRANSCRIPTION_TRIGGER_JOB_NAME,
+      queueJobId,
+      streamId: streamWithChannel.id,
     });
   } catch (error) {
     const errorMessage =

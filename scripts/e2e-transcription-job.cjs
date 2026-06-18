@@ -712,10 +712,10 @@ async function seedStreamGraph(env, userId) {
   const streamRows = await supabaseFetch({
     body: {
       channel_id: channelId,
-      ended_at: new Date().toISOString(),
       provider: "twitch",
       platform_stream_id: `e2e-transcription-${runId}`,
       started_at: new Date(Date.now() - 15 * 60_000).toISOString(),
+      status: "live",
       title: "StreamOS Transcription E2E",
       user_id: userId,
     },
@@ -738,6 +738,19 @@ async function seedStreamGraph(env, userId) {
     streamId,
     vodAssetUrl: `https://${LOCAL_FIXTURE_PLACEHOLDER_HOST}/streamos-transcription-e2e-${runId}.mp4`,
   };
+}
+
+async function getStreamState(env, streamId) {
+  const rows = await supabaseFetch({
+    env,
+    path: "/rest/v1/streams",
+    query: {
+      id: `eq.${streamId}`,
+      select: "id,status,started_at,ended_at,updated_at",
+    },
+  });
+
+  return rows[0] ?? null;
 }
 
 async function triggerTranscription({ apiGatewayUrl, env, graph, userId }) {
@@ -824,6 +837,7 @@ async function waitForTerminalContentJob({
   expectedStatus,
   pollMs,
   queueJobId,
+  streamId,
   waitMs,
 }) {
   const deadline = Date.now() + waitMs;
@@ -865,8 +879,10 @@ async function waitForTerminalContentJob({
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 
+  const streamState = streamId ? await getStreamState(env, streamId) : null;
+
   throw new Error(
-    `Transcription job did not reach ${expectedStatus} within ${waitMs}ms. Last row: ${JSON.stringify(lastJob)}`,
+    `Transcription job did not reach ${expectedStatus} within ${waitMs}ms. Last row: ${JSON.stringify(lastJob)} Stream state: ${JSON.stringify(streamState)}`,
   );
 }
 
@@ -1004,6 +1020,7 @@ async function main() {
     expectedStatus: options.expect,
     pollMs: options.pollMs,
     queueJobId: queuedJob.queue_job_id,
+    streamId: graph.streamId,
     waitMs: options.waitMs,
   });
 

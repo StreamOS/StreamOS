@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   REPURPOSING_NOT_IMPLEMENTED_MESSAGE,
+  createSupabaseStreamJobStore,
   processStreamJob,
 } from "../src/index.js";
 import {
@@ -10,6 +11,7 @@ import {
   getTranscriptionTriggerJobId,
   type StreamOSJob,
 } from "@streamos/queue";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 const CHANNEL_ID = "11111111-1111-4111-8111-111111111111";
 const CREATOR_ID = "22222222-2222-4222-8222-222222222222";
@@ -240,4 +242,124 @@ test("video.published persists a failed repurposing job without downstream queue
   assert.deepEqual(calls.upsertContentJob[0].result, {
     error: REPURPOSING_NOT_IMPLEMENTED_MESSAGE,
   });
+});
+
+function createSupabaseStub(
+  handlers: Partial<{
+    onContentJobsUpdate: () => Promise<{ data: unknown; error: unknown }>;
+    onContentJobsUpsert: () => Promise<{ data: unknown; error: unknown }>;
+    onStreamsUpdate: () => Promise<{ data: unknown; error: unknown }>;
+  }>,
+): SupabaseClient {
+  return {
+    from(table: string) {
+      if (table === "streams") {
+        return {
+          update() {
+            return {
+              eq() {
+                return this;
+              },
+              maybeSingle: async () =>
+                handlers.onStreamsUpdate?.() ?? { data: null, error: null },
+              select() {
+                return this;
+              },
+            };
+          },
+        };
+      }
+
+      if (table === "content_jobs") {
+        return {
+          update() {
+            return {
+              eq() {
+                return this;
+              },
+              maybeSingle: async () =>
+                handlers.onContentJobsUpdate?.() ?? {
+                  data: null,
+                  error: null,
+                },
+              select() {
+                return this;
+              },
+            };
+          },
+          upsert() {
+            return {
+              maybeSingle: async () =>
+                handlers.onContentJobsUpsert?.() ?? {
+                  data: null,
+                  error: null,
+                },
+              select() {
+                return this;
+              },
+            };
+          },
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    },
+  } as unknown as SupabaseClient;
+}
+
+test("markStreamEnded fails closed when no stream row was updated", async () => {
+  const store = createSupabaseStreamJobStore(
+    createSupabaseStub({
+      onStreamsUpdate: async () => ({ data: null, error: null }),
+    }),
+  );
+
+  await assert.rejects(
+    () =>
+      store.markStreamEnded({
+        endedAt: "2026-06-18T10:00:00.000Z",
+        stream: createStream(),
+        userId: USER_ID,
+      }),
+    /matched no rows/,
+  );
+});
+
+test("upsertContentJob fails closed when Supabase returns no durable row", async () => {
+  const store = createSupabaseStreamJobStore(
+    createSupabaseStub({
+      onContentJobsUpsert: async () => ({ data: null, error: null }),
+    }),
+  );
+
+  await assert.rejects(
+    () =>
+      store.upsertContentJob({
+        channelId: CHANNEL_ID,
+        jobType: "transcription",
+        payload: { stream_id: STREAM_ID },
+        queueJobId: getTranscriptionTriggerJobId(STREAM_ID),
+        status: "pending",
+        streamId: STREAM_ID,
+        userId: USER_ID,
+      }),
+    /returned no row/,
+  );
+});
+
+test("updateContentJobByQueueId fails closed when no content job row matched", async () => {
+  const store = createSupabaseStreamJobStore(
+    createSupabaseStub({
+      onContentJobsUpdate: async () => ({ data: null, error: null }),
+    }),
+  );
+
+  await assert.rejects(
+    () =>
+      store.updateContentJobByQueueId({
+        queueJobId: getTranscriptionTriggerJobId(STREAM_ID),
+        status: "failed",
+      }),
+    /matched no rows/,
+  );
 });
