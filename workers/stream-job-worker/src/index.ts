@@ -1,6 +1,5 @@
 import { pathToFileURL } from "node:url";
 import { Queue, Worker, type Job, type JobsOptions } from "bullmq";
-import { Redis } from "ioredis";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   STREAM_JOB_QUEUE_NAME,
@@ -10,7 +9,8 @@ import {
   type StreamOSJobType,
   type StreamProvider,
 } from "@streamos/queue";
-import { assertRedisTls } from "@streamos/redis";
+
+import { createRedisConnectionOptions } from "./redisConnection.js";
 
 const DEFAULT_TRANSCRIPTION_QUEUE_NAME = "streamos-transcription";
 const REPURPOSING_NOT_IMPLEMENTED_MESSAGE =
@@ -201,21 +201,6 @@ export function loadWorkerConfig(
   };
 }
 
-function createRedisConnection(redisUrl: string): Redis {
-  const url = new URL(redisUrl);
-
-  if (url.protocol !== "redis:" && url.protocol !== "rediss:") {
-    throw new Error("REDIS_URL must use redis:// or rediss://.");
-  }
-
-  assertRedisTls(redisUrl);
-
-  return new Redis(redisUrl, {
-    enableReadyCheck: true,
-    maxRetriesPerRequest: null,
-  });
-}
-
 function createSupabaseAdmin(config: WorkerConfig): SupabaseClient {
   return createClient(config.supabaseUrl, config.supabaseServiceRoleKey, {
     auth: {
@@ -226,14 +211,12 @@ function createSupabaseAdmin(config: WorkerConfig): SupabaseClient {
 }
 
 function createTranscriptionQueue(config: WorkerConfig): TranscriptionQueue {
-  const connection = createRedisConnection(config.redisUrl);
-
   return new Queue<
     TranscriptionTriggerPayload,
     void,
     typeof TRANSCRIPTION_TRIGGER_JOB_NAME
   >(config.transcriptionQueueName, {
-    connection,
+    connection: createRedisConnectionOptions(config.redisUrl),
     defaultJobOptions: transcriptionTriggerJobOptions,
   });
 }
@@ -820,7 +803,6 @@ async function sendFailureAlert({
 
 export async function main(): Promise<void> {
   const config = loadWorkerConfig();
-  const workerConnection = createRedisConnection(config.redisUrl);
   const supabase = createSupabaseAdmin(config);
   const store = createSupabaseStreamJobStore(supabase);
   const transcriptionQueue = createTranscriptionQueue(config);
@@ -828,7 +810,7 @@ export async function main(): Promise<void> {
     config.queueName,
     async (job) => processStreamJob(job, { store, transcriptionQueue }),
     {
-      connection: workerConnection,
+      connection: createRedisConnectionOptions(config.redisUrl),
       concurrency: config.concurrency,
     },
   );
@@ -863,7 +845,6 @@ export async function main(): Promise<void> {
     console.info(`[stream-job-worker] ${signal} received, shutting down.`);
     await worker.close();
     await transcriptionQueue.close?.();
-    workerConnection.disconnect();
     process.exit(0);
   };
 
