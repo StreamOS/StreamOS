@@ -114,6 +114,24 @@ services:
       SUPABASE_URL: ${SUPABASE_DOCKER_URL:-${SUPABASE_URL:-}}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
 
+  repurposing-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.repurposing-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      automation-service:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      REPURPOSING_QUEUE_NAME: streamos-repurposing
+      AUTOMATION_SERVICE_URL: http://automation-service:8000
+      REPURPOSING_WORKER_CONCURRENCY: ${REPURPOSING_WORKER_CONCURRENCY:-1}
+      SUPABASE_URL: ${SUPABASE_DOCKER_URL:-${SUPABASE_URL:-}}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+
   clip-worker:
     build:
       context: .
@@ -145,6 +163,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       QUEUE_DEFAULT_NAME: streamos-media
       CLIP_GENERATION_QUEUE_NAME: streamos-clip-generation
+      REPURPOSING_QUEUE_NAME: streamos-repurposing
       TRANSCRIPTION_QUEUE_NAME: streamos-transcription
       CONTENT_JOB_RETRY_WORKER_BATCH_SIZE: ${CONTENT_JOB_RETRY_WORKER_BATCH_SIZE:-25}
       CONTENT_JOB_RETRY_WORKER_POLL_INTERVAL_MS: ${CONTENT_JOB_RETRY_WORKER_POLL_INTERVAL_MS:-60000}

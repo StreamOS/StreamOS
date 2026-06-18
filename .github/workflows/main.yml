@@ -140,6 +140,7 @@ jobs:
           - api-gateway
           - automation-service
           - stream-job-worker
+          - repurposing-worker
           - clip-worker
           - transcription-worker
           - content-job-retry-worker

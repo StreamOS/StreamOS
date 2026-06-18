@@ -10,6 +10,11 @@
     "url": "https://automation-service-production.up.railway.app"
   },
   {
+    "id": "svc-repurposing-production",
+    "name": "repurposing-worker",
+    "url": null
+  },
+  {
     "id": "svc-transcription-production",
     "name": "transcription-worker",
     "url": null

@@ -15,6 +15,13 @@
         "serviceDomains": []
       }
     },
+    "svc-repurposing-staging": {
+      "name": "repurposing-worker",
+      "networking": {
+        "privateNetworkEndpoint": "repurposing-worker-staging",
+        "serviceDomains": []
+      }
+    },
     "svc-transcription-staging": {
       "name": "transcription-worker",
       "networking": {

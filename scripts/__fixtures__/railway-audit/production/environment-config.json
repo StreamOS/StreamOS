@@ -15,6 +15,13 @@
         "serviceDomains": ["automation-service-production.up.railway.app"]
       }
     },
+    "svc-repurposing-production": {
+      "name": "repurposing-worker",
+      "networking": {
+        "privateNetworkEndpoint": "repurposing-worker-production",
+        "serviceDomains": []
+      }
+    },
     "svc-transcription-production": {
       "name": "transcription-worker",
       "networking": {

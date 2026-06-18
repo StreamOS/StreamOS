@@ -10,6 +10,11 @@
     "url": null
   },
   {
+    "id": "svc-repurposing-staging",
+    "name": "repurposing-worker",
+    "url": null
+  },
+  {
     "id": "svc-transcription-staging",
     "name": "transcription-worker",
     "url": null

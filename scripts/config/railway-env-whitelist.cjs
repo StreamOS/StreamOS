@@ -67,6 +67,7 @@ const STREAM_JOB_WORKER_REQUIRED = [
 const CONTENT_JOB_RETRY_REQUIRED = [
   "REDIS_URL",
   "CLIP_GENERATION_QUEUE_NAME",
+  "REPURPOSING_QUEUE_NAME",
   "TRANSCRIPTION_QUEUE_NAME",
   "CLIP_WORKER_CONCURRENCY",
   "CONTENT_JOB_RETRY_WORKER_BATCH_SIZE",
@@ -78,6 +79,13 @@ const CONTENT_JOB_RETRY_REQUIRED = [
 ];
 
 const CLIP_WORKER_REQUIRED = [
+  "REDIS_URL",
+  "AUTOMATION_SERVICE_URL",
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+];
+
+const REPURPOSING_WORKER_REQUIRED = [
   "REDIS_URL",
   "AUTOMATION_SERVICE_URL",
   "SUPABASE_URL",
@@ -125,6 +133,7 @@ module.exports = {
       "APP_ENCRYPTION_KEY",
       "AUTOMATION_SERVICE_URL",
       "NODE_ENV",
+      "REDIS_URL",
       "STREAM_EVENT_WEBHOOK_SECRET",
       "TRANSCRIPTION_PROCESSOR_MODE",
     ],
@@ -133,6 +142,7 @@ module.exports = {
       "APP_ENCRYPTION_KEY",
       "AUTOMATION_SERVICE_URL",
       "NODE_ENV",
+      "REDIS_URL",
       "STREAM_EVENT_WEBHOOK_SECRET",
     ],
   },
@@ -370,7 +380,7 @@ module.exports = {
       runtime: "python",
     },
     "content-job-retry-worker": {
-      optional: ["QUEUE_DEFAULT_NAME"],
+      optional: ["QUEUE_DEFAULT_NAME", "REPURPOSING_QUEUE_NAME"],
       publicNetworking: "disabled",
       required: CONTENT_JOB_RETRY_REQUIRED,
       runtime: "node",
@@ -383,6 +393,16 @@ module.exports = {
       ],
       publicNetworking: "disabled",
       required: CLIP_WORKER_REQUIRED,
+      runtime: "node",
+    },
+    "repurposing-worker": {
+      optional: [
+        "QUEUE_DEFAULT_NAME",
+        "REPURPOSING_QUEUE_NAME",
+        "REPURPOSING_WORKER_CONCURRENCY",
+      ],
+      publicNetworking: "disabled",
+      required: REPURPOSING_WORKER_REQUIRED,
       runtime: "node",
     },
     "transcription-worker": {
