@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import type { StreamOSJob } from "@streamos/queue";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
 import type { ClipGenerationQueue } from "./jobs/clipGenerationQueue.js";
 
@@ -8,12 +8,30 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 const CREATOR_ID = "22222222-2222-4222-8222-222222222222";
 const STREAM_ID = "33333333-3333-4333-8333-333333333333";
 const API_SECRET = "test-api-gateway-secret-123";
+const REDIS_URL =
+  "rediss://default:test-redis-password@redis.streamos.test:6379";
 const WEBHOOK_SECRET = "test-stream-webhook-secret-123";
 const TWITCH_EVENTSUB_SECRET = "test-twitch-eventsub-secret-123";
 const YOUTUBE_WEBHOOK_SECRET = "test-youtube-webhook-secret-123";
 const WEBHOOK_NOW = new Date("2026-06-06T10:00:00.000Z");
 const SUPABASE_URL = "https://supabase.streamos.test";
 const SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
+const API_GATEWAY_PRODUCTION_ENV_KEYS = [
+  "NODE_ENV",
+  "API_GATEWAY_ALLOWED_ORIGINS",
+  "NEXT_PUBLIC_APP_URL",
+  "REDIS_URL",
+  "API_GATEWAY_SECRET",
+  "STREAM_EVENT_WEBHOOK_SECRET",
+  "TWITCH_EVENTSUB_SECRET",
+  "TWITCH_WEBHOOK_SECRET",
+  "YOUTUBE_WEBHOOK_SECRET",
+  "YOUTUBE_WEBSUB_SECRET",
+  "YOUTUBE_WEBSUB_VERIFY_TOKEN",
+] as const;
+const ORIGINAL_API_GATEWAY_PRODUCTION_ENV = new Map(
+  API_GATEWAY_PRODUCTION_ENV_KEYS.map((key) => [key, process.env[key]]),
+);
 
 function createClipGenerationQueue(): ClipGenerationQueue {
   return {
@@ -48,6 +66,60 @@ function setSupabaseEnv() {
   };
 }
 
+function restoreApiGatewayProductionEnv(
+  snapshot = ORIGINAL_API_GATEWAY_PRODUCTION_ENV,
+) {
+  for (const key of API_GATEWAY_PRODUCTION_ENV_KEYS) {
+    const value = snapshot.get(key);
+
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
+
+function applyApiGatewayProductionEnv(
+  overrides: Partial<
+    Record<(typeof API_GATEWAY_PRODUCTION_ENV_KEYS)[number], string | undefined>
+  > = {},
+) {
+  const previousValues = new Map(
+    API_GATEWAY_PRODUCTION_ENV_KEYS.map((key) => [key, process.env[key]]),
+  );
+  const baseline: Record<
+    (typeof API_GATEWAY_PRODUCTION_ENV_KEYS)[number],
+    string | undefined
+  > = {
+    NODE_ENV: "production",
+    API_GATEWAY_ALLOWED_ORIGINS: "https://app.streamos.test",
+    NEXT_PUBLIC_APP_URL: "https://app.streamos.test",
+    REDIS_URL,
+    API_GATEWAY_SECRET: API_SECRET,
+    STREAM_EVENT_WEBHOOK_SECRET: WEBHOOK_SECRET,
+    TWITCH_EVENTSUB_SECRET,
+    TWITCH_WEBHOOK_SECRET: TWITCH_EVENTSUB_SECRET,
+    YOUTUBE_WEBHOOK_SECRET,
+    YOUTUBE_WEBSUB_SECRET: YOUTUBE_WEBHOOK_SECRET,
+    YOUTUBE_WEBSUB_VERIFY_TOKEN: "test-youtube-websub-verify-token",
+  };
+
+  for (const key of API_GATEWAY_PRODUCTION_ENV_KEYS) {
+    const value = key in overrides ? overrides[key] : baseline[key];
+
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  return () => {
+    restoreApiGatewayProductionEnv(previousValues);
+  };
+}
+
 function createSignedWebhookHeaders({
   body,
   eventId = "event-1",
@@ -73,6 +145,10 @@ function createSignedWebhookHeaders({
 }
 
 describe("api-gateway", () => {
+  afterEach(() => {
+    restoreApiGatewayProductionEnv();
+  });
+
   it("serves health status", async () => {
     const app = createApp();
     const server = app.listen(0);
@@ -94,113 +170,175 @@ describe("api-gateway", () => {
   });
 
   it("requires production app and webhook secrets at startup", () => {
-    expect(() =>
-      createApp({
-        nodeEnv: "production",
-        allowedOrigins: ["https://app.streamos.test"],
-        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
-        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
-        streamEventWebhookSecret: WEBHOOK_SECRET,
-        clipGenerationQueue: createClipGenerationQueue(),
-      }),
-    ).toThrow("API_GATEWAY_SECRET is required in production.");
+    const restoreEnv = applyApiGatewayProductionEnv();
 
-    expect(() =>
-      createApp({
-        allowedOrigins: ["https://app.streamos.test"],
-        apiGatewaySecret: API_SECRET,
-        clipGenerationQueue: createClipGenerationQueue(),
-        nodeEnv: "production",
-        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
-        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
-      }),
-    ).toThrow("STREAM_EVENT_WEBHOOK_SECRET is required in production.");
+    try {
+      const expectProductionStartupError = ({
+        envOverrides,
+        expectedMessage,
+        options,
+      }: {
+        envOverrides?: Partial<
+          Record<
+            (typeof API_GATEWAY_PRODUCTION_ENV_KEYS)[number],
+            string | undefined
+          >
+        >;
+        expectedMessage: string;
+        options: Parameters<typeof createApp>[0];
+      }) => {
+        const restoreSpecificEnv = applyApiGatewayProductionEnv(envOverrides);
 
-    expect(() =>
-      createApp({
-        allowedOrigins: ["https://app.streamos.test"],
-        apiGatewaySecret: API_SECRET,
-        clipGenerationQueue: createClipGenerationQueue(),
-        nodeEnv: "production",
-        streamEventWebhookSecret: WEBHOOK_SECRET,
-        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
-      }),
-    ).toThrow("TWITCH_EVENTSUB_SECRET is required in production.");
+        try {
+          expect(() => createApp(options)).toThrow(expectedMessage);
+        } finally {
+          restoreSpecificEnv();
+        }
+      };
 
-    expect(() =>
-      createApp({
-        allowedOrigins: ["https://app.streamos.test"],
-        apiGatewaySecret: API_SECRET,
-        clipGenerationQueue: createClipGenerationQueue(),
-        nodeEnv: "production",
-        streamEventWebhookSecret: WEBHOOK_SECRET,
-        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
-      }),
-    ).toThrow("YOUTUBE_WEBHOOK_SECRET is required in production.");
+      expectProductionStartupError({
+        envOverrides: {
+          API_GATEWAY_SECRET: undefined,
+        },
+        expectedMessage: "API_GATEWAY_SECRET is required in production.",
+        options: {
+          nodeEnv: "production",
+          allowedOrigins: ["https://app.streamos.test"],
+          twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+          youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+          streamEventWebhookSecret: WEBHOOK_SECRET,
+          clipGenerationQueue: createClipGenerationQueue(),
+        },
+      });
 
-    expect(() =>
-      createApp({
-        allowedOrigins: ["https://app.streamos.test"],
-        apiGatewaySecret: "short",
-        clipGenerationQueue: createClipGenerationQueue(),
-        nodeEnv: "production",
-        streamEventWebhookSecret: WEBHOOK_SECRET,
-        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
-        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
-      }),
-    ).toThrow(
-      "API_GATEWAY_SECRET must be at least 24 characters in production.",
-    );
+      expectProductionStartupError({
+        envOverrides: {
+          STREAM_EVENT_WEBHOOK_SECRET: undefined,
+        },
+        expectedMessage:
+          "STREAM_EVENT_WEBHOOK_SECRET is required in production.",
+        options: {
+          allowedOrigins: ["https://app.streamos.test"],
+          apiGatewaySecret: API_SECRET,
+          clipGenerationQueue: createClipGenerationQueue(),
+          nodeEnv: "production",
+          twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+          youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+        },
+      });
 
-    expect(() =>
-      createApp({
-        apiGatewaySecret: API_SECRET,
-        clipGenerationQueue: createClipGenerationQueue(),
-        nodeEnv: "production",
-        streamEventWebhookSecret: WEBHOOK_SECRET,
-        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
-        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
-      }),
-    ).toThrow(
-      "API_GATEWAY_ALLOWED_ORIGINS or NEXT_PUBLIC_APP_URL is required in production.",
-    );
+      expectProductionStartupError({
+        envOverrides: {
+          TWITCH_EVENTSUB_SECRET: undefined,
+          TWITCH_WEBHOOK_SECRET: undefined,
+        },
+        expectedMessage: "TWITCH_EVENTSUB_SECRET is required in production.",
+        options: {
+          allowedOrigins: ["https://app.streamos.test"],
+          apiGatewaySecret: API_SECRET,
+          clipGenerationQueue: createClipGenerationQueue(),
+          nodeEnv: "production",
+          streamEventWebhookSecret: WEBHOOK_SECRET,
+          youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+        },
+      });
 
-    expect(() =>
-      createApp({
-        allowedOrigins: ["*"],
-        apiGatewaySecret: API_SECRET,
-        clipGenerationQueue: createClipGenerationQueue(),
-        nodeEnv: "production",
-        streamEventWebhookSecret: WEBHOOK_SECRET,
-        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
-        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
-      }),
-    ).toThrow("Wildcard CORS origins are not allowed in production.");
+      expectProductionStartupError({
+        envOverrides: {
+          YOUTUBE_WEBHOOK_SECRET: undefined,
+          YOUTUBE_WEBSUB_SECRET: undefined,
+        },
+        expectedMessage: "YOUTUBE_WEBHOOK_SECRET is required in production.",
+        options: {
+          allowedOrigins: ["https://app.streamos.test"],
+          apiGatewaySecret: API_SECRET,
+          clipGenerationQueue: createClipGenerationQueue(),
+          nodeEnv: "production",
+          streamEventWebhookSecret: WEBHOOK_SECRET,
+          twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+        },
+      });
 
-    expect(() =>
-      createApp({
-        allowedOrigins: ["https://app.streamos.test"],
-        apiGatewaySecret: API_SECRET,
-        clipGenerationQueue: createClipGenerationQueue(),
-        nodeEnv: "production",
-        rateLimit: { enabled: false },
-        streamEventWebhookSecret: WEBHOOK_SECRET,
-        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
-        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
-      }),
-    ).toThrow("API Gateway rate limiting cannot be disabled in production.");
+      expect(() =>
+        createApp({
+          allowedOrigins: ["https://app.streamos.test"],
+          apiGatewaySecret: "short",
+          clipGenerationQueue: createClipGenerationQueue(),
+          nodeEnv: "production",
+          streamEventWebhookSecret: WEBHOOK_SECRET,
+          twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+          youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+        }),
+      ).toThrow(
+        "API_GATEWAY_SECRET must be at least 24 characters in production.",
+      );
 
-    expect(() =>
-      createApp({
-        allowedOrigins: ["https://app.streamos.test"],
-        apiGatewaySecret: API_SECRET,
-        nodeEnv: "production",
-        providerWebhookDispatcher: createProviderWebhookDispatcher(),
-        streamEventWebhookSecret: WEBHOOK_SECRET,
-        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
-        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
-      }),
-    ).toThrow("REDIS_URL is required in production for API Gateway queues.");
+      expectProductionStartupError({
+        envOverrides: {
+          API_GATEWAY_ALLOWED_ORIGINS: undefined,
+          NEXT_PUBLIC_APP_URL: undefined,
+        },
+        expectedMessage:
+          "API_GATEWAY_ALLOWED_ORIGINS or NEXT_PUBLIC_APP_URL is required in production.",
+        options: {
+          apiGatewaySecret: API_SECRET,
+          clipGenerationQueue: createClipGenerationQueue(),
+          nodeEnv: "production",
+          streamEventWebhookSecret: WEBHOOK_SECRET,
+          twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+          youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+        },
+      });
+
+      expect(() =>
+        createApp({
+          allowedOrigins: ["*"],
+          apiGatewaySecret: API_SECRET,
+          clipGenerationQueue: createClipGenerationQueue(),
+          nodeEnv: "production",
+          streamEventWebhookSecret: WEBHOOK_SECRET,
+          twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+          youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+        }),
+      ).toThrow("Wildcard CORS origins are not allowed in production.");
+
+      expect(() =>
+        createApp({
+          allowedOrigins: ["https://app.streamos.test"],
+          apiGatewaySecret: API_SECRET,
+          clipGenerationQueue: createClipGenerationQueue(),
+          nodeEnv: "production",
+          rateLimit: { enabled: false },
+          streamEventWebhookSecret: WEBHOOK_SECRET,
+          twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+          youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+        }),
+      ).toThrow("API Gateway rate limiting cannot be disabled in production.");
+
+      const restoreMissingRedisEnv = applyApiGatewayProductionEnv({
+        REDIS_URL: undefined,
+      });
+
+      try {
+        expect(() =>
+          createApp({
+            allowedOrigins: ["https://app.streamos.test"],
+            apiGatewaySecret: API_SECRET,
+            nodeEnv: "production",
+            providerWebhookDispatcher: createProviderWebhookDispatcher(),
+            streamEventWebhookSecret: WEBHOOK_SECRET,
+            twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+            youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+          }),
+        ).toThrow(
+          "REDIS_URL is required in production for API Gateway queues.",
+        );
+      } finally {
+        restoreMissingRedisEnv();
+      }
+    } finally {
+      restoreEnv();
+    }
   });
 
   it("allows configured CORS origins and blocks unknown origins", async () => {
