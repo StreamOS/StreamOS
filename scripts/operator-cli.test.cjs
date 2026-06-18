@@ -12,7 +12,7 @@ const {
   parseArgs: parseDeploymentArgs,
 } = require("./check-deployment.cjs");
 const {
-  API_GATEWAY_RUNTIME_PACKAGE_STEPS,
+  API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES,
   LOCAL_DIAGNOSTIC_MODE,
   RUNNER_PROVENANCE_PATH,
   RUNNER_PROVENANCE_SCHEMA_VERSION,
@@ -24,6 +24,7 @@ const {
   collectGateContractIssues,
   collectProofSnapshotIssues,
   collectRunnerProvenanceIssues,
+  getApiGatewayRuntimePackageBuildSteps,
   getCheckSequence,
   parseArgs: parseRolloutArgs,
   validateRolloutMode,
@@ -260,6 +261,7 @@ test("rollout snapshot check reports missing gate files clearly", () => {
     "missing scripts/rollout-check.cjs",
     "missing scripts/e2e-transcription-job.cjs",
     "missing packages/redis",
+    "missing packages/youtube-websub",
   ]);
 });
 
@@ -302,9 +304,15 @@ test("rollout gate contract check requires shared package builds before api-gate
   const result = collectGateContractIssues();
 
   assert.deepEqual(result.issues, []);
+  assert.deepEqual(result.contract.apiGatewayRuntimePackages, [
+    "@streamos/redis",
+    "@streamos/queue",
+    "@streamos/youtube-websub",
+  ]);
   assert.deepEqual(result.contract.sharedRuntimePackageSteps, [
-    "Shared runtime package build: @streamos/redis",
-    "Shared runtime package build: @streamos/queue",
+    "API Gateway runtime package build: @streamos/redis",
+    "API Gateway runtime package build: @streamos/queue",
+    "API Gateway runtime package build: @streamos/youtube-websub",
   ]);
 });
 
@@ -355,14 +363,15 @@ test("rollout check builds shared runtime packages before api-gateway tests", ()
 
   assert.ok(apiGatewayTestIndex > 0);
   assert.deepEqual(
-    API_GATEWAY_RUNTIME_PACKAGE_STEPS.map((step) => step.label),
+    getApiGatewayRuntimePackageBuildSteps().map((step) => step.label),
     [
-      "Shared runtime package build: @streamos/redis",
-      "Shared runtime package build: @streamos/queue",
+      "API Gateway runtime package build: @streamos/redis",
+      "API Gateway runtime package build: @streamos/queue",
+      "API Gateway runtime package build: @streamos/youtube-websub",
     ],
   );
 
-  for (const label of API_GATEWAY_RUNTIME_PACKAGE_STEPS.map((step) => step.label)) {
+  for (const label of getApiGatewayRuntimePackageBuildSteps().map((step) => step.label)) {
     const index = labels.indexOf(label);
     assert.ok(index >= 0, `${label} should be part of the rollout gate`);
     assert.ok(
@@ -370,6 +379,17 @@ test("rollout check builds shared runtime packages before api-gateway tests", ()
       `${label} should run before the API Gateway tests`,
     );
   }
+});
+
+test("api-gateway runtime package inventory is explicit and includes youtube-websub", () => {
+  assert.deepEqual(
+    API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.name),
+    [
+      "@streamos/redis",
+      "@streamos/queue",
+      "@streamos/youtube-websub",
+    ],
+  );
 });
 
 test("rollout check sequence keeps local diagnostic semantics visible", () => {

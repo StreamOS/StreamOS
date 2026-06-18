@@ -21,16 +21,18 @@ const SNAPSHOT_NOT_PROOF_CAPABLE = "snapshot_not_proof_capable";
 const RUNNER_PROVENANCE_PATH = "scripts/.release-gate-runner-provenance.json";
 const RUNNER_PROVENANCE_SCHEMA_VERSION = 1;
 const RELEASE_GATE_RUNNER_SERVICE = "release-gate-runner";
-const API_GATEWAY_RUNTIME_PACKAGE_STEPS = [
+const API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES = [
   {
-    args: ["--filter", "@streamos/redis", "build"],
-    label: "Shared runtime package build: @streamos/redis",
-    runner: "pnpm",
+    name: "@streamos/redis",
+    path: "packages/redis",
   },
   {
-    args: ["--filter", "@streamos/queue", "build"],
-    label: "Shared runtime package build: @streamos/queue",
-    runner: "pnpm",
+    name: "@streamos/queue",
+    path: "packages/queue",
+  },
+  {
+    name: "@streamos/youtube-websub",
+    path: "packages/youtube-websub",
   },
 ];
 const PROOF_SNAPSHOT_REQUIRED_PATHS = [
@@ -42,10 +44,9 @@ const PROOF_SNAPSHOT_REQUIRED_PATHS = [
   "services/api-gateway",
   "workers/stream-job-worker",
   "workers/transcription-worker",
-  "packages/redis",
-  "packages/queue",
   "packages/types",
   "packages/database",
+  ...API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.path),
 ];
 const API_GATEWAY_TEST_LABEL = "API Gateway integration and signed-webhook tests";
 const API_GATEWAY_BUILD_LABEL = "API Gateway build";
@@ -214,14 +215,15 @@ Usage:
 Required checks:
   1. Supabase migration/RLS/index validator
   2. API Gateway typecheck
-  3. Shared runtime package build: @streamos/redis
-  4. Shared runtime package build: @streamos/queue
-  5. API Gateway integration and signed-webhook tests
-  6. API Gateway build
-  7. Stream-job-worker test and build
-  8. Transcription-worker test and build
-  9. Transcription E2E: webhook -> BullMQ -> worker -> content_jobs write
-  10. Deployment health checks for API Gateway and Automation Service
+  3. API Gateway runtime package build: @streamos/redis
+  4. API Gateway runtime package build: @streamos/queue
+  5. API Gateway runtime package build: @streamos/youtube-websub
+  6. API Gateway integration and signed-webhook tests
+  7. API Gateway build
+  8. Stream-job-worker test and build
+  9. Transcription-worker test and build
+  10. Transcription E2E: webhook -> BullMQ -> worker -> content_jobs write
+  11. Deployment health checks for API Gateway and Automation Service
 
 Production-gate runtime:
   - Must run from the dedicated Railway service release-gate-runner, or an equivalent
@@ -256,11 +258,23 @@ function createContractCheckOptions() {
   };
 }
 
+function getApiGatewayRuntimePackageBuildSteps() {
+  return API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => ({
+    args: ["--filter", pkg.name, "build"],
+    label: `API Gateway runtime package build: ${pkg.name}`,
+    runner: "pnpm",
+  }));
+}
+
 function getExpectedGateContract() {
+  const runtimePackageSteps = getApiGatewayRuntimePackageBuildSteps();
   const contract = {
     apiGatewayBuildLabel: API_GATEWAY_BUILD_LABEL,
     apiGatewayTestLabel: API_GATEWAY_TEST_LABEL,
-    sharedRuntimePackageSteps: API_GATEWAY_RUNTIME_PACKAGE_STEPS.map(
+    apiGatewayRuntimePackages: API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES.map(
+      (pkg) => pkg.name,
+    ),
+    sharedRuntimePackageSteps: runtimePackageSteps.map(
       (step) => step.label,
     ),
     transcriptionE2eLabel: TRANSCRIPTION_E2E_LABEL,
@@ -765,7 +779,7 @@ function getCheckSequence(options) {
       label: "API Gateway typecheck",
       runner: "pnpm",
     },
-    ...API_GATEWAY_RUNTIME_PACKAGE_STEPS,
+    ...getApiGatewayRuntimePackageBuildSteps(),
     {
       args: ["--filter", "@streamos/api-gateway", "test"],
       label: API_GATEWAY_TEST_LABEL,
@@ -877,13 +891,14 @@ module.exports = {
   PROOF_SNAPSHOT_REQUIRED_PATHS,
   PRODUCTION_GATE_MODE,
   SNAPSHOT_NOT_PROOF_CAPABLE,
-  API_GATEWAY_RUNTIME_PACKAGE_STEPS,
+  API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES,
   API_GATEWAY_BUILD_LABEL,
   API_GATEWAY_TEST_LABEL,
   RELEASE_GATE_RUNNER_SERVICE,
   RUNNER_PROVENANCE_PATH,
   RUNNER_PROVENANCE_SCHEMA_VERSION,
   TRANSCRIPTION_E2E_LABEL,
+  getApiGatewayRuntimePackageBuildSteps,
   assertProofCapableSnapshot,
   buildDeploymentArgs,
   buildTranscriptionArgs,
