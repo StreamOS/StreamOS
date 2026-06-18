@@ -173,7 +173,7 @@ class OpenAITranscriptionProcessor:
 
         data = {
             "model": self.settings.openai_transcription_model,
-            "response_format": "verbose_json",
+            "response_format": "json",
         }
         if payload.language != "auto":
             data["language"] = payload.language

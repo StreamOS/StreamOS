@@ -332,6 +332,13 @@ def test_openai_transcription_processor_downloads_media_and_calls_audio_endpoint
 
         assert request.url == "https://api.openai.test/v1/audio/transcriptions"
         assert request.headers["Authorization"] == "Bearer sk-server"
+        transcription_payload = request.content.decode("utf-8", errors="ignore")
+
+        assert 'name="model"' in transcription_payload
+        assert "gpt-4o-transcribe" in transcription_payload
+        assert 'name="response_format"' in transcription_payload
+        assert "verbose_json" not in transcription_payload
+        assert "\r\njson\r\n" in transcription_payload
 
         return httpx.Response(
             status_code=200,
