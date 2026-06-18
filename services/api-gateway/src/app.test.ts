@@ -98,6 +98,8 @@ describe("api-gateway", () => {
       createApp({
         nodeEnv: "production",
         allowedOrigins: ["https://app.streamos.test"],
+        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
         streamEventWebhookSecret: WEBHOOK_SECRET,
         clipGenerationQueue: createClipGenerationQueue(),
       }),
@@ -109,6 +111,8 @@ describe("api-gateway", () => {
         apiGatewaySecret: API_SECRET,
         clipGenerationQueue: createClipGenerationQueue(),
         nodeEnv: "production",
+        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
       }),
     ).toThrow("STREAM_EVENT_WEBHOOK_SECRET is required in production.");
 
@@ -119,6 +123,7 @@ describe("api-gateway", () => {
         clipGenerationQueue: createClipGenerationQueue(),
         nodeEnv: "production",
         streamEventWebhookSecret: WEBHOOK_SECRET,
+        youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
       }),
     ).toThrow("TWITCH_EVENTSUB_SECRET is required in production.");
 
