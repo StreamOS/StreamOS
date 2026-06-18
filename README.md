@@ -164,8 +164,8 @@ OPENAI_TITLE_MODEL=gpt-4o-mini
 
 Use `OPENAI_MODEL=gpt-4o` for complex clip analysis and repurposing tasks.
 Keep `OPENAI_TITLE_MODEL` reserved for a future canonical title-generation or
-repurposing contract. The active production endpoints are `/clips/analyze` and
-`/transcriptions/process`.
+repurposing contract. The active production endpoints are `/clips/analyze`,
+`/repurposing/plan`, and `/transcriptions/process`.
 
 Browser code should call StreamOS API routes or backend services. It must never
 call OpenAI directly.
@@ -189,6 +189,7 @@ The production deployment topology is documented in
 - `services/api-gateway` deploys to Railway with `Dockerfile.api-gateway`.
 - `services/automation-service` deploys to Railway first, or Fly.io when GPU-backed Whisper becomes required.
 - `workers/stream-job-worker` deploys to Railway as the canonical `streamos-media` consumer and materializes durable stream/content-job state.
+- `workers/repurposing-worker` deploys to Railway as the canonical `streamos-repurposing` consumer and calls `POST /repurposing/plan` for manual-review-only repurposing plans.
 - `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.
 - `workers/clip-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for clip scoring.
 - `workers/content-job-retry-worker` deploys to Railway as a Node.js BullMQ worker that requeues retryable failed `content_jobs`.
@@ -253,10 +254,11 @@ server-side. Unknown streams return `404 stream_not_found` and do not enqueue
 anything.
 
 Known streams enqueue a normalized `stream.offline` media event into
-`streamos-media`. `stream-job-worker` is the canonical consumer of that queue
-and only fans out to the downstream `transcription.trigger` job in
-`streamos-transcription` when the event already carries complete transcription
-input such as `vodAssetUrl`.
+`streamos-media`. The API Gateway opportunistically enriches that event from
+existing `vod_assets` when `vodAssetUrl` is missing, then `stream-job-worker`
+remains the canonical consumer of that queue and only fans out to the
+downstream `transcription.trigger` job in `streamos-transcription` when the
+event carries or resolves complete transcription input.
 
 The API response stays aligned to the later canonical downstream ID:
 `job_id` and `queue_job_id` both resolve to `transcription-trigger-<stream_id>`.
@@ -264,15 +266,28 @@ This keeps UI and monitoring stable even though the first queued job is the
 media event, not the transcription worker job.
 
 `transcription-worker` consumes only `streamos-transcription` and calls
-`POST /transcriptions/process`. `video.published` still has no production
-repurposing or clip-generation contract, and raw provider events without
-`vodAssetUrl` do not trigger automatic transcription until a server-side
-enrichment contract exists.
+`POST /transcriptions/process`. `video.published` can now create a durable
+`repurposing` plan content job and enqueue `repurposing.plan` into
+`streamos-repurposing` when server-side enrichment resolves `asset_available`
+and the connected platform metadata explicitly opts in. The dedicated
+`repurposing-worker` consumes only `streamos-repurposing`, calls
+`POST /repurposing/plan`, and persists a manual-review-only plan in
+`content_jobs.result`. It does not auto-publish, export, render, or
+crosspost. Raw provider events without a direct `vodAssetUrl` still rely on
+server-side enrichment against existing assets before they can trigger
+automatic transcription.
 
-In production, `services/api-gateway` fails startup unless both
-`API_GATEWAY_SECRET` and `STREAM_EVENT_WEBHOOK_SECRET` are set. App-facing
-gateway routes accept `Authorization: Bearer $API_GATEWAY_SECRET`; external
-webhooks use `X-StreamOS-Webhook-Secret`.
+`GET /api/observability` is a protected server-to-server snapshot route for
+operator use. It requires `API_GATEWAY_SECRET`, returns the current
+observability backend (`redis` in production, `memory` only for local/test
+fallback), and exposes only the counters `dedupe_hits`,
+`rate_limit_rejects`, `webhook_validation_failures`, and
+`queue_enqueue_failures`.
+
+In production, `services/api-gateway` fails startup unless
+`API_GATEWAY_SECRET`, `STREAM_EVENT_WEBHOOK_SECRET`, and `REDIS_URL` are set.
+App-facing gateway routes accept `Authorization: Bearer $API_GATEWAY_SECRET`;
+external webhooks use `X-StreamOS-Webhook-Secret`.
 
 ## Supabase Auth
 

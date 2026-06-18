@@ -10,6 +10,7 @@ This document defines the production deployment topology for the StreamOS monore
 | `services/api-gateway`             | Node.js                | Railway                                                        | Public API gateway, platform OAuth, server-only mutations, webhook ingress, BullMQ job producers          |
 | `services/automation-service`      | FastAPI                | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                                                                   |
 | `workers/stream-job-worker`        | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-media` consumer for stream materialization and transcription fan-out                  |
+| `workers/repurposing-worker`       | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-repurposing` consumer for manual-review-only repurposing plans                        |
 | `workers/transcription-worker`     | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI                                                    |
 | `workers/content-job-retry-worker` | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into BullMQ                                                      |
 | `release-gate-runner`              | Node.js operator shell | Railway private worker/service                                 | Proof-only runtime for `pnpm rollout:check:production` using the gate-required release-candidate snapshot |
@@ -19,7 +20,8 @@ This document defines the production deployment topology for the StreamOS monore
 - Browser code must call the Next.js app or `services/api-gateway`; it must not call AI providers directly.
 - `services/api-gateway` is the public backend entrypoint for external webhooks, app-facing backend APIs, platform OAuth flows, provider token refresh, metrics writes, and queue-producing commands.
 - `services/automation-service` should use private Railway networking in production. Do not call it from browser code or Vercel client bundles; only Railway services/workers in the same project/environment should call it.
-- `workers/stream-job-worker` is the only canonical `streamos-media` consumer. It materializes `streams`, creates durable `content_jobs`, and enqueues canonical `transcription.trigger` jobs only when a media event already includes enough transcription input such as `vodAssetUrl`.
+- `workers/stream-job-worker` is the only canonical `streamos-media` consumer. It materializes `streams`, creates durable `content_jobs`, and enqueues canonical `transcription.trigger` jobs when a media event already includes, or the API Gateway can resolve, enough transcription input such as `vodAssetUrl`.
+- `workers/repurposing-worker` is the only canonical `streamos-repurposing` consumer. It consumes durable `repurposing.plan` jobs, calls `services/automation-service` at `POST /repurposing/plan`, and persists a manual-review-only result to `content_jobs.result`.
 - `workers/transcription-worker` consumes only `streamos-transcription`, calls `services/automation-service`, and writes transcription job status plus derived transcript state to Supabase.
 - `workers/content-job-retry-worker` owns retry orchestration for failed `content_jobs`; it uses the Supabase service-role key server-side and requeues only supported job payloads. Row-level `content_jobs.max_retries` is the source of truth for retry budget, including manual retries from the dashboard.
 - `release-gate-runner` is not a product service. It exists only to provide a Railway-internal shell/runtime that contains the same gate-required release-candidate snapshot as the services under test, so `pnpm rollout:check:production` can run with private Automation Service reachability and the required monorepo sources.
@@ -134,6 +136,12 @@ RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 Twitch, YouTube, TikTok, and Kick OAuth are gateway-owned and must use the API
 Gateway callback URLs shown above.
 
+`REDIS_URL` is mandatory in production for the API gateway because
+observability, distributed rate limiting, and webhook replay protection must
+share the same Redis-backed state. `GET /api/observability` is a protected
+server-to-server snapshot route that exposes only the four core counters plus
+the current backend mode (`redis` in production, `memory` only in local/test).
+
 Use `/health` as the Railway healthcheck path. The endpoint must return HTTP 200 before Railway sends traffic to the new deployment.
 
 Security model:
@@ -149,6 +157,7 @@ Security model:
   secrets must stay in Railway, and provider tokens must never be proxied
   through browser code.
 - `API_GATEWAY_SECRET` and `STREAM_EVENT_WEBHOOK_SECRET` are mandatory when `NODE_ENV=production`; the service fails during startup if either is missing.
+- `REDIS_URL` is mandatory when `NODE_ENV=production`; the gateway fails during startup if it is missing so observability, rate limiting, and replay protection cannot silently fall back to in-memory.
 - CORS allows only `API_GATEWAY_ALLOWED_ORIGINS`; server-to-server calls without an `Origin` header are allowed.
 - Rate limits are fixed-window per client IP, method, and URL. Start with `120` requests per `60000` ms and tighten per endpoint once production traffic is measured.
 
@@ -193,8 +202,11 @@ RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 
 `OPENAI_MODEL` is reserved for complex analysis tasks. `OPENAI_TITLE_MODEL`
 remains a server-only reserved setting for a future canonical title-generation
-or repurposing contract; the active production endpoints are
-`/clips/analyze` and `/transcriptions/process`.
+or repurposing contract. `video.published` can now create a durable
+`repurposing` plan content job and enqueue `repurposing.plan` when provider
+enrichment resolves `asset_available` and the connected platform metadata
+explicitly opts in; the active production endpoints are now `/clips/analyze`,
+`/repurposing/plan`, and `/transcriptions/process`.
 
 Keep public networking disabled for steady-state production. During first deploy only, you may temporarily enable a Railway public domain to smoke-test `/health`, then remove it and verify from the dedicated `release-gate-runner` Railway shell with `node scripts/check-deployment.cjs --expect-private-automation`.
 
@@ -204,12 +216,42 @@ Validation:
 python -m pytest services/automation-service
 ```
 
+## Railway Worker Dyno: `workers/repurposing-worker`
+
+The repurposing worker is the canonical `streamos-repurposing` consumer. It
+consumes durable `repurposing.plan` jobs, calls `services/automation-service`
+at `POST /repurposing/plan`, and persists the manual-review-only plan result
+to `content_jobs.result`.
+
+Recommended Docker configuration:
+
+| Setting           | Value                           |
+| ----------------- | ------------------------------- |
+| Dockerfile Path   | `Dockerfile.repurposing-worker` |
+| Service Type      | Worker                          |
+| Public Networking | Disabled                        |
+
+Required variables:
+
+```bash
+REDIS_URL=rediss://default:password@host:6379
+AUTOMATION_SERVICE_URL=http://automation-service.railway.internal:8000
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+REPURPOSING_QUEUE_NAME=streamos-repurposing
+```
+
 ## Railway Worker Dyno: `workers/stream-job-worker`
 
 The stream job worker is the canonical `streamos-media` consumer. It
 materializes `streams`, persists durable `content_jobs`, and fans out to
-`streamos-transcription` only when the incoming media event already carries the
-required transcription input such as `vodAssetUrl`.
+`streamos-transcription` when the incoming media event already carries, or the
+API Gateway can resolve, the required transcription input such as `vodAssetUrl`.
+For `video.published`, it also writes a durable `repurposing` plan
+`content_jobs` row and enqueues `repurposing.plan` when provider enrichment
+resolves `asset_available` and the connected platform metadata explicitly
+enables repurposing. The durable plan is review-oriented only and does not
+auto-publish, export, render, or crosspost.
 
 Recommended Docker configuration:
 
@@ -238,8 +280,9 @@ STREAM_JOB_ALERT_WEBHOOK_URL=
 ```
 
 This worker must not call `AUTOMATION_SERVICE_URL` and must not depend on
-provider client secrets. Raw provider webhooks without `vodAssetUrl` must stay
-limited to stream materialization only.
+provider client secrets. Raw provider webhooks without `vodAssetUrl` may stay
+limited to stream materialization only when the gateway cannot resolve an
+existing asset.
 
 Validation:
 
