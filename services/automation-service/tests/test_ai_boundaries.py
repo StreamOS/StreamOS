@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from main import app, get_clip_analyzer, get_transcription_processor
+from main import app, get_clip_analyzer, get_repurposing_planner, get_transcription_processor
 from openai_client import (
     OpenAIClipAnalyzer,
     OpenAITranscriptionProcessor,
@@ -14,6 +14,8 @@ from openai_client import (
 from schemas import (
     ClipAnalysisRequest,
     ClipAnalysisResponse,
+    RepurposingPlanRequest,
+    RepurposingPlanResponse,
     TranscriptionProcessRequest,
     TranscriptionProcessResponse,
     TranscriptionSegment,
@@ -64,6 +66,28 @@ class StubTranscriptionProcessor:
         )
 
 
+class StubRepurposingPlanner:
+    async def plan_repurposing(
+        self, payload: RepurposingPlanRequest
+    ) -> RepurposingPlanResponse:
+        return RepurposingPlanResponse(
+            captions=["Repurpose this moment."],
+            confidence=87,
+            content_job_id=payload.content_job_id,
+            descriptions=["Review-only description."],
+            hashtag_sets=[["#streamos"]],
+            hook_ideas=["Open with the strongest beat."],
+            manual_review_required=True,
+            model="gpt-4o",
+            provider="test",
+            queue_job_id=payload.queue_job_id,
+            review_notes=["Manual approval is required."],
+            short_form_plan="Draft a review-only repurposing plan.",
+            title_suggestions=["The moment everyone missed"],
+            warnings=["No automatic publishing."],
+        )
+
+
 class UnsafeUrlTranscriptionProcessor:
     async def process_transcription(
         self, _payload: TranscriptionProcessRequest
@@ -79,6 +103,17 @@ class RateLimitedTranscriptionProcessor:
             message="Upstream transcription provider rate limited the request.",
             provider="openai",
             retry_after_seconds=45,
+        )
+
+
+class RateLimitedRepurposingPlanner:
+    async def plan_repurposing(
+        self, _payload: RepurposingPlanRequest
+    ) -> RepurposingPlanResponse:
+        raise ProviderRateLimitError(
+            message="Upstream repurposing provider rate limited the request.",
+            provider="openai",
+            retry_after_seconds=30,
         )
 
 
@@ -167,6 +202,104 @@ def test_transcription_endpoint_uses_server_side_processor() -> None:
         "language": "en",
         "provider": "test",
         "model": "gpt-4o-transcribe",
+    }
+
+
+def test_repurposing_endpoint_uses_server_side_planner() -> None:
+    app.dependency_overrides[get_repurposing_planner] = StubRepurposingPlanner
+
+    try:
+        response = asyncio.run(
+            post_json(
+                "/repurposing/plan",
+                {
+                    "asset_reference": {
+                        "kind": "vod",
+                        "status": "asset_available",
+                        "url": "https://cdn.example.com/vods/test.mp4",
+                    },
+                    "brand_context": {"brand_profile_id": "brand-1"},
+                    "content_job_id": "job-123",
+                    "content_policy_hints": {"content_policy_profile": "safe"},
+                    "language": "en",
+                    "locale": "en",
+                    "manual_review_required": True,
+                    "provider": "youtube",
+                    "provider_video_id": "video-123",
+                    "queue_job_id": "repurposing-plan-job-123",
+                    "source_event_type": "video.published",
+                    "source_metadata": {
+                        "source_provider": "youtube",
+                        "source_video_id": "video-123",
+                        "stream_id": "stream-123",
+                        "user_id": "11111111-1111-4111-8111-111111111111",
+                        "vod_asset_url": "https://cdn.example.com/vods/test.mp4",
+                        "workflow": "repurposing_plan",
+                    },
+                    "target_platforms": ["youtube", "tiktok"],
+                    "transcript_reference": {
+                        "stream_id": "stream-123",
+                        "transcript_id": "transcript-1",
+                    },
+                    "user_id": "11111111-1111-4111-8111-111111111111",
+                },
+            )
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "captions": ["Repurpose this moment."],
+        "confidence": 87,
+        "content_job_id": "job-123",
+        "descriptions": ["Review-only description."],
+        "hashtag_sets": [["#streamos"]],
+        "hook_ideas": ["Open with the strongest beat."],
+        "manual_review_required": True,
+        "model": "gpt-4o",
+        "provider": "test",
+        "queue_job_id": "repurposing-plan-job-123",
+        "review_notes": ["Manual approval is required."],
+        "short_form_plan": "Draft a review-only repurposing plan.",
+        "title_suggestions": ["The moment everyone missed"],
+        "warnings": ["No automatic publishing."],
+    }
+
+
+def test_repurposing_endpoint_returns_structured_503_for_provider_rate_limit() -> (
+    None
+):
+    app.dependency_overrides[get_repurposing_planner] = RateLimitedRepurposingPlanner
+
+    try:
+        response = asyncio.run(
+            post_json(
+                "/repurposing/plan",
+                {
+                    "content_job_id": "job-123",
+                    "manual_review_required": True,
+                    "provider": "youtube",
+                    "queue_job_id": "repurposing-plan-job-123",
+                    "source_event_type": "video.published",
+                    "source_metadata": {},
+                    "user_id": "11111111-1111-4111-8111-111111111111",
+                },
+            )
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {
+            "code": "provider_rate_limited",
+            "message": "Upstream repurposing provider rate limited the request.",
+            "provider": "openai",
+            "retryable": True,
+            "retry_after_seconds": 30,
+            "upstream_status": 429,
+        }
     }
 
 

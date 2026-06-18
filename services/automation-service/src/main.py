@@ -7,12 +7,15 @@ from pydantic import ValidationError
 
 from openai_client import (
     OpenAIClipAnalyzer,
+    OpenAIRepurposingPlanner,
     OpenAITranscriptionProcessor,
     ProviderRateLimitError,
 )
 from schemas import (
     ClipAnalysisRequest,
     ClipAnalysisResponse,
+    RepurposingPlanRequest,
+    RepurposingPlanResponse,
     TranscriptionProcessRequest,
     TranscriptionProcessResponse,
     TranscriptionSegment,
@@ -36,6 +39,13 @@ def build_provider_rate_limit_detail(error: ProviderRateLimitError) -> dict[str,
 
 class ClipAnalyzer(Protocol):
     async def analyze_clip(self, payload: ClipAnalysisRequest) -> ClipAnalysisResponse:
+        pass
+
+
+class RepurposingPlanner(Protocol):
+    async def plan_repurposing(
+        self, payload: RepurposingPlanRequest
+    ) -> RepurposingPlanResponse:
         pass
 
 
@@ -74,6 +84,60 @@ class E2EFailingTranscriptionProcessor:
         raise ValueError(f"E2E forced transcription failure for job {payload.job_id}.")
 
 
+class E2EStubRepurposingPlanner:
+    async def plan_repurposing(
+        self, payload: RepurposingPlanRequest
+    ) -> RepurposingPlanResponse:
+        source_title = None
+        if isinstance(payload.source_metadata, dict):
+            source_title = payload.source_metadata.get("source_video_title")
+            if not isinstance(source_title, str) or not source_title.strip():
+                source_title = None
+
+        title = source_title or "StreamOS repurposing plan"
+
+        return RepurposingPlanResponse(
+            captions=[
+                "Open with the strongest moment.",
+                "Trim for a vertical-first cut.",
+            ],
+            confidence=84,
+            content_job_id=payload.content_job_id,
+            descriptions=[
+                "Write a concise platform-specific description.",
+                "Keep the tone creator-authentic and review-only.",
+            ],
+            hashtag_sets=[["#streamos", "#repurposing"]],
+            hook_ideas=[
+                "Lead with the most surprising beat.",
+                "Use the first three seconds as the hook.",
+            ],
+            manual_review_required=True,
+            model="local-e2e-stub",
+            provider="streamos-e2e",
+            queue_job_id=payload.queue_job_id,
+            review_notes=[
+                "Manual review required before any publishing action.",
+                "No automatic cross-posting or export is performed.",
+            ],
+            short_form_plan=f"Draft a short-form repurposing plan for {title}.",
+            title_suggestions=[
+                f"{title} - StreamOS draft",
+                "A highlight worthy of manual review",
+            ],
+            warnings=["Human approval required before downstream publishing."],
+        )
+
+
+class E2EFailingRepurposingPlanner:
+    async def plan_repurposing(
+        self, payload: RepurposingPlanRequest
+    ) -> RepurposingPlanResponse:
+        raise ValueError(
+            f"E2E forced repurposing failure for job {payload.content_job_id}."
+        )
+
+
 async def get_clip_analyzer() -> AsyncIterator[OpenAIClipAnalyzer]:
     try:
         settings = load_settings()
@@ -91,6 +155,33 @@ async def get_clip_analyzer() -> AsyncIterator[OpenAIClipAnalyzer]:
         yield analyzer
     finally:
         await analyzer.aclose()
+
+
+async def get_repurposing_planner() -> AsyncIterator[RepurposingPlanner]:
+    try:
+        settings = load_settings()
+    except SettingsError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+    if settings.transcription_processor_mode == "stub":
+        yield E2EStubRepurposingPlanner()
+        return
+
+    if settings.transcription_processor_mode == "fail":
+        yield E2EFailingRepurposingPlanner()
+        return
+
+    if not settings.openai_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="OPENAI_API_KEY is required in automation-service for server-side AI calls.",
+        )
+
+    planner = OpenAIRepurposingPlanner(settings)
+    try:
+        yield planner
+    finally:
+        await planner.aclose()
 
 
 async def get_transcription_processor() -> AsyncIterator[TranscriptionProcessor]:
@@ -146,6 +237,27 @@ async def analyze_clip(
         raise HTTPException(
             status_code=502, detail="OpenAI clip analysis failed."
         ) from error
+
+
+@app.post("/repurposing/plan", response_model=RepurposingPlanResponse)
+async def plan_repurposing(
+    payload: RepurposingPlanRequest,
+    planner: Annotated[RepurposingPlanner, Depends(get_repurposing_planner)],
+) -> RepurposingPlanResponse:
+    try:
+        return await planner.plan_repurposing(payload)
+    except ProviderRateLimitError as error:
+        raise HTTPException(
+            status_code=503,
+            detail=build_provider_rate_limit_detail(error),
+        ) from error
+    except httpx.HTTPStatusError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Repurposing request failed with status {error.response.status_code}.",
+        ) from error
+    except (httpx.HTTPError, ValueError, KeyError, ValidationError) as error:
+        raise HTTPException(status_code=502, detail="OpenAI repurposing failed.") from error
 
 
 @app.post("/transcriptions/process", response_model=TranscriptionProcessResponse)

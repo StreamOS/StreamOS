@@ -140,6 +140,60 @@ export interface NewVideoPublishedJobPayload {
   enqueuedAt: string;
 }
 
+export interface RepurposingPlanJobPayload {
+  [key: string]: unknown;
+  workflow: "repurposing_plan";
+  source_event_type: "video.published";
+  source_provider: SupportedProvider;
+  user_id: string;
+  creator_id?: string;
+  channel_id: string;
+  stream_id: string;
+  source_video_id: string;
+  source_video_title?: string;
+  published_at?: string;
+  updated_at?: string;
+  vod_asset_url: string;
+  enrichment_status: "asset_available";
+  auto_repurpose_enabled: true;
+  manual_review_required: true;
+  target_platforms?: SupportedProvider[];
+  content_policy_profile?: string;
+  brand_profile_id?: string;
+}
+
+export interface RepurposingPlanAssetReference {
+  kind?: string;
+  status?: string;
+  url: string;
+}
+
+export interface RepurposingPlanTranscriptReference {
+  language?: string;
+  queue_job_id?: string;
+  stream_id?: string;
+  transcript_id?: string;
+}
+
+export interface RepurposingPlanQueueJobPayload {
+  [key: string]: unknown;
+  asset_reference?: RepurposingPlanAssetReference;
+  brand_context?: Record<string, unknown>;
+  content_job_id: string;
+  content_policy_hints?: Record<string, unknown>;
+  language?: string;
+  locale?: string;
+  manual_review_required: true;
+  provider: SupportedProvider;
+  provider_video_id?: string;
+  queue_job_id: string;
+  source_event_type: "video.published";
+  source_metadata: Record<string, unknown>;
+  target_platforms?: SupportedProvider[];
+  transcript_reference?: RepurposingPlanTranscriptReference;
+  user_id: string;
+}
+
 export interface AutomationCallbackPayload {
   contentJobId: string;
   status: "completed" | "failed";

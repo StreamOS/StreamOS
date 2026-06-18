@@ -1,9 +1,11 @@
 import { Queue, type JobsOptions } from "bullmq";
 import type { TranscriptionTriggerJobData } from "@streamos/types";
+import type { RepurposingPlanQueueJobPayload } from "@streamos/types/jobs";
 
 import type {
   ClipGenerationJobData,
   CLIP_GENERATION_JOB_NAME,
+  REPURPOSING_PLAN_JOB_NAME,
   TRANSCRIPTION_TRIGGER_JOB_NAME,
 } from "./jobSchemas.js";
 import { createRedisConnectionOptions } from "./redisConnection.js";
@@ -13,6 +15,11 @@ export type RetryQueueJob =
       data: ClipGenerationJobData;
       name: typeof CLIP_GENERATION_JOB_NAME;
       queue: "clip_generation";
+    }
+  | {
+      data: RepurposingPlanQueueJobPayload;
+      name: typeof REPURPOSING_PLAN_JOB_NAME;
+      queue: "repurposing";
     }
   | {
       data: TranscriptionTriggerJobData;
@@ -60,14 +67,19 @@ function createRetryJobOptions({
 export function createBullMqContentJobRetryQueues({
   clipGenerationQueueName,
   redisUrl,
+  repurposingQueueName,
   transcriptionQueueName,
 }: {
   clipGenerationQueueName: string;
   redisUrl: string;
+  repurposingQueueName: string;
   transcriptionQueueName: string;
 }): ContentJobRetryQueues {
   const connection = createRedisConnectionOptions(redisUrl);
   const clipGenerationQueue = new Queue(clipGenerationQueueName, {
+    connection,
+  });
+  const repurposingQueue = new Queue(repurposingQueueName, {
     connection,
   });
   const transcriptionQueue = new Queue(transcriptionQueueName, {
@@ -83,12 +95,18 @@ export function createBullMqContentJobRetryQueues({
         return;
       }
 
+      if (input.queue === "repurposing") {
+        await repurposingQueue.add(input.name, input.data, options);
+        return;
+      }
+
       await transcriptionQueue.add(input.name, input.data, options);
     },
 
     async close(): Promise<void> {
       await Promise.all([
         clipGenerationQueue.close(),
+        repurposingQueue.close(),
         transcriptionQueue.close(),
       ]);
     },

@@ -3,18 +3,26 @@ import { Queue, Worker, type Job, type JobsOptions } from "bullmq";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   STREAM_JOB_QUEUE_NAME,
+  REPURPOSING_PLAN_JOB_NAME,
+  REPURPOSING_PLAN_JOB_OPTIONS,
+  REPURPOSING_QUEUE_NAME,
   TRANSCRIPTION_TRIGGER_JOB_NAME,
+  getRepurposingPlanJobId,
   getTranscriptionTriggerJobId,
   type StreamOSJob,
   type StreamOSJobType,
   type StreamProvider,
+  type RepurposingPlanQueueJobData,
 } from "@streamos/queue";
+import {
+  SUPPORTED_MEDIA_PROVIDERS,
+  type RepurposingPlanJobPayload,
+  type SupportedProvider as SupportedMediaProvider,
+} from "@streamos/types/jobs";
 
 import { createRedisConnectionOptions } from "./redisConnection.js";
 
 const DEFAULT_TRANSCRIPTION_QUEUE_NAME = "streamos-transcription";
-const REPURPOSING_NOT_IMPLEMENTED_MESSAGE =
-  "video.published does not have a canonical repurposing contract yet.";
 
 const transcriptionTriggerJobOptions: JobsOptions = {
   attempts: 5,
@@ -35,6 +43,7 @@ type WorkerConfig = {
   alertWebhookUrl?: string;
   concurrency: number;
   queueName: string;
+  repurposingQueueName: string;
   redisUrl: string;
   supabaseServiceRoleKey: string;
   supabaseUrl: string;
@@ -48,6 +57,13 @@ type ChannelRecord = {
   platform: string;
   external_channel_id: string | null;
   display_name: string;
+};
+
+type PlatformConnectionRecord = {
+  channel_id: string | null;
+  creator_id: string;
+  metadata: Record<string, unknown>;
+  user_id: string;
 };
 
 type StreamRecord = {
@@ -73,7 +89,7 @@ type StreamLifecycleRecord = {
   status: string;
 };
 
-type ContentJobType = "repurposing" | "transcription";
+type ContentJobType = "transcription" | "repurposing";
 type ContentJobStatus = "failed" | "pending";
 
 type TranscriptionTriggerPayload = {
@@ -105,6 +121,10 @@ type StreamJobStore = {
     externalChannelId: string;
     provider: StreamProvider;
   }): Promise<ChannelRecord | null>;
+  resolvePlatformConnectionByExternalId(input: {
+    externalChannelId: string;
+    provider: StreamProvider;
+  }): Promise<PlatformConnectionRecord | null>;
   touchChannel(input: {
     channelId: string;
     updatedAt: string;
@@ -131,7 +151,7 @@ type StreamJobStore = {
     status: ContentJobStatus;
     streamId: string | null;
     userId: string;
-  }): Promise<void>;
+  }): Promise<ContentJobRecord>;
   upsertStream(
     channel: ChannelRecord,
     event: StreamOSJob,
@@ -143,6 +163,16 @@ type TranscriptionQueueJob = {
   id?: string | number;
 };
 
+type RepurposingPlanQueueJob = {
+  id?: string | number;
+};
+
+type RepurposingPlanSettings = {
+  brandProfileId?: string;
+  contentPolicyProfile?: string;
+  targetPlatforms?: SupportedMediaProvider[];
+};
+
 type TranscriptionQueue = {
   add(
     name: typeof TRANSCRIPTION_TRIGGER_JOB_NAME,
@@ -152,8 +182,18 @@ type TranscriptionQueue = {
   close?(): Promise<void>;
 };
 
+type RepurposingPlanQueue = {
+  add(
+    name: typeof REPURPOSING_PLAN_JOB_NAME,
+    data: RepurposingPlanQueueJobData,
+    opts: JobsOptions,
+  ): Promise<RepurposingPlanQueueJob>;
+  close?(): Promise<void>;
+};
+
 type ProcessStreamJobDependencies = {
   store: StreamJobStore;
+  repurposingQueue: RepurposingPlanQueue;
   transcriptionQueue: TranscriptionQueue;
 };
 
@@ -200,6 +240,8 @@ export function loadWorkerConfig(
       source.STREAM_JOB_QUEUE_NAME?.trim() ||
       source.QUEUE_DEFAULT_NAME?.trim() ||
       STREAM_JOB_QUEUE_NAME,
+    repurposingQueueName:
+      source.REPURPOSING_QUEUE_NAME?.trim() || REPURPOSING_QUEUE_NAME,
     redisUrl: requireEnv(source, "REDIS_URL"),
     supabaseServiceRoleKey: requireEnv(source, "SUPABASE_SERVICE_ROLE_KEY"),
     supabaseUrl: requireEnv(
@@ -233,12 +275,176 @@ function createTranscriptionQueue(config: WorkerConfig): TranscriptionQueue {
   });
 }
 
+function createRepurposingPlanQueue(
+  config: WorkerConfig,
+): RepurposingPlanQueue {
+  return new Queue<
+    RepurposingPlanQueueJobData,
+    void,
+    typeof REPURPOSING_PLAN_JOB_NAME
+  >(config.repurposingQueueName, {
+    connection: createRedisConnectionOptions(config.redisUrl),
+    defaultJobOptions: REPURPOSING_PLAN_JOB_OPTIONS,
+  });
+}
+
 function getPlatformStreamId(event: StreamOSJob): string {
   return event.streamId ?? event.videoId ?? event.id;
 }
 
-function getRepurposingFailureJobId(streamId: string): string {
-  return `repurposing-${streamId}`;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function toSupportedMediaProviders(
+  value: unknown,
+): SupportedMediaProvider[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const normalized = value
+    .map((item) => toNonEmptyString(item))
+    .filter(
+      (item): item is SupportedMediaProvider =>
+        typeof item === "string" &&
+        SUPPORTED_MEDIA_PROVIDERS.includes(item as SupportedMediaProvider),
+    );
+
+  if (normalized.length !== value.length || normalized.length === 0) {
+    return null;
+  }
+
+  return Array.from(new Set(normalized));
+}
+
+function resolveRepurposingPlanSettings(
+  metadata: Record<string, unknown>,
+): RepurposingPlanSettings | null {
+  const repurposing = metadata.repurposing;
+
+  if (!isRecord(repurposing) || repurposing.auto_repurpose_enabled !== true) {
+    return null;
+  }
+
+  const targetPlatforms =
+    repurposing.target_platforms === undefined
+      ? undefined
+      : toSupportedMediaProviders(repurposing.target_platforms);
+
+  if (repurposing.target_platforms !== undefined && !targetPlatforms) {
+    return null;
+  }
+
+  const brandProfileId = toNonEmptyString(repurposing.brand_profile_id);
+  const contentPolicyProfile = toNonEmptyString(
+    repurposing.content_policy_profile,
+  );
+
+  return {
+    ...(targetPlatforms ? { targetPlatforms } : {}),
+    ...(brandProfileId ? { brandProfileId } : {}),
+    ...(contentPolicyProfile ? { contentPolicyProfile } : {}),
+  };
+}
+
+function buildRepurposingPlanPayload({
+  channel,
+  event,
+  settings,
+  stream,
+}: {
+  channel: ChannelRecord;
+  event: StreamOSJob;
+  settings: RepurposingPlanSettings;
+  stream: StreamRecord;
+}): RepurposingPlanJobPayload {
+  if (!event.vodAssetUrl?.trim()) {
+    throw new PermanentStreamJobError(
+      "video.published requires vodAssetUrl when enrichmentStatus=asset_available.",
+    );
+  }
+
+  return {
+    auto_repurpose_enabled: true,
+    brand_profile_id: settings.brandProfileId,
+    channel_id: channel.id,
+    content_policy_profile: settings.contentPolicyProfile,
+    creator_id: channel.creator_id || undefined,
+    enrichment_status: "asset_available",
+    manual_review_required: true,
+    published_at: event.publishedAt ?? event.receivedAt,
+    source_event_type: "video.published",
+    source_provider: event.provider,
+    source_video_id: event.videoId ?? event.id,
+    source_video_title: event.title ?? undefined,
+    stream_id: stream.id,
+    target_platforms: settings.targetPlatforms,
+    updated_at: event.updatedAt ?? event.receivedAt,
+    user_id: channel.user_id,
+    vod_asset_url: event.vodAssetUrl,
+    workflow: "repurposing_plan",
+  };
+}
+
+function buildRepurposingPlanQueuePayload({
+  contentJobId,
+  event,
+  queueJobId,
+  settings,
+  stream,
+  sourceMetadata,
+}: {
+  contentJobId: string;
+  event: StreamOSJob;
+  queueJobId: string;
+  settings: RepurposingPlanSettings;
+  stream: StreamRecord;
+  sourceMetadata: RepurposingPlanJobPayload;
+}): RepurposingPlanQueueJobData {
+  const assetUrl = event.vodAssetUrl?.trim();
+
+  return {
+    asset_reference: assetUrl
+      ? {
+          kind: "vod",
+          status: "asset_available",
+          url: assetUrl,
+        }
+      : undefined,
+    brand_context: settings.brandProfileId
+      ? {
+          brand_profile_id: settings.brandProfileId,
+        }
+      : undefined,
+    content_job_id: contentJobId,
+    content_policy_hints: settings.contentPolicyProfile
+      ? {
+          content_policy_profile: settings.contentPolicyProfile,
+        }
+      : undefined,
+    language: event.language?.trim() || undefined,
+    locale: event.language?.trim() || undefined,
+    manual_review_required: true,
+    provider: event.provider,
+    provider_video_id: event.videoId ?? event.id,
+    queue_job_id: queueJobId,
+    source_event_type: "video.published",
+    source_metadata: sourceMetadata,
+    target_platforms: settings.targetPlatforms,
+    transcript_reference: undefined,
+    user_id: stream.user_id,
+  };
 }
 
 function buildTranscriptionTriggerPayload({
@@ -412,6 +618,36 @@ export function createSupabaseStreamJobStore(
       return (data as ChannelRecord | null) ?? null;
     },
 
+    async resolvePlatformConnectionByExternalId({
+      externalChannelId,
+      provider,
+    }: {
+      externalChannelId: string;
+      provider: StreamProvider;
+    }): Promise<PlatformConnectionRecord | null> {
+      const { data, error } = await supabase
+        .from("platform_connections")
+        .select("user_id,creator_id,channel_id,metadata")
+        .eq("platform", provider)
+        .eq("provider_account_id", externalChannelId)
+        .maybeSingle();
+
+      if (error) {
+        throw new Error(`Platform connection lookup failed: ${error.message}`);
+      }
+
+      if (!data) {
+        return null;
+      }
+
+      return {
+        channel_id: data.channel_id ?? null,
+        creator_id: data.creator_id,
+        metadata: isRecord(data.metadata) ? data.metadata : {},
+        user_id: data.user_id,
+      };
+    },
+
     async touchChannel({
       channelId,
       updatedAt,
@@ -514,7 +750,7 @@ export function createSupabaseStreamJobStore(
       status: ContentJobStatus;
       streamId: string | null;
       userId: string;
-    }): Promise<void> {
+    }): Promise<ContentJobRecord> {
       const { data, error } = await supabase
         .from("content_jobs")
         .upsert(
@@ -551,6 +787,8 @@ export function createSupabaseStreamJobStore(
           `Content job upsert returned queue_job_id=${String(data.queue_job_id)} for expected queue_job_id=${queueJobId}.`,
         );
       }
+
+      return data;
     },
 
     async upsertStream(
@@ -761,7 +999,7 @@ async function handleStreamUpdate(
 }
 
 async function handleVideoPublished(
-  store: StreamJobStore,
+  { repurposingQueue, store }: ProcessStreamJobDependencies,
   event: StreamOSJob,
 ): Promise<void> {
   const channel = await store.resolveChannelByExternalId({
@@ -776,18 +1014,107 @@ async function handleVideoPublished(
   }
 
   const stream = await store.upsertStream(channel, event, "published");
-  const queueJobId = getRepurposingFailureJobId(stream.id);
 
-  await store.upsertContentJob({
+  if (event.enrichmentStatus !== "asset_available") {
+    console.info(
+      "[stream-job-worker] video.published skipped repurposing plan",
+      {
+        reason: event.enrichmentStatus ?? "missing_enrichment_status",
+        streamId: stream.id,
+      },
+    );
+    return;
+  }
+
+  const connection = await store.resolvePlatformConnectionByExternalId({
+    externalChannelId: requireExternalChannelId(event),
+    provider: event.provider,
+  });
+
+  if (!connection) {
+    console.info(
+      "[stream-job-worker] video.published skipped repurposing plan",
+      {
+        reason: "missing_platform_connection",
+        streamId: stream.id,
+      },
+    );
+    return;
+  }
+
+  const settings = resolveRepurposingPlanSettings(connection.metadata);
+
+  if (!settings) {
+    console.info(
+      "[stream-job-worker] video.published skipped repurposing plan",
+      {
+        reason: "repurposing_not_enabled",
+        streamId: stream.id,
+      },
+    );
+    return;
+  }
+
+  const queueJobId = getRepurposingPlanJobId(stream.id);
+  const contentJobPayload = buildRepurposingPlanPayload({
+    channel,
+    event,
+    settings,
+    stream,
+  });
+
+  const contentJob = await store.upsertContentJob({
     channelId: channel.id,
-    errorMessage: REPURPOSING_NOT_IMPLEMENTED_MESSAGE,
     jobType: "repurposing",
-    payload: event,
+    payload: contentJobPayload,
     queueJobId,
-    result: { error: REPURPOSING_NOT_IMPLEMENTED_MESSAGE },
-    status: "failed",
+    status: "pending",
     streamId: stream.id,
     userId: channel.user_id,
+  });
+
+  const repurposingQueuePayload = buildRepurposingPlanQueuePayload({
+    contentJobId: contentJob.id,
+    event,
+    queueJobId,
+    settings,
+    stream,
+    sourceMetadata: contentJobPayload,
+  });
+
+  try {
+    await repurposingQueue.add(
+      REPURPOSING_PLAN_JOB_NAME,
+      repurposingQueuePayload,
+      {
+        ...REPURPOSING_PLAN_JOB_OPTIONS,
+        jobId: queueJobId,
+      },
+    );
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Repurposing queue dispatch failed.";
+
+    await store.updateContentJobByQueueId({
+      errorMessage,
+      queueJobId,
+      result: {
+        error: errorMessage,
+        error_code: "repurposing_queue_enqueue_failed",
+        retryable: false,
+      },
+      status: "failed",
+    });
+
+    throw error;
+  }
+
+  console.info("[stream-job-worker] repurposing plan upserted", {
+    queueJobId,
+    contentJobId: contentJob.id,
+    streamId: stream.id,
   });
 }
 
@@ -834,7 +1161,7 @@ export async function processStreamJob(
         await handleStreamUpdate(dependencies.store, event);
         break;
       case "video.published":
-        await handleVideoPublished(dependencies.store, event);
+        await handleVideoPublished(dependencies, event);
         break;
       case "channel.update":
         await handleChannelUpdate(dependencies.store, event);
@@ -885,10 +1212,16 @@ export async function main(): Promise<void> {
   const config = loadWorkerConfig();
   const supabase = createSupabaseAdmin(config);
   const store = createSupabaseStreamJobStore(supabase);
+  const repurposingQueue = createRepurposingPlanQueue(config);
   const transcriptionQueue = createTranscriptionQueue(config);
   const worker = new Worker<StreamOSJob, void, StreamOSJobType>(
     config.queueName,
-    async (job) => processStreamJob(job, { store, transcriptionQueue }),
+    async (job) =>
+      processStreamJob(job, {
+        repurposingQueue,
+        store,
+        transcriptionQueue,
+      }),
     {
       connection: createRedisConnectionOptions(config.redisUrl),
       concurrency: config.concurrency,
@@ -924,6 +1257,7 @@ export async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     console.info(`[stream-job-worker] ${signal} received, shutting down.`);
     await worker.close();
+    await repurposingQueue.close?.();
     await transcriptionQueue.close?.();
     process.exit(0);
   };
@@ -933,6 +1267,7 @@ export async function main(): Promise<void> {
 
   console.info("[stream-job-worker] started", {
     concurrency: config.concurrency,
+    repurposingQueue: config.repurposingQueueName,
     queue: config.queueName,
     transcriptionQueue: config.transcriptionQueueName,
   });
@@ -947,5 +1282,3 @@ if (
     process.exit(1);
   });
 }
-
-export { REPURPOSING_NOT_IMPLEMENTED_MESSAGE };

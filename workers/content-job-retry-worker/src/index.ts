@@ -12,6 +12,7 @@ const store = createSupabaseContentJobRetryStore({
 const queues = createBullMqContentJobRetryQueues({
   clipGenerationQueueName: config.clipGenerationQueueName,
   redisUrl: config.redisUrl,
+  repurposingQueueName: config.repurposingQueueName,
   transcriptionQueueName: config.transcriptionQueueName,
 });
 

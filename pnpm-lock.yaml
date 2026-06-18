@@ -211,6 +211,9 @@ importers:
       "@streamos/redis":
         specifier: workspace:*
         version: link:../redis
+      "@streamos/types":
+        specifier: workspace:*
+        version: link:../types
       bullmq:
         specifier: ^5.77.7
         version: 5.77.7
@@ -433,6 +436,40 @@ importers:
         specifier: ^3.0.9
         version: 3.2.4(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)(yaml@2.9.0)
 
+  workers/repurposing-worker:
+    dependencies:
+      "@streamos/queue":
+        specifier: workspace:*
+        version: link:../../packages/queue
+      "@streamos/redis":
+        specifier: workspace:*
+        version: link:../../packages/redis
+      "@streamos/types":
+        specifier: workspace:*
+        version: link:../../packages/types
+      bullmq:
+        specifier: ^5.77.7
+        version: 5.77.7
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      "@streamos/config":
+        specifier: workspace:*
+        version: link:../../packages/config
+      "@types/node":
+        specifier: ^22.13.14
+        version: 22.19.19
+      tsx:
+        specifier: ^4.19.3
+        version: 4.22.4
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^3.0.9
+        version: 3.2.4(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)(yaml@2.9.0)
+
   workers/stream-job-worker:
     dependencies:
       "@streamos/queue":
@@ -441,6 +478,9 @@ importers:
       "@streamos/redis":
         specifier: workspace:*
         version: link:../../packages/redis
+      "@streamos/types":
+        specifier: workspace:*
+        version: link:../../packages/types
       "@supabase/supabase-js":
         specifier: ^2.49.4
         version: 2.106.2

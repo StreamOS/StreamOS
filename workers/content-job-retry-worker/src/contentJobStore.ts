@@ -5,10 +5,16 @@ export const retryableContentJobSchema = z.object({
   user_id: z.string().uuid(),
   stream_id: z.string().uuid().nullable(),
   queue_job_id: z.string().nullable(),
-  job_type: z.enum(["transcription", "clip_scoring", "title_generation"]),
+  job_type: z.enum([
+    "transcription",
+    "repurposing",
+    "clip_scoring",
+    "title_generation",
+  ]),
   status: z.literal("failed"),
   payload: z.unknown(),
   error_message: z.string().nullable(),
+  result: z.record(z.unknown()).nullable().optional(),
   retry_count: z.number().int().min(0),
   max_retries: z.number().int().min(0).max(25),
   next_retry_at: z.string().nullable(),
@@ -139,6 +145,7 @@ export function createSupabaseContentJobRetryStore({
           "status",
           "payload",
           "error_message",
+          "result",
           "retry_count",
           "max_retries",
           "next_retry_at",
@@ -217,7 +224,10 @@ export function createSupabaseContentJobRetryStore({
         body: JSON.stringify({
           error_message: errorMessage,
           next_retry_at: null,
-          result: { error: errorMessage },
+          result:
+            job.result && typeof job.result === "object"
+              ? { ...job.result, error: errorMessage }
+              : { error: errorMessage },
           retry_count: job.max_retries,
           updated_at: now.toISOString(),
         }),

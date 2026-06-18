@@ -215,6 +215,37 @@ export type TranscriptionJobResult = {
   transcript: string;
 };
 
+export type RepurposingPlanResult = {
+  captions: string[];
+  confidence: number;
+  content_job_id: string;
+  descriptions: string[];
+  hashtag_sets: string[][];
+  hook_ideas: string[];
+  manual_review_required: true;
+  model: string;
+  provider: string;
+  queue_job_id: string;
+  review_notes: string[];
+  short_form_plan: string;
+  title_suggestions: string[];
+  warnings: string[];
+};
+
+export type RepurposingPlanFailureResult = {
+  error: string;
+  error_code: string;
+  max_retries: number;
+  next_attempt_in_ms: number | null;
+  provider?: string | null;
+  retry_after_seconds?: number | null;
+  retry_count: number;
+  retry_owner: "bullmq" | "manual" | null;
+  retryable: boolean;
+  review_required?: boolean;
+  upstream_status?: number | null;
+};
+
 export type FailedContentJobResult = {
   error: string;
 };
@@ -495,6 +526,8 @@ export type ContentJob = {
   payload: Record<string, unknown>;
   result:
     | TranscriptionJobResult
+    | RepurposingPlanResult
+    | RepurposingPlanFailureResult
     | FailedContentJobResult
     | Record<string, unknown>
     | null;
