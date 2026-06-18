@@ -482,7 +482,14 @@ function classifyContentJobFailure(job) {
   const errorMessage = String(job?.error_message || "").trim();
 
   if (!errorMessage) {
-    return null;
+    return job?.status === "failed" && isProviderRateLimitedJob(job)
+      ? {
+          code: "provider_rate_limited",
+          message: buildProviderRateLimitedMessage(job, {
+            includeRetryOwner: false,
+          }),
+        }
+      : null;
   }
 
   if (errorMessage.includes("Transcription asset URL is not allowed.")) {
@@ -500,7 +507,84 @@ function classifyContentJobFailure(job) {
     };
   }
 
+  if (job?.status === "failed" && isProviderRateLimitedJob(job)) {
+    return {
+      code: "provider_rate_limited",
+      message: buildProviderRateLimitedMessage(job, {
+        includeRetryOwner: false,
+      }),
+    };
+  }
+
   return null;
+}
+
+function classifyRetryableTranscriptionState(job) {
+  if (!isProviderRateLimitedJob(job)) {
+    return null;
+  }
+
+  return {
+    code: "provider_rate_limited",
+    message: buildProviderRateLimitedMessage(job, {
+      includeRetryOwner: true,
+    }),
+  };
+}
+
+function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getProviderRateLimitResult(job) {
+  if (!isPlainObject(job?.result)) {
+    return null;
+  }
+
+  return typeof job.result.error_code === "string" &&
+    job.result.error_code === "provider_rate_limited"
+    ? job.result
+    : null;
+}
+
+function isProviderRateLimitedJob(job) {
+  const errorMessage = String(job?.error_message || "").trim();
+
+  return (
+    getProviderRateLimitResult(job) !== null ||
+    errorMessage.includes("provider_rate_limited") ||
+    errorMessage.includes("status 429")
+  );
+}
+
+function buildProviderRateLimitedMessage(job, { includeRetryOwner }) {
+  const result = getProviderRateLimitResult(job);
+  const details = [
+    result?.provider ? `provider=${result.provider}` : null,
+    typeof result?.upstream_status === "number"
+      ? `upstream_status=${result.upstream_status}`
+      : null,
+    typeof result?.retry_after_seconds === "number"
+      ? `retry_after_seconds=${result.retry_after_seconds}`
+      : null,
+    typeof job?.retry_count === "number"
+      ? `retry_count=${job.retry_count}`
+      : null,
+    typeof job?.max_retries === "number"
+      ? `max_retries=${job.max_retries}`
+      : null,
+    typeof result?.next_attempt_in_ms === "number"
+      ? `next_attempt_in_ms=${result.next_attempt_in_ms}`
+      : null,
+    includeRetryOwner && typeof result?.retry_owner === "string"
+      ? `retry_owner=${result.retry_owner}`
+      : null,
+    job?.status ? `status=${job.status}` : null,
+  ].filter(Boolean);
+
+  return `transcription provider rate limited the canonical job${
+    details.length > 0 ? ` (${details.join(", ")})` : ""
+  }`;
 }
 
 async function waitForHttpHealth(
@@ -825,7 +909,8 @@ async function getContentJobByQueueId(env, queueJobId) {
     path: "/rest/v1/content_jobs",
     query: {
       queue_job_id: `eq.${queueJobId}`,
-      select: "id,status,queue_job_id,error_message,result,updated_at",
+      select:
+        "id,status,queue_job_id,error_message,result,retry_count,max_retries,next_retry_at,updated_at",
     },
   });
 
@@ -848,6 +933,10 @@ async function waitForTerminalContentJob({
 
     const classifiedFailure =
       expectedStatus === "done" ? classifyContentJobFailure(lastJob) : null;
+    const retryableState =
+      expectedStatus === "done"
+        ? classifyRetryableTranscriptionState(lastJob)
+        : null;
 
     if (classifiedFailure) {
       throw new Error(
@@ -873,13 +962,29 @@ async function waitForTerminalContentJob({
       return lastJob;
     }
 
-    console.log(
-      `Waiting for transcription worker: status=${lastJob?.status ?? "missing"} queue=${queueJobId}`,
-    );
+    if (retryableState) {
+      console.log(
+        `Waiting for transcription worker: code=${retryableState.code} status=${lastJob?.status ?? "missing"} retry=${lastJob?.retry_count ?? "?"}/${lastJob?.max_retries ?? "?"} queue=${queueJobId}`,
+      );
+    } else {
+      console.log(
+        `Waiting for transcription worker: status=${lastJob?.status ?? "missing"} queue=${queueJobId}`,
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 
   const streamState = streamId ? await getStreamState(env, streamId) : null;
+  const retryableState =
+    expectedStatus === "done"
+      ? classifyRetryableTranscriptionState(lastJob)
+      : null;
+
+  if (retryableState) {
+    throw new Error(
+      `${retryableState.code}: ${retryableState.message} Last row: ${JSON.stringify(lastJob)} Stream state: ${JSON.stringify(streamState)}`,
+    );
+  }
 
   throw new Error(
     `Transcription job did not reach ${expectedStatus} within ${waitMs}ms. Last row: ${JSON.stringify(lastJob)} Stream state: ${JSON.stringify(streamState)}`,
@@ -1065,6 +1170,7 @@ module.exports = {
   PRODUCTION_GATE_MODE,
   TRANSCRIPTION_E2E_FIXTURE_ENV_NAME,
   classifyContentJobFailure,
+  classifyRetryableTranscriptionState,
   getFixtureAssetExtension,
   isPlaceholderFixtureHostname,
   isPrivateOrLocalFixtureHostname,

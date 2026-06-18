@@ -6,7 +6,11 @@ import httpx
 import pytest
 
 from main import app, get_clip_analyzer, get_transcription_processor
-from openai_client import OpenAIClipAnalyzer, OpenAITranscriptionProcessor
+from openai_client import (
+    OpenAIClipAnalyzer,
+    OpenAITranscriptionProcessor,
+    ProviderRateLimitError,
+)
 from schemas import (
     ClipAnalysisRequest,
     ClipAnalysisResponse,
@@ -65,6 +69,17 @@ class UnsafeUrlTranscriptionProcessor:
         self, _payload: TranscriptionProcessRequest
     ) -> TranscriptionProcessResponse:
         raise UnsafeAssetUrlError("Asset URL resolves to a non-public IP address.")
+
+
+class RateLimitedTranscriptionProcessor:
+    async def process_transcription(
+        self, _payload: TranscriptionProcessRequest
+    ) -> TranscriptionProcessResponse:
+        raise ProviderRateLimitError(
+            message="Upstream transcription provider rate limited the request.",
+            provider="openai",
+            retry_after_seconds=45,
+        )
 
 
 def test_settings_reject_public_openai_keys() -> None:
@@ -178,6 +193,42 @@ def test_transcription_endpoint_returns_400_for_unsafe_asset_url() -> None:
 
     assert response.status_code == 400
     assert response.json() == {"detail": "Transcription asset URL is not allowed."}
+
+
+def test_transcription_endpoint_returns_structured_503_for_provider_rate_limit() -> (
+    None
+):
+    app.dependency_overrides[get_transcription_processor] = (
+        RateLimitedTranscriptionProcessor
+    )
+
+    try:
+        response = asyncio.run(
+            post_json(
+                "/transcriptions/process",
+                {
+                    "job_id": "job-123",
+                    "stream_id": "stream-123",
+                    "source_platform": "twitch",
+                    "asset_url": "https://cdn.example.com/audio.mp4",
+                    "language": "en",
+                },
+            )
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {
+            "code": "provider_rate_limited",
+            "message": "Upstream transcription provider rate limited the request.",
+            "provider": "openai",
+            "retryable": True,
+            "retry_after_seconds": 45,
+            "upstream_status": 429,
+        }
+    }
 
 
 def test_missing_server_openai_key_returns_503(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -438,4 +489,68 @@ def test_openai_transcription_processor_rejects_private_redirect_targets() -> No
 
     assert [str(request.url) for request in requests] == [
         "https://cdn.example.com/audio.mp4"
+    ]
+
+
+def test_openai_transcription_processor_classifies_provider_429() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+
+        if request.url == "https://cdn.example.com/audio.mp4":
+            return httpx.Response(
+                status_code=200,
+                headers={"content-type": "audio/mp4"},
+                content=b"fake-audio-bytes",
+            )
+
+        assert request.url == "https://api.openai.test/v1/audio/transcriptions"
+        return httpx.Response(
+            status_code=429,
+            headers={"retry-after": "120"},
+            json={"error": {"message": "Rate limit exceeded."}},
+        )
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.AsyncClient(transport=transport)
+    processor = OpenAITranscriptionProcessor(
+        Settings(
+            streamos_e2e_mode=False,
+            openai_api_key="sk-server",
+            openai_model="gpt-4o",
+            openai_title_model="gpt-4o-mini",
+            openai_transcription_model="gpt-4o-transcribe",
+            openai_base_url="https://api.openai.test/v1",
+            openai_timeout_seconds=30,
+            max_transcription_media_bytes=25_000_000,
+            transcription_processor_mode="openai",
+        ),
+        http_client=http_client,
+        asset_url_resolver=lambda _hostname: [ipaddress.ip_address("93.184.216.34")],
+    )
+
+    async def run_transcription() -> None:
+        try:
+            await processor.process_transcription(
+                TranscriptionProcessRequest(
+                    job_id="job-123",
+                    stream_id="stream-123",
+                    source_platform="twitch",
+                    asset_url="https://cdn.example.com/audio.mp4",
+                    language="en",
+                )
+            )
+        finally:
+            await http_client.aclose()
+
+    with pytest.raises(ProviderRateLimitError) as error_info:
+        asyncio.run(run_transcription())
+
+    assert error_info.value.provider == "openai"
+    assert error_info.value.retry_after_seconds == 120
+    assert error_info.value.upstream_status == 429
+    assert [str(request.url) for request in requests] == [
+        "https://cdn.example.com/audio.mp4",
+        "https://api.openai.test/v1/audio/transcriptions",
     ]

@@ -84,8 +84,49 @@ describe("createAutomationClient", () => {
         source_platform: "youtube",
         stream_id: "stream-123",
       }),
-    ).rejects.toThrow(
-      'automation-service transcription failed with 502: {"detail":"OpenAI transcription failed."}',
+    ).rejects.toThrow("OpenAI transcription failed.");
+  });
+
+  it("classifies structured provider rate limits from automation-service", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: {
+            code: "provider_rate_limited",
+            message:
+              "Upstream transcription provider rate limited the request.",
+            provider: "openai",
+            retry_after_seconds: 90,
+            retryable: true,
+            upstream_status: 429,
+          },
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 503,
+        },
+      ),
     );
+    const client = createAutomationClient({
+      automationServiceUrl: "http://automation-service.railway.internal:8000",
+      fetchFn,
+    });
+
+    await expect(
+      client.processTranscription({
+        asset_url: "https://cdn.example.com/audio.mp4",
+        job_id: "job-123",
+        language: "auto",
+        source_platform: "youtube",
+        stream_id: "stream-123",
+      }),
+    ).rejects.toMatchObject({
+      code: "provider_rate_limited",
+      httpStatus: 503,
+      provider: "openai",
+      retryAfterSeconds: 90,
+      retryable: true,
+      upstreamStatus: 429,
+    });
   });
 });

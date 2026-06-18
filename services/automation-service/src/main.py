@@ -5,7 +5,11 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import ValidationError
 
-from openai_client import OpenAIClipAnalyzer, OpenAITranscriptionProcessor
+from openai_client import (
+    OpenAIClipAnalyzer,
+    OpenAITranscriptionProcessor,
+    ProviderRateLimitError,
+)
 from schemas import (
     ClipAnalysisRequest,
     ClipAnalysisResponse,
@@ -17,6 +21,17 @@ from settings import SettingsError, load_settings
 from ssrf import UnsafeAssetUrlError
 
 app = FastAPI(title="StreamOS Automation Service", version="0.1.0")
+
+
+def build_provider_rate_limit_detail(error: ProviderRateLimitError) -> dict[str, object]:
+    return {
+        "code": "provider_rate_limited",
+        "message": error.message,
+        "provider": error.provider,
+        "retryable": True,
+        "retry_after_seconds": error.retry_after_seconds,
+        "upstream_status": error.upstream_status,
+    }
 
 
 class ClipAnalyzer(Protocol):
@@ -117,6 +132,11 @@ async def analyze_clip(
 ) -> ClipAnalysisResponse:
     try:
         return await analyzer.analyze_clip(payload)
+    except ProviderRateLimitError as error:
+        raise HTTPException(
+            status_code=503,
+            detail=build_provider_rate_limit_detail(error),
+        ) from error
     except httpx.HTTPStatusError as error:
         raise HTTPException(
             status_code=502,
@@ -139,6 +159,11 @@ async def process_transcription(
         raise HTTPException(
             status_code=400,
             detail="Transcription asset URL is not allowed.",
+        ) from error
+    except ProviderRateLimitError as error:
+        raise HTTPException(
+            status_code=503,
+            detail=build_provider_rate_limit_detail(error),
         ) from error
     except httpx.HTTPStatusError as error:
         raise HTTPException(

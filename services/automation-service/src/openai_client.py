@@ -1,4 +1,6 @@
 import json
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import urljoin
 
@@ -13,6 +15,22 @@ from schemas import (
 )
 from settings import Settings
 from ssrf import HostnameResolver, UnsafeAssetUrlError, validate_public_https_url
+
+
+class ProviderRateLimitError(Exception):
+    def __init__(
+        self,
+        *,
+        message: str,
+        provider: str,
+        retry_after_seconds: int | None = None,
+        upstream_status: int = 429,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.provider = provider
+        self.retry_after_seconds = retry_after_seconds
+        self.upstream_status = upstream_status
 
 
 class OpenAIClipAnalyzer:
@@ -102,6 +120,15 @@ class OpenAIClipAnalyzer:
             },
         )
 
+        if response.status_code == 429:
+            raise ProviderRateLimitError(
+                message="Upstream clip analysis provider rate limited the request.",
+                provider="openai",
+                retry_after_seconds=_parse_retry_after_seconds(
+                    response.headers.get("retry-after")
+                ),
+            )
+
         response.raise_for_status()
         analysis = json.loads(_extract_output_text(response.json()))
 
@@ -165,6 +192,15 @@ class OpenAITranscriptionProcessor:
                 )
             },
         )
+        if transcription_response.status_code == 429:
+            raise ProviderRateLimitError(
+                message="Upstream transcription provider rate limited the request.",
+                provider="openai",
+                retry_after_seconds=_parse_retry_after_seconds(
+                    transcription_response.headers.get("retry-after")
+                ),
+            )
+
         transcription_response.raise_for_status()
         response_payload = transcription_response.json()
         transcript = response_payload.get("text")
@@ -228,6 +264,33 @@ def _extract_output_text(response_payload: dict[str, Any]) -> str:
                 return text
 
     raise ValueError("OpenAI response did not include text output.")
+
+
+def _parse_retry_after_seconds(value: str | None) -> int | None:
+    if value is None:
+        return None
+
+    normalized_value = value.strip()
+
+    if not normalized_value:
+        return None
+
+    if normalized_value.isdigit():
+        return max(int(normalized_value), 0)
+
+    try:
+        retry_after_datetime = parsedate_to_datetime(normalized_value)
+    except (TypeError, ValueError, IndexError):
+        return None
+
+    if retry_after_datetime.tzinfo is None:
+        retry_after_datetime = retry_after_datetime.replace(tzinfo=timezone.utc)
+
+    delta_seconds = int(
+        (retry_after_datetime - datetime.now(timezone.utc)).total_seconds()
+    )
+
+    return max(delta_seconds, 0)
 
 
 def _filename_from_url(asset_url: str) -> str:
