@@ -1,0 +1,22 @@
+FROM node:22-slim AS app
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+
+WORKDIR /app
+
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY scripts ./scripts
+COPY packages ./packages
+COPY services/api-gateway ./services/api-gateway
+COPY workers/stream-job-worker ./workers/stream-job-worker
+COPY workers/transcription-worker ./workers/transcription-worker
+
+RUN test -f scripts/.release-gate-runner-provenance.json || \
+  (echo "release-gate-runner provenance missing from build context" >&2 && exit 1)
+
+RUN pnpm install --frozen-lockfile
+
+CMD ["sh", "-c", "echo 'release-gate-runner ready'; tail -f /dev/null"]

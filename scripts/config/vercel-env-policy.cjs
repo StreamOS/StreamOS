@@ -6,56 +6,71 @@ const FORBIDDEN_OPENAI_PREFIX = "NEXT_PUBLIC_OPENAI";
 
 const ALLOWED_VERCEL_ENV_NAMES = new Set([
   "APP_URL",
-  "APP_ENCRYPTION_KEY",
-  "APP_ENV",
   "API_GATEWAY_SECRET",
   "API_GATEWAY_URL",
   "NEXT_PUBLIC_APP_URL",
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
   "NEXT_PUBLIC_SUPABASE_URL",
   "STREAMOS_DEMO_MODE",
-  "STREAM_EVENT_WEBHOOK_SECRET",
-  "TWITCH_CLIENT_ID",
-  // TODO: Remove this temporary exception once Twitch OAuth fully migrates to
-  // the API Gateway and Vercel no longer needs the Twitch client secret.
-  "TWITCH_CLIENT_SECRET",
-  "TWITCH_REDIRECT_URI",
-  "TWITCH_SCOPES",
 ]);
 
 const ALLOWED_VERCEL_ENV_PREFIXES = ["NODE_", "VERCEL_", "npm_"];
 
 const FORBIDDEN_VERCEL_ENV_NAMES = new Set([
+  "ADMIN_SECRET",
+  "APP_ENCRYPTION_KEY",
   "AUTOMATION_SERVICE_URL",
+  "CRON_SECRET",
+  "KICK_CLIENT_SECRET",
+  "KICK_WEBHOOK_SECRET",
+  "REDIS_TLS_URL",
   "REDIS_URL",
+  "STREAM_EVENT_WEBHOOK_SECRET",
   "SUPABASE_DB_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
+  "TIKTOK_CLIENT_SECRET",
+  "TWITCH_CLIENT_SECRET",
+  "TWITCH_EVENTSUB_SECRET",
+  "TWITCH_WEBHOOK_SECRET",
+  "UPSTASH_REDIS_REST_TOKEN",
+  "UPSTASH_REDIS_REST_URL",
+  "YOUTUBE_API_KEY",
+  "YOUTUBE_CLIENT_SECRET",
+  "YOUTUBE_WEBHOOK_SECRET",
+  "YOUTUBE_WEBSUB_SECRET",
+  "YOUTUBE_WEBSUB_VERIFY_TOKEN",
 ]);
 
 const FORBIDDEN_VERCEL_ENV_PREFIXES = [
   FORBIDDEN_OPENAI_PREFIX,
-  "KICK_",
   "OPENAI_",
   "RAILWAY_",
+  "REDIS_",
   "REPLICATE_",
-  "TIKTOK_",
-  "YOUTUBE_",
+  "UPSTASH_REDIS_",
 ];
 
 const REQUIRED_VERCEL_ENV_NAMES = [
-  "APP_ENV",
-  "APP_ENCRYPTION_KEY",
   "API_GATEWAY_SECRET",
   "API_GATEWAY_URL",
-  "NEXT_PUBLIC_APP_URL",
-  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   "NEXT_PUBLIC_SUPABASE_URL",
-  "STREAMOS_DEMO_MODE",
-  "STREAM_EVENT_WEBHOOK_SECRET",
-  "TWITCH_CLIENT_ID",
-  "TWITCH_CLIENT_SECRET",
-  "TWITCH_REDIRECT_URI",
-  "TWITCH_SCOPES",
+];
+
+const REQUIRED_VERCEL_ENV_ONE_OF_GROUPS = [
+  {
+    names: ["APP_URL", "NEXT_PUBLIC_APP_URL"],
+    reason:
+      "At least one canonical app origin must be configured in the Vercel environment.",
+  },
+  {
+    names: [
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    ],
+    reason:
+      "At least one public Supabase browser key must be configured in the Vercel environment.",
+  },
 ];
 
 const PUBLIC_URL_VERCEL_ENV_NAMES = new Set([
@@ -63,7 +78,6 @@ const PUBLIC_URL_VERCEL_ENV_NAMES = new Set([
   "API_GATEWAY_URL",
   "NEXT_PUBLIC_APP_URL",
   "NEXT_PUBLIC_SUPABASE_URL",
-  "TWITCH_REDIRECT_URI",
 ]);
 
 function normalizeEnvValue(value) {
@@ -88,6 +102,62 @@ function isForbiddenVercelEnvName(name) {
   );
 }
 
+function getForbiddenVercelEnvReason(name) {
+  if (name === "APP_ENCRYPTION_KEY") {
+    return "Encryption keys belong in trusted Railway services, not apps/web on Vercel.";
+  }
+
+  if (name === "SUPABASE_SERVICE_ROLE_KEY" || name === "SUPABASE_DB_URL") {
+    return "Privileged Supabase database access belongs in Railway services/workers, not apps/web on Vercel.";
+  }
+
+  if (name === "AUTOMATION_SERVICE_URL" || name.startsWith("RAILWAY_")) {
+    return "Private Railway service URLs and runtime secrets must not be configured in apps/web on Vercel.";
+  }
+
+  if (
+    name === "REDIS_URL" ||
+    name === "REDIS_TLS_URL" ||
+    name.startsWith("REDIS_") ||
+    name.startsWith("UPSTASH_REDIS_")
+  ) {
+    return "Redis and BullMQ credentials belong in Railway services/workers, not apps/web on Vercel.";
+  }
+
+  if (name.startsWith("OPENAI_") || name.startsWith(FORBIDDEN_OPENAI_PREFIX)) {
+    return "OpenAI credentials belong in services/automation-service, not apps/web on Vercel.";
+  }
+
+  if (name.startsWith("REPLICATE_")) {
+    return "AI provider credentials belong in services/automation-service, not apps/web on Vercel.";
+  }
+
+  if (
+    [
+      "KICK_CLIENT_SECRET",
+      "KICK_WEBHOOK_SECRET",
+      "STREAM_EVENT_WEBHOOK_SECRET",
+      "TIKTOK_CLIENT_SECRET",
+      "TWITCH_CLIENT_SECRET",
+      "TWITCH_EVENTSUB_SECRET",
+      "TWITCH_WEBHOOK_SECRET",
+      "YOUTUBE_API_KEY",
+      "YOUTUBE_CLIENT_SECRET",
+      "YOUTUBE_WEBHOOK_SECRET",
+      "YOUTUBE_WEBSUB_SECRET",
+      "YOUTUBE_WEBSUB_VERIFY_TOKEN",
+    ].includes(name)
+  ) {
+    return "Provider OAuth, webhook, and verification secrets belong in services/api-gateway on Railway, not apps/web on Vercel.";
+  }
+
+  if (name === "ADMIN_SECRET" || name === "CRON_SECRET") {
+    return "Administrative shared secrets belong in trusted Railway services, not apps/web on Vercel.";
+  }
+
+  return "This variable must not be configured in apps/web on Vercel.";
+}
+
 function findForbiddenOpenAIEnvNames(env = {}) {
   return Object.keys(env)
     .filter((name) => name.startsWith(FORBIDDEN_OPENAI_PREFIX))
@@ -96,6 +166,18 @@ function findForbiddenOpenAIEnvNames(env = {}) {
 
 function formatForbiddenOpenAIEnvError(names, contextLabel = "web app") {
   return `${names.join(", ")} must not be configured in the ${contextLabel}. OpenAI keys are server-only and belong in services/automation-service as OPENAI_API_KEY.`;
+}
+
+function normalizeKnownPresentNames(knownPresentNames) {
+  if (knownPresentNames instanceof Set) {
+    return knownPresentNames;
+  }
+
+  if (Array.isArray(knownPresentNames)) {
+    return new Set(knownPresentNames);
+  }
+
+  return new Set();
 }
 
 function findForbiddenVercelEnvNames(env = {}, knownPresentNames = undefined) {
@@ -112,10 +194,7 @@ function formatForbiddenVercelEnvError(
 ) {
   return [
     `Invalid ${contextLabel}:`,
-    ...names.map(
-      (name) =>
-        `- ${name}: This secret must only be set on Railway, not on Vercel.`,
-    ),
+    ...names.map((name) => `- ${name}: ${getForbiddenVercelEnvReason(name)}`),
   ].join("\n");
 }
 
@@ -140,7 +219,7 @@ function formatUnexpectedVercelEnvWarning(
   return [
     `Unexpected ${contextLabel} variables detected:`,
     names.map((name) => `- ${name}`).join("\n"),
-    "These variables are not in the StreamOS Vercel allowlist and should be reviewed.",
+    "These variables are outside the StreamOS apps/web Vercel contract and should be reviewed for Vercel, Railway, or local-only ownership.",
   ].join("\n");
 }
 
@@ -148,16 +227,8 @@ function isSet(env, name) {
   return normalizeEnvValue(env?.[name]) !== "";
 }
 
-function normalizeKnownPresentNames(knownPresentNames) {
-  if (knownPresentNames instanceof Set) {
-    return knownPresentNames;
-  }
-
-  if (Array.isArray(knownPresentNames)) {
-    return new Set(knownPresentNames);
-  }
-
-  return new Set();
+function hasAnyConfiguredValue(env, names, presentNames) {
+  return names.some((name) => isSet(env, name) || presentNames.has(name));
 }
 
 function validatePublicUrl(name, rawValue) {
@@ -190,16 +261,6 @@ function validatePublicUrl(name, rawValue) {
     };
   }
 
-  if (
-    name === "TWITCH_REDIRECT_URI" &&
-    parsedUrl.pathname !== "/api/auth/twitch/callback"
-  ) {
-    return {
-      name,
-      reason: `${name} must point to /api/auth/twitch/callback.`,
-    };
-  }
-
   return null;
 }
 
@@ -223,6 +284,15 @@ function collectVercelEnvironmentIssues(
         });
       }
     }
+
+    for (const group of REQUIRED_VERCEL_ENV_ONE_OF_GROUPS) {
+      if (!hasAnyConfiguredValue(env, group.names, presentNames)) {
+        issues.push({
+          name: group.names.join(" | "),
+          reason: group.reason,
+        });
+      }
+    }
   }
 
   for (const name of Array.from(
@@ -231,7 +301,7 @@ function collectVercelEnvironmentIssues(
     if (isForbiddenVercelEnvName(name)) {
       issues.push({
         name,
-        reason: "This secret must only be set on Railway, not on Vercel.",
+        reason: getForbiddenVercelEnvReason(name),
       });
       continue;
     }
@@ -311,6 +381,7 @@ module.exports = {
   FORBIDDEN_VERCEL_ENV_PREFIXES,
   PUBLIC_URL_VERCEL_ENV_NAMES,
   REQUIRED_VERCEL_ENV_NAMES,
+  REQUIRED_VERCEL_ENV_ONE_OF_GROUPS,
   assertNoForbiddenVercelEnv,
   assertVercelEnvironment,
   collectUnexpectedVercelEnvNames,
@@ -321,6 +392,8 @@ module.exports = {
   formatForbiddenOpenAIEnvError,
   formatUnexpectedVercelEnvWarning,
   formatVercelEnvironmentIssues,
+  getForbiddenVercelEnvReason,
+  hasAnyConfiguredValue,
   isAllowedVercelEnvName,
   isForbiddenVercelEnvName,
   matchesAnyPrefix,

@@ -224,6 +224,9 @@ importers:
       "@types/node":
         specifier: ^22.13.14
         version: 22.19.19
+      tsx:
+        specifier: ^4.20.6
+        version: 4.22.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -466,6 +469,9 @@ importers:
 
   workers/transcription-worker:
     dependencies:
+      "@streamos/queue":
+        specifier: workspace:*
+        version: link:../../packages/queue
       "@streamos/redis":
         specifier: workspace:*
         version: link:../../packages/redis

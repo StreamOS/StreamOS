@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@streamos/queue": "workspace:*",
     "@streamos/redis": "workspace:*",
     "@streamos/types": "workspace:*",
     "@streamos/utils": "workspace:*",

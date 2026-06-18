@@ -52,8 +52,14 @@ const TRANSCRIPTION_WORKER_REQUIRED = [
   "REDIS_URL",
   "TRANSCRIPTION_QUEUE_NAME",
   "TRANSCRIPTION_WORKER_CONCURRENCY",
-  "CLIP_WORKER_CONCURRENCY",
   "AUTOMATION_SERVICE_URL",
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+];
+
+const STREAM_JOB_WORKER_REQUIRED = [
+  "REDIS_URL",
+  "TRANSCRIPTION_QUEUE_NAME",
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
 ];
@@ -77,6 +83,8 @@ const CLIP_WORKER_REQUIRED = [
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
 ];
+
+const RELEASE_GATE_RUNNER_REQUIRED = [];
 
 module.exports = {
   project: {
@@ -260,6 +268,11 @@ module.exports = {
         kind: "url",
         protocols: ["http:", "https:"],
       },
+      TRANSCRIPTION_E2E_FIXTURE_ASSET_URL: {
+        kind: "url",
+        protocols: ["https:"],
+        rejectPrivateHosts: true,
+      },
       STREAM_EVENT_WEBHOOK_SECRET: {
         kind: "string",
       },
@@ -373,17 +386,26 @@ module.exports = {
       runtime: "node",
     },
     "transcription-worker": {
-      optional: [
-        "CLIP_GENERATION_QUEUE_NAME",
-        "QUEUE_DEFAULT_NAME",
-        "STREAM_JOB_QUEUE_NAME",
-        "TWITCH_CLIENT_ID",
-        "TWITCH_CLIENT_SECRET",
-        "YOUTUBE_CLIENT_ID",
-        "YOUTUBE_CLIENT_SECRET",
-      ],
+      optional: ["CLIP_GENERATION_QUEUE_NAME"],
       publicNetworking: "disabled",
       required: TRANSCRIPTION_WORKER_REQUIRED,
+      runtime: "node",
+    },
+    "stream-job-worker": {
+      optional: [
+        "QUEUE_DEFAULT_NAME",
+        "STREAM_JOB_ALERT_WEBHOOK_URL",
+        "STREAM_JOB_QUEUE_NAME",
+        "STREAM_JOB_WORKER_CONCURRENCY",
+      ],
+      publicNetworking: "disabled",
+      required: STREAM_JOB_WORKER_REQUIRED,
+      runtime: "node",
+    },
+    "release-gate-runner": {
+      optional: ["TRANSCRIPTION_E2E_FIXTURE_ASSET_URL"],
+      publicNetworking: "disabled",
+      required: RELEASE_GATE_RUNNER_REQUIRED,
       runtime: "node",
     },
   },

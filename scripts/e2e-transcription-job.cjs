@@ -3,14 +3,37 @@
 const { execFileSync, spawnSync } = require("node:child_process");
 const { createHmac, randomUUID } = require("node:crypto");
 const { existsSync, readFileSync } = require("node:fs");
+const { isIP } = require("node:net");
 
 const { consumeValueFlag } = require("./lib/cli-args.cjs");
 
 const DEFAULT_API_GATEWAY_URL = "http://localhost:4000";
 const DEFAULT_ENV_FILE = ".env.test";
+const LOCAL_DIAGNOSTIC_MODE = "local-diagnostic";
+const PRODUCTION_GATE_MODE = "production-gate";
 const DEFAULT_POLL_MS = 2_000;
 const DEFAULT_WAIT_MS = 120_000;
 const DEFAULT_STREAM_EVENT_WEBHOOK_SECRET = "local-streamos-webhook-secret";
+const TRANSCRIPTION_E2E_FIXTURE_ENV_NAME =
+  "TRANSCRIPTION_E2E_FIXTURE_ASSET_URL";
+const LOCAL_FIXTURE_PLACEHOLDER_HOST = "cdn.example.com";
+const ALLOWED_FIXTURE_EXTENSIONS = new Set([
+  ".aac",
+  ".flac",
+  ".m4a",
+  ".mp3",
+  ".mp4",
+  ".mpeg",
+  ".mpga",
+  ".oga",
+  ".ogg",
+  ".wav",
+  ".webm",
+]);
+
+function getExpectedTranscriptionQueueJobId(streamId) {
+  return `transcription-trigger-${streamId}`;
+}
 
 function parseArgs(argv) {
   const options = {
@@ -18,6 +41,7 @@ function parseArgs(argv) {
     envFile: DEFAULT_ENV_FILE,
     expect: "done",
     help: false,
+    mode: LOCAL_DIAGNOSTIC_MODE,
     pollMs: DEFAULT_POLL_MS,
     skipDocker: false,
     waitMs: DEFAULT_WAIT_MS,
@@ -47,6 +71,18 @@ function parseArgs(argv) {
       continue;
     }
 
+    const fixtureAssetUrlMatch = consumeValueFlag(
+      argv,
+      index,
+      "fixture-asset-url",
+    );
+
+    if (fixtureAssetUrlMatch.matched) {
+      options.fixtureAssetUrl = fixtureAssetUrlMatch.value.trim();
+      index = fixtureAssetUrlMatch.nextIndex;
+      continue;
+    }
+
     const envFileMatch = consumeValueFlag(argv, index, "env-file");
 
     if (envFileMatch.matched) {
@@ -65,6 +101,14 @@ function parseArgs(argv) {
 
     if (arg === "--help" || arg === "-h") {
       options.help = true;
+      continue;
+    }
+
+    const modeMatch = consumeValueFlag(argv, index, "mode");
+
+    if (modeMatch.matched) {
+      options.mode = modeMatch.value.trim();
+      index = modeMatch.nextIndex;
       continue;
     }
 
@@ -112,6 +156,12 @@ function parseArgs(argv) {
     throw new Error("--wait-ms must be an integer >= --poll-ms.");
   }
 
+  if (![LOCAL_DIAGNOSTIC_MODE, PRODUCTION_GATE_MODE].includes(options.mode)) {
+    throw new Error(
+      `--mode must be either ${LOCAL_DIAGNOSTIC_MODE} or ${PRODUCTION_GATE_MODE}.`,
+    );
+  }
+
   return options;
 }
 
@@ -130,6 +180,8 @@ Options:
   --docker-bin BIN           Use a specific Docker-compatible CLI binary.
   --env-file PATH            Load E2E env from a file. Default: ${DEFAULT_ENV_FILE}.
   --expect done|failed       Expected final content_jobs.status. Default: done.
+  --fixture-asset-url URL    Public HTTPS media fixture for hosted / production-gate runs.
+  --mode MODE                local-diagnostic or production-gate. Default: ${LOCAL_DIAGNOSTIC_MODE}.
   --skip-docker              Do not run docker compose up before testing.
   --user-id UUID             Use a specific Supabase auth user.
   --wait-ms N                How long to wait for terminal status. Default: ${DEFAULT_WAIT_MS}.
@@ -256,8 +308,210 @@ function isLocalSupabaseUrl(value) {
   }
 }
 
-async function waitForHttpHealth(url, serviceName, waitMs) {
+function redactFixtureAssetUrl(value) {
+  try {
+    const parsedUrl = value instanceof URL ? value : new URL(String(value));
+    const extension = getFixtureAssetExtension(parsedUrl.pathname);
+
+    return `${parsedUrl.protocol}//${parsedUrl.host}/redacted${extension}`;
+  } catch {
+    return "invalid-fixture-url";
+  }
+}
+
+function getFixtureAssetExtension(pathname) {
+  const match = String(pathname || "")
+    .toLowerCase()
+    .match(/\.[a-z0-9]{2,5}$/);
+
+  return match?.[0] ?? "";
+}
+
+function isPlaceholderFixtureHostname(hostname) {
+  return ["example.com", "example.org", "example.net", "example.invalid"].some(
+    (suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`),
+  );
+}
+
+function isPrivateOrLocalFixtureHostname(hostname) {
+  if (!hostname) {
+    return true;
+  }
+
+  const normalizedHostname = hostname.trim().toLowerCase().replace(/\.$/, "");
+
+  if (
+    normalizedHostname === "localhost" ||
+    normalizedHostname.endsWith(".internal") ||
+    normalizedHostname.endsWith(".local") ||
+    normalizedHostname.endsWith(".localhost")
+  ) {
+    return true;
+  }
+
+  const ipVersion = isIP(normalizedHostname);
+
+  if (ipVersion === 4) {
+    const octets = normalizedHostname.split(".").map(Number);
+
+    return (
+      octets.length !== 4 ||
+      octets.some((octet) => Number.isNaN(octet)) ||
+      octets[0] === 0 ||
+      octets[0] === 10 ||
+      octets[0] === 127 ||
+      (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) ||
+      (octets[0] === 169 && octets[1] === 254) ||
+      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+      (octets[0] === 192 && octets[1] === 168) ||
+      (octets[0] === 198 && (octets[1] === 18 || octets[1] === 19))
+    );
+  }
+
+  if (ipVersion === 6) {
+    return (
+      normalizedHostname === "::" ||
+      normalizedHostname === "::1" ||
+      normalizedHostname.startsWith("fe80:") ||
+      normalizedHostname.startsWith("fc") ||
+      normalizedHostname.startsWith("fd")
+    );
+  }
+
+  return false;
+}
+
+function validateFixtureAssetUrl(value, { mode }) {
+  const trimmedValue = String(value || "").trim();
+
+  if (!trimmedValue) {
+    throw new Error(
+      `fixture_asset_invalid: ${TRANSCRIPTION_E2E_FIXTURE_ENV_NAME} or --fixture-asset-url is required for ${mode}.`,
+    );
+  }
+
+  let parsedUrl;
+
+  try {
+    parsedUrl = new URL(trimmedValue);
+  } catch (error) {
+    throw new Error(
+      `fixture_asset_invalid: transcription fixture asset must be an absolute URL.`,
+      { cause: error },
+    );
+  }
+
+  if (parsedUrl.protocol !== "https:") {
+    throw new Error(
+      "fixture_asset_invalid: transcription fixture asset must use https.",
+    );
+  }
+
+  if (parsedUrl.port && parsedUrl.port !== "443") {
+    throw new Error(
+      "fixture_asset_invalid: transcription fixture asset must use the default https port.",
+    );
+  }
+
+  if (parsedUrl.username || parsedUrl.password) {
+    throw new Error(
+      "fixture_asset_invalid: transcription fixture asset must not include credentials.",
+    );
+  }
+
+  if (parsedUrl.search || parsedUrl.hash) {
+    throw new Error(
+      "fixture_asset_invalid: transcription fixture asset must not include query strings or fragments.",
+    );
+  }
+
+  const normalizedHostname = parsedUrl.hostname
+    .toLowerCase()
+    .replace(/\.$/, "");
+
+  if (isPlaceholderFixtureHostname(normalizedHostname)) {
+    throw new Error(
+      "fixture_asset_invalid: example.* placeholder hosts are not valid transcription fixture assets.",
+    );
+  }
+
+  if (isPrivateOrLocalFixtureHostname(normalizedHostname)) {
+    throw new Error(
+      "fixture_asset_invalid: transcription fixture asset must not use localhost, private IPs, link-local IPs, or internal hostnames.",
+    );
+  }
+
+  const extension = getFixtureAssetExtension(parsedUrl.pathname);
+
+  if (!ALLOWED_FIXTURE_EXTENSIONS.has(extension)) {
+    throw new Error(
+      `fixture_asset_invalid: transcription fixture asset must use a known audio/video file extension (${Array.from(
+        ALLOWED_FIXTURE_EXTENSIONS,
+      )
+        .sort()
+        .join(", ")}).`,
+    );
+  }
+
+  return {
+    extension,
+    hostname: normalizedHostname,
+    raw: parsedUrl.toString(),
+    redacted: redactFixtureAssetUrl(parsedUrl),
+  };
+}
+
+function resolveFixtureAssetConfig({ env, options }) {
+  const configuredValue =
+    options.fixtureAssetUrl || env[TRANSCRIPTION_E2E_FIXTURE_ENV_NAME];
+
+  if (configuredValue) {
+    return validateFixtureAssetUrl(configuredValue, { mode: options.mode });
+  }
+
+  if (options.mode === PRODUCTION_GATE_MODE) {
+    throw new Error(
+      `fixture_asset_invalid: production-gate requires ${TRANSCRIPTION_E2E_FIXTURE_ENV_NAME} or --fixture-asset-url.`,
+    );
+  }
+
+  return null;
+}
+
+function classifyContentJobFailure(job) {
+  const errorMessage = String(job?.error_message || "").trim();
+
+  if (!errorMessage) {
+    return null;
+  }
+
+  if (errorMessage.includes("Transcription asset URL is not allowed.")) {
+    return {
+      code: "asset_not_allowed",
+      message:
+        "automation-service rejected the configured transcription fixture asset URL.",
+    };
+  }
+
+  if (errorMessage.includes("fixture_asset_invalid:")) {
+    return {
+      code: "fixture_asset_invalid",
+      message: errorMessage,
+    };
+  }
+
+  return null;
+}
+
+async function waitForHttpHealth(
+  url,
+  serviceName,
+  waitMs,
+  { skipDocker = false } = {},
+) {
   const deadline = Date.now() + waitMs;
+  let lastConnectionError = null;
+  let lastStatus = null;
 
   while (Date.now() < deadline) {
     try {
@@ -265,14 +519,28 @@ async function waitForHttpHealth(url, serviceName, waitMs) {
       if (response.ok) {
         return;
       }
-    } catch {
-      // Retry until the container healthcheck and host port are both ready.
+
+      lastStatus = `${response.status} ${response.statusText}`.trim();
+    } catch (error) {
+      lastConnectionError = error;
     }
 
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
 
-  throw new Error(`${serviceName} did not become healthy within ${waitMs}ms.`);
+  const details =
+    lastStatus !== null
+      ? ` Last health response: ${lastStatus}.`
+      : lastConnectionError instanceof Error
+        ? ` Last connection error: ${lastConnectionError.message}.`
+        : "";
+  const guidance = skipDocker
+    ? ` Start ${serviceName} manually or rerun without --skip-docker so Compose can bootstrap the local stack.`
+    : " Check Docker Desktop, `docker compose ps`, and the service logs before retrying.";
+
+  throw new Error(
+    `${serviceName} did not become healthy within ${waitMs}ms.${details}${guidance}`,
+  );
 }
 
 async function supabaseFetch({ body, env, method = "GET", path, query }) {
@@ -468,11 +736,12 @@ async function seedStreamGraph(env, userId) {
     channelId,
     creatorId,
     streamId,
-    vodAssetUrl: `https://cdn.example.com/streamos-transcription-e2e-${runId}.mp4`,
+    vodAssetUrl: `https://${LOCAL_FIXTURE_PLACEHOLDER_HOST}/streamos-transcription-e2e-${runId}.mp4`,
   };
 }
 
 async function triggerTranscription({ apiGatewayUrl, env, graph, userId }) {
+  const expectedQueueJobId = getExpectedTranscriptionQueueJobId(graph.streamId);
   const body = JSON.stringify({
     channel_id: graph.channelId,
     creator_id: graph.creatorId,
@@ -520,6 +789,20 @@ async function triggerTranscription({ apiGatewayUrl, env, graph, userId }) {
     throw new Error(`API Gateway did not return a queued job: ${text}`);
   }
 
+  if (
+    data.queue_job_id !== expectedQueueJobId ||
+    data.job_id !== expectedQueueJobId
+  ) {
+    throw new Error(
+      `API Gateway returned a non-canonical queue job id. Expected ${expectedQueueJobId}, got ${JSON.stringify(
+        {
+          job_id: data.job_id,
+          queue_job_id: data.queue_job_id,
+        },
+      )}`,
+    );
+  }
+
   return data;
 }
 
@@ -549,8 +832,25 @@ async function waitForTerminalContentJob({
   while (Date.now() < deadline) {
     lastJob = await getContentJobByQueueId(env, queueJobId);
 
+    const classifiedFailure =
+      expectedStatus === "done" ? classifyContentJobFailure(lastJob) : null;
+
+    if (classifiedFailure) {
+      throw new Error(
+        `${classifiedFailure.code}: ${classifiedFailure.message} Last row: ${JSON.stringify(lastJob)}`,
+      );
+    }
+
     if (lastJob?.status === "done" || lastJob?.status === "failed") {
       if (lastJob.status !== expectedStatus) {
+        const terminalFailure = classifyContentJobFailure(lastJob);
+
+        if (terminalFailure) {
+          throw new Error(
+            `${terminalFailure.code}: ${terminalFailure.message} Last row: ${JSON.stringify(lastJob)}`,
+          );
+        }
+
         throw new Error(
           `Expected content_jobs.status=${expectedStatus}, got ${lastJob.status}: ${JSON.stringify(lastJob)}`,
         );
@@ -606,6 +906,7 @@ async function main() {
   const env = getEnv(options.envFile, options.expect);
   const supabaseUrl = requireEnv(env, "SUPABASE_URL");
   requireEnv(env, "SUPABASE_SERVICE_ROLE_KEY");
+  const fixtureAsset = resolveFixtureAssetConfig({ env, options });
 
   if (!isLocalSupabaseUrl(supabaseUrl) && !options.allowHosted) {
     throw new Error(
@@ -616,6 +917,14 @@ async function main() {
   if (!isLocalSupabaseUrl(supabaseUrl)) {
     console.warn(
       `Warning: using hosted Supabase from ${options.envFile}. Disposable E2E rows will be created.`,
+    );
+  }
+
+  if (fixtureAsset) {
+    console.log(`Using transcription fixture asset: ${fixtureAsset.redacted}`);
+  } else {
+    console.log(
+      "Using local diagnostic placeholder transcription fixture asset (not production-proof).",
     );
   }
 
@@ -635,28 +944,49 @@ async function main() {
     console.log(
       `Starting Docker Compose transcription stack with ${containerCli}...`,
     );
-    run(
-      containerCli,
-      getComposeArgs(options.envFile, [
-        "up",
-        "-d",
-        "redis",
-        "api-gateway",
-        "automation-service",
-        "transcription-worker",
-      ]),
-      { env: processEnv },
-    );
+    try {
+      run(
+        containerCli,
+        getComposeArgs(options.envFile, [
+          "up",
+          "-d",
+          "redis",
+          "api-gateway",
+          "automation-service",
+          "stream-job-worker",
+          "transcription-worker",
+        ]),
+        { env: processEnv },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (
+        message.includes("failed to connect to the docker API") ||
+        message.includes("dockerDesktopLinuxEngine")
+      ) {
+        throw new Error(
+          "Docker daemon is not reachable. Start Docker Desktop or rerun with --skip-docker against an already running local stack.",
+        );
+      }
+
+      throw error;
+    }
   }
 
   const apiGatewayUrl = options.apiGatewayUrl ?? DEFAULT_API_GATEWAY_URL;
-  await waitForHttpHealth(apiGatewayUrl, "api-gateway", 60_000);
+  await waitForHttpHealth(apiGatewayUrl, "api-gateway", 60_000, {
+    skipDocker: options.skipDocker,
+  });
 
   const userId =
     options.userId || env.E2E_USER_ID || (await getFirstAuthUserId(env));
   console.log(`Using Supabase auth user: ${userId}`);
 
   const graph = await seedStreamGraph(env, userId);
+  if (fixtureAsset) {
+    graph.vodAssetUrl = fixtureAsset.raw;
+  }
   console.log(`Seeded stream graph: stream=${graph.streamId}`);
 
   const queuedJob = await triggerTranscription({
@@ -714,6 +1044,16 @@ module.exports = {
   DEFAULT_ENV_FILE,
   DEFAULT_POLL_MS,
   DEFAULT_WAIT_MS,
+  LOCAL_DIAGNOSTIC_MODE,
+  PRODUCTION_GATE_MODE,
+  TRANSCRIPTION_E2E_FIXTURE_ENV_NAME,
+  classifyContentJobFailure,
+  getFixtureAssetExtension,
+  isPlaceholderFixtureHostname,
+  isPrivateOrLocalFixtureHostname,
   parseArgs,
   printHelp,
+  redactFixtureAssetUrl,
+  resolveFixtureAssetConfig,
+  validateFixtureAssetUrl,
 };

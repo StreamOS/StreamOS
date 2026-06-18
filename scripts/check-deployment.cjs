@@ -150,6 +150,15 @@ function validateHealthPayload({ endpoint, expectedService, text }) {
   return payload;
 }
 
+function normalizeHeaders(headers) {
+  return Object.fromEntries(
+    Object.entries(headers ?? {}).map(([key, value]) => [
+      key.toLowerCase(),
+      String(value),
+    ]),
+  );
+}
+
 async function requestHealth({ timeoutMs, url, fetchFn = fetch }) {
   const endpoint = new URL("/health", url);
   const controller = new AbortController();
@@ -161,6 +170,7 @@ async function requestHealth({ timeoutMs, url, fetchFn = fetch }) {
 
     return {
       endpoint,
+      headers: Object.fromEntries(response.headers.entries()),
       ok: response.ok,
       status: response.status,
       text,
@@ -170,8 +180,13 @@ async function requestHealth({ timeoutMs, url, fetchFn = fetch }) {
   }
 }
 
-async function fetchHealth({ expectedService, timeoutMs, url }) {
-  const result = await requestHealth({ timeoutMs, url });
+async function fetchHealthDetails({
+  expectedService,
+  fetchFn = fetch,
+  timeoutMs,
+  url,
+}) {
+  const result = await requestHealth({ fetchFn, timeoutMs, url });
 
   if (!result.ok) {
     throw new Error(
@@ -179,11 +194,74 @@ async function fetchHealth({ expectedService, timeoutMs, url }) {
     );
   }
 
-  return validateHealthPayload({
-    endpoint: result.endpoint,
-    expectedService,
-    text: result.text,
-  });
+  return {
+    ...result,
+    headers: normalizeHeaders(result.headers),
+    payload: validateHealthPayload({
+      endpoint: result.endpoint,
+      expectedService,
+      text: result.text,
+    }),
+  };
+}
+
+async function fetchHealth({ expectedService, timeoutMs, url }) {
+  const result = await fetchHealthDetails({ expectedService, timeoutMs, url });
+  return result.payload;
+}
+
+function assertApiGatewayRuntimeProvenance(
+  headers,
+  { expectedCommit, expectedEnvironment } = {},
+) {
+  const normalizedHeaders = normalizeHeaders(headers);
+  const service = normalizedHeaders["x-streamos-runtime-service"]?.trim() || "";
+  const gitCommit =
+    normalizedHeaders["x-streamos-runtime-commit"]?.trim() || "";
+  const environment =
+    normalizedHeaders["x-streamos-runtime-environment"]?.trim() || "";
+
+  if (!service && !gitCommit && !environment) {
+    throw new Error(
+      "api-gateway runtime provenance is missing from /health response headers.",
+    );
+  }
+
+  if (service !== "api-gateway") {
+    throw new Error(
+      `api-gateway runtime provenance reported unexpected service ${service || "<missing>"}.`,
+    );
+  }
+
+  if (!/^[0-9a-f]{7,40}$/i.test(gitCommit)) {
+    throw new Error(
+      "api-gateway runtime provenance is missing a valid git commit hash.",
+    );
+  }
+
+  if (!environment) {
+    throw new Error(
+      "api-gateway runtime provenance is missing the Railway environment marker.",
+    );
+  }
+
+  if (expectedCommit && gitCommit !== expectedCommit) {
+    throw new Error(
+      `api-gateway runtime provenance commit ${gitCommit} does not match expected release candidate ${expectedCommit}.`,
+    );
+  }
+
+  if (expectedEnvironment && environment !== expectedEnvironment) {
+    throw new Error(
+      `api-gateway runtime provenance environment ${environment} does not match expected environment ${expectedEnvironment}.`,
+    );
+  }
+
+  return {
+    environment,
+    gitCommit,
+    service,
+  };
 }
 
 function assertNoClientAiSecrets(env) {
@@ -262,9 +340,12 @@ if (require.main === module) {
 module.exports = {
   DEFAULT_TIMEOUT_MS,
   assertNoClientAiSecrets,
+  assertApiGatewayRuntimeProvenance,
   fetchHealth,
+  fetchHealthDetails,
   isPrivateAutomationUrl,
   loadEnvFile,
+  normalizeHeaders,
   parseArgs,
   printHelp,
   requestHealth,

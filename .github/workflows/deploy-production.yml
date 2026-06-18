@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy_backend_services:
-        description: Deploy Railway backend services and workers
+        description: Deploy Railway backend services, workers, and release-gate-runner
         required: true
         default: true
         type: boolean
@@ -232,13 +232,70 @@ jobs:
         service:
           - api-gateway
           - automation-service
+          - stream-job-worker
           - clip-worker
           - transcription-worker
           - content-job-retry-worker
+          - release-gate-runner
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Stamp api-gateway runtime provenance
+        if: ${{ matrix.service == 'api-gateway' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git_sha="$(git rev-parse HEAD)"
+
+          node scripts/write-api-gateway-runtime-provenance.cjs \
+            --git-sha "${git_sha}" \
+            --git-ref "${GITHUB_REF}" \
+            --environment "${RAILWAY_ENVIRONMENT}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --workflow "${GITHUB_WORKFLOW}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}"
+
+          {
+            echo "## api-gateway deploy provenance"
+            echo ""
+            echo "- Environment: ${RAILWAY_ENVIRONMENT}"
+            echo "- Service: api-gateway"
+            echo "- Commit: \`${git_sha}\`"
+            echo "- Runtime marker: \`services/api-gateway/runtime-provenance.json\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Stamp release-gate-runner provenance
+        if: ${{ matrix.service == 'release-gate-runner' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git_sha="$(git rev-parse HEAD)"
+
+          node scripts/write-release-gate-runner-provenance.cjs \
+            --git-sha "${git_sha}" \
+            --git-ref "${GITHUB_REF}" \
+            --environment "${RAILWAY_ENVIRONMENT}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --workflow "${GITHUB_WORKFLOW}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}"
+
+          contract_hash="$(node -e "const p=require('./scripts/.release-gate-runner-provenance.json'); process.stdout.write(p.gateContract.contractHash.slice(0, 12))")"
+
+          {
+            echo "## release-gate-runner deploy provenance"
+            echo ""
+            echo "- Environment: ${RAILWAY_ENVIRONMENT}"
+            echo "- Service: release-gate-runner"
+            echo "- Commit: \`${git_sha}\`"
+            echo "- Gate contract hash: \`${contract_hash}\`"
+            echo "- Snapshot marker: \`scripts/.release-gate-runner-provenance.json\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -252,7 +309,16 @@ jobs:
         env:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
-        run: railway up --ci --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --service "${{ matrix.service }}"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ matrix.service }}" = "release-gate-runner" ]; then
+            railway up --ci --no-gitignore --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --service "${{ matrix.service }}"
+            exit 0
+          fi
+
+          railway up --ci --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --service "${{ matrix.service }}"
 
   deploy-web:
     name: Deploy frontend to Vercel production
@@ -474,6 +540,8 @@ jobs:
             echo "- Railway services: ${RAILWAY_RESULT}"
             echo "- Supabase migrations: ${MIGRATION_RESULT}"
             echo "- Commit: ${GITHUB_SHA::7}"
+            echo "- Release gate runner: release-gate-runner must exist in this production environment and be used for the promotable production-gate"
+            echo "- Promotion remains blocked until production-gate passes from release-gate-runner with the same release-candidate commit"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Send Discord notification

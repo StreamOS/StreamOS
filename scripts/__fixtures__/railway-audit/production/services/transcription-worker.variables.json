@@ -1,7 +1,5 @@
 {
   "AUTOMATION_SERVICE_URL": "https://automation-service-production.up.railway.app",
-  "CLIP_WORKER_CONCURRENCY": "2",
   "TRANSCRIPTION_QUEUE_NAME": "streamos-transcription",
-  "TRANSCRIPTION_WORKER_CONCURRENCY": "2",
-  "TWITCH_CLIENT_SECRET": "production-twitch-secret"
+  "TRANSCRIPTION_WORKER_CONCURRENCY": "2"
 }

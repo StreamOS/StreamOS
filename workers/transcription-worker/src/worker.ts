@@ -2,6 +2,7 @@ import {
   CLIP_GENERATION_JOB_NAME,
   type ClipGenerationJobData,
 } from "@streamos/types";
+import { getClipGenerationJobId } from "@streamos/queue";
 import type { Job, JobsOptions } from "bullmq";
 
 import type { AutomationTranscriptionResponse } from "./automationClient.js";
@@ -121,11 +122,6 @@ export async function processTranscriptionJob(
 
   return result;
 }
-
-function getClipGenerationJobId(streamId: string) {
-  return `clip-generation-${streamId}`;
-}
-
 function hasRemainingBullMqAttempts(
   job: Pick<Job, "attemptsMade" | "opts">,
 ): boolean {
