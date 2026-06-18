@@ -503,6 +503,82 @@ test("rollout production gate rejects stale runner provenance hashes", () => {
   );
 });
 
+test("rollout production gate fails closed when runner provenance is missing", () => {
+  const issues = collectRunnerProvenanceIssues({
+    exists: () => false,
+    mode: PRODUCTION_GATE_MODE,
+    repoRoot: "/repo",
+  });
+
+  assert.deepEqual(issues.issues, [
+    "missing scripts/.release-gate-runner-provenance.json",
+  ]);
+  assert.equal(issues.provenance, null);
+});
+
+test("release-gate-runner provenance payload stays non-secret and hash-bound", () => {
+  const provenance = buildReleaseGateRunnerProvenance(
+    {
+      environment: "production",
+      generatedAt: "2026-06-17T21:41:16.354Z",
+      gitCommit: "195c6685282571d9d5017f3a0ec3b197b97cfa1d",
+      gitRef: "refs/heads/main",
+      output: RUNNER_PROVENANCE_PATH,
+      repository: "StreamOS/StreamOS",
+      runAttempt: "1",
+      runId: "123456789",
+      runnerService: "release-gate-runner",
+      workflow: "CD - Production Deployment",
+    },
+    {
+      readFile: (filePath) => {
+        const normalized = filePath.replace(/\\/g, "/");
+
+        if (normalized.endsWith("/scripts/rollout-check.cjs")) {
+          return "console.log('current rollout-check');";
+        }
+
+        if (normalized.endsWith("/package.json")) {
+          return JSON.stringify({
+            scripts: {
+              "rollout:check:production":
+                "node scripts/rollout-check.cjs --mode production-gate",
+            },
+          });
+        }
+
+        throw new Error(`Unexpected read: ${filePath}`);
+      },
+      repoRoot: "/repo",
+    },
+  );
+
+  assert.deepEqual(Object.keys(provenance).sort(), [
+    "environment",
+    "gateContract",
+    "generatedAt",
+    "gitCommit",
+    "gitRef",
+    "repository",
+    "runAttempt",
+    "runId",
+    "runnerService",
+    "schemaVersion",
+    "snapshot",
+    "workflow",
+  ]);
+  assert.equal(provenance.runnerService, "release-gate-runner");
+  assert.equal(provenance.environment, "production");
+  assert.equal(
+    provenance.snapshot.proofPaths.includes("packages/redis"),
+    true,
+  );
+  assert.equal(
+    JSON.stringify(provenance).includes("SECRET"),
+    false,
+  );
+});
+
 test("rollout production gate rejects public automation urls", () => {
   assert.throws(
     () =>

@@ -206,6 +206,14 @@ jobs:
             export RAILWAY_TOKEN="${RAILWAY_TOKEN_STAGING}"
           fi
 
+          if [ "${{ matrix.service }}" = "release-gate-runner" ]; then
+            railway up --ci --no-gitignore \
+              --project "${RAILWAY_PROJECT_ID}" \
+              --environment "${TARGET_ENV}" \
+              --service "${{ matrix.service }}"
+            exit 0
+          fi
+
           railway up --ci \
             --project "${RAILWAY_PROJECT_ID}" \
             --environment "${TARGET_ENV}" \

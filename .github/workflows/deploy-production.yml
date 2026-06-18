@@ -283,7 +283,16 @@ jobs:
         env:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
-        run: railway up --ci --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --service "${{ matrix.service }}"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ matrix.service }}" = "release-gate-runner" ]; then
+            railway up --ci --no-gitignore --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --service "${{ matrix.service }}"
+            exit 0
+          fi
+
+          railway up --ci --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --service "${{ matrix.service }}"
 
   deploy-web:
     name: Deploy frontend to Vercel production

@@ -14,6 +14,9 @@ COPY services/api-gateway ./services/api-gateway
 COPY workers/stream-job-worker ./workers/stream-job-worker
 COPY workers/transcription-worker ./workers/transcription-worker
 
+RUN test -f scripts/.release-gate-runner-provenance.json || \
+  (echo "release-gate-runner provenance missing from build context" >&2 && exit 1)
+
 RUN pnpm install --frozen-lockfile
 
 CMD ["sh", "-c", "echo 'release-gate-runner ready'; tail -f /dev/null"]
