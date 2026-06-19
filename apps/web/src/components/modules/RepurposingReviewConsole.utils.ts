@@ -1,4 +1,4 @@
-import type { Tables } from "@streamos/database";
+﻿import type { Tables } from "@streamos/database";
 import {
   getRepurposingReviewStatusLabel,
   getRepurposingExportTemplateLabel,
@@ -9,6 +9,8 @@ import {
   type RepurposingReviewEventRow,
   type RepurposingReviewStatus,
 } from "@/app/dashboard/jobs/repurposing/review";
+
+export type { RepurposingExportEventRow } from "@/app/dashboard/jobs/repurposing/review";
 
 export type ContentJobRow = Tables<"content_jobs">;
 export type ReviewEventRow = RepurposingReviewEventRow;
@@ -33,6 +35,7 @@ export type RepurposingJobSummary = {
   sourceIdentifier: string;
   sourceProvider: string;
   sourceTitle: string | null;
+  warnings: string[];
   targetPlatforms: string[];
 };
 
@@ -199,6 +202,7 @@ export function getRepurposingJobSummary(
       "source_title",
       "title",
     ),
+    warnings: readStringArrayList(job.result, "warnings"),
     targetPlatforms: dedupeStrings(targetPlatforms),
   };
 }
@@ -561,6 +565,19 @@ export type RepurposingExportHistoryEntry = {
   templateKey: RepurposingExportTemplateKey;
 };
 
+export type RepurposingExportJobActivity = {
+  actorLabel: string;
+  contentJobId: string;
+  exportCount: number;
+  jobTitle: string;
+  latestExportAt: string;
+  latestTargetPlatform: RepurposingExportTargetPlatform;
+  latestTemplateKey: RepurposingExportTemplateKey;
+  latestEventType: RepurposingExportEventType;
+  reviewStatusAtLatestExport: RepurposingReviewStatus;
+  metadataSummary: string | null;
+};
+
 export type RepurposingExportAnalyticsSummary = {
   approvedJobsWithoutExport: number;
   exportsByEventType: Record<RepurposingExportEventType, number>;
@@ -569,8 +586,10 @@ export type RepurposingExportAnalyticsSummary = {
   exportsLast30Days: number;
   exportsLast7Days: number;
   latestExportAt: string | null;
+  recentExportedJobs: RepurposingExportJobActivity[];
   totalExports: number;
   topPlatform: RepurposingExportTargetPlatform | null;
+  topTemplate: RepurposingExportTemplateKey | null;
 };
 
 type RepurposingExportPlatformTemplateKey = Exclude<
@@ -916,11 +935,14 @@ export function getRepurposingExportAnalyticsSummary(
     exportsLast30Days: 0,
     exportsLast7Days: 0,
     latestExportAt: null,
+    recentExportedJobs: [],
     totalExports: exportEvents.length,
     topPlatform: null,
+    topTemplate: null,
   };
 
   const exportJobIds = new Set<string>();
+  const exportEventsByJobId = new Map<string, RepurposingExportEventRow[]>();
   const sevenDaysAgo = now.getTime() - 7 * 24 * 60 * 60 * 1000;
   const thirtyDaysAgo = now.getTime() - 30 * 24 * 60 * 60 * 1000;
 
@@ -955,6 +977,12 @@ export function getRepurposingExportAnalyticsSummary(
   }).length;
 
   summary.topPlatform = resolveTopExportPlatform(summary.exportsByPlatform);
+  summary.topTemplate = resolveTopExportTemplate(summary.exportsByTemplate);
+  summary.recentExportedJobs = buildRecentExportedJobs(
+    jobs,
+    exportEvents,
+    exportEventsByJobId,
+  );
 
   return summary;
 }
@@ -980,6 +1008,85 @@ export function getLatestRepurposingExportAt(
     )[0];
 
   return latest?.created_at ?? null;
+}
+
+export function getRepurposingExportJobActivity(
+  job: ContentJobRow,
+  exportHistory: RepurposingExportHistoryEntry[],
+): RepurposingExportJobActivity | null {
+  const [latestExport] = exportHistory;
+
+  if (!latestExport) {
+    return null;
+  }
+
+  return {
+    actorLabel: latestExport.actorLabel,
+    contentJobId: job.id,
+    exportCount: exportHistory.length,
+    jobTitle: getRepurposingJobTitle(job),
+    latestExportAt: latestExport.createdAt,
+    latestEventType: latestExport.eventType,
+    latestTargetPlatform: latestExport.targetPlatform,
+    latestTemplateKey: latestExport.templateKey,
+    metadataSummary: latestExport.metadataSummary,
+    reviewStatusAtLatestExport: latestExport.reviewStatusAtExport,
+  };
+}
+
+function buildRecentExportedJobs(
+  jobs: ContentJobRow[],
+  exportEvents: RepurposingExportEventRow[],
+  exportEventsByJobId: Map<string, RepurposingExportEventRow[]>,
+  limit: number = 5,
+): RepurposingExportJobActivity[] {
+  const jobsById = new Map(jobs.map((job) => [job.id, job]));
+
+  for (const event of exportEvents) {
+    const current = exportEventsByJobId.get(event.content_job_id) ?? [];
+    current.push(event);
+    exportEventsByJobId.set(event.content_job_id, current);
+  }
+
+  return [...exportEventsByJobId.entries()]
+    .map(([contentJobId, events]) => {
+      const sortedEvents = events
+        .slice()
+        .sort(
+          (left, right) =>
+            new Date(right.created_at).getTime() -
+            new Date(left.created_at).getTime(),
+        );
+      const latestEvent = sortedEvents[0];
+      const job = jobsById.get(contentJobId);
+
+      if (!latestEvent || !job) {
+        return null;
+      }
+
+      return getRepurposingExportJobActivity(
+        job,
+        sortedEvents.map((event) => ({
+          actorLabel: formatExportActorLabel(event.actor_id, job.user_id),
+          bundleHash: event.bundle_hash,
+          contentJobId,
+          createdAt: event.created_at,
+          eventType: event.event_type,
+          metadataSummary: formatExportMetadataSummary(event.metadata),
+          reviewStatusAtExport: event.review_status_at_export,
+          source: sanitizeString(event.source ?? "Not available"),
+          targetPlatform: event.target_platform,
+          templateKey: event.template_key,
+        })),
+      );
+    })
+    .filter((entry): entry is RepurposingExportJobActivity => entry !== null)
+    .sort(
+      (left, right) =>
+        new Date(right.latestExportAt).getTime() -
+        new Date(left.latestExportAt).getTime(),
+    )
+    .slice(0, limit);
 }
 
 function normalizeReviewStatus(status: unknown): RepurposingReviewStatus {
@@ -1014,6 +1121,29 @@ function resolveTopExportPlatform(
   }
 
   return topCount > 0 ? topPlatform : null;
+}
+
+function resolveTopExportTemplate(
+  counts: Record<RepurposingExportTemplateKey, number>,
+): RepurposingExportTemplateKey | null {
+  const orderedTemplates: RepurposingExportTemplateKey[] = [
+    "bundle",
+    "tiktok",
+    "youtube_shorts",
+  ];
+
+  let topTemplate: RepurposingExportTemplateKey | null = null;
+  let topCount = 0;
+
+  for (const template of orderedTemplates) {
+    const count = counts[template];
+    if (count > topCount) {
+      topCount = count;
+      topTemplate = template;
+    }
+  }
+
+  return topCount > 0 ? topTemplate : null;
 }
 
 function formatExportActorLabel(
