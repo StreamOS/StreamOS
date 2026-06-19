@@ -287,17 +287,38 @@ test("assertVercelEnvironment requires a canonical app origin in Vercel mode", (
 
 test("collectUnexpectedVercelEnvNames returns unknown non-blocked names", () => {
   const names = collectUnexpectedVercelEnvNames({
+    APP_ENV: "development",
+    CODEX_SHELL: "pwsh",
     CUSTOM_DEBUG_FLAG: "1",
     PATH: "/usr/bin",
+    PNPM_SCRIPT_SRC_DIR: "C:/Dev/StreamOS",
+    TURBO_HASH: "hash",
     TWITCH_CLIENT_ID: "legacy-client-id",
-    VERCEL_URL: "streamos-web.vercel.app",
   });
 
-  assert.deepEqual(names, ["CUSTOM_DEBUG_FLAG", "PATH", "TWITCH_CLIENT_ID"]);
+  assert.deepEqual(names, ["CUSTOM_DEBUG_FLAG", "TWITCH_CLIENT_ID"]);
   assert.match(
     formatUnexpectedVercelEnvWarning(names, "apps/web Vercel build"),
-    /CUSTOM_DEBUG_FLAG[\s\S]*PATH[\s\S]*TWITCH_CLIENT_ID/,
+    /CUSTOM_DEBUG_FLAG[\s\S]*TWITCH_CLIENT_ID/,
   );
+});
+
+test("collectUnexpectedVercelEnvNames filters common local tooling noise", () => {
+  const names = collectUnexpectedVercelEnvNames({
+    __PSLockDownPolicy: "1",
+    APPDATA: "C:\\Users\\dorts\\AppData\\Roaming",
+    INIT_CWD: "C:\\Dev\\StreamOS",
+    LOCALAPPDATA: "C:\\Users\\dorts\\AppData\\Local",
+    NEXT_RUNTIME: "nodejs",
+    NODE: "C:\\Program Files\\nodejs\\node.exe",
+    Path: "C:\\Windows\\System32",
+    ProgramFiles: "C:\\Program Files",
+    TEMP: "C:\\Users\\dorts\\AppData\\Local\\Temp",
+    USERDOMAIN_ROAMINGPROFILE: "DESKTOP",
+    USERPROFILE: "C:\\Users\\dorts",
+  });
+
+  assert.deepEqual(names, []);
 });
 
 test("Vercel env runner accepts a valid pulled env file", () => {

@@ -5,6 +5,7 @@ const {
 const FORBIDDEN_OPENAI_PREFIX = "NEXT_PUBLIC_OPENAI";
 
 const ALLOWED_VERCEL_ENV_NAMES = new Set([
+  "APP_ENV",
   "APP_URL",
   "API_GATEWAY_SECRET",
   "API_GATEWAY_URL",
@@ -51,6 +52,84 @@ const FORBIDDEN_VERCEL_ENV_PREFIXES = [
   "UPSTASH_REDIS_",
 ];
 
+const IGNORED_UNEXPECTED_VERCEL_ENV_NAMES = new Set([
+  "__NEXT_PROCESSED_ENV",
+  "__PSLOCKDOWNPOLICY",
+  "ALLUSERSPROFILE",
+  "APPDATA",
+  "BESIEGE_GAME_ASSEMBLIES",
+  "BESIEGE_UNITY_ASSEMBLIES",
+  "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+  "CODEX_SHELL",
+  "CODEX_THREAD_ID",
+  "COMMONPROGRAMFILES",
+  "COMMONPROGRAMFILES(X86)",
+  "COMMONPROGRAMW6432",
+  "COMPUTERNAME",
+  "COMSPEC",
+  "COREPACK_ENABLE_DOWNLOAD_PROMPT",
+  "COREPACK_ROOT",
+  "DISABLE_AUTO_UPDATE",
+  "DRIVERDATA",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "INIT_CWD",
+  "IS_NEXT_WORKER",
+  "LOCALAPPDATA",
+  "LOG_FORMAT",
+  "LOGONSERVER",
+  "NEXT_DEPLOYMENT_ID",
+  "NEXT_PRIVATE_BUILD_WORKER",
+  "NEXT_RUNTIME",
+  "NODE",
+  "NUMBER_OF_PROCESSORS",
+  "ONEDRIVE",
+  "OS",
+  "PATH",
+  "PATHEXT",
+  "PNPM_SCRIPT_SRC_DIR",
+  "PROCESSOR_ARCHITECTURE",
+  "PROCESSOR_IDENTIFIER",
+  "PROCESSOR_LEVEL",
+  "PROCESSOR_REVISION",
+  "PROGRAMDATA",
+  "PROGRAMFILES",
+  "PROGRAMFILES(X86)",
+  "PROGRAMW6432",
+  "PROMPT",
+  "PSMODULEPATH",
+  "PUBLIC",
+  "RUST_LOG",
+  "RUST_MIN_STACK",
+  "SHELL",
+  "SPLM_LICENSE_SERVER",
+  "SYSTEMDRIVE",
+  "SYSTEMROOT",
+  "TEMP",
+  "TMP",
+  "UGII_LANG",
+  "USERDOMAIN",
+  "USERDOMAIN_ROAMINGPROFILE",
+  "USERDOMAINROAMINGPROFILE",
+  "USERNAME",
+  "USERPROFILE",
+  "WINDIR",
+  "ZSH_TMUX_AUTOSTART",
+  "ZSH_TMUX_AUTOSTARTED",
+]);
+
+const IGNORED_UNEXPECTED_VERCEL_ENV_PREFIXES = [
+  "__",
+  "BESIEGE_",
+  "CODEX_",
+  "COREPACK_",
+  "NODE",
+  "PNPM_",
+  "PROCESSOR_",
+  "TURBO_",
+  "ZSH_TMUX_",
+];
+
 const REQUIRED_VERCEL_ENV_NAMES = [
   "API_GATEWAY_SECRET",
   "API_GATEWAY_URL",
@@ -88,10 +167,23 @@ function matchesAnyPrefix(name, prefixes) {
   return prefixes.some((prefix) => name.startsWith(prefix));
 }
 
+function normalizeEnvName(name) {
+  return typeof name === "string" ? name.trim().toUpperCase() : "";
+}
+
 function isAllowedVercelEnvName(name) {
   return (
     ALLOWED_VERCEL_ENV_NAMES.has(name) ||
     matchesAnyPrefix(name, ALLOWED_VERCEL_ENV_PREFIXES)
+  );
+}
+
+function isIgnoredUnexpectedVercelEnvName(name) {
+  const normalizedName = normalizeEnvName(name);
+
+  return (
+    IGNORED_UNEXPECTED_VERCEL_ENV_NAMES.has(normalizedName) ||
+    matchesAnyPrefix(normalizedName, IGNORED_UNEXPECTED_VERCEL_ENV_PREFIXES)
   );
 }
 
@@ -205,10 +297,13 @@ function collectUnexpectedVercelEnvNames(
   const presentNames = normalizeKnownPresentNames(knownPresentNames);
 
   return Array.from(new Set([...Object.keys(env), ...presentNames]))
-    .filter(
-      (name) =>
-        !isAllowedVercelEnvName(name) && !isForbiddenVercelEnvName(name),
-    )
+    .filter((name) => {
+      if (isAllowedVercelEnvName(name) || isForbiddenVercelEnvName(name)) {
+        return false;
+      }
+
+      return !isIgnoredUnexpectedVercelEnvName(name);
+    })
     .sort((left, right) => left.localeCompare(right));
 }
 
