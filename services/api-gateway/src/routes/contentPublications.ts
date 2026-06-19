@@ -4,15 +4,24 @@ import type { Router } from "express";
 import { z } from "zod";
 import { STREAM_PLATFORMS } from "@streamos/types";
 import type {
+  ConnectionStatus,
+  ContentPublicationManualActionPolicy,
   ContentJobReviewStatus,
   ContentJobStatus,
+  ContentPublicationEventType,
   ContentPublicationStatus,
+  PublicationProviderFailureCode,
+  PublicationReconciliationStatus,
+  PublicationRemoteStatus,
   StreamPlatform,
 } from "@streamos/types";
 import {
   buildCanonicalPublicationDraft,
+  buildPublicationManualActionPolicy,
   extractPublicationAccountCapabilityOverlay,
+  getPublicationCapabilityDefinition,
   PUBLICATION_CAPABILITY_VERSION,
+  isApprovedRepurposingPlanResult,
   resolvePublicationCapabilities,
   type PublicationCapabilityResolution,
   type PublicationProviderOverrides,
@@ -21,9 +30,16 @@ import {
 import {
   callSupabaseRpc,
   createSupabaseRestClient,
+  patchSupabaseRows,
   readSupabaseRows,
   type SupabaseRestClient,
 } from "../lib/supabaseRest.js";
+import {
+  enqueuePublicationExecutionJob,
+  getPublicationExecutionJobId,
+  enqueuePublicationReconciliationJob,
+  type PublicationExecutionQueue,
+} from "../jobs/publicationExecutionQueue.js";
 
 const publicationRequestSchema = z.object({
   capability_version: z.string().trim().min(1).optional(),
@@ -33,6 +49,19 @@ const publicationRequestSchema = z.object({
     .record(z.string(), z.record(z.string(), z.unknown()))
     .default({}),
   target_platform: z.enum(STREAM_PLATFORMS),
+  user_id: z.string().uuid(),
+});
+
+const publicationExecutionRequestSchema = z.object({
+  user_id: z.string().uuid(),
+});
+
+const publicationManualActionRequestSchema = z.object({
+  confirm: z.literal(true).optional(),
+  user_id: z.string().uuid(),
+});
+
+const publicationObservabilityQuerySchema = z.object({
   user_id: z.string().uuid(),
 });
 
@@ -83,11 +112,22 @@ type PublicationRow = {
   capability_version: string;
   content_job_id: string;
   id: string;
+  external_post_id: string | null;
+  external_url: string | null;
+  max_retries: number;
+  next_retry_at: string | null;
   platform_connection_id: string;
   publication_status: ContentPublicationStatus;
+  published_at: string | null;
+  requested_by: string;
   request_intent_hash: string;
   requested_at: string;
+  reconciliation_status: PublicationReconciliationStatus;
+  reconcile_max_retries: number;
+  reconcile_next_retry_at: string | null;
+  reconcile_retry_count: number;
   provider_overrides: Record<string, Record<string, unknown>>;
+  retry_count: number;
   snapshot_hash: string;
   snapshot: Record<string, unknown>;
   target_platform: StreamPlatform;
@@ -114,6 +154,112 @@ type PublicationMutationResult = {
   validated_at: string | null;
 };
 
+type PublicationManualActionRequestPayload = z.infer<
+  typeof publicationManualActionRequestSchema
+>;
+
+type PublicationExecutionMutationResult = {
+  content_job_id: string;
+  content_publication_id: string;
+  external_post_id: string | null;
+  external_url: string | null;
+  max_retries: number;
+  next_retry_at: string | null;
+  publication_status: ContentPublicationStatus;
+  queue_job_id: string;
+  retry_count: number;
+  status: "publication_queued";
+  target_platform: StreamPlatform;
+};
+
+type PublicationManualActionResponse = {
+  content_job_id: string;
+  content_publication_id: string;
+  publication_status: ContentPublicationStatus;
+  queue_job_id: string | null;
+  reconciliation_status: PublicationReconciliationStatus;
+  status:
+    | "publication_retry_queued"
+    | "publication_reconcile_queued"
+    | "publication_final_failed";
+  target_platform: StreamPlatform;
+};
+
+type PublicationManualActionName =
+  | "retry"
+  | "reconcile-now"
+  | "mark-final-failed";
+
+type PublicationReconciliationRow = {
+  content_job_id: string;
+  external_post_id: string | null;
+  publication_status: ContentPublicationStatus;
+  reconciliation_status: PublicationReconciliationStatus;
+  remote_status: PublicationRemoteStatus | null;
+  requested_by: string;
+  snapshot_hash: string;
+  target_platform: StreamPlatform;
+  user_id: string;
+  id: string;
+  last_reconciled_at: string | null;
+  provider_failure_code: PublicationProviderFailureCode | null;
+  provider_failure_metadata: Record<string, unknown>;
+  provider_failure_reason: string | null;
+  remote_processing_status: string | null;
+  remote_state: Record<string, unknown>;
+  remote_upload_status: string | null;
+};
+
+type PublicationObservabilityEventRow = {
+  actor_id: string;
+  content_publication_id: string;
+  created_at: string;
+  event_type: ContentPublicationEventType;
+  id: string;
+  metadata: Record<string, unknown>;
+  previous_publication_status: ContentPublicationStatus | null;
+  publication_status: ContentPublicationStatus;
+  source: string;
+  user_id: string;
+};
+
+type PublicationObservabilityRow = {
+  content_job_id: string;
+  desired_visibility: string;
+  effective_visibility: string | null;
+  external_post_id: string | null;
+  external_url: string | null;
+  id: string;
+  last_reconciled_at: string | null;
+  publication_status: ContentPublicationStatus;
+  provider_failure_code: PublicationProviderFailureCode | null;
+  provider_failure_metadata: Record<string, unknown>;
+  provider_failure_reason: string | null;
+  reconciliation_status: PublicationReconciliationStatus;
+  reconcile_max_retries: number;
+  reconcile_next_retry_at: string | null;
+  reconcile_retry_count: number;
+  remote_processing_status: string | null;
+  remote_state: Record<string, unknown>;
+  remote_status: PublicationRemoteStatus | null;
+  remote_upload_status: string | null;
+  snapshot_hash: string;
+  target_platform: StreamPlatform;
+  updated_at: string;
+  user_id: string;
+};
+
+type PublicationReconciliationMutationResult = {
+  content_job_id: string;
+  content_publication_id: string;
+  last_reconciled_at: string | null;
+  queue_job_id: string | null;
+  reconciliation_status: PublicationReconciliationStatus;
+  remote_status: PublicationRemoteStatus | null;
+  status: "publication_reconcile_queued" | "publication_reconcile_skipped";
+  target_platform: StreamPlatform;
+};
+
 class PublicationCapabilityValidationError extends Error {
   constructor(
     message: string,
@@ -127,8 +273,10 @@ class PublicationCapabilityValidationError extends Error {
 
 export function createContentPublicationsRouter({
   fetchImpl = fetch,
+  publicationExecutionQueue,
 }: {
   fetchImpl?: typeof fetch;
+  publicationExecutionQueue?: PublicationExecutionQueue;
 } = {}): Router {
   const router = express.Router();
 
@@ -295,6 +443,744 @@ export function createContentPublicationsRouter({
     }
   });
 
+  router.post("/:publication_id/publish", async (request, response) => {
+    const publicationId = z
+      .string()
+      .uuid()
+      .safeParse(request.params.publication_id);
+    const parsedPayload = publicationExecutionRequestSchema.safeParse(
+      request.body,
+    );
+
+    if (!publicationId.success) {
+      response.status(400).json({
+        error: "invalid_publication_id",
+        issues: publicationId.error.issues,
+      });
+      return;
+    }
+
+    if (!parsedPayload.success) {
+      response.status(400).json({
+        error: "invalid_publication_execution_request_payload",
+        issues: parsedPayload.error.issues,
+      });
+      return;
+    }
+
+    if (!publicationExecutionQueue) {
+      response.status(503).json({
+        error: "publication_execution_queue_unavailable",
+        message:
+          "REDIS_URL is required before publication-execution jobs can be queued.",
+      });
+      return;
+    }
+
+    let supabase: SupabaseRestClient;
+
+    try {
+      supabase = createSupabaseRestClient({ fetchImpl });
+    } catch (error) {
+      response.status(503).json({
+        error: "supabase_not_configured",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    try {
+      const publication = await loadPublicationById({
+        publicationId: publicationId.data,
+        supabase,
+        userId: parsedPayload.data.user_id,
+      });
+
+      if (!publication) {
+        response.status(404).json({
+          error: "content_publication_not_found",
+          message: "Approved publication request could not be found.",
+        });
+        return;
+      }
+
+      if (publication.target_platform !== "youtube") {
+        response.status(400).json({
+          error: "unsupported_target_platform",
+          message:
+            "Publishing execution is currently available for YouTube only.",
+        });
+        return;
+      }
+
+      if (
+        publication.publication_status === "published" ||
+        publication.publication_status === "publishing" ||
+        publication.publication_status === "queued"
+      ) {
+        response.status(200).json({
+          content_job_id: publication.content_job_id,
+          content_publication_id: publication.id,
+          external_post_id: publication.external_post_id,
+          external_url: publication.external_url,
+          max_retries: publication.max_retries,
+          next_retry_at: publication.next_retry_at,
+          publication_status: publication.publication_status,
+          queue_job_id: getPublicationExecutionJobId(publication.id),
+          retry_count: publication.retry_count,
+          status: "publication_queued",
+          target_platform: publication.target_platform,
+        } satisfies PublicationExecutionMutationResult);
+        return;
+      }
+
+      if (
+        publication.publication_status !== "validated" &&
+        publication.publication_status !== "failed_retryable"
+      ) {
+        response.status(409).json({
+          error: "publication_not_ready",
+          message:
+            "The selected publication request is not ready for execution.",
+        });
+        return;
+      }
+
+      const contentJob = await loadRepurposingContentJob({
+        contentJobId: publication.content_job_id,
+        supabase,
+        userId: publication.user_id,
+      });
+
+      if (!contentJob) {
+        response.status(404).json({
+          error: "content_job_not_found",
+          message: "Approved repurposing job could not be found.",
+        });
+        return;
+      }
+
+      if (
+        contentJob.job_type !== "repurposing" ||
+        contentJob.type !== "repurposing" ||
+        contentJob.review_status !== "approved" ||
+        !["done", "completed"].includes(contentJob.status)
+      ) {
+        response.status(409).json({
+          error: "publication_not_ready",
+          message:
+            "The selected repurposing job is not approved and ready for publishing.",
+        });
+        return;
+      }
+
+      const approvedBundle = repurposingBundleSchema.safeParse(
+        contentJob.result ?? {},
+      );
+
+      if (
+        !approvedBundle.success ||
+        approvedBundle.data.content_job_id !== contentJob.id
+      ) {
+        response.status(409).json({
+          error: "publishable_bundle_missing",
+          message:
+            "The approved repurposing result does not contain a publishable bundle.",
+        });
+        return;
+      }
+
+      const connection = await loadPlatformConnection({
+        platformConnectionId: publication.platform_connection_id,
+        supabase,
+        userId: publication.user_id,
+      });
+
+      if (!connection) {
+        response.status(404).json({
+          error: "platform_connection_not_found",
+          message: "No matching platform connection was found.",
+        });
+        return;
+      }
+
+      if (connection.platform !== "youtube") {
+        response.status(409).json({
+          error: "platform_mismatch",
+          message:
+            "The selected platform connection does not match the target platform.",
+        });
+        return;
+      }
+
+      if (connection.status !== "connected") {
+        response.status(409).json({
+          error: "publication_not_ready",
+          message:
+            "The selected platform connection is not connected for publishing.",
+        });
+        return;
+      }
+
+      const requiredScopes =
+        getPublicationCapabilityDefinition("youtube").requiredScopes;
+      const connectionScopes = connection.scopes ?? [];
+
+      if (
+        requiredScopes.length > 0 &&
+        !requiredScopes.every((scope) => connectionScopes.includes(scope))
+      ) {
+        response.status(409).json({
+          error: "missing_publish_scopes",
+          message:
+            "The selected platform connection is missing publish scopes.",
+        });
+        return;
+      }
+
+      const vodAsset = await loadVodAsset({
+        supabase,
+        streamId: contentJob.stream_id,
+        userId: publication.user_id,
+      });
+
+      if (!vodAsset) {
+        response.status(409).json({
+          error: "publishable_asset_missing",
+          message: "The approved publication request has no publishable asset.",
+        });
+        return;
+      }
+
+      const queuedJob = await enqueuePublicationExecutionJob(
+        publicationExecutionQueue,
+        {
+          content_publication_id: publication.id,
+          target_platform: "youtube",
+          user_id: publication.user_id,
+        },
+      );
+
+      const now = new Date().toISOString();
+      await patchSupabaseRows({
+        client: supabase,
+        params: {
+          id: `eq.${publication.id}`,
+          user_id: `eq.${publication.user_id}`,
+        },
+        payload: {
+          max_retries: 5,
+          next_retry_at: null,
+          publication_status: "queued",
+          retry_count: publication.retry_count,
+          updated_at: now,
+        },
+        table: "content_publications",
+      });
+
+      await writePublicationEvent({
+        actorId: publication.requested_by,
+        eventType: "queued",
+        metadata: {
+          content_job_id: publication.content_job_id,
+          queue_job_id: queuedJob.queueJobId,
+          request_intent_hash: publication.request_intent_hash,
+          snapshot_hash: publication.snapshot_hash,
+          target_platform: publication.target_platform,
+          publishable_asset_present: Boolean(vodAsset.source_url),
+        },
+        publicationId: publication.id,
+        publicationStatus: "queued",
+        source: "api-gateway",
+        supabase,
+        userId: publication.user_id,
+        previousPublicationStatus: publication.publication_status,
+      });
+
+      response.status(200).json({
+        content_job_id: publication.content_job_id,
+        content_publication_id: publication.id,
+        external_post_id: publication.external_post_id,
+        external_url: publication.external_url,
+        max_retries: 5,
+        next_retry_at: null,
+        publication_status: "queued",
+        queue_job_id: queuedJob.queueJobId,
+        retry_count: publication.retry_count,
+        status: "publication_queued",
+        target_platform: publication.target_platform,
+      } satisfies PublicationExecutionMutationResult);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      response.status(502).json({
+        error: "publication_execution_failed",
+        message,
+      });
+    }
+  });
+
+  router.post("/:publication_id/retry", async (request, response) => {
+    const publicationId = z
+      .string()
+      .uuid()
+      .safeParse(request.params.publication_id);
+    const parsedPayload = publicationManualActionRequestSchema.safeParse(
+      request.body,
+    );
+
+    if (!publicationId.success) {
+      response.status(400).json({
+        error: "invalid_publication_id",
+        issues: publicationId.error.issues,
+      });
+      return;
+    }
+
+    if (!parsedPayload.success) {
+      response.status(400).json({
+        error: "invalid_publication_manual_action_request_payload",
+        issues: parsedPayload.error.issues,
+      });
+      return;
+    }
+
+    let supabase: SupabaseRestClient;
+
+    try {
+      supabase = createSupabaseRestClient({ fetchImpl });
+    } catch (error) {
+      response.status(503).json({
+        error: "supabase_not_configured",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    try {
+      const result = await executePublicationManualAction({
+        action: "retry",
+        publicationExecutionQueue,
+        publicationId: publicationId.data,
+        requestPayload: parsedPayload.data,
+        supabase,
+      });
+
+      response.status(result.statusCode).json(result.body);
+    } catch (error) {
+      response.status(502).json({
+        error: "publication_manual_action_failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Publication manual action could not be completed.",
+      });
+    }
+  });
+
+  router.post("/:publication_id/reconcile-now", async (request, response) => {
+    const publicationId = z
+      .string()
+      .uuid()
+      .safeParse(request.params.publication_id);
+    const parsedPayload = publicationManualActionRequestSchema.safeParse(
+      request.body,
+    );
+
+    if (!publicationId.success) {
+      response.status(400).json({
+        error: "invalid_publication_id",
+        issues: publicationId.error.issues,
+      });
+      return;
+    }
+
+    if (!parsedPayload.success) {
+      response.status(400).json({
+        error: "invalid_publication_manual_action_request_payload",
+        issues: parsedPayload.error.issues,
+      });
+      return;
+    }
+
+    let supabase: SupabaseRestClient;
+
+    try {
+      supabase = createSupabaseRestClient({ fetchImpl });
+    } catch (error) {
+      response.status(503).json({
+        error: "supabase_not_configured",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    try {
+      const result = await executePublicationManualAction({
+        action: "reconcile-now",
+        publicationExecutionQueue,
+        publicationId: publicationId.data,
+        requestPayload: parsedPayload.data,
+        supabase,
+      });
+
+      response.status(result.statusCode).json(result.body);
+    } catch (error) {
+      response.status(502).json({
+        error: "publication_manual_action_failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Publication manual action could not be completed.",
+      });
+    }
+  });
+
+  router.post(
+    "/:publication_id/mark-final-failed",
+    async (request, response) => {
+      const publicationId = z
+        .string()
+        .uuid()
+        .safeParse(request.params.publication_id);
+      const parsedPayload = publicationManualActionRequestSchema.safeParse(
+        request.body,
+      );
+
+      if (!publicationId.success) {
+        response.status(400).json({
+          error: "invalid_publication_id",
+          issues: publicationId.error.issues,
+        });
+        return;
+      }
+
+      if (!parsedPayload.success) {
+        response.status(400).json({
+          error: "invalid_publication_manual_action_request_payload",
+          issues: parsedPayload.error.issues,
+        });
+        return;
+      }
+
+      let supabase: SupabaseRestClient;
+
+      try {
+        supabase = createSupabaseRestClient({ fetchImpl });
+      } catch (error) {
+        response.status(503).json({
+          error: "supabase_not_configured",
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+
+      try {
+        const result = await executePublicationManualAction({
+          action: "mark-final-failed",
+          publicationExecutionQueue,
+          publicationId: publicationId.data,
+          requestPayload: parsedPayload.data,
+          supabase,
+        });
+
+        response.status(result.statusCode).json(result.body);
+      } catch (error) {
+        response.status(502).json({
+          error: "publication_manual_action_failed",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Publication manual action could not be completed.",
+        });
+      }
+    },
+  );
+
+  router.get("/:publication_id/observability", async (request, response) => {
+    const publicationId = z
+      .string()
+      .uuid()
+      .safeParse(request.params.publication_id);
+    const parsedQuery = publicationObservabilityQuerySchema.safeParse(
+      request.query,
+    );
+
+    if (!publicationId.success) {
+      response.status(400).json({
+        error: "invalid_publication_id",
+        issues: publicationId.error.issues,
+      });
+      return;
+    }
+
+    if (!parsedQuery.success) {
+      response.status(400).json({
+        error: "invalid_publication_observability_query",
+        issues: parsedQuery.error.issues,
+      });
+      return;
+    }
+
+    let supabase: SupabaseRestClient;
+
+    try {
+      supabase = createSupabaseRestClient({ fetchImpl });
+    } catch (error) {
+      response.status(503).json({
+        error: "supabase_not_configured",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    try {
+      const observability = await loadPublicationObservability({
+        publicationId: publicationId.data,
+        supabase,
+        userId: parsedQuery.data.user_id,
+      });
+
+      if (!observability) {
+        response.status(404).json({
+          error: "content_publication_not_found",
+          message: "Approved publication request could not be found.",
+        });
+        return;
+      }
+
+      response.status(200).json({
+        content_job_id: observability.publication.content_job_id,
+        content_publication_id: observability.publication.id,
+        events: observability.events,
+        last_reconciled_at: observability.publication.last_reconciled_at,
+        publication_status: observability.publication.publication_status,
+        provider_failure_code: observability.publication.provider_failure_code,
+        provider_failure_metadata:
+          observability.publication.provider_failure_metadata,
+        provider_failure_reason:
+          observability.publication.provider_failure_reason,
+        reconciliation_status: observability.publication.reconciliation_status,
+        remote_processing_status:
+          observability.publication.remote_processing_status,
+        remote_state: observability.publication.remote_state,
+        remote_status: observability.publication.remote_status,
+        remote_upload_status: observability.publication.remote_upload_status,
+        snapshot_hash: observability.publication.snapshot_hash,
+        status: "publication_observability_ready",
+        target_platform: observability.publication.target_platform,
+        updated_at: observability.publication.updated_at,
+        user_id: observability.publication.user_id,
+      });
+    } catch (error) {
+      response.status(502).json({
+        error: "publication_observability_failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Publication observability could not be loaded.",
+      });
+    }
+  });
+
+  router.post("/:publication_id/reconcile", async (request, response) => {
+    const publicationId = z
+      .string()
+      .uuid()
+      .safeParse(request.params.publication_id);
+    const parsedPayload = publicationExecutionRequestSchema.safeParse(
+      request.body,
+    );
+
+    if (!publicationId.success) {
+      response.status(400).json({
+        error: "invalid_publication_id",
+        issues: publicationId.error.issues,
+      });
+      return;
+    }
+
+    if (!parsedPayload.success) {
+      response.status(400).json({
+        error: "invalid_publication_reconciliation_request_payload",
+        issues: parsedPayload.error.issues,
+      });
+      return;
+    }
+
+    if (!publicationExecutionQueue) {
+      response.status(503).json({
+        error: "publication_execution_queue_unavailable",
+        message:
+          "REDIS_URL is required before publication-reconciliation jobs can be queued.",
+      });
+      return;
+    }
+
+    let supabase: SupabaseRestClient;
+
+    try {
+      supabase = createSupabaseRestClient({ fetchImpl });
+    } catch (error) {
+      response.status(503).json({
+        error: "supabase_not_configured",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    try {
+      const publication = await loadPublicationForReconciliation({
+        publicationId: publicationId.data,
+        supabase,
+        userId: parsedPayload.data.user_id,
+      });
+
+      if (!publication) {
+        response.status(404).json({
+          error: "content_publication_not_found",
+          message: "Approved publication request could not be found.",
+        });
+        return;
+      }
+
+      if (publication.target_platform !== "youtube") {
+        response.status(400).json({
+          error: "unsupported_target_platform",
+          message:
+            "Publication reconciliation is currently available for YouTube only.",
+        });
+        return;
+      }
+
+      if (!publication.external_post_id) {
+        const now = new Date().toISOString();
+        await patchSupabaseRows({
+          client: supabase,
+          params: {
+            id: `eq.${publication.id}`,
+            user_id: `eq.${publication.user_id}`,
+          },
+          payload: {
+            effective_visibility: null,
+            last_reconciled_at: now,
+            provider_failure_code: "missing_remote_post_id",
+            provider_failure_metadata: {
+              reason: "Publication has no remote post id yet.",
+            },
+            provider_failure_reason: "Publication has no remote post id yet.",
+            reconciliation_status: "skipped",
+            reconcile_max_retries: 0,
+            reconcile_next_retry_at: null,
+            reconcile_retry_count: 0,
+            remote_processing_status: null,
+            remote_state: {},
+            remote_status: "missing",
+            remote_upload_status: null,
+            updated_at: now,
+          },
+          table: "content_publications",
+        });
+
+        await writePublicationEvent({
+          actorId: publication.requested_by,
+          eventType: "reconcile_skipped",
+          metadata: {
+            content_job_id: publication.content_job_id,
+            reason: "missing_remote_post_id",
+            target_platform: publication.target_platform,
+          },
+          previousPublicationStatus: publication.publication_status,
+          publicationId: publication.id,
+          publicationStatus: publication.publication_status,
+          source: "api-gateway",
+          supabase,
+          userId: publication.user_id,
+        });
+
+        response.status(200).json({
+          content_job_id: publication.content_job_id,
+          content_publication_id: publication.id,
+          last_reconciled_at: now,
+          queue_job_id: null,
+          reconciliation_status: "skipped",
+          remote_status: "missing",
+          status: "publication_reconcile_skipped",
+          target_platform: publication.target_platform,
+        } satisfies PublicationReconciliationMutationResult);
+        return;
+      }
+
+      const queuedJob = await enqueuePublicationReconciliationJob(
+        publicationExecutionQueue,
+        {
+          content_publication_id: publication.id,
+          target_platform: "youtube",
+          user_id: publication.user_id,
+        },
+      );
+
+      const now = new Date().toISOString();
+
+      await patchSupabaseRows({
+        client: supabase,
+        params: {
+          id: `eq.${publication.id}`,
+          user_id: `eq.${publication.user_id}`,
+        },
+        payload: {
+          last_reconciled_at: null,
+          provider_failure_code: null,
+          provider_failure_metadata: {},
+          provider_failure_reason: null,
+          reconciliation_status: "queued",
+          reconcile_max_retries: 3,
+          reconcile_next_retry_at: null,
+          reconcile_retry_count: 0,
+          updated_at: now,
+        },
+        table: "content_publications",
+      });
+
+      await writePublicationEvent({
+        actorId: publication.requested_by,
+        eventType: "reconcile_requested",
+        metadata: {
+          content_job_id: publication.content_job_id,
+          external_post_id: publication.external_post_id,
+          queue_job_id: queuedJob.queueJobId,
+          snapshot_hash: publication.snapshot_hash,
+          target_platform: publication.target_platform,
+        },
+        previousPublicationStatus: publication.publication_status,
+        publicationId: publication.id,
+        publicationStatus: publication.publication_status,
+        source: "api-gateway",
+        supabase,
+        userId: publication.user_id,
+      });
+
+      response.status(200).json({
+        content_job_id: publication.content_job_id,
+        content_publication_id: publication.id,
+        last_reconciled_at: null,
+        queue_job_id: queuedJob.queueJobId,
+        reconciliation_status: "queued",
+        remote_status: publication.remote_status ?? "unknown",
+        status: "publication_reconcile_queued",
+        target_platform: publication.target_platform,
+      } satisfies PublicationReconciliationMutationResult);
+    } catch (error) {
+      response.status(502).json({
+        error: "publication_reconciliation_failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Publication reconciliation could not be queued.",
+      });
+    }
+  });
+
   return router;
 }
 
@@ -401,11 +1287,18 @@ async function createPublicationRequest({
     );
   }
 
-  if ((connection.scopes ?? []).length === 0) {
+  const connectionScopes = connection.scopes ?? [];
+  const requiredScopes = getPublicationCapabilityDefinition(
+    input.target_platform,
+  ).requiredScopes;
+
+  if (
+    requiredScopes.length > 0 &&
+    !requiredScopes.every((scope) => connectionScopes.includes(scope))
+  ) {
     throw new Error("missing_publish_scopes");
   }
 
-  const connectionScopes = connection.scopes ?? [];
   const snapshot = buildPublicationSnapshot({
     approvedBundle: approvedBundle.data,
     contentJob,
@@ -546,6 +1439,485 @@ async function loadExistingPublication({
   });
 
   return rows[0] ?? null;
+}
+
+async function loadPublicationById({
+  publicationId,
+  supabase,
+  userId,
+}: {
+  publicationId: string;
+  supabase: SupabaseRestClient;
+  userId: string;
+}): Promise<PublicationRow | null> {
+  const rows = await readSupabaseRows<PublicationRow>({
+    client: supabase,
+    params: {
+      id: `eq.${publicationId}`,
+      select:
+        "capability_snapshot,capability_version,content_job_id,external_post_id,external_url,id,last_reconciled_at,max_retries,next_retry_at,platform_connection_id,publication_status,published_at,provider_failure_code,provider_failure_metadata,provider_failure_reason,provider_overrides,reconciliation_status,reconcile_max_retries,reconcile_next_retry_at,reconcile_retry_count,requested_by,request_intent_hash,requested_at,retry_count,remote_processing_status,remote_state,remote_status,remote_upload_status,snapshot,snapshot_hash,target_platform,user_id,validated_at,validation_code,validation_message",
+      user_id: `eq.${userId}`,
+    },
+    table: "content_publications",
+  });
+
+  return rows[0] ?? null;
+}
+
+async function loadPublicationForReconciliation({
+  publicationId,
+  supabase,
+  userId,
+}: {
+  publicationId: string;
+  supabase: SupabaseRestClient;
+  userId: string;
+}): Promise<PublicationReconciliationRow | null> {
+  const rows = await readSupabaseRows<PublicationReconciliationRow>({
+    client: supabase,
+    params: {
+      id: `eq.${publicationId}`,
+      select:
+        "content_job_id,external_post_id,id,last_reconciled_at,publication_status,provider_failure_code,provider_failure_metadata,provider_failure_reason,reconciliation_status,remote_processing_status,remote_state,remote_status,remote_upload_status,snapshot_hash,target_platform,user_id,requested_by",
+      user_id: `eq.${userId}`,
+    },
+    table: "content_publications",
+  });
+
+  return rows[0] ?? null;
+}
+
+async function loadPublicationObservability({
+  publicationId,
+  supabase,
+  userId,
+}: {
+  publicationId: string;
+  supabase: SupabaseRestClient;
+  userId: string;
+}): Promise<{
+  events: PublicationObservabilityEventRow[];
+  publication: PublicationObservabilityRow;
+} | null> {
+  const publicationRows = await readSupabaseRows<PublicationObservabilityRow>({
+    client: supabase,
+    params: {
+      id: `eq.${publicationId}`,
+      select:
+        "content_job_id,desired_visibility,effective_visibility,external_post_id,external_url,id,last_reconciled_at,publication_status,provider_failure_code,provider_failure_metadata,provider_failure_reason,reconciliation_status,reconcile_max_retries,reconcile_next_retry_at,reconcile_retry_count,remote_processing_status,remote_state,remote_status,remote_upload_status,snapshot_hash,target_platform,updated_at,user_id",
+      user_id: `eq.${userId}`,
+    },
+    table: "content_publications",
+  });
+  const publication = publicationRows[0];
+
+  if (!publication) {
+    return null;
+  }
+
+  const events = await readSupabaseRows<PublicationObservabilityEventRow>({
+    client: supabase,
+    params: {
+      content_publication_id: `eq.${publicationId}`,
+      order: "created_at.desc",
+      select:
+        "actor_id,content_publication_id,created_at,event_type,id,metadata,previous_publication_status,publication_status,source,user_id",
+      user_id: `eq.${userId}`,
+      limit: "25",
+    },
+    table: "content_publication_events",
+  });
+
+  return {
+    events,
+    publication,
+  };
+}
+
+async function loadVodAsset({
+  supabase,
+  streamId,
+  userId,
+}: {
+  supabase: SupabaseRestClient;
+  streamId: string | null;
+  userId: string;
+}): Promise<{ id: string; source_url: string } | null> {
+  if (!streamId) {
+    return null;
+  }
+
+  const rows = await readSupabaseRows<{ id: string; source_url: string }>({
+    client: supabase,
+    params: {
+      select: "id,source_url",
+      stream_id: `eq.${streamId}`,
+      user_id: `eq.${userId}`,
+      order: "updated_at.desc",
+      limit: "1",
+    },
+    table: "vod_assets",
+  });
+
+  return rows[0] ?? null;
+}
+
+async function writePublicationEvent({
+  actorId,
+  eventType,
+  metadata,
+  previousPublicationStatus,
+  publicationId,
+  publicationStatus,
+  source,
+  supabase,
+  userId,
+}: {
+  actorId: string;
+  eventType: ContentPublicationEventType;
+  metadata: Record<string, unknown>;
+  previousPublicationStatus: ContentPublicationStatus | null;
+  publicationId: string;
+  publicationStatus: ContentPublicationStatus;
+  source: string;
+  supabase: SupabaseRestClient;
+  userId: string;
+}) {
+  const response = await supabase.fetchImpl(
+    new URL("/rest/v1/content_publication_events", supabase.supabaseUrl),
+    {
+      body: JSON.stringify({
+        actor_id: actorId,
+        content_publication_id: publicationId,
+        event_type: eventType,
+        metadata,
+        previous_publication_status: previousPublicationStatus,
+        publication_status: publicationStatus,
+        source,
+        user_id: userId,
+      }),
+      headers: {
+        apikey: supabase.serviceRoleKey,
+        Authorization: `Bearer ${supabase.serviceRoleKey}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Supabase content_publication_events write failed with status ${response.status}.`,
+    );
+  }
+}
+
+async function executePublicationManualAction({
+  action,
+  publicationExecutionQueue,
+  publicationId,
+  requestPayload,
+  supabase,
+}: {
+  action: PublicationManualActionName;
+  publicationExecutionQueue: PublicationExecutionQueue | undefined;
+  publicationId: string;
+  requestPayload: PublicationManualActionRequestPayload;
+  supabase: SupabaseRestClient;
+}): Promise<{
+  body: PublicationManualActionResponse | Record<string, unknown>;
+  statusCode: number;
+}> {
+  const publication = await loadPublicationById({
+    publicationId,
+    supabase,
+    userId: requestPayload.user_id,
+  });
+
+  if (!publication) {
+    return {
+      body: {
+        error: "content_publication_not_found",
+        message: "Approved publication request could not be found.",
+      },
+      statusCode: 404,
+    };
+  }
+
+  if (action === "mark-final-failed" && requestPayload.confirm !== true) {
+    return {
+      body: {
+        error: "manual_action_confirmation_required",
+        message: "Mark final failed requires an explicit confirmation.",
+      },
+      statusCode: 400,
+    };
+  }
+
+  const contentJob = await loadRepurposingContentJob({
+    contentJobId: publication.content_job_id,
+    supabase,
+    userId: publication.user_id,
+  });
+  const connection = await loadPlatformConnection({
+    platformConnectionId: publication.platform_connection_id,
+    supabase,
+    userId: publication.user_id,
+  });
+  const vodAsset = await loadVodAsset({
+    supabase,
+    streamId: contentJob?.stream_id ?? null,
+    userId: publication.user_id,
+  });
+  const manualActionPolicy = buildPublicationManualActionPolicy({
+    connectionScopes: connection?.scopes ?? [],
+    connectionStatus: normalizeConnectionStatus(connection?.status ?? null),
+    contentJobReviewStatus: contentJob?.review_status ?? null,
+    contentJobStatus: contentJob?.status ?? null,
+    externalPostId: publication.external_post_id,
+    hasApprovedBundle: isApprovedRepurposingPlanResult(contentJob?.result),
+    hasPublishableAsset: Boolean(vodAsset?.source_url),
+    maxRetries: publication.max_retries,
+    publicationStatus: publication.publication_status,
+    reconcileMaxRetries: publication.reconcile_max_retries,
+    reconcileRetryCount: publication.reconcile_retry_count,
+    reconciliationStatus: publication.reconciliation_status,
+    retryCount: publication.retry_count,
+    targetPlatform: publication.target_platform,
+  });
+  const actionKey = getManualActionPolicyKey(action);
+  const decision = manualActionPolicy.actions[actionKey];
+
+  if (!decision.allowed) {
+    return {
+      body: {
+        block_reason: decision.blockReason,
+        error: "manual_action_not_allowed",
+        manual_action: actionKey,
+        message: decision.explanation,
+      },
+      statusCode: 409,
+    };
+  }
+
+  if (action !== "mark-final-failed" && !publicationExecutionQueue) {
+    return {
+      body: {
+        error: "publication_execution_queue_unavailable",
+        message:
+          "REDIS_URL is required before publication manual actions can be queued.",
+      },
+      statusCode: 503,
+    };
+  }
+
+  if (action === "retry") {
+    const queuedJob = await enqueuePublicationExecutionJob(
+      publicationExecutionQueue as PublicationExecutionQueue,
+      {
+        content_publication_id: publication.id,
+        target_platform: "youtube",
+        user_id: publication.user_id,
+      },
+    );
+
+    const now = new Date().toISOString();
+    const nextRetryCount = publication.retry_count + 1;
+
+    await patchSupabaseRows({
+      client: supabase,
+      params: {
+        id: `eq.${publication.id}`,
+        user_id: `eq.${publication.user_id}`,
+      },
+      payload: {
+        next_retry_at: null,
+        publication_status: "queued",
+        retry_count: nextRetryCount,
+        updated_at: now,
+      },
+      table: "content_publications",
+    });
+
+    await writePublicationEvent({
+      actorId: publication.requested_by,
+      eventType: "queued",
+      metadata: {
+        content_job_id: publication.content_job_id,
+        manual_action: actionKey,
+        queue_job_id: queuedJob.queueJobId,
+        retry_budget_remaining: Math.max(
+          publication.max_retries - nextRetryCount,
+          0,
+        ),
+        retry_count: nextRetryCount,
+        snapshot_hash: publication.snapshot_hash,
+        target_platform: publication.target_platform,
+      },
+      previousPublicationStatus: publication.publication_status,
+      publicationId: publication.id,
+      publicationStatus: "queued",
+      source: "api-gateway",
+      supabase,
+      userId: publication.user_id,
+    });
+
+    return {
+      body: {
+        content_job_id: publication.content_job_id,
+        content_publication_id: publication.id,
+        publication_status: "queued",
+        queue_job_id: queuedJob.queueJobId,
+        reconciliation_status: publication.reconciliation_status,
+        status: "publication_retry_queued",
+        target_platform: publication.target_platform,
+      } satisfies PublicationManualActionResponse,
+      statusCode: 200,
+    };
+  }
+
+  if (action === "reconcile-now") {
+    const queuedJob = await enqueuePublicationReconciliationJob(
+      publicationExecutionQueue as PublicationExecutionQueue,
+      {
+        content_publication_id: publication.id,
+        target_platform: "youtube",
+        user_id: publication.user_id,
+      },
+    );
+
+    const now = new Date().toISOString();
+    const nextReconcileRetryCount = publication.reconcile_retry_count + 1;
+
+    await patchSupabaseRows({
+      client: supabase,
+      params: {
+        id: `eq.${publication.id}`,
+        user_id: `eq.${publication.user_id}`,
+      },
+      payload: {
+        last_reconciled_at: null,
+        provider_failure_code: null,
+        provider_failure_metadata: {},
+        provider_failure_reason: null,
+        reconciliation_status: "queued",
+        reconcile_max_retries: publication.reconcile_max_retries,
+        reconcile_next_retry_at: null,
+        reconcile_retry_count: nextReconcileRetryCount,
+        updated_at: now,
+      },
+      table: "content_publications",
+    });
+
+    await writePublicationEvent({
+      actorId: publication.requested_by,
+      eventType: "reconcile_requested",
+      metadata: {
+        content_job_id: publication.content_job_id,
+        external_post_id: publication.external_post_id,
+        manual_action: actionKey,
+        queue_job_id: queuedJob.queueJobId,
+        reconcile_retry_count: nextReconcileRetryCount,
+        snapshot_hash: publication.snapshot_hash,
+        target_platform: publication.target_platform,
+      },
+      previousPublicationStatus: publication.publication_status,
+      publicationId: publication.id,
+      publicationStatus: publication.publication_status,
+      source: "api-gateway",
+      supabase,
+      userId: publication.user_id,
+    });
+
+    return {
+      body: {
+        content_job_id: publication.content_job_id,
+        content_publication_id: publication.id,
+        publication_status: publication.publication_status,
+        queue_job_id: queuedJob.queueJobId,
+        reconciliation_status: "queued",
+        status: "publication_reconcile_queued",
+        target_platform: publication.target_platform,
+      } satisfies PublicationManualActionResponse,
+      statusCode: 200,
+    };
+  }
+
+  const now = new Date().toISOString();
+  await patchSupabaseRows({
+    client: supabase,
+    params: {
+      id: `eq.${publication.id}`,
+      user_id: `eq.${publication.user_id}`,
+    },
+    payload: {
+      next_retry_at: null,
+      publication_status: "failed_permanent",
+      updated_at: now,
+    },
+    table: "content_publications",
+  });
+
+  await writePublicationEvent({
+    actorId: publication.requested_by,
+    eventType: "failed_permanent",
+    metadata: {
+      content_job_id: publication.content_job_id,
+      manual_action: actionKey,
+      snapshot_hash: publication.snapshot_hash,
+      target_platform: publication.target_platform,
+    },
+    previousPublicationStatus: publication.publication_status,
+    publicationId: publication.id,
+    publicationStatus: "failed_permanent",
+    source: "api-gateway",
+    supabase,
+    userId: publication.user_id,
+  });
+
+  return {
+    body: {
+      content_job_id: publication.content_job_id,
+      content_publication_id: publication.id,
+      publication_status: "failed_permanent",
+      queue_job_id: null,
+      reconciliation_status: publication.reconciliation_status,
+      status: "publication_final_failed",
+      target_platform: publication.target_platform,
+    } satisfies PublicationManualActionResponse,
+    statusCode: 200,
+  };
+}
+
+function normalizeConnectionStatus(
+  value: string | null,
+): ConnectionStatus | null {
+  if (
+    value === "connected" ||
+    value === "expired" ||
+    value === "pending" ||
+    value === "revoked"
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+function getManualActionPolicyKey(
+  action: PublicationManualActionName,
+): keyof ContentPublicationManualActionPolicy["actions"] {
+  switch (action) {
+    case "mark-final-failed":
+      return "mark_final_failed";
+    case "reconcile-now":
+      return "reconcile_now";
+    case "retry":
+      return "retry_publish";
+  }
+
+  throw new Error("Unsupported publication manual action.");
 }
 
 function buildPublicationSnapshot({

@@ -1,4 +1,11 @@
-import type { RepurposingPlanResult, StreamPlatform } from "./index.js";
+import type {
+  ConnectionStatus,
+  ContentJobReviewStatus,
+  ContentJobStatus,
+  ContentPublicationStatus,
+  RepurposingPlanResult,
+  StreamPlatform,
+} from "./index.js";
 
 export const PUBLICATION_CAPABILITY_VERSION = "2026.06.p3.2.v1" as const;
 
@@ -148,6 +155,64 @@ export type PublicationCapabilityResolution = {
   targetPlatform: StreamPlatform;
   unsupportedFields: string[];
   warnings: PublicationCapabilityIssue[];
+};
+
+export const PUBLICATION_RECONCILIATION_STATUSES = [
+  "idle",
+  "queued",
+  "reconciling",
+  "reconciled",
+  "failed_retryable",
+  "failed_permanent",
+  "skipped",
+] as const;
+
+export type PublicationReconciliationStatus =
+  (typeof PUBLICATION_RECONCILIATION_STATUSES)[number];
+
+export const PUBLICATION_REMOTE_STATUSES = [
+  "missing",
+  "processing",
+  "published",
+  "rejected",
+  "unknown",
+] as const;
+
+export type PublicationRemoteStatus =
+  (typeof PUBLICATION_REMOTE_STATUSES)[number];
+
+export const PUBLICATION_PROVIDER_FAILURE_CODES = [
+  "missing_remote_post_id",
+  "remote_post_missing",
+  "remote_post_rejected",
+  "provider_fetch_failed",
+  "provider_rate_limited",
+  "provider_unauthorized",
+  "provider_unavailable",
+  "remote_state_unavailable",
+] as const;
+
+export type PublicationProviderFailureCode =
+  (typeof PUBLICATION_PROVIDER_FAILURE_CODES)[number];
+
+export type PublicationRemoteVisibility =
+  | "private"
+  | "public"
+  | "unknown"
+  | "unlisted";
+
+export type PublicationRemoteState = {
+  desiredVisibility: PublicationCanonicalDraft["visibility"];
+  effectiveVisibility: PublicationRemoteVisibility;
+  provider: "youtube";
+  remotePostId: string;
+  remoteProcessingStatus: string | null;
+  remoteStatus: PublicationRemoteStatus;
+  remoteUploadStatus: string | null;
+  remoteUrl: string | null;
+  reconciledAt: string;
+  rejectionReason: string | null;
+  snapshotHash: string;
 };
 
 const CANONICAL_VISIBILITY_VALUES = [
@@ -583,6 +648,436 @@ export function buildCanonicalPublicationDraft({
     scheduledPublishAt: null,
     title,
     visibility: "public",
+  };
+}
+
+export const CONTENT_PUBLICATION_MANUAL_ACTIONS = [
+  "retry_publish",
+  "reconcile_now",
+  "mark_final_failed",
+] as const;
+
+export type ContentPublicationManualActionId =
+  (typeof CONTENT_PUBLICATION_MANUAL_ACTIONS)[number];
+
+export const CONTENT_PUBLICATION_MANUAL_ACTION_BLOCK_REASONS = [
+  "missing_publish_scopes",
+  "platform_connection_missing",
+  "platform_connection_not_connected",
+  "publication_already_final",
+  "publication_in_progress",
+  "publication_not_finalizable",
+  "publication_not_reconcilable",
+  "publication_not_retryable",
+  "publishable_asset_missing",
+  "publishable_bundle_missing",
+  "reconciliation_in_progress",
+  "repurposing_job_missing",
+  "repurposing_job_not_approved",
+  "repurposing_job_not_complete",
+  "remote_post_missing",
+  "target_platform_unsupported",
+] as const;
+
+export type ContentPublicationManualActionBlockReason =
+  (typeof CONTENT_PUBLICATION_MANUAL_ACTION_BLOCK_REASONS)[number];
+
+export type ContentPublicationManualActionDecision = {
+  allowed: boolean;
+  blockReason: ContentPublicationManualActionBlockReason | null;
+  explanation: string;
+};
+
+export type ContentPublicationManualActionPolicy = {
+  actions: Record<
+    ContentPublicationManualActionId,
+    ContentPublicationManualActionDecision
+  >;
+  blockReason: ContentPublicationManualActionBlockReason | null;
+  canMarkFinalFailed: boolean;
+  canReconcile: boolean;
+  canRetry: boolean;
+  explanation: string;
+  nextAction: ContentPublicationManualActionId | null;
+};
+
+export type ContentPublicationManualActionInput = {
+  connectionScopes: string[];
+  connectionStatus: ConnectionStatus | null;
+  contentJobReviewStatus: ContentJobReviewStatus | null;
+  contentJobStatus: ContentJobStatus | null;
+  externalPostId: string | null;
+  hasApprovedBundle: boolean;
+  hasPublishableAsset: boolean;
+  publicationStatus: ContentPublicationStatus;
+  reconcileMaxRetries: number;
+  reconcileRetryCount: number;
+  reconciliationStatus: PublicationReconciliationStatus;
+  maxRetries: number;
+  retryCount: number;
+  targetPlatform: StreamPlatform;
+};
+
+export function buildPublicationManualActionPolicy(
+  input: ContentPublicationManualActionInput,
+): ContentPublicationManualActionPolicy {
+  const retryDecision = buildRetryDecision(input);
+  const reconcileDecision = buildReconcileDecision(input);
+  const finalFailDecision = buildFinalFailDecision(input);
+  const nextAction = retryDecision.allowed
+    ? "retry_publish"
+    : reconcileDecision.allowed
+      ? "reconcile_now"
+      : finalFailDecision.allowed
+        ? "mark_final_failed"
+        : null;
+  const blockReason =
+    nextAction === null
+      ? (retryDecision.blockReason ??
+        reconcileDecision.blockReason ??
+        finalFailDecision.blockReason ??
+        null)
+      : null;
+  const explanation =
+    nextAction === "retry_publish"
+      ? retryDecision.explanation
+      : nextAction === "reconcile_now"
+        ? reconcileDecision.explanation
+        : nextAction === "mark_final_failed"
+          ? finalFailDecision.explanation
+          : retryDecision.explanation;
+
+  return {
+    actions: {
+      mark_final_failed: finalFailDecision,
+      reconcile_now: reconcileDecision,
+      retry_publish: retryDecision,
+    },
+    blockReason,
+    canMarkFinalFailed: finalFailDecision.allowed,
+    canReconcile: reconcileDecision.allowed,
+    canRetry: retryDecision.allowed,
+    explanation:
+      nextAction === null
+        ? "No manual publication action is currently available for this item."
+        : explanation,
+    nextAction,
+  };
+}
+
+export function isApprovedRepurposingPlanResult(
+  value: unknown,
+): value is RepurposingPlanResult {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    Array.isArray(value.captions) &&
+    Array.isArray(value.descriptions) &&
+    Array.isArray(value.hashtag_sets) &&
+    Array.isArray(value.hook_ideas) &&
+    Array.isArray(value.review_notes) &&
+    Array.isArray(value.title_suggestions) &&
+    Array.isArray(value.warnings) &&
+    value.manual_review_required === true &&
+    typeof value.confidence === "number" &&
+    typeof value.content_job_id === "string" &&
+    typeof value.model === "string" &&
+    typeof value.provider === "string" &&
+    typeof value.queue_job_id === "string" &&
+    typeof value.short_form_plan === "string"
+  );
+}
+
+function buildRetryDecision(
+  input: ContentPublicationManualActionInput,
+): ContentPublicationManualActionDecision {
+  if (input.targetPlatform !== "youtube") {
+    return blockedDecision(
+      "target_platform_unsupported",
+      "Retry publish is available for the current YouTube publication contract only.",
+    );
+  }
+
+  if (
+    input.publicationStatus === "queued" ||
+    input.publicationStatus === "publishing" ||
+    input.publicationStatus === "published"
+  ) {
+    return blockedDecision(
+      "publication_in_progress",
+      "Retry publish is not available while the publication is already queued, publishing, or published.",
+    );
+  }
+
+  if (input.publicationStatus !== "failed_retryable") {
+    return blockedDecision(
+      "publication_not_retryable",
+      "Retry publish is available only for retryable publication failures.",
+    );
+  }
+
+  if (input.maxRetries <= 0 || input.retryCount >= input.maxRetries) {
+    return blockedDecision(
+      "publication_not_retryable",
+      "Retry publish is unavailable because the retry budget has been exhausted.",
+    );
+  }
+
+  if (input.contentJobReviewStatus === null) {
+    return blockedDecision(
+      "repurposing_job_missing",
+      "Retry publish requires the approved repurposing job to still be present.",
+    );
+  }
+
+  if (input.contentJobReviewStatus !== "approved") {
+    return blockedDecision(
+      "repurposing_job_not_approved",
+      "Retry publish is available only for approved repurposing jobs.",
+    );
+  }
+
+  if (
+    input.contentJobStatus !== "done" &&
+    input.contentJobStatus !== "completed"
+  ) {
+    return blockedDecision(
+      "repurposing_job_not_complete",
+      "Retry publish requires the approved repurposing job to be complete.",
+    );
+  }
+
+  if (!input.hasApprovedBundle) {
+    return blockedDecision(
+      "publishable_bundle_missing",
+      "Retry publish requires the frozen approved repurposing bundle to still be present.",
+    );
+  }
+
+  if (!input.hasPublishableAsset) {
+    return blockedDecision(
+      "publishable_asset_missing",
+      "Retry publish requires a publishable asset to be available on the stream record.",
+    );
+  }
+
+  if (!input.connectionStatus) {
+    return blockedDecision(
+      "platform_connection_missing",
+      "Retry publish requires a tenant-scoped platform connection.",
+    );
+  }
+
+  if (input.connectionStatus !== "connected") {
+    return blockedDecision(
+      "platform_connection_not_connected",
+      "Retry publish requires the platform connection to be connected.",
+    );
+  }
+
+  const requiredScopes =
+    getPublicationCapabilityDefinition("youtube").requiredScopes;
+  const connectionScopes = new Set(input.connectionScopes);
+
+  if (!requiredScopes.every((scope) => connectionScopes.has(scope))) {
+    return blockedDecision(
+      "missing_publish_scopes",
+      "Retry publish requires the YouTube publish scope to still be granted.",
+    );
+  }
+
+  return allowedDecision(
+    "Retry publish is allowed and will re-enqueue the frozen YouTube publish contract.",
+  );
+}
+
+function buildReconcileDecision(
+  input: ContentPublicationManualActionInput,
+): ContentPublicationManualActionDecision {
+  if (input.targetPlatform !== "youtube") {
+    return blockedDecision(
+      "target_platform_unsupported",
+      "Reconcile now is available for the current YouTube publication contract only.",
+    );
+  }
+
+  if (input.contentJobReviewStatus === null) {
+    return blockedDecision(
+      "repurposing_job_missing",
+      "Reconcile now requires the approved repurposing job to still be present.",
+    );
+  }
+
+  if (input.contentJobReviewStatus !== "approved") {
+    return blockedDecision(
+      "repurposing_job_not_approved",
+      "Reconcile now is available only for approved repurposing jobs.",
+    );
+  }
+
+  if (
+    input.contentJobStatus !== "done" &&
+    input.contentJobStatus !== "completed"
+  ) {
+    return blockedDecision(
+      "repurposing_job_not_complete",
+      "Reconcile now requires the approved repurposing job to be complete.",
+    );
+  }
+
+  if (!input.hasApprovedBundle) {
+    return blockedDecision(
+      "publishable_bundle_missing",
+      "Reconcile now requires the frozen approved repurposing bundle to still be present.",
+    );
+  }
+
+  if (
+    input.publicationStatus === "canceled" ||
+    input.publicationStatus === "rejected"
+  ) {
+    return blockedDecision(
+      "publication_not_reconcilable",
+      "Reconcile now is not available for canceled or rejected publications.",
+    );
+  }
+
+  if (
+    input.reconciliationStatus === "queued" ||
+    input.reconciliationStatus === "reconciling"
+  ) {
+    return blockedDecision(
+      "reconciliation_in_progress",
+      "Reconcile now is already in progress for this publication.",
+    );
+  }
+
+  if (!input.externalPostId) {
+    return blockedDecision(
+      "remote_post_missing",
+      "Reconcile now requires an existing remote post id.",
+    );
+  }
+
+  if (
+    input.reconcileMaxRetries > 0 &&
+    input.reconcileRetryCount >= input.reconcileMaxRetries
+  ) {
+    return blockedDecision(
+      "publication_not_reconcilable",
+      "Reconcile now is unavailable because the retry budget has been exhausted.",
+    );
+  }
+
+  if (!input.connectionStatus) {
+    return blockedDecision(
+      "platform_connection_missing",
+      "Reconcile now requires the tenant-scoped platform connection.",
+    );
+  }
+
+  if (input.connectionStatus !== "connected") {
+    return blockedDecision(
+      "platform_connection_not_connected",
+      "Reconcile now requires the platform connection to be connected.",
+    );
+  }
+
+  return allowedDecision(
+    "Reconcile now is allowed and will refresh the remote publication state.",
+  );
+}
+
+function buildFinalFailDecision(
+  input: ContentPublicationManualActionInput,
+): ContentPublicationManualActionDecision {
+  if (input.targetPlatform !== "youtube") {
+    return blockedDecision(
+      "target_platform_unsupported",
+      "Mark final failed is available for the current YouTube publication contract only.",
+    );
+  }
+
+  if (input.contentJobReviewStatus === null) {
+    return blockedDecision(
+      "repurposing_job_missing",
+      "Mark final failed requires the approved repurposing job to still be present.",
+    );
+  }
+
+  if (input.contentJobReviewStatus !== "approved") {
+    return blockedDecision(
+      "repurposing_job_not_approved",
+      "Mark final failed is available only for approved repurposing jobs.",
+    );
+  }
+
+  if (
+    input.contentJobStatus !== "done" &&
+    input.contentJobStatus !== "completed"
+  ) {
+    return blockedDecision(
+      "repurposing_job_not_complete",
+      "Mark final failed requires the approved repurposing job to be complete.",
+    );
+  }
+
+  if (!input.hasApprovedBundle) {
+    return blockedDecision(
+      "publishable_bundle_missing",
+      "Mark final failed requires the frozen approved repurposing bundle to still be present.",
+    );
+  }
+
+  if (input.publicationStatus === "failed_permanent") {
+    return blockedDecision(
+      "publication_already_final",
+      "Mark final failed is already applied to this publication.",
+    );
+  }
+
+  if (input.publicationStatus !== "failed_retryable") {
+    return blockedDecision(
+      "publication_not_finalizable",
+      "Mark final failed is available only after a retryable publication failure.",
+    );
+  }
+
+  if (
+    input.reconciliationStatus === "queued" ||
+    input.reconciliationStatus === "reconciling"
+  ) {
+    return blockedDecision(
+      "publication_in_progress",
+      "Mark final failed is unavailable while reconciliation is in progress.",
+    );
+  }
+
+  return allowedDecision(
+    "Mark final failed is allowed and will close the publication permanently.",
+  );
+}
+
+function allowedDecision(
+  explanation: string,
+): ContentPublicationManualActionDecision {
+  return {
+    allowed: true,
+    blockReason: null,
+    explanation,
+  };
+}
+
+function blockedDecision(
+  blockReason: ContentPublicationManualActionBlockReason,
+  explanation: string,
+): ContentPublicationManualActionDecision {
+  return {
+    allowed: false,
+    blockReason,
+    explanation,
   };
 }
 
