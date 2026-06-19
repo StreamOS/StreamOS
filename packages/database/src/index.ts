@@ -24,6 +24,26 @@ export type ContentJobReviewStatus =
   | "approved"
   | "rejected"
   | "needs_changes";
+export type ContentPublicationStatus =
+  | "requested"
+  | "validated"
+  | "queued"
+  | "publishing"
+  | "published"
+  | "failed_retryable"
+  | "failed_permanent"
+  | "canceled"
+  | "rejected";
+export type ContentPublicationEventType =
+  | "requested"
+  | "validated"
+  | "rejected"
+  | "canceled"
+  | "queued"
+  | "publishing"
+  | "published"
+  | "failed_retryable"
+  | "failed_permanent";
 export type VodAssetStatus =
   | "ingested"
   | "transcribing"
@@ -157,7 +177,7 @@ export type Database = {
           user_id: string;
           creator_id: string;
           platform: Database["public"]["Enums"]["stream_platform"];
-          external_channel_id: string | null;
+          external_post_id: string | null;
           display_name: string;
           follower_count: number;
           connected_at: string | null;
@@ -636,6 +656,146 @@ export type Database = {
           },
         ];
       };
+      content_publications: {
+        Row: {
+          content_job_id: string;
+          created_at: string;
+          external_post_id: string | null;
+          external_url: string | null;
+          id: string;
+          max_retries: number;
+          next_retry_at: string | null;
+          platform_connection_id: string;
+          published_at: string | null;
+          publication_status: ContentPublicationStatus;
+          request_intent_hash: string;
+          requested_at: string;
+          requested_by: string;
+          retry_count: number;
+          review_status_at_request: ContentJobReviewStatus;
+          snapshot: Json;
+          snapshot_hash: string;
+          target_platform: Database["public"]["Enums"]["stream_platform"];
+          updated_at: string;
+          user_id: string;
+          validated_at: string | null;
+          validation_code: string | null;
+          validation_message: string | null;
+          validation_metadata: Json;
+        };
+        Insert: {
+          content_job_id: string;
+          created_at?: string;
+          external_post_id?: string | null;
+          external_url?: string | null;
+          id?: string;
+          max_retries?: number;
+          next_retry_at?: string | null;
+          platform_connection_id: string;
+          published_at?: string | null;
+          publication_status?: ContentPublicationStatus;
+          request_intent_hash: string;
+          requested_at?: string;
+          requested_by: string;
+          retry_count?: number;
+          review_status_at_request: ContentJobReviewStatus;
+          snapshot?: Json;
+          snapshot_hash: string;
+          target_platform: Database["public"]["Enums"]["stream_platform"];
+          updated_at?: string;
+          user_id: string;
+          validated_at?: string | null;
+          validation_code?: string | null;
+          validation_message?: string | null;
+          validation_metadata?: Json;
+        };
+        Update: {
+          content_job_id?: string;
+          created_at?: string;
+          external_post_id?: string | null;
+          external_url?: string | null;
+          id?: string;
+          max_retries?: number;
+          next_retry_at?: string | null;
+          platform_connection_id?: string;
+          published_at?: string | null;
+          publication_status?: ContentPublicationStatus;
+          request_intent_hash?: string;
+          requested_at?: string;
+          requested_by?: string;
+          retry_count?: number;
+          review_status_at_request?: ContentJobReviewStatus;
+          snapshot?: Json;
+          snapshot_hash?: string;
+          target_platform?: Database["public"]["Enums"]["stream_platform"];
+          updated_at?: string;
+          user_id?: string;
+          validated_at?: string | null;
+          validation_code?: string | null;
+          validation_message?: string | null;
+          validation_metadata?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_publications_content_job_user_fkey";
+            columns: ["content_job_id", "user_id"];
+            referencedRelation: "content_jobs";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publications_connection_user_fkey";
+            columns: ["platform_connection_id", "user_id"];
+            referencedRelation: "platform_connections";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
+      content_publication_events: {
+        Row: {
+          actor_id: string;
+          content_publication_id: string;
+          created_at: string;
+          event_type: ContentPublicationEventType;
+          id: string;
+          metadata: Json;
+          previous_publication_status: ContentPublicationStatus | null;
+          publication_status: ContentPublicationStatus;
+          source: string;
+          user_id: string;
+        };
+        Insert: {
+          actor_id: string;
+          content_publication_id: string;
+          created_at?: string;
+          event_type: ContentPublicationEventType;
+          id?: string;
+          metadata?: Json;
+          previous_publication_status?: ContentPublicationStatus | null;
+          publication_status: ContentPublicationStatus;
+          source?: string;
+          user_id: string;
+        };
+        Update: {
+          actor_id?: string;
+          content_publication_id?: string;
+          created_at?: string;
+          event_type?: ContentPublicationEventType;
+          id?: string;
+          metadata?: Json;
+          previous_publication_status?: ContentPublicationStatus | null;
+          publication_status?: ContentPublicationStatus;
+          source?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_publication_events_publication_user_fkey";
+            columns: ["content_publication_id", "user_id"];
+            referencedRelation: "content_publications";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
       vod_assets: {
         Row: {
           id: string;
@@ -643,7 +803,7 @@ export type Database = {
           stream_id: string;
           platform: Database["public"]["Enums"]["stream_platform"];
           source_url: string;
-          external_asset_id: string | null;
+          external_post_id: string | null;
           status: VodAssetStatus;
           duration_seconds: number | null;
           ingested_at: string;
@@ -1026,7 +1186,7 @@ export type Database = {
           event_type: MonetizationEventType;
           status: MonetizationEventStatus;
           source: string;
-          external_event_id: string | null;
+          external_post_id: string | null;
           provider_event_id: string | null;
           raw_event_id: string | null;
           raw_payload: Json;
@@ -1212,6 +1372,23 @@ export type Database = {
           p_period: string;
         };
         Returns: Json;
+      };
+      record_content_publication_request: {
+        Args: {
+          p_content_job_id: string;
+          p_platform_connection_id: string;
+          p_target_platform: Database["public"]["Enums"]["stream_platform"];
+          p_user_id: string;
+          p_requested_by: string;
+          p_snapshot: Json;
+          p_request_intent_hash: string;
+          p_snapshot_hash: string;
+          p_validation_code?: string;
+          p_validation_message?: string | null;
+          p_validation_metadata?: Json;
+          p_requested_at?: string;
+        };
+        Returns: Database["public"]["Tables"]["content_publications"]["Row"];
       };
     };
     Enums: {

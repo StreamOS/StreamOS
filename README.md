@@ -278,6 +278,12 @@ clipboard-only export bundle for manual use. Raw provider events without a
 direct `vodAssetUrl` still rely on server-side enrichment against existing
 assets before they can trigger automatic transcription.
 
+`POST /api/content-publications` is the server-side publication validation
+contract for approved repurposing jobs. It freezes a publish snapshot, writes
+`content_publications`, and appends `content_publication_events` for audit
+history. This contract does not publish to providers yet and does not add a
+publish worker or browser-visible provider write path.
+
 `GET /api/observability` is a protected server-to-server snapshot route for
 operator use. It requires `API_GATEWAY_SECRET`, returns the current
 observability backend (`redis` in production, `memory` only for local/test

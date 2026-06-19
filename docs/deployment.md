@@ -19,6 +19,7 @@ This document defines the production deployment topology for the StreamOS monore
 
 - Browser code must call the Next.js app or `services/api-gateway`; it must not call AI providers directly.
 - `services/api-gateway` is the public backend entrypoint for external webhooks, app-facing backend APIs, platform OAuth flows, provider token refresh, metrics writes, and queue-producing commands.
+- `services/api-gateway` also owns the server-side publication validation contract at `POST /api/content-publications`; it freezes approved repurposing snapshots and records `content_publications` plus `content_publication_events` without starting a publish worker yet.
 - `services/automation-service` should use private Railway networking in production. Do not call it from browser code or Vercel client bundles; only Railway services/workers in the same project/environment should call it.
 - `workers/stream-job-worker` is the only canonical `streamos-media` consumer. It materializes `streams`, creates durable `content_jobs`, and enqueues canonical `transcription.trigger` jobs when a media event already includes, or the API Gateway can resolve, enough transcription input such as `vodAssetUrl`.
 - `workers/repurposing-worker` is the only canonical `streamos-repurposing` consumer. It consumes durable `repurposing.plan` jobs, calls `services/automation-service` at `POST /repurposing/plan`, and persists a manual-review-only result to `content_jobs.result`.

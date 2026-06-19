@@ -36,6 +36,7 @@ apps/web/src/
 - Provider analytics syncs should run in server actions, route handlers, backend
   services, or workers, never in client components.
 - Database and API contracts live in shared packages where possible, especially `packages/types` and `packages/database`.
+- Publish and export command surfaces should stay server-owned; browser code may request review/export/publish actions, but it must not call provider write APIs directly.
 
 ## Backend Responsibilities
 
@@ -58,6 +59,10 @@ apps/web/src/
   operator use. In production it must be backed by Redis so rate limiting,
   replay protection, and observability counters share cluster-wide state; the
   memory backend is only for local and test runs.
+- `POST /api/content-publications` is the server-side publication contract for
+  approved repurposing jobs. It freezes a publish snapshot, records
+  `content_publications`, and appends `content_publication_events`; it does not
+  publish directly or invoke a worker yet.
 
 ## Data Model Status
 
@@ -76,6 +81,8 @@ Current tenant-owned and service-managed entities include:
 - `metrics_snapshots`
 - `streams`
 - `content_jobs`
+- `content_publications`
+- `content_publication_events`
 - `vod_assets`
 - `stream_transcripts`
 - `stream_highlights`
@@ -144,6 +151,10 @@ Use realtime channels or server-sent events for live viewer counts, stream statu
   `enrichment_retryable`, `enrichment_failed`, or `unsupported`; only
   `asset_available` plus explicit opt-in may feed the plan row and downstream
   repurposing queue.
+- `POST /api/content-publications` validates a request against an approved
+  repurposing result, a matching platform connection, and the server-side
+  publish snapshot. The gateway writes the publication snapshot and audit
+  events to Supabase, but execution/publishing remains a later contract.
 
 ## Twitch OAuth Placement Decision
 
