@@ -315,7 +315,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
+          railway link \
+            --project "${RAILWAY_PROJECT_ID}" \
+            --environment "${RAILWAY_ENVIRONMENT}" \
+            --json >/tmp/railway-link-repurposing-worker.json
+
+          service_list="$(railway service list --environment "${RAILWAY_ENVIRONMENT}" --json)"
           service_exists="$(
             node -e '
               const fs = require("node:fs");
