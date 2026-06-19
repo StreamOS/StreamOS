@@ -138,7 +138,7 @@ export function RepurposingReviewConsole({
 
   return (
     <section className="grid gap-6 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
-      <aside className="card">
+      <aside className="card h-fit xl:sticky xl:top-6">
         <div className="flex flex-wrap items-center gap-3">
           <span className="rounded-lg border border-signal-green/20 bg-signal-green/10 p-2 text-signal-green">
             <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
@@ -245,7 +245,7 @@ export function RepurposingReviewConsole({
         </div>
       </aside>
 
-      <article className="card">
+      <article className="card min-w-0">
         {selectedJob && hasVisibleJobs ? (
           <div className="space-y-6">
             <header className="flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-start sm:justify-between">
@@ -258,8 +258,25 @@ export function RepurposingReviewConsole({
                 </h2>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
                   Manual-review-only repurposing brief. Keine Publishing-,
-                  Export- oder Rendering-Aktion in diesem Flow.
+                  Datei-Export- oder Rendering-Aktion in diesem Flow.
                 </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <MetaPill
+                    label="Review"
+                    value={formatReviewDecisionSummary(
+                      selectedSummary?.reviewStatus,
+                    )}
+                  />
+                  <MetaPill
+                    label="Manual"
+                    value={
+                      selectedSummary?.manualReviewRequired
+                        ? "Required"
+                        : "Optional"
+                    }
+                  />
+                  <MetaPill label="Clipboard" value="Sanitized local copy" />
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -280,6 +297,7 @@ export function RepurposingReviewConsole({
                     });
                   }}
                   title="Copies a sanitized summary to your clipboard."
+                  aria-label="Copy sanitized review summary to clipboard"
                   type="button"
                 >
                   <ClipboardCopy className="h-4 w-4" aria-hidden="true" />
@@ -446,8 +464,8 @@ export function RepurposingReviewConsole({
 
                 <p className="mt-3 text-xs leading-5 text-slate-400">
                   Review decisions are stored server-side with an append-only
-                  audit trail. There is no publishing, export, or worker
-                  dispatch from this surface.
+                  audit trail. There is no publishing, file export, worker
+                  dispatch, or AI execution from this surface.
                 </p>
               </form>
 
