@@ -334,56 +334,54 @@ jobs:
             echo "repurposing-worker already exists in Railway production." >> "${GITHUB_STEP_SUMMARY}"
           else
             railway_service_response="$(
-              node --input-type=module - <<'NODE'
-                const endpoint = "https://backboard.railway.com/graphql/v2";
-                const token = process.env.RAILWAY_TOKEN;
-                const projectId = process.env.RAILWAY_PROJECT_ID;
+              node -e '
+                (async () => {
+                  const endpoint = "https://backboard.railway.com/graphql/v2";
+                  const token = process.env.RAILWAY_TOKEN;
+                  const projectId = process.env.RAILWAY_PROJECT_ID;
 
-                if (!token) {
-                  throw new Error("RAILWAY_TOKEN is required.");
-                }
+                  if (!token) {
+                    throw new Error("RAILWAY_TOKEN is required.");
+                  }
 
-                const response = await fetch(endpoint, {
-                  method: "POST",
-                  headers: {
-                    "Authorization": `Bearer ${token}`,
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({
-                    query: `
-                      mutation serviceCreate($input: ServiceCreateInput!) {
-                        serviceCreate(input: $input) {
-                          id
-                          name
-                        }
-                      }
-                    `,
-                    variables: {
-                      input: {
-                        name: "repurposing-worker",
-                        projectId,
-                      },
+                  const response = await fetch(endpoint, {
+                    method: "POST",
+                    headers: {
+                      Authorization: `Bearer ${token}`,
+                      "Content-Type": "application/json",
                     },
-                  }),
+                    body: JSON.stringify({
+                      query: "mutation serviceCreate($input: ServiceCreateInput!) { serviceCreate(input: $input) { id name } }",
+                      variables: {
+                        input: {
+                          name: "repurposing-worker",
+                          projectId,
+                        },
+                      },
+                    }),
+                  });
+
+                  const payload = await response.json();
+
+                  if (!response.ok || payload.errors?.length > 0) {
+                    const message =
+                      payload.errors?.map((error) => error.message).join("; ") ||
+                      `HTTP ${response.status}`;
+                    throw new Error(`Railway serviceCreate failed: ${message}`);
+                  }
+
+                  const service = payload.data?.serviceCreate;
+
+                  if (!service?.id || service?.name !== "repurposing-worker") {
+                    throw new Error("Railway serviceCreate returned an unexpected payload.");
+                  }
+
+                  process.stdout.write(JSON.stringify(service));
+                })().catch((error) => {
+                  console.error(error instanceof Error ? error.message : String(error));
+                  process.exit(1);
                 });
-
-                const payload = await response.json();
-
-                if (!response.ok || payload.errors?.length > 0) {
-                  const message =
-                    payload.errors?.map((error) => error.message).join("; ") ||
-                    `HTTP ${response.status}`;
-                  throw new Error(`Railway serviceCreate failed: ${message}`);
-                }
-
-                const service = payload.data?.serviceCreate;
-
-                if (!service?.id || service?.name !== "repurposing-worker") {
-                  throw new Error("Railway serviceCreate returned an unexpected payload.");
-                }
-
-                process.stdout.write(JSON.stringify(service));
-              NODE
+              '
             )"
             repurposing_worker_service_id="$(
               node -e '
