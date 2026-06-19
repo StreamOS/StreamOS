@@ -19,6 +19,11 @@ export type ContentJobType =
   | "repurposing"
   | "clip_scoring"
   | "title_generation";
+export type ContentJobReviewStatus =
+  | "needs_review"
+  | "approved"
+  | "rejected"
+  | "needs_changes";
 export type VodAssetStatus =
   | "ingested"
   | "transcribing"
@@ -455,6 +460,10 @@ export type Database = {
           job_type: ContentJobType;
           type: ContentJobType;
           status: ContentJobStatus;
+          review_status: ContentJobReviewStatus;
+          reviewer_notes: string;
+          reviewed_by: string | null;
+          reviewed_at: string | null;
           payload: Json;
           result: Json | null;
           error_message: string | null;
@@ -476,6 +485,10 @@ export type Database = {
           job_type: ContentJobType;
           type?: ContentJobType;
           status?: ContentJobStatus;
+          review_status?: ContentJobReviewStatus;
+          reviewer_notes?: string;
+          reviewed_by?: string | null;
+          reviewed_at?: string | null;
           payload?: Json;
           result?: Json | null;
           error_message?: string | null;
@@ -497,6 +510,10 @@ export type Database = {
           job_type?: ContentJobType;
           type?: ContentJobType;
           status?: ContentJobStatus;
+          review_status?: ContentJobReviewStatus;
+          reviewer_notes?: string;
+          reviewed_by?: string | null;
+          reviewed_at?: string | null;
           payload?: Json;
           result?: Json | null;
           error_message?: string | null;
@@ -520,6 +537,49 @@ export type Database = {
             foreignKeyName: "content_jobs_stream_user_fkey";
             columns: ["stream_id", "user_id"];
             referencedRelation: "streams";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
+      content_job_review_events: {
+        Row: {
+          content_job_id: string;
+          created_at: string;
+          id: string;
+          previous_review_status: ContentJobReviewStatus | null;
+          review_status: ContentJobReviewStatus;
+          reviewed_at: string;
+          reviewed_by: string | null;
+          reviewer_notes: string;
+          user_id: string;
+        };
+        Insert: {
+          content_job_id: string;
+          created_at?: string;
+          id?: string;
+          previous_review_status?: ContentJobReviewStatus | null;
+          review_status: ContentJobReviewStatus;
+          reviewed_at?: string;
+          reviewed_by?: string | null;
+          reviewer_notes?: string;
+          user_id: string;
+        };
+        Update: {
+          content_job_id?: string;
+          created_at?: string;
+          id?: string;
+          previous_review_status?: ContentJobReviewStatus | null;
+          review_status?: ContentJobReviewStatus;
+          reviewed_at?: string;
+          reviewed_by?: string | null;
+          reviewer_notes?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_job_review_events_content_job_user_fkey";
+            columns: ["content_job_id", "user_id"];
+            referencedRelation: "content_jobs";
             referencedColumns: ["id", "user_id"];
           },
         ];

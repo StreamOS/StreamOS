@@ -158,6 +158,11 @@ export type ContentJobStatus =
   | "completed"
   | "failed"
   | "cancelled";
+export type ContentJobReviewStatus =
+  | "needs_review"
+  | "approved"
+  | "rejected"
+  | "needs_changes";
 export type VodAssetStatus =
   | "ingested"
   | "transcribing"
@@ -230,6 +235,23 @@ export type RepurposingPlanResult = {
   short_form_plan: string;
   title_suggestions: string[];
   warnings: string[];
+};
+
+export type RepurposingReviewDecision = Exclude<
+  ContentJobReviewStatus,
+  "needs_review"
+>;
+
+export type RepurposingReviewAuditEvent = {
+  contentJobId: string;
+  createdAt: string;
+  id: string;
+  previousReviewStatus: ContentJobReviewStatus | null;
+  reviewStatus: ContentJobReviewStatus;
+  reviewedAt: string;
+  reviewedBy: string | null;
+  reviewerNotes: string;
+  userId: string;
 };
 
 export type RepurposingPlanFailureResult = {
@@ -523,6 +545,10 @@ export type ContentJob = {
   jobType: ContentJobType;
   type: ContentJobType;
   status: ContentJobStatus;
+  reviewStatus: ContentJobReviewStatus;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  reviewerNotes: string;
   payload: Record<string, unknown>;
   result:
     | TranscriptionJobResult

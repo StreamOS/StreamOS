@@ -107,6 +107,10 @@ export interface ContentJob {
   type: JobTypeDb;
   provider: SupportedProvider;
   status: JobStatusDb;
+  review_status: "needs_review" | "approved" | "rejected" | "needs_changes";
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  reviewer_notes: string;
   payload: Record<string, unknown>;
   result: Record<string, unknown> | null;
   error: string | null;

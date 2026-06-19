@@ -155,3 +155,28 @@ export async function upsertSupabaseRow<TRow = unknown>({
 
   return rows[0] ?? null;
 }
+
+export async function callSupabaseRpc<TRow = unknown>({
+  args,
+  client,
+  functionName,
+}: {
+  args: Record<string, unknown>;
+  client: SupabaseRestClient;
+  functionName: string;
+}): Promise<TRow> {
+  const url = new URL(`/rest/v1/rpc/${functionName}`, client.supabaseUrl);
+  const response = await client.fetchImpl(url, {
+    body: JSON.stringify(args),
+    headers: getSupabaseRestHeaders(client),
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Supabase RPC ${functionName} failed with status ${response.status}.`,
+    );
+  }
+
+  return (await response.json()) as TRow;
+}

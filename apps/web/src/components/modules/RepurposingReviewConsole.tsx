@@ -6,15 +6,38 @@ import {
   ClipboardCopy,
   Clock3,
   Loader2,
+  MessageSquareMore,
+  PencilLine,
+  ThumbsDown,
+  ThumbsUp,
 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
-import type { Tables } from "@streamos/database";
-
-type ContentJobRow = Tables<"content_jobs">;
-type JobStatusFilter = "all" | "pending" | "processing" | "failed" | "done";
+import {
+  buildRepurposingReviewBundle,
+  formatSanitizedJsonBlock,
+  getEmptyStateMessage,
+  getRepurposingJobPreview,
+  getRepurposingJobSummary,
+  getRepurposingJobTitle,
+  resolveSelectedJob,
+  sanitizeRepurposingFreeformText,
+  type ReviewEventRow,
+  type ContentJobRow,
+  type JobStatusFilter,
+} from "./RepurposingReviewConsole.utils";
+import {
+  REPURPOSING_REVIEW_DECISIONS,
+  formatReviewDecisionSummary,
+  getRepurposingReviewDecisionClassName,
+  getRepurposingReviewStatusLabel,
+  type RepurposingReviewDecision,
+} from "@/app/dashboard/jobs/repurposing/review";
 
 type RepurposingReviewConsoleProps = {
   initialJobs: ContentJobRow[];
+  initialAuditEvents: ReviewEventRow[];
+  initialSelectedJobId?: string | null;
+  reviewAction: (formData: FormData) => Promise<void>;
 };
 
 const statusMeta = {
@@ -74,11 +97,14 @@ const statusFilters: Array<{ label: string; value: JobStatusFilter }> = [
 
 export function RepurposingReviewConsole({
   initialJobs,
+  initialAuditEvents,
+  initialSelectedJobId = null,
+  reviewAction,
 }: RepurposingReviewConsoleProps) {
-  const [jobs, setJobs] = useState(initialJobs);
+  const jobs = initialJobs;
   const [filter, setFilter] = useState<JobStatusFilter>("all");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(
-    initialJobs[0]?.id ?? null,
+    initialSelectedJobId ?? initialJobs[0]?.id ?? null,
   );
   const [copiedJobId, setCopiedJobId] = useState<string | null>(null);
 
@@ -87,39 +113,28 @@ export function RepurposingReviewConsole({
     [filter, jobs],
   );
 
-  useEffect(() => {
-    setJobs(initialJobs);
-    setSelectedJobId((currentSelectedJobId) => {
-      if (
-        currentSelectedJobId &&
-        initialJobs.some((job) => job.id === currentSelectedJobId)
-      ) {
-        return currentSelectedJobId;
-      }
-
-      return initialJobs[0]?.id ?? null;
-    });
-  }, [initialJobs]);
-
-  useEffect(() => {
-    if (selectedJobId && filteredJobs.some((job) => job.id === selectedJobId)) {
-      return;
-    }
-
-    setSelectedJobId(filteredJobs[0]?.id ?? jobs[0]?.id ?? null);
-  }, [filteredJobs, jobs, selectedJobId]);
-
   const selectedJob = useMemo(
-    () =>
-      filteredJobs.find((job) => job.id === selectedJobId) ??
-      jobs.find((job) => job.id === selectedJobId) ??
-      filteredJobs[0] ??
-      jobs[0] ??
-      null,
-    [filteredJobs, jobs, selectedJobId],
+    () => resolveSelectedJob(filteredJobs, selectedJobId),
+    [filteredJobs, selectedJobId],
+  );
+  const selectedSummary = useMemo(
+    () => (selectedJob ? getRepurposingJobSummary(selectedJob) : null),
+    [selectedJob],
+  );
+  const selectedAuditTrail = useMemo(
+    () => getSelectedAuditTrail(initialAuditEvents, selectedJob?.id ?? null),
+    [initialAuditEvents, selectedJob?.id],
   );
 
   const counts = useMemo(() => getJobCounts(jobs), [jobs]);
+  const hasVisibleJobs = filteredJobs.length > 0;
+
+  useEffect(() => {
+    setSelectedJobId((currentSelectedJobId) => {
+      const selected = resolveSelectedJob(filteredJobs, currentSelectedJobId);
+      return selected?.id ?? null;
+    });
+  }, [filteredJobs]);
 
   return (
     <section className="grid gap-6 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
@@ -166,48 +181,72 @@ export function RepurposingReviewConsole({
         <div className="mt-5 space-y-3">
           {filteredJobs.length === 0 ? (
             <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-slate-400">
-              Keine Repurposing-Jobs fuer diesen Status.
+              {getEmptyStateMessage(filter, jobs.length)}
             </div>
           ) : (
-            filteredJobs.map((job) => (
-              <button
-                className={`block w-full rounded-xl border p-4 text-left transition ${
-                  selectedJob?.id === job.id
-                    ? "border-signal-green/30 bg-signal-green/10"
-                    : "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10"
-                }`}
-                key={job.id}
-                onClick={() => setSelectedJobId(job.id)}
-                type="button"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-semibold text-white">
-                      {getJobTitle(job)}
+            filteredJobs.map((job) => {
+              const summary = getRepurposingJobSummary(job);
+
+              return (
+                <button
+                  className={`block w-full rounded-xl border p-4 text-left transition ${
+                    selectedJob?.id === job.id
+                      ? "border-signal-green/30 bg-signal-green/10"
+                      : "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10"
+                  }`}
+                  key={job.id}
+                  onClick={() => setSelectedJobId(job.id)}
+                  type="button"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-semibold text-white">
+                        {getRepurposingJobTitle(job)}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-400">
+                        {job.queue_job_id ?? job.id}
+                      </div>
                     </div>
-                    <div className="mt-1 text-xs text-slate-400">
-                      {job.queue_job_id ?? job.id}
-                    </div>
+                    <StatusBadge status={job.status} />
                   </div>
-                  <StatusBadge status={job.status} />
-                </div>
 
-                <div className="mt-3 text-sm leading-6 text-slate-300">
-                  {getJobPreview(job)}
-                </div>
+                  <div className="mt-3 text-sm leading-6 text-slate-300">
+                    {getRepurposingJobPreview(job)}
+                  </div>
 
-                <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                  <span>{formatRetrySummary(job)}</span>
-                  <span>{formatUpdatedAt(job.updated_at)}</span>
-                </div>
-              </button>
-            ))
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                    <span>{formatRetrySummary(job)}</span>
+                    <span>{formatUpdatedAt(job.updated_at)}</span>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+                    <MetaPill label="Provider" value={summary.sourceProvider} />
+                    <MetaPill
+                      label="Targets"
+                      value={formatArrayValue(summary.targetPlatforms)}
+                    />
+                    <MetaPill
+                      label="Review"
+                      value={getRepurposingReviewStatusLabel(
+                        summary.reviewStatus,
+                      )}
+                    />
+                    <MetaPill
+                      label="Manual"
+                      value={
+                        summary.manualReviewRequired ? "Required" : "Optional"
+                      }
+                    />
+                  </div>
+                </button>
+              );
+            })
           )}
         </div>
       </aside>
 
       <article className="card">
-        {selectedJob ? (
+        {selectedJob && hasVisibleJobs ? (
           <div className="space-y-6">
             <header className="flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -215,16 +254,19 @@ export function RepurposingReviewConsole({
                   Selected job
                 </p>
                 <h2 className="mt-2 text-2xl font-semibold text-white">
-                  {getJobTitle(selectedJob)}
+                  {getRepurposingJobTitle(selectedJob)}
                 </h2>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-                  Manual-review-only repurposing brief. Keine Publishing- oder
-                  Export-Aktion in diesem Flow.
+                  Manual-review-only repurposing brief. Keine Publishing-,
+                  Export- oder Rendering-Aktion in diesem Flow.
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={selectedJob.status} />
+                <span className="inline-flex min-h-8 items-center rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-slate-200">
+                  {formatReviewDecisionSummary(selectedSummary?.reviewStatus)}
+                </span>
                 <button
                   className="btn-ghost min-h-9 gap-2 px-3 py-1.5 text-sm"
                   onClick={() => {
@@ -247,41 +289,86 @@ export function RepurposingReviewConsole({
               </div>
             </header>
 
-            <section className="grid gap-4 md:grid-cols-2">
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <InfoCard label="Content job id" value={selectedJob.id} />
               <InfoCard
                 label="Queue job id"
                 value={selectedJob.queue_job_id ?? "not assigned"}
               />
               <InfoCard
+                label="Source provider"
+                value={selectedSummary?.sourceProvider ?? "Not available"}
+              />
+              <InfoCard
+                label="Source title"
+                value={selectedSummary?.sourceTitle ?? "Not available"}
+              />
+              <InfoCard
+                label="Source identifier"
+                value={selectedSummary?.sourceIdentifier ?? "Not available"}
+              />
+              <InfoCard
+                label="Target platforms"
+                value={formatArrayValue(selectedSummary?.targetPlatforms ?? [])}
+              />
+              <InfoCard
+                label="Generated at"
+                value={selectedSummary?.generatedAt ?? "Not available"}
+              />
+              <InfoCard
+                label="Model provider"
+                value={selectedSummary?.modelProvider ?? "Not available"}
+              />
+              <InfoCard
+                label="Model name"
+                value={selectedSummary?.modelName ?? "Not available"}
+              />
+              <InfoCard
                 label="Retry budget"
                 value={`${selectedJob.retry_count} / ${selectedJob.max_retries}`}
               />
               <InfoCard
-                label="Updated"
-                value={formatUpdatedAt(selectedJob.updated_at)}
+                label="Manual review"
+                value={
+                  selectedSummary?.manualReviewRequired
+                    ? "Required"
+                    : "Not marked"
+                }
+              />
+              <InfoCard
+                label="Review status"
+                value={formatReviewDecisionSummary(
+                  selectedSummary?.reviewStatus,
+                )}
+              />
+              <InfoCard
+                label="Reviewer notes"
+                value={
+                  selectedSummary?.reviewerNotes?.trim()
+                    ? sanitizeRepurposingFreeformText(
+                        selectedSummary.reviewerNotes,
+                      )
+                    : "No reviewer notes"
+                }
+              />
+              <InfoCard
+                label="Reviewed at"
+                value={selectedSummary?.reviewedAt ?? "Not reviewed yet"}
+              />
+              <InfoCard
+                label="Reviewed by"
+                value={selectedSummary?.reviewedBy ?? "Not reviewed yet"}
+              />
+              <InfoCard
+                label="Confidence"
+                value={selectedSummary?.confidence ?? "Not available"}
               />
             </section>
 
             <section className="grid gap-4 xl:grid-cols-2">
               <DetailPanel
-                label="Short-form plan"
-                value={
-                  readText(selectedJob.result, "short_form_plan") ??
-                  "Not available"
-                }
-              />
-              <DetailPanel
-                label="Review notes"
-                value={readTextArray(selectedJob.result, "review_notes")}
-              />
-              <DetailPanel
                 label="Title suggestions"
                 value={readTextArray(selectedJob.result, "title_suggestions")}
-              />
-              <DetailPanel
-                label="Warnings"
-                value={readTextArray(selectedJob.result, "warnings")}
               />
               <DetailPanel
                 label="Captions"
@@ -292,35 +379,154 @@ export function RepurposingReviewConsole({
                 value={readTextArray(selectedJob.result, "descriptions")}
               />
               <DetailPanel
-                label="Hashtags"
+                label="Hashtag sets"
                 value={readNestedTextArray(selectedJob.result, "hashtag_sets")}
               />
               <DetailPanel
                 label="Hook ideas"
                 value={readTextArray(selectedJob.result, "hook_ideas")}
               />
-            </section>
-
-            <section className="grid gap-4 md:grid-cols-2">
               <DetailPanel
-                label="Source payload"
-                value={formatJsonBlock(selectedJob.payload)}
-              />
-              <DetailPanel
-                label="Automation result"
-                value={formatJsonBlock(selectedJob.result)}
-              />
-              <InfoCard
-                label="Manual review"
+                label="Short-form plan"
                 value={
-                  readBoolean(selectedJob.result, "manual_review_required")
-                    ? "Required"
-                    : "Not marked"
+                  readText(selectedJob.result, "short_form_plan") ??
+                  "Not available"
                 }
               />
-              <InfoCard
-                label="Confidence"
-                value={readNumber(selectedJob.result, "confidence")}
+              <DetailPanel
+                label="AI review notes"
+                value={readTextArray(selectedJob.result, "review_notes")}
+              />
+              <DetailPanel
+                label="Warnings"
+                value={readTextArray(selectedJob.result, "warnings")}
+              />
+            </section>
+
+            <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <form
+                action={reviewAction}
+                className="rounded-xl border border-white/10 bg-white/5 p-4"
+                key={selectedJob.id}
+              >
+                <div className="flex items-start gap-3">
+                  <span className="rounded-lg border border-signal-green/20 bg-signal-green/10 p-2 text-signal-green">
+                    <PencilLine className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
+                      Persisted review
+                    </p>
+                    <h3 className="mt-1 text-lg font-semibold text-white">
+                      Approve, reject, or request changes
+                    </h3>
+                  </div>
+                </div>
+
+                <input name="jobId" type="hidden" value={selectedJob.id} />
+
+                <label className="mt-4 block">
+                  <span className="text-sm font-medium text-slate-200">
+                    Reviewer notes
+                  </span>
+                  <textarea
+                    className="mt-2 min-h-32 w-full rounded-xl border border-white/10 bg-surface-900/80 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-signal-green/40"
+                    name="reviewerNotes"
+                    placeholder="Add an internal review note for this repurposing brief."
+                    defaultValue={selectedSummary?.reviewerNotes ?? ""}
+                  />
+                </label>
+
+                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  {REPURPOSING_REVIEW_DECISIONS.map((decision) => (
+                    <ReviewDecisionButton decision={decision} key={decision} />
+                  ))}
+                </div>
+
+                <p className="mt-3 text-xs leading-5 text-slate-400">
+                  Review decisions are stored server-side with an append-only
+                  audit trail. There is no publishing, export, or worker
+                  dispatch from this surface.
+                </p>
+              </form>
+
+              <section className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="flex items-start gap-3">
+                  <span className="rounded-lg border border-signal-green/20 bg-signal-green/10 p-2 text-signal-green">
+                    <MessageSquareMore className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
+                      Audit trail
+                    </p>
+                    <h3 className="mt-1 text-lg font-semibold text-white">
+                      Review history for this job
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  {selectedAuditTrail.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-white/10 bg-white/5 p-4 text-sm text-slate-400">
+                      No review events stored yet.
+                    </div>
+                  ) : (
+                    selectedAuditTrail.map((event) => (
+                      <article
+                        className="rounded-xl border border-white/10 bg-surface-900/75 p-4"
+                        key={event.id}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span
+                            className={`inline-flex min-h-8 items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-semibold ${getRepurposingReviewDecisionClassName(
+                              event.review_status,
+                            )}`}
+                          >
+                            {formatReviewDecisionSummary(event.review_status)}
+                          </span>
+                          <time
+                            className="text-xs text-slate-400"
+                            dateTime={event.reviewed_at}
+                          >
+                            {formatUpdatedAt(event.reviewed_at)}
+                          </time>
+                        </div>
+
+                        <p className="mt-3 text-sm leading-6 text-slate-200">
+                          {event.reviewer_notes
+                            ? sanitizeRepurposingFreeformText(
+                                event.reviewer_notes,
+                              )
+                            : "No reviewer notes recorded."}
+                        </p>
+
+                        <dl className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
+                          <ReviewTrailDefinition
+                            label="Previous status"
+                            value={formatReviewDecisionSummary(
+                              event.previous_review_status,
+                            )}
+                          />
+                          <ReviewTrailDefinition
+                            label="Reviewer"
+                            value={event.reviewed_by}
+                          />
+                        </dl>
+                      </article>
+                    ))
+                  )}
+                </div>
+              </section>
+            </section>
+
+            <section className="grid gap-4 xl:grid-cols-2">
+              <RawPanel
+                label="Open raw payload"
+                value={formatSanitizedJsonBlock(selectedJob.payload)}
+              />
+              <RawPanel
+                label="Open raw result"
+                value={formatSanitizedJsonBlock(selectedJob.result)}
               />
             </section>
 
@@ -340,12 +546,12 @@ export function RepurposingReviewConsole({
           <div className="grid min-h-96 place-items-center rounded-xl border border-dashed border-white/10 bg-white/5 text-center">
             <div className="max-w-md px-6 py-10">
               <h2 className="text-xl font-semibold text-white">
-                No repurposing jobs found
+                {jobs.length === 0
+                  ? "No repurposing jobs found"
+                  : "No jobs match this filter"}
               </h2>
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Sobald `repurposing.plan` Jobs eintreffen, erscheinen sie hier
-                als reviewbare Content-Job-Karte mit strukturiertem
-                Vorschlagspaket.
+                {getEmptyStateMessage(filter, jobs.length)}
               </p>
             </div>
           </div>
@@ -405,44 +611,30 @@ function DetailPanel({ label, value }: { label: string; value: string }) {
   );
 }
 
-function getJobTitle(job: ContentJobRow): string {
-  const sourceTitle = readText(job.payload, "source_video_title");
-  const sourceVideoId = readText(job.payload, "source_video_id");
-
-  return sourceTitle ?? sourceVideoId ?? job.queue_job_id ?? job.id;
+function RawPanel({ label, value }: { label: string; value: string }) {
+  return (
+    <details className="rounded-xl border border-white/10 bg-surface-900/75 p-4">
+      <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+        {label}
+      </summary>
+      <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-200">
+        {value}
+      </pre>
+    </details>
+  );
 }
 
-function getJobPreview(job: ContentJobRow): string {
-  if (job.error_message) {
-    return job.error_message;
-  }
+function MetaPill({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-medium text-slate-300">
+      <span className="text-slate-400">{label}:</span>
+      <span className="truncate">{value}</span>
+    </span>
+  );
+}
 
-  if (
-    !job.result ||
-    typeof job.result !== "object" ||
-    Array.isArray(job.result)
-  ) {
-    return isProcessingStatus(job.status)
-      ? "Waiting for automation result..."
-      : "Review bundle not stored yet.";
-  }
-
-  const shortFormPlan = readText(job.result, "short_form_plan");
-  if (shortFormPlan) {
-    return shortFormPlan;
-  }
-
-  const reviewNotes = readTextArray(job.result, "review_notes");
-  if (reviewNotes) {
-    return reviewNotes;
-  }
-
-  const warnings = readTextArray(job.result, "warnings");
-  if (warnings) {
-    return warnings;
-  }
-
-  return "Result stored";
+function formatArrayValue(values: string[]): string {
+  return values.length > 0 ? values.join(", ") : "Not available";
 }
 
 function getJobCounts(jobs: ContentJobRow[]) {
@@ -554,57 +746,74 @@ function readNestedTextArray(value: unknown, key: string): string {
   return lines.length > 0 ? lines.join("\n") : "Not available";
 }
 
-function readBoolean(value: unknown, key: string): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  return (value as Record<string, unknown>)[key] === true;
-}
-
-function readNumber(value: unknown, key: string): string {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return "Not available";
-  }
-
-  const candidate = (value as Record<string, unknown>)[key];
-
-  return typeof candidate === "number" ? `${candidate}/100` : "Not available";
-}
-
-function formatJsonBlock(value: unknown): string {
-  if (value === null || value === undefined) {
-    return "Not available";
-  }
-
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return "Not available";
-  }
-}
-
 async function copyReviewBundle(job: ContentJobRow): Promise<void> {
   if (!navigator.clipboard) {
     return;
   }
 
-  const bundle = [
-    `Repurposing review bundle: ${getJobTitle(job)}`,
-    `job_id: ${job.id}`,
-    `queue_job_id: ${job.queue_job_id ?? "not assigned"}`,
-    `status: ${job.status}`,
-    `retry_count: ${job.retry_count}/${job.max_retries}`,
-    "",
-    "short_form_plan:",
-    readText(job.result, "short_form_plan") ?? "Not available",
-    "",
-    "review_notes:",
-    readTextArray(job.result, "review_notes"),
-    "",
-    "warnings:",
-    readTextArray(job.result, "warnings"),
-  ].join("\n");
+  await navigator.clipboard.writeText(buildRepurposingReviewBundle(job));
+}
 
-  await navigator.clipboard.writeText(bundle);
+function ReviewDecisionButton({
+  decision,
+}: {
+  decision: RepurposingReviewDecision;
+}) {
+  const className = getRepurposingReviewDecisionClassName(decision);
+  const label = formatReviewDecisionSummary(decision);
+
+  return (
+    <button
+      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition hover:scale-[1.01] ${className}`}
+      name="reviewStatus"
+      type="submit"
+      value={decision}
+    >
+      {decision === "approved" ? (
+        <ThumbsUp className="h-4 w-4" aria-hidden="true" />
+      ) : decision === "rejected" ? (
+        <ThumbsDown className="h-4 w-4" aria-hidden="true" />
+      ) : (
+        <MessageSquareMore className="h-4 w-4" aria-hidden="true" />
+      )}
+      {label}
+    </button>
+  );
+}
+
+function ReviewTrailDefinition({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null;
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+      <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+        {label}
+      </dt>
+      <dd className="mt-1 break-words text-xs leading-5 text-slate-200">
+        {value ?? "Not available"}
+      </dd>
+    </div>
+  );
+}
+
+function getSelectedAuditTrail(
+  auditEvents: ReviewEventRow[],
+  selectedJobId: string | null,
+): ReviewEventRow[] {
+  if (!selectedJobId) {
+    return [];
+  }
+
+  return auditEvents
+    .filter((event) => event.content_job_id === selectedJobId)
+    .slice()
+    .sort(
+      (left, right) =>
+        new Date(right.created_at).getTime() -
+        new Date(left.created_at).getTime(),
+    );
 }

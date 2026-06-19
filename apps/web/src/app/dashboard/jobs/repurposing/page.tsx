@@ -1,16 +1,32 @@
 import type { Tables } from "@streamos/database";
 import { ClipboardList } from "lucide-react";
+
+import { submitRepurposingReviewAction } from "./actions";
 import { RepurposingReviewConsole } from "@/components/modules/RepurposingReviewConsole";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
 type ContentJobRow = Tables<"content_jobs">;
+type ReviewEventRow = Tables<"content_job_review_events">;
 
-export default async function RepurposingJobsPage() {
-  const { jobs } = await getRepurposingJobs();
+type RepurposingJobsPageProps = {
+  searchParams?: Promise<{
+    error?: string;
+    jobId?: string;
+    status?: string;
+  }>;
+};
+
+export default async function RepurposingJobsPage({
+  searchParams,
+}: RepurposingJobsPageProps) {
+  const params = await searchParams;
+  const { auditEvents, jobs } = await getRepurposingJobs();
 
   return (
     <div className="space-y-6">
+      <RepurposingJobsNotice error={params?.error} status={params?.status} />
+
       <header className="grid gap-6 rounded-lg border border-white/10 bg-surface-900/85 p-6 shadow-[0_22px_70px_rgba(0,0,0,0.42)] xl:grid-cols-[minmax(0,1fr)_320px]">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
@@ -45,46 +61,103 @@ export default async function RepurposingJobsPage() {
         </div>
       </header>
 
-      <RepurposingReviewConsole initialJobs={jobs} />
+      <RepurposingReviewConsole
+        initialAuditEvents={auditEvents}
+        initialJobs={jobs}
+        initialSelectedJobId={params?.jobId ?? null}
+        reviewAction={submitRepurposingReviewAction}
+      />
     </div>
   );
 }
 
 async function getRepurposingJobs(): Promise<{
+  auditEvents: ReviewEventRow[];
   jobs: ContentJobRow[];
 }> {
   if (!isSupabaseConfigured()) {
-    return { jobs: [] };
+    return { auditEvents: [], jobs: [] };
   }
 
   const supabase = await createClient();
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
   if (userError || !userData.user) {
-    return { jobs: [] };
+    return { auditEvents: [], jobs: [] };
   }
 
-  const { data, error } = await supabase
-    .from("content_jobs")
-    .select("*")
-    .eq("user_id", userData.user.id)
-    .eq("job_type", "repurposing")
-    .eq("type", "repurposing")
-    .in("status", [
-      "pending",
-      "running",
-      "failed",
-      "done",
-      "processing",
-      "completed",
-      "cancelled",
-    ])
-    .order("updated_at", { ascending: false })
-    .limit(100);
+  const [jobsResult, auditEventsResult] = await Promise.all([
+    supabase
+      .from("content_jobs")
+      .select("*")
+      .eq("user_id", userData.user.id)
+      .eq("job_type", "repurposing")
+      .eq("type", "repurposing")
+      .in("status", [
+        "pending",
+        "running",
+        "failed",
+        "done",
+        "processing",
+        "completed",
+        "cancelled",
+      ])
+      .order("updated_at", { ascending: false })
+      .limit(100),
+    supabase
+      .from("content_job_review_events")
+      .select("*")
+      .eq("user_id", userData.user.id)
+      .order("created_at", { ascending: false })
+      .limit(500),
+  ]);
 
-  if (error) {
-    return { jobs: [] };
+  if (jobsResult.error || auditEventsResult.error) {
+    return { auditEvents: [], jobs: [] };
   }
 
-  return { jobs: data ?? [] };
+  return {
+    auditEvents: auditEventsResult.data ?? [],
+    jobs: jobsResult.data ?? [],
+  };
+}
+
+function RepurposingJobsNotice({
+  error,
+  status,
+}: {
+  error?: string;
+  status?: string;
+}) {
+  if (status === "review-saved") {
+    return (
+      <section className="rounded-lg border border-signal-green/30 bg-signal-green/10 p-4 text-sm text-signal-green">
+        Review wurde gespeichert. Der Audit-Trail wurde serverseitig
+        aktualisiert.
+      </section>
+    );
+  }
+
+  if (!error) {
+    return null;
+  }
+
+  const messages: Record<string, string> = {
+    "invalid-review-payload":
+      "Die Review-Daten konnten nicht eindeutig gelesen werden.",
+    "invalid-review-status":
+      "Nur Approve, Reject und Needs changes sind gültige Review-Entscheidungen.",
+    "review-job-not-found":
+      "Der Repurposing-Job wurde nicht gefunden oder gehört nicht zu deinem Workspace.",
+    "review-update-failed":
+      "Die Review-Entscheidung konnte nicht gespeichert werden.",
+    "supabase-not-configured":
+      "Supabase ist noch nicht konfiguriert. Setze die benötigten Env Vars, bevor Reviews gespeichert werden.",
+  };
+
+  return (
+    <section className="rounded-lg border border-signal-red/30 bg-signal-red/10 p-4 text-sm text-signal-red">
+      {messages[error] ?? "Review konnte nicht ausgeführt werden."}
+    </section>
+  );
 }
