@@ -565,3 +565,103 @@ export type ContentJob = {
   createdAt: string;
   updatedAt: string;
 };
+
+export const CONTENT_PUBLICATION_STATUSES = [
+  "requested",
+  "validated",
+  "queued",
+  "publishing",
+  "published",
+  "failed_retryable",
+  "failed_permanent",
+  "canceled",
+  "rejected",
+] as const;
+
+export type ContentPublicationStatus =
+  (typeof CONTENT_PUBLICATION_STATUSES)[number];
+
+export const CONTENT_PUBLICATION_EVENT_TYPES = [
+  "requested",
+  "validated",
+  "rejected",
+  "canceled",
+  "queued",
+  "publishing",
+  "published",
+  "failed_retryable",
+  "failed_permanent",
+] as const;
+
+export type ContentPublicationEventType =
+  (typeof CONTENT_PUBLICATION_EVENT_TYPES)[number];
+
+export const CONTENT_PUBLICATION_VALIDATION_CODES = [
+  "content_job_not_found",
+  "missing_publish_scopes",
+  "platform_connection_not_found",
+  "platform_mismatch",
+  "publication_not_ready",
+  "publishable_bundle_missing",
+  "unsupported_target_platform",
+] as const;
+
+export type ContentPublicationValidationCode =
+  (typeof CONTENT_PUBLICATION_VALIDATION_CODES)[number];
+
+export type ContentPublicationSnapshot = {
+  approvedBundle: RepurposingPlanResult;
+  contentJob: {
+    id: string;
+    queueJobId: string | null;
+    reviewStatus: ContentJobReviewStatus;
+    status: ContentJobStatus;
+    streamId: string | null;
+  };
+  platformConnection: {
+    id: string;
+    platform: StreamPlatform;
+    scopes: string[];
+  };
+  targetPlatform: StreamPlatform;
+};
+
+export type ContentPublication = {
+  id: string;
+  userId: string;
+  contentJobId: string;
+  platformConnectionId: string;
+  targetPlatform: StreamPlatform;
+  publicationStatus: ContentPublicationStatus;
+  reviewStatusAtRequest: ContentJobReviewStatus;
+  requestedBy: string;
+  requestedAt: string;
+  validatedAt: string | null;
+  requestIntentHash: string;
+  snapshotHash: string;
+  snapshot: ContentPublicationSnapshot;
+  validationCode: ContentPublicationValidationCode | null;
+  validationMessage: string | null;
+  validationMetadata: Record<string, unknown>;
+  retryCount: number;
+  maxRetries: number;
+  nextRetryAt: string | null;
+  externalPostId: string | null;
+  externalUrl: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ContentPublicationEvent = {
+  actorId: string;
+  contentPublicationId: string;
+  createdAt: string;
+  eventType: ContentPublicationEventType;
+  id: string;
+  metadata: Record<string, unknown>;
+  previousPublicationStatus: ContentPublicationStatus | null;
+  publicationStatus: ContentPublicationStatus;
+  source: string;
+  userId: string;
+};

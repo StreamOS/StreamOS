@@ -19,6 +19,8 @@ const tenantTables = [
   "streams",
   "content_jobs",
   "content_job_export_events",
+  "content_publications",
+  "content_publication_events",
   "vod_assets",
   "stream_transcripts",
   "stream_highlights",
@@ -55,6 +57,8 @@ const contentJobClientInsertColumns = [
 
 const authenticatedReadOnlyTables = [
   "metrics_snapshots",
+  "content_publications",
+  "content_publication_events",
   "vod_assets",
   "stream_transcripts",
   "clip_exports",
@@ -70,6 +74,16 @@ const authenticatedReadOnlyWritePolicies = {
     delete: "Clip exports can be deleted by their user",
     insert: "Clip exports can be inserted by their user",
     update: "Clip exports can be updated by their user",
+  },
+  content_publications: {
+    delete: "Content publications can be deleted by their user",
+    insert: "Content publications can be inserted by their user",
+    update: "Content publications can be updated by their user",
+  },
+  content_publication_events: {
+    delete: "Content publication events can be deleted by their user",
+    insert: "Content publication events can be inserted by their user",
+    update: "Content publication events can be updated by their user",
   },
   metrics_snapshots: {
     delete: "Metrics snapshots can be deleted by their user",
@@ -119,6 +133,9 @@ const compositeTenantConstraints = [
   "clips_stream_user_fkey",
   "clips_highlight_user_fkey",
   "clip_exports_clip_user_fkey",
+  "content_publications_content_job_user_fkey",
+  "content_publications_connection_user_fkey",
+  "content_publication_events_publication_user_fkey",
   "brand_assets_creator_user_fkey",
   "brand_assets_channel_user_fkey",
   "monetization_events_creator_user_fkey",

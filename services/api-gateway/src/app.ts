@@ -35,6 +35,7 @@ import {
   type ClipGenerationRequest,
   upsertClipContentJob,
 } from "./routes/contentJobs.js";
+import { createContentPublicationsRouter } from "./routes/contentPublications.js";
 import { createRoutes } from "./routes/index.js";
 import { createMetricsSyncRouter } from "./routes/metricsSync.js";
 import { createPlatformConnectionsRouter } from "./routes/platformConnections.js";
@@ -766,6 +767,13 @@ export function createApp(options: CreateAppOptions = {}): Express {
     "/api/content-jobs",
     requireAppApiSecret(securityConfig.apiGatewaySecret),
     createContentJobsRouter({
+      fetchImpl: options.oauth?.fetchImpl,
+    }),
+  );
+  app.use(
+    "/api/content-publications",
+    requireAppApiSecret(securityConfig.apiGatewaySecret),
+    createContentPublicationsRouter({
       fetchImpl: options.oauth?.fetchImpl,
     }),
   );
