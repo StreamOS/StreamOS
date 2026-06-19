@@ -315,12 +315,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          railway link \
-            --project "${RAILWAY_PROJECT_ID}" \
-            --environment "${RAILWAY_ENVIRONMENT}" \
-            --json >/tmp/railway-link-repurposing-worker.json
-
-          service_list="$(railway service list --environment "${RAILWAY_ENVIRONMENT}" --json)"
+          service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
           service_exists="$(
             node -e '
               const fs = require("node:fs");
@@ -337,22 +332,83 @@ jobs:
 
           if [ "${service_exists}" = "yes" ]; then
             echo "repurposing-worker already exists in Railway production." >> "${GITHUB_STEP_SUMMARY}"
-            exit 0
+          else
+            railway_service_response="$(
+              node --input-type=module - <<'NODE'
+                const endpoint = "https://backboard.railway.com/graphql/v2";
+                const token = process.env.RAILWAY_TOKEN;
+                const projectId = process.env.RAILWAY_PROJECT_ID;
+
+                if (!token) {
+                  throw new Error("RAILWAY_TOKEN is required.");
+                }
+
+                const response = await fetch(endpoint, {
+                  method: "POST",
+                  headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    query: `
+                      mutation serviceCreate($input: ServiceCreateInput!) {
+                        serviceCreate(input: $input) {
+                          id
+                          name
+                        }
+                      }
+                    `,
+                    variables: {
+                      input: {
+                        name: "repurposing-worker",
+                        projectId,
+                      },
+                    },
+                  }),
+                });
+
+                const payload = await response.json();
+
+                if (!response.ok || payload.errors?.length > 0) {
+                  const message =
+                    payload.errors?.map((error) => error.message).join("; ") ||
+                    `HTTP ${response.status}`;
+                  throw new Error(`Railway serviceCreate failed: ${message}`);
+                }
+
+                const service = payload.data?.serviceCreate;
+
+                if (!service?.id || service?.name !== "repurposing-worker") {
+                  throw new Error("Railway serviceCreate returned an unexpected payload.");
+                }
+
+                process.stdout.write(JSON.stringify(service));
+              NODE
+            )"
+            repurposing_worker_service_id="$(
+              node -e '
+                const payload = JSON.parse(process.argv[1]);
+                process.stdout.write(payload.id);
+              ' "${railway_service_response}"
+            )"
+
+            {
+              echo "## repurposing-worker provisioning"
+              echo ""
+              echo "- Environment: ${RAILWAY_ENVIRONMENT}"
+              echo "- Service: repurposing-worker"
+              echo "- Source: empty service created in the existing project"
+              echo "- Service ID: \`${repurposing_worker_service_id}\`"
+            } >> "${GITHUB_STEP_SUMMARY}"
           fi
 
-          railway add \
+          railway variable set \
+            --project "${RAILWAY_PROJECT_ID}" \
             --service repurposing-worker \
-            --variables "RAILWAY_DOCKERFILE_PATH=Dockerfile.repurposing-worker" \
-            --json >/tmp/railway-add-repurposing-worker.json
-
-          {
-            echo "## repurposing-worker provisioning"
-            echo ""
-            echo "- Environment: ${RAILWAY_ENVIRONMENT}"
-            echo "- Service: repurposing-worker"
-            echo "- Source: empty service provisioned in the existing project"
-            echo "- Dockerfile path: `Dockerfile.repurposing-worker`"
-          } >> "${GITHUB_STEP_SUMMARY}"
+            --environment "${RAILWAY_ENVIRONMENT}" \
+            --skip-deploys \
+            RAILWAY_DOCKERFILE_PATH=Dockerfile.repurposing-worker \
+            --json >/tmp/railway-set-repurposing-worker.json
 
       - name: Deploy Railway service
         env:
