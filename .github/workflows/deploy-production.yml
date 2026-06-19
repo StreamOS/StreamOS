@@ -306,15 +306,6 @@ jobs:
       - name: Install Railway CLI
         run: npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
 
-      - name: Link Railway production project
-        env:
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          railway link --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json >/dev/null
-
       - name: Provision repurposing-worker when missing
         if: ${{ matrix.service == 'repurposing-worker' }}
         env:
@@ -324,7 +315,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          service_list="$(railway service list --environment "${RAILWAY_ENVIRONMENT}" --json)"
+          service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
           service_exists="$(
             node -e '
               const fs = require("node:fs");
