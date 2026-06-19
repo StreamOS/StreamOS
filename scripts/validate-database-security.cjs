@@ -18,6 +18,7 @@ const tenantTables = [
   "metrics_snapshots",
   "streams",
   "content_jobs",
+  "content_job_export_events",
   "vod_assets",
   "stream_transcripts",
   "stream_highlights",
@@ -61,6 +62,8 @@ const authenticatedReadOnlyTables = [
   "monetization_summaries",
   "youtube_websub_subscriptions",
 ];
+
+const authenticatedAppendOnlyTables = ["content_job_export_events"];
 
 const authenticatedReadOnlyWritePolicies = {
   clip_exports: {
@@ -451,6 +454,58 @@ for (const table of tenantTables) {
         ),
       ),
       `${table}: authenticated role must keep explicit read-only SELECT grant`,
+    );
+  } else if (authenticatedAppendOnlyTables.includes(table)) {
+    assertPattern(
+      hasPattern(
+        policyRegex(
+          table,
+          "select",
+          `using\\s*\\(\\s*${authenticatedUserScope}\\s*\\)`,
+        ),
+      ),
+      `${table}: SELECT policy must explicitly check auth.uid() is not null and user_id = auth.uid()`,
+    );
+
+    assertPattern(
+      hasPattern(
+        policyRegex(
+          table,
+          "insert",
+          `with\\s+check\\s*\\(\\s*auth\\.uid\\s*\\(\\s*\\)\\s+is\\s+not\\s+null\\s+and\\s+user_id\\s*=\\s*auth\\.uid\\s*\\(\\s*\\)\\s+and\\s+actor_id\\s*=\\s*auth\\.uid\\s*\\(\\s*\\)\\s*\\)`,
+        ),
+      ),
+      `${table}: INSERT policy must require authenticated ownership and matching actor_id`,
+    );
+
+    assertPattern(
+      hasPattern(
+        droppedPolicyRegex(
+          table,
+          "Content job export events can be updated by their user",
+        ),
+      ),
+      `${table}: authenticated UPDATE policy must be dropped; export events are append-only`,
+    );
+
+    assertPattern(
+      hasPattern(
+        droppedPolicyRegex(
+          table,
+          "Content job export events can be deleted by their user",
+        ),
+      ),
+      `${table}: authenticated DELETE policy must be dropped; export events are append-only`,
+    );
+
+    assertPattern(
+      hasPattern(
+        new RegExp(
+          `grant\\s+select\\s*,\\s*insert\\s+on\\s+public\\.${tableName}\\s+to\\s+authenticated`,
+          "i",
+        ),
+      ),
+      `${table}: authenticated role must keep explicit SELECT and INSERT grants only`,
     );
   } else {
     assertPattern(

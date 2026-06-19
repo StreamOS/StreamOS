@@ -2,8 +2,11 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+  buildApprovedRepurposingExportBundle,
   buildRepurposingReviewBundle,
   getEmptyStateMessage,
+  getRepurposingExportEligibility,
+  getRepurposingExportTemplates,
   resolveSelectedJob,
   sanitizeRepurposingRawValue,
   type ContentJobRow,
@@ -57,6 +60,23 @@ describe("RepurposingReviewConsole", () => {
             user_id: job.user_id,
           },
         ]}
+        initialExportEvents={[
+          {
+            actor_id: job.user_id,
+            bundle_hash:
+              "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            content_job_id: job.id,
+            created_at: "2026-06-19T11:15:12.000Z",
+            event_type: "copy_template",
+            id: "export-event-1",
+            metadata: {},
+            review_status_at_export: "approved",
+            source: "repurposing-review-console",
+            target_platform: "youtube_shorts",
+            template_key: "youtube_shorts",
+            user_id: job.user_id,
+          },
+        ]}
         initialJobs={[job]}
         reviewAction={async () => undefined}
       />,
@@ -84,6 +104,18 @@ describe("RepurposingReviewConsole", () => {
     expect(html).toContain("Copy sanitized review summary");
     expect(html).toContain("Clipboard");
     expect(html).toContain("Sanitized local copy");
+    expect(html).toContain("Copy approved export bundle");
+    expect(html).toContain("Approved export bundle");
+    expect(html).toContain("Platform templates");
+    expect(html).toContain("TikTok template");
+    expect(html).toContain("YouTube Shorts template");
+    expect(html).toContain("Bundle preview");
+    expect(html).toContain("Export audit");
+    expect(html).toContain("Recent copy events");
+    expect(html).toContain("Platform template copy");
+    expect(html).toContain("YouTube Shorts template - YouTube Shorts");
+    expect(html).toContain("abcdef123456...");
+    expect(html).toContain("Local clipboard only");
     expect(html).toContain("Open raw payload");
     expect(html).toContain("Open raw result");
     expect(html).toContain("<details");
@@ -94,6 +126,99 @@ describe("RepurposingReviewConsole", () => {
     expect(html).not.toContain("api_gateway_secret");
     expect(html).not.toContain("access_token");
     expect(html).not.toContain("automation-service.railway.internal");
+
+    const exportBundle = buildApprovedRepurposingExportBundle(job);
+
+    expect(exportBundle).toContain("Approved Repurposing Export Bundle");
+    expect(exportBundle).toContain("source_provider: youtube");
+    expect(exportBundle).toContain(
+      "source_title: Stream highlights and cliffhangers",
+    );
+    expect(exportBundle).toContain("target_platform: tiktok");
+    expect(exportBundle).toContain("title: Best of the stream");
+    expect(exportBundle).toContain("caption: Short caption one");
+    expect(exportBundle).toContain("description: A longer description");
+    expect(exportBundle).toContain("hashtags: #streamos #gaming");
+    expect(exportBundle).toContain("hook: Open with the strongest moment");
+    expect(exportBundle).toContain(
+      "short_form_plan: Clip the opening and the reaction moment.",
+    );
+    expect(exportBundle).toContain("review_notes: Needs creator approval");
+    expect(exportBundle).toContain(
+      "reviewer_notes: Looks good with a shorter hook.",
+    );
+    expect(exportBundle).toContain("warnings: Double-check platform tone.");
+    expect(exportBundle).toContain(
+      "status_note: Manually reviewed. Not auto-published.",
+    );
+    expect(exportBundle).not.toContain("super-secret-gateway-key");
+    expect(exportBundle).not.toContain("automation-service.railway.internal");
+  });
+
+  it("orders platform templates by target platform and keeps them copy-friendly", () => {
+    const job = makeRepurposingJob({
+      payload: {
+        source_provider: "youtube",
+        source_video_id: "video-321",
+        source_video_title:
+          "Platform template source with https://automation-service.railway.internal/path",
+        target_platforms: ["youtube_shorts", "tiktok"],
+      },
+      review_status: "approved",
+      reviewed_at: "2026-06-19T11:11:12.000Z",
+      reviewed_by: "11111111-1111-4111-8111-111111111111",
+      result: {
+        captions: ["Short caption one"],
+        confidence: 91,
+        descriptions: ["A longer description"],
+        generated_at: "2026-06-19T10:11:12.000Z",
+        hashtag_sets: [["#streamos", "#gaming"]],
+        hook_ideas: ["Open with the strongest moment"],
+        manual_review_required: true,
+        model: "gpt-4o-mini",
+        provider: "openai",
+        review_notes: [
+          "Needs creator approval and api_gateway_secret=super-secret",
+        ],
+        short_form_plan: "Clip the opening and the reaction moment.",
+        title_suggestions: ["Best of the stream"],
+        warnings: [
+          "Double-check platform tone with redis://user:pass@host:6379/0",
+        ],
+      },
+    });
+
+    const templates = getRepurposingExportTemplates(job);
+
+    expect(templates.map((template) => template.targetPlatform)).toEqual([
+      "youtube_shorts",
+      "tiktok",
+    ]);
+    expect(templates[0]?.body).toContain("Approved YouTube Shorts template");
+    expect(templates[0]?.body).toContain("TITLE");
+    expect(templates[0]?.body).toContain("DESCRIPTION");
+    expect(templates[0]?.body).toContain("SHORTS HOOK");
+    expect(templates[0]?.body).toContain("SHORT-FORM PLAN");
+    expect(templates[0]?.body).toContain("REVIEW NOTES");
+    expect(templates[0]?.body).toContain("REVIEW WARNINGS");
+    expect(templates[0]?.body).toContain("confidence: 91/100");
+    expect(templates[0]?.body).toContain("manual_review_required: true");
+    expect(templates[0]?.body).toContain("[private railway.internal url]");
+    expect(templates[0]?.body).not.toContain("job_id:");
+    expect(templates[0]?.body).not.toContain("queue_job_id:");
+
+    expect(templates[1]?.body).toContain("Approved TikTok template");
+    expect(templates[1]?.body).toContain("HOOK");
+    expect(templates[1]?.body).toContain("CAPTION");
+    expect(templates[1]?.body).toContain("HASHTAGS");
+    expect(templates[1]?.body).toContain("SHORT-FORM PLAN NOTES");
+    expect(templates[1]?.body).toContain("REVIEW WARNINGS");
+    expect(templates[1]?.body).toContain("confidence: 91/100");
+    expect(templates[1]?.body).toContain("manual_review_required: true");
+    expect(templates[1]?.body).toContain("[REDACTED_REDIS_URL]");
+    expect(templates[1]?.body).not.toContain("job_id:");
+    expect(templates[1]?.body).not.toContain("queue_job_id:");
+    expect(templates[1]?.body).not.toContain("api_gateway_secret");
   });
 
   it("renders fallback states for incomplete or unknown result payloads", () => {
@@ -124,6 +249,43 @@ describe("RepurposingReviewConsole", () => {
     expect(html).not.toContain("api_gateway_secret");
     expect(html).not.toContain("secret");
     expect(html).not.toContain("token");
+  });
+
+  it("disables the export bundle flow until the job is approved", () => {
+    const job = makeRepurposingJob({
+      review_status: "needs_changes",
+      result: {
+        captions: ["Short caption one"],
+        confidence: 88,
+        descriptions: ["A longer description"],
+        generated_at: "2026-06-19T10:11:12.000Z",
+        hashtag_sets: [["#streamos", "#gaming"]],
+        hook_ideas: ["Open with the strongest moment"],
+        manual_review_required: true,
+        model: "gpt-4o-mini",
+        provider: "openai",
+        review_notes: ["Needs creator approval"],
+        short_form_plan: "Clip the opening and the reaction moment.",
+        title_suggestions: ["Best of the stream"],
+        warnings: ["Double-check platform tone."],
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <RepurposingReviewConsole
+        initialAuditEvents={[]}
+        initialJobs={[job]}
+        reviewAction={async () => undefined}
+      />,
+    );
+
+    expect(html).toContain("Copy approved export bundle");
+    expect(html).toContain("Export becomes available after approval.");
+    expect(html).toContain("disabled");
+    expect(getRepurposingExportEligibility(job).eligible).toBe(false);
+    expect(getRepurposingExportEligibility(job).reason).toBe(
+      "Export becomes available after approval.",
+    );
   });
 
   it("keeps selection scoped to the filtered job list", () => {

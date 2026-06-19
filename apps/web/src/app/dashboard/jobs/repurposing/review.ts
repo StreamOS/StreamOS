@@ -7,14 +7,40 @@ export const REPURPOSING_REVIEW_DECISIONS = [
   "needs_changes",
 ] as const;
 
+export const REPURPOSING_EXPORT_EVENT_TYPES = [
+  "copy_bundle",
+  "copy_template",
+] as const;
+
+export const REPURPOSING_EXPORT_TEMPLATE_KEYS = [
+  "bundle",
+  "tiktok",
+  "youtube_shorts",
+] as const;
+
+export const REPURPOSING_EXPORT_TARGET_PLATFORMS = [
+  "tiktok",
+  "youtube_shorts",
+] as const;
+
 export type RepurposingReviewDecision =
   (typeof REPURPOSING_REVIEW_DECISIONS)[number];
+
+export type RepurposingExportEventType =
+  (typeof REPURPOSING_EXPORT_EVENT_TYPES)[number];
+
+export type RepurposingExportTemplateKey =
+  (typeof REPURPOSING_EXPORT_TEMPLATE_KEYS)[number];
+
+export type RepurposingExportTargetPlatform =
+  (typeof REPURPOSING_EXPORT_TARGET_PLATFORMS)[number];
 
 export type RepurposingReviewStatus =
   | "needs_review"
   | RepurposingReviewDecision;
 
 export type RepurposingReviewEventRow = Tables<"content_job_review_events">;
+export type RepurposingExportEventRow = Tables<"content_job_export_events">;
 
 export const repurposingReviewDecisionSchema = z.enum(
   REPURPOSING_REVIEW_DECISIONS,
@@ -26,8 +52,19 @@ export const repurposingReviewFormSchema = z.object({
   reviewerNotes: z.string().trim().max(4_000).default(""),
 });
 
+export const repurposingExportAuditFormSchema = z.object({
+  eventType: z.enum(REPURPOSING_EXPORT_EVENT_TYPES),
+  jobId: z.string().uuid(),
+  targetPlatform: z.enum(REPURPOSING_EXPORT_TARGET_PLATFORMS),
+  templateKey: z.enum(REPURPOSING_EXPORT_TEMPLATE_KEYS),
+});
+
 export type RepurposingReviewFormValues = z.infer<
   typeof repurposingReviewFormSchema
+>;
+
+export type RepurposingExportAuditFormValues = z.infer<
+  typeof repurposingExportAuditFormSchema
 >;
 
 export function getRepurposingReviewStatusLabel(
@@ -66,4 +103,42 @@ export function formatReviewDecisionSummary(
   status: RepurposingReviewStatus | null | undefined,
 ): string {
   return getRepurposingReviewStatusLabel(status);
+}
+
+export function getRepurposingExportTemplateLabel(
+  templateKey: RepurposingExportTemplateKey,
+): string {
+  switch (templateKey) {
+    case "tiktok":
+      return "TikTok template";
+    case "youtube_shorts":
+      return "YouTube Shorts template";
+    case "bundle":
+    default:
+      return "Approved export bundle";
+  }
+}
+
+export function getRepurposingExportTargetPlatformLabel(
+  targetPlatform: RepurposingExportTargetPlatform,
+): string {
+  switch (targetPlatform) {
+    case "tiktok":
+      return "TikTok";
+    case "youtube_shorts":
+    default:
+      return "YouTube Shorts";
+  }
+}
+
+export function getRepurposingExportEventLabel(
+  eventType: RepurposingExportEventType,
+): string {
+  switch (eventType) {
+    case "copy_bundle":
+      return "Bundle copy";
+    case "copy_template":
+    default:
+      return "Platform template copy";
+  }
 }

@@ -1,6 +1,9 @@
 import type { Tables } from "@streamos/database";
 import {
   getRepurposingReviewStatusLabel,
+  getRepurposingExportTemplateLabel,
+  type RepurposingExportTemplateKey,
+  type RepurposingExportTargetPlatform,
   type RepurposingReviewEventRow,
   type RepurposingReviewStatus,
 } from "@/app/dashboard/jobs/repurposing/review";
@@ -284,6 +287,10 @@ function isProcessingStatus(status: ContentJobRow["status"]): boolean {
   return status === "running" || status === "processing";
 }
 
+function isDoneStatus(status: ContentJobRow["status"]): boolean {
+  return status === "done" || status === "completed";
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -332,6 +339,25 @@ function readStringArrayList(value: unknown, key: string): string[] {
   return candidate.filter((item): item is string => typeof item === "string");
 }
 
+function readStringMatrix(value: unknown, key: string): string[][] {
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  const candidate = value[key];
+  if (!Array.isArray(candidate)) {
+    return [];
+  }
+
+  return candidate
+    .map((entry) =>
+      Array.isArray(entry)
+        ? entry.filter((item): item is string => typeof item === "string")
+        : [],
+    )
+    .filter((entry) => entry.length > 0);
+}
+
 function readBoolean(value: unknown, ...keys: string[]): boolean {
   if (!isRecord(value)) {
     return false;
@@ -363,8 +389,456 @@ function dedupeStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
+function pickIndexedString(values: string[], index: number): string | null {
+  if (values.length === 0) {
+    return null;
+  }
+
+  const normalizedIndex = clampIndex(index, values.length);
+  const candidate = values[normalizedIndex]?.trim();
+
+  return candidate && candidate.length > 0 ? sanitizeString(candidate) : null;
+}
+
+function pickIndexedArray(values: string[][], index: number): string[] {
+  if (values.length === 0) {
+    return [];
+  }
+
+  const normalizedIndex = clampIndex(index, values.length);
+
+  return (values[normalizedIndex] ?? [])
+    .map((item) => sanitizeString(item.trim()))
+    .filter(Boolean);
+}
+
+function clampIndex(index: number, length: number): number {
+  if (!Number.isFinite(index) || length <= 1) {
+    return 0;
+  }
+
+  return Math.min(Math.max(Math.trunc(index), 0), length - 1);
+}
+
+function hasExportableRepurposingResult(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    [
+      readStringArrayList(value, "title_suggestions"),
+      readStringArrayList(value, "captions"),
+      readStringArrayList(value, "descriptions"),
+      readStringArrayList(value, "hook_ideas"),
+      readStringArrayList(value, "review_notes"),
+      readStringArrayList(value, "warnings"),
+      readStringMatrix(value, "hashtag_sets").flat(),
+    ].some((candidate) => candidate.length > 0) ||
+    Boolean(readString(value, "short_form_plan"))
+  );
+}
+
+function buildApprovedRepurposingExportBundleText({
+  caption,
+  description,
+  generatedAt,
+  hashtags,
+  hook,
+  job,
+  reviewNotes,
+  reviewedAt,
+  reviewedBy,
+  reviewerNotes,
+  selectedTargetPlatform,
+  selectedTitle,
+  shortFormPlan,
+  sourceProvider,
+  sourceTitle,
+  warnings,
+}: {
+  caption: string | null;
+  description: string | null;
+  generatedAt: string | null;
+  hashtags: string[];
+  hook: string | null;
+  job: ContentJobRow;
+  reviewNotes: string;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  reviewerNotes: string | null;
+  selectedTargetPlatform: string | null;
+  selectedTitle: string | null;
+  shortFormPlan: string | null;
+  sourceProvider: string;
+  sourceTitle: string;
+  warnings: string;
+}): string {
+  return [
+    "Approved Repurposing Export Bundle",
+    `job_id: ${job.id}`,
+    `queue_job_id: ${job.queue_job_id ?? "not assigned"}`,
+    `source_provider: ${sourceProvider}`,
+    `source_title: ${sanitizeString(sourceTitle)}`,
+    `target_platform: ${selectedTargetPlatform ?? "Not available"}`,
+    `title: ${selectedTitle ?? "Not available"}`,
+    `caption: ${caption ?? "Not available"}`,
+    `description: ${description ?? "Not available"}`,
+    `hashtags: ${hashtags.length > 0 ? hashtags.join(" ") : "Not available"}`,
+    `hook: ${hook ?? "Not available"}`,
+    `short_form_plan: ${sanitizeRepurposingFreeformText(shortFormPlan ?? "Not available")}`,
+    `review_notes: ${sanitizeRepurposingFreeformText(reviewNotes)}`,
+    `reviewer_notes: ${sanitizeRepurposingFreeformText(reviewerNotes ?? "Not available")}`,
+    `warnings: ${sanitizeRepurposingFreeformText(warnings)}`,
+    `generated_at: ${generatedAt ?? "Not available"}`,
+    `reviewed_at: ${reviewedAt ?? "Not available"}`,
+    `reviewed_by: ${reviewedBy ?? "Not available"}`,
+    "status_note: Manually reviewed. Not auto-published.",
+  ].join("\n");
+}
+
 export function sanitizeRepurposingFreeformText(value: string): string {
   return sanitizeString(value);
+}
+
+export type RepurposingExportSelection = {
+  captionIndex: number;
+  descriptionIndex: number;
+  hashtagSetIndex: number;
+  hookIdeaIndex: number;
+  targetPlatformIndex: number;
+  titleSuggestionIndex: number;
+};
+
+export type RepurposingExportBundleDetails = {
+  bundleText: string;
+  caption: string | null;
+  captionSuggestions: string[];
+  description: string | null;
+  descriptionSuggestions: string[];
+  eligible: boolean;
+  generatedAt: string | null;
+  hashtags: string[];
+  hashtagSets: string[][];
+  hook: string | null;
+  hookIdeas: string[];
+  manualReviewRequired: boolean;
+  reason: string | null;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  reviewerNotes: string | null;
+  shortFormPlan: string | null;
+  sourceProvider: string;
+  sourceTitle: string;
+  targetPlatform: string | null;
+  targetPlatforms: string[];
+  title: string | null;
+  titleSuggestions: string[];
+  warnings: string | null;
+};
+
+export type RepurposingExportTemplateDetails = {
+  body: string;
+  eligible: boolean;
+  reason: string | null;
+  targetPlatform: RepurposingExportTargetPlatform;
+  templateKey: RepurposingExportTemplateKey;
+  title: string;
+};
+
+type RepurposingExportPlatformTemplateKey = Exclude<
+  RepurposingExportTemplateKey,
+  "bundle"
+>;
+
+export function getDefaultRepurposingExportSelection(
+  _job: ContentJobRow | null | undefined,
+): RepurposingExportSelection {
+  return {
+    captionIndex: 0,
+    descriptionIndex: 0,
+    hashtagSetIndex: 0,
+    hookIdeaIndex: 0,
+    targetPlatformIndex: 0,
+    titleSuggestionIndex: 0,
+  };
+}
+
+export function getRepurposingExportEligibility(job: ContentJobRow): {
+  eligible: boolean;
+  reason: string | null;
+} {
+  const summary = getRepurposingJobSummary(job);
+
+  if (job.job_type !== "repurposing" || job.type !== "repurposing") {
+    return {
+      eligible: false,
+      reason: "Only repurposing jobs are exportable.",
+    };
+  }
+
+  if (!isDoneStatus(job.status)) {
+    return {
+      eligible: false,
+      reason: "Export is available only after the job is done.",
+    };
+  }
+
+  if (!summary.manualReviewRequired) {
+    return {
+      eligible: false,
+      reason: "This job does not require manual review.",
+    };
+  }
+
+  if (summary.reviewStatus !== "approved") {
+    return {
+      eligible: false,
+      reason: "Export becomes available after approval.",
+    };
+  }
+
+  if (!hasExportableRepurposingResult(job.result)) {
+    return {
+      eligible: false,
+      reason: "Approved result does not contain exportable suggestions.",
+    };
+  }
+
+  return {
+    eligible: true,
+    reason: null,
+  };
+}
+
+export function getRepurposingExportBundleDetails(
+  job: ContentJobRow,
+  selection: Partial<RepurposingExportSelection> = {},
+): RepurposingExportBundleDetails {
+  const summary = getRepurposingJobSummary(job);
+  const titleSuggestions = readStringArrayList(job.result, "title_suggestions");
+  const captionSuggestions = readStringArrayList(job.result, "captions");
+  const descriptionSuggestions = readStringArrayList(
+    job.result,
+    "descriptions",
+  );
+  const hookIdeas = readStringArrayList(job.result, "hook_ideas");
+  const hashtagSets = readStringMatrix(job.result, "hashtag_sets");
+  const targetPlatforms = dedupeStrings(summary.targetPlatforms);
+  const selectedTitle = pickIndexedString(
+    titleSuggestions,
+    selection.titleSuggestionIndex ?? 0,
+  );
+  const selectedCaption = pickIndexedString(
+    captionSuggestions,
+    selection.captionIndex ?? 0,
+  );
+  const selectedDescription = pickIndexedString(
+    descriptionSuggestions,
+    selection.descriptionIndex ?? 0,
+  );
+  const selectedHook = pickIndexedString(
+    hookIdeas,
+    selection.hookIdeaIndex ?? 0,
+  );
+  const selectedTargetPlatform = pickIndexedString(
+    targetPlatforms,
+    selection.targetPlatformIndex ?? 0,
+  );
+  const selectedHashtags = pickIndexedArray(
+    hashtagSets,
+    selection.hashtagSetIndex ?? 0,
+  );
+  const shortFormPlan = readString(job.result, "short_form_plan");
+  const reviewerNotes = readString(job, "reviewer_notes");
+  const warnings = readStringArray(job.result, "warnings");
+  const eligibility = getRepurposingExportEligibility(job);
+
+  return {
+    bundleText: eligibility.eligible
+      ? buildApprovedRepurposingExportBundleText({
+          caption: selectedCaption,
+          description: selectedDescription,
+          generatedAt: summary.generatedAt,
+          hashtags: selectedHashtags,
+          hook: selectedHook,
+          job,
+          reviewNotes: readStringArray(job.result, "review_notes"),
+          reviewedAt: summary.reviewedAt,
+          reviewedBy: summary.reviewedBy,
+          reviewerNotes,
+          selectedTargetPlatform,
+          selectedTitle,
+          shortFormPlan,
+          sourceProvider: summary.sourceProvider,
+          sourceTitle: summary.sourceTitle ?? getRepurposingJobTitle(job),
+          warnings,
+        })
+      : "",
+    caption: selectedCaption,
+    captionSuggestions,
+    description: selectedDescription,
+    descriptionSuggestions,
+    eligible: eligibility.eligible,
+    generatedAt: summary.generatedAt,
+    hashtags: selectedHashtags,
+    hashtagSets,
+    hook: selectedHook,
+    hookIdeas,
+    manualReviewRequired: summary.manualReviewRequired,
+    reason: eligibility.reason,
+    reviewedAt: summary.reviewedAt,
+    reviewedBy: summary.reviewedBy,
+    reviewerNotes,
+    shortFormPlan,
+    sourceProvider: summary.sourceProvider,
+    sourceTitle: summary.sourceTitle ?? getRepurposingJobTitle(job),
+    targetPlatform: selectedTargetPlatform,
+    targetPlatforms,
+    title: selectedTitle,
+    titleSuggestions,
+    warnings,
+  };
+}
+
+export function buildApprovedRepurposingExportBundle(
+  job: ContentJobRow,
+  selection: Partial<RepurposingExportSelection> = {},
+): string {
+  return getRepurposingExportBundleDetails(job, selection).bundleText;
+}
+
+export function buildRepurposingExportTemplateText(
+  job: ContentJobRow,
+  templateKey: RepurposingExportPlatformTemplateKey,
+  selection: Partial<RepurposingExportSelection> = {},
+): string {
+  const bundle = getRepurposingExportBundleDetails(job, selection);
+  const summary = getRepurposingJobSummary(job);
+
+  if (!bundle.eligible) {
+    return "";
+  }
+
+  const sourceTitle = bundle.sourceTitle ?? getRepurposingJobTitle(job);
+  const targetPlatformLabel =
+    templateKey === "tiktok" ? "TikTok" : "YouTube Shorts";
+  const hashtags =
+    bundle.hashtags.length > 0 ? bundle.hashtags.join(" ") : "Not available";
+  const reviewNotes = sanitizeRepurposingFreeformText(
+    readStringArray(job.result, "review_notes"),
+  );
+  const warnings = sanitizeRepurposingFreeformText(
+    bundle.warnings ?? "Not available",
+  );
+  const shortFormPlan = sanitizeRepurposingFreeformText(
+    bundle.shortFormPlan ?? "Not available",
+  );
+  const caption = bundle.caption ?? "Not available";
+  const description = bundle.description ?? "Not available";
+  const hook = bundle.hook ?? "Not available";
+  const title = bundle.title ?? "Not available";
+  const baseLines = [
+    `Approved ${getRepurposingExportTemplateLabel(templateKey)}`,
+    `source_provider: ${bundle.sourceProvider}`,
+    `source_title: ${sanitizeString(sourceTitle)}`,
+    `target_platform: ${targetPlatformLabel}`,
+    `target_platforms: ${
+      bundle.targetPlatforms.length > 0
+        ? bundle.targetPlatforms.join(", ")
+        : "Not available"
+    }`,
+    `confidence: ${summary.confidence}`,
+    `manual_review_required: ${bundle.manualReviewRequired ? "true" : "false"}`,
+  ];
+
+  if (templateKey === "tiktok") {
+    return [
+      ...baseLines,
+      "",
+      "HOOK",
+      hook,
+      "",
+      "CAPTION",
+      caption,
+      "",
+      "HASHTAGS",
+      hashtags,
+      "",
+      "SHORT-FORM PLAN NOTES",
+      shortFormPlan,
+      "",
+      "REVIEW WARNINGS",
+      warnings,
+      "",
+      "status_note: Manually reviewed. Not auto-published.",
+    ].join("\n");
+  }
+
+  return [
+    ...baseLines,
+    "",
+    "TITLE",
+    title,
+    "",
+    "DESCRIPTION",
+    description,
+    "",
+    "HASHTAGS",
+    hashtags,
+    "",
+    "SHORTS HOOK",
+    hook,
+    "",
+    "SHORT-FORM PLAN",
+    shortFormPlan,
+    "",
+    "REVIEW NOTES",
+    reviewNotes,
+    "",
+    "REVIEW WARNINGS",
+    warnings,
+    "",
+    "status_note: Manually reviewed. Not auto-published.",
+  ].join("\n");
+}
+
+export function getRepurposingExportTemplateDetails(
+  job: ContentJobRow,
+  templateKey: RepurposingExportPlatformTemplateKey,
+  selection: Partial<RepurposingExportSelection> = {},
+): RepurposingExportTemplateDetails {
+  const eligibleDetails = getRepurposingExportEligibility(job);
+  const body = buildRepurposingExportTemplateText(job, templateKey, selection);
+
+  return {
+    body,
+    eligible: eligibleDetails.eligible,
+    reason: eligibleDetails.reason,
+    targetPlatform: templateKey,
+    templateKey,
+    title: getRepurposingExportTemplateLabel(templateKey),
+  };
+}
+
+export function getRepurposingExportTemplates(
+  job: ContentJobRow,
+  selection: Partial<RepurposingExportSelection> = {},
+): RepurposingExportTemplateDetails[] {
+  const targetPlatforms = getRepurposingJobSummary(job).targetPlatforms;
+  const preferredTemplateKeys = [
+    ...targetPlatforms.filter(
+      (platform): platform is RepurposingExportPlatformTemplateKey =>
+        platform === "tiktok" || platform === "youtube_shorts",
+    ),
+    ...(["tiktok", "youtube_shorts"] as const).filter(
+      (platform) => !targetPlatforms.includes(platform),
+    ),
+  ];
+
+  return preferredTemplateKeys.map((templateKey) =>
+    getRepurposingExportTemplateDetails(job, templateKey, selection),
+  );
 }
 
 function normalizeReviewStatus(status: unknown): RepurposingReviewStatus {

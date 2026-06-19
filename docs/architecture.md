@@ -137,7 +137,9 @@ Use realtime channels or server-sent events for live viewer counts, stream statu
   `content_jobs` row and enqueue `repurposing.plan` when provider enrichment
   resolves `asset_available` and the connected platform metadata explicitly
   enables repurposing. The durable job remains review-oriented only: it does
-  not auto-publish, export, render, or crosspost. Provider enrichment is
+  not auto-publish, export, render, or crosspost. Approved repurposing jobs
+  can later produce a sanitized, clipboard-only export bundle for manual use.
+  Provider enrichment is
   classified as `asset_available`, `enrichment_required`,
   `enrichment_retryable`, `enrichment_failed`, or `unsupported`; only
   `asset_available` plus explicit opt-in may feed the plan row and downstream

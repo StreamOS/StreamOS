@@ -584,6 +584,58 @@ export type Database = {
           },
         ];
       };
+      content_job_export_events: {
+        Row: {
+          actor_id: string;
+          bundle_hash: string | null;
+          content_job_id: string;
+          created_at: string;
+          event_type: "copy_bundle" | "copy_template";
+          id: string;
+          metadata: Json;
+          review_status_at_export: ContentJobReviewStatus;
+          source: string;
+          target_platform: "tiktok" | "youtube_shorts";
+          template_key: "bundle" | "tiktok" | "youtube_shorts";
+          user_id: string;
+        };
+        Insert: {
+          actor_id: string;
+          bundle_hash?: string | null;
+          content_job_id: string;
+          created_at?: string;
+          event_type: "copy_bundle" | "copy_template";
+          id?: string;
+          metadata?: Json;
+          review_status_at_export: ContentJobReviewStatus;
+          source?: string;
+          target_platform: "tiktok" | "youtube_shorts";
+          template_key: "bundle" | "tiktok" | "youtube_shorts";
+          user_id: string;
+        };
+        Update: {
+          actor_id?: string;
+          bundle_hash?: string | null;
+          content_job_id?: string;
+          created_at?: string;
+          event_type?: "copy_bundle" | "copy_template";
+          id?: string;
+          metadata?: Json;
+          review_status_at_export?: ContentJobReviewStatus;
+          source?: string;
+          target_platform?: "tiktok" | "youtube_shorts";
+          template_key?: "bundle" | "tiktok" | "youtube_shorts";
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_job_export_events_content_job_user_fkey";
+            columns: ["content_job_id", "user_id"];
+            referencedRelation: "content_jobs";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
       vod_assets: {
         Row: {
           id: string;

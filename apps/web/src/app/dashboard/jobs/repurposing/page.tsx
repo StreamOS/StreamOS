@@ -7,6 +7,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
 type ContentJobRow = Tables<"content_jobs">;
+type ExportEventRow = Tables<"content_job_export_events">;
 type ReviewEventRow = Tables<"content_job_review_events">;
 
 type RepurposingJobsPageProps = {
@@ -21,7 +22,7 @@ export default async function RepurposingJobsPage({
   searchParams,
 }: RepurposingJobsPageProps) {
   const params = await searchParams;
-  const { auditEvents, jobs } = await getRepurposingJobs();
+  const { auditEvents, exportEvents, jobs } = await getRepurposingJobs();
 
   return (
     <div className="space-y-6">
@@ -63,6 +64,7 @@ export default async function RepurposingJobsPage({
 
       <RepurposingReviewConsole
         initialAuditEvents={auditEvents}
+        initialExportEvents={exportEvents}
         initialJobs={jobs}
         initialSelectedJobId={params?.jobId ?? null}
         reviewAction={submitRepurposingReviewAction}
@@ -73,51 +75,61 @@ export default async function RepurposingJobsPage({
 
 async function getRepurposingJobs(): Promise<{
   auditEvents: ReviewEventRow[];
+  exportEvents: ExportEventRow[];
   jobs: ContentJobRow[];
 }> {
   if (!isSupabaseConfigured()) {
-    return { auditEvents: [], jobs: [] };
+    return { auditEvents: [], exportEvents: [], jobs: [] };
   }
 
   const supabase = await createClient();
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
   if (userError || !userData.user) {
-    return { auditEvents: [], jobs: [] };
+    return { auditEvents: [], exportEvents: [], jobs: [] };
   }
 
-  const [jobsResult, auditEventsResult] = await Promise.all([
-    supabase
-      .from("content_jobs")
-      .select("*")
-      .eq("user_id", userData.user.id)
-      .eq("job_type", "repurposing")
-      .eq("type", "repurposing")
-      .in("status", [
-        "pending",
-        "running",
-        "failed",
-        "done",
-        "processing",
-        "completed",
-        "cancelled",
-      ])
-      .order("updated_at", { ascending: false })
-      .limit(100),
-    supabase
-      .from("content_job_review_events")
-      .select("*")
-      .eq("user_id", userData.user.id)
-      .order("created_at", { ascending: false })
-      .limit(500),
-  ]);
+  const [jobsResult, auditEventsResult, exportEventsResult] = await Promise.all(
+    [
+      supabase
+        .from("content_jobs")
+        .select("*")
+        .eq("user_id", userData.user.id)
+        .eq("job_type", "repurposing")
+        .eq("type", "repurposing")
+        .in("status", [
+          "pending",
+          "running",
+          "failed",
+          "done",
+          "processing",
+          "completed",
+          "cancelled",
+        ])
+        .order("updated_at", { ascending: false })
+        .limit(100),
+      supabase
+        .from("content_job_review_events")
+        .select("*")
+        .eq("user_id", userData.user.id)
+        .order("created_at", { ascending: false })
+        .limit(500),
+      supabase
+        .from("content_job_export_events")
+        .select("*")
+        .eq("user_id", userData.user.id)
+        .order("created_at", { ascending: false })
+        .limit(500),
+    ],
+  );
 
-  if (jobsResult.error || auditEventsResult.error) {
-    return { auditEvents: [], jobs: [] };
+  if (jobsResult.error || auditEventsResult.error || exportEventsResult.error) {
+    return { auditEvents: [], exportEvents: [], jobs: [] };
   }
 
   return {
     auditEvents: auditEventsResult.data ?? [],
+    exportEvents: exportEventsResult.data ?? [],
     jobs: jobsResult.data ?? [],
   };
 }

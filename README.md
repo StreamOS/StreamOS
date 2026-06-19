@@ -273,9 +273,10 @@ and the connected platform metadata explicitly opts in. The dedicated
 `repurposing-worker` consumes only `streamos-repurposing`, calls
 `POST /repurposing/plan`, and persists a manual-review-only plan in
 `content_jobs.result`. It does not auto-publish, export, render, or
-crosspost. Raw provider events without a direct `vodAssetUrl` still rely on
-server-side enrichment against existing assets before they can trigger
-automatic transcription.
+crosspost. Approved repurposing jobs can later produce a sanitized,
+clipboard-only export bundle for manual use. Raw provider events without a
+direct `vodAssetUrl` still rely on server-side enrichment against existing
+assets before they can trigger automatic transcription.
 
 `GET /api/observability` is a protected server-to-server snapshot route for
 operator use. It requires `API_GATEWAY_SECRET`, returns the current
