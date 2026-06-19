@@ -20,7 +20,7 @@ export { getPublicationReconciliationJobId } from "@streamos/queue";
 
 export const publicationExecutionPayloadSchema = z.object({
   content_publication_id: z.string().uuid(),
-  target_platform: z.literal("youtube"),
+  target_platform: z.enum(["youtube", "tiktok"]),
   user_id: z.string().uuid(),
 }) satisfies z.ZodType<PublicationExecutionJobPayload, z.ZodTypeDef, unknown>;
 
@@ -50,14 +50,14 @@ export type EnqueuedPublicationExecutionJob = {
   jobId: string;
   publicationId: string;
   queueJobId: string;
-  targetPlatform: "youtube";
+  targetPlatform: "youtube" | "tiktok";
 };
 
 export type EnqueuedPublicationReconciliationJob = {
   jobId: string;
   publicationId: string;
   queueJobId: string;
-  targetPlatform: "youtube";
+  targetPlatform: "youtube" | "tiktok";
 };
 
 const publicationExecutionJobOptions: JobsOptions = {

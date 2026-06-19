@@ -234,6 +234,7 @@ jobs:
           - automation-service
           - stream-job-worker
           - repurposing-worker
+          - publishing-worker
           - clip-worker
           - transcription-worker
           - content-job-retry-worker
@@ -407,6 +408,108 @@ jobs:
             --skip-deploys \
             RAILWAY_DOCKERFILE_PATH=Dockerfile.repurposing-worker \
             --json >/tmp/railway-set-repurposing-worker.json
+
+      - name: Provision publishing-worker when missing
+        if: ${{ matrix.service == 'publishing-worker' }}
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
+          service_exists="$(
+            node -e '
+              const fs = require("node:fs");
+              const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+              const services = Array.isArray(payload)
+                ? payload
+                : Array.isArray(payload.services)
+                  ? payload.services
+                  : [];
+              const exists = services.some((service) => service?.name === "publishing-worker");
+              process.stdout.write(exists ? "yes" : "no");
+            ' <<<"${service_list}"
+          )"
+
+          if [ "${service_exists}" = "yes" ]; then
+            echo "publishing-worker already exists in Railway production." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            railway_service_response="$(
+              node -e '
+                (async () => {
+                  const endpoint = "https://backboard.railway.com/graphql/v2";
+                  const token = process.env.RAILWAY_TOKEN;
+                  const projectId = process.env.RAILWAY_PROJECT_ID;
+
+                  if (!token) {
+                    throw new Error("RAILWAY_TOKEN is required.");
+                  }
+
+                  const response = await fetch(endpoint, {
+                    method: "POST",
+                    headers: {
+                      Authorization: `Bearer ${token}`,
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      query: "mutation serviceCreate($input: ServiceCreateInput!) { serviceCreate(input: $input) { id name } }",
+                      variables: {
+                        input: {
+                          name: "publishing-worker",
+                          projectId,
+                        },
+                      },
+                    }),
+                  });
+
+                  const payload = await response.json();
+
+                  if (!response.ok || payload.errors?.length > 0) {
+                    const message =
+                      payload.errors?.map((error) => error.message).join("; ") ||
+                      `HTTP ${response.status}`;
+                    throw new Error(`Railway serviceCreate failed: ${message}`);
+                  }
+
+                  const service = payload.data?.serviceCreate;
+
+                  if (!service?.id || service?.name !== "publishing-worker") {
+                    throw new Error("Railway serviceCreate returned an unexpected payload.");
+                  }
+
+                  process.stdout.write(JSON.stringify(service));
+                })().catch((error) => {
+                  console.error(error instanceof Error ? error.message : String(error));
+                  process.exit(1);
+                });
+              '
+            )"
+            publishing_worker_service_id="$(
+              node -e '
+                const payload = JSON.parse(process.argv[1]);
+                process.stdout.write(payload.id);
+              ' "${railway_service_response}"
+            )"
+
+            {
+              echo "## publishing-worker provisioning"
+              echo ""
+              echo "- Environment: ${RAILWAY_ENVIRONMENT}"
+              echo "- Service: publishing-worker"
+              echo "- Source: empty service created in the existing project"
+              echo "- Service ID: \`${publishing_worker_service_id}\`"
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+          railway variable set \
+            --project "${RAILWAY_PROJECT_ID}" \
+            --service publishing-worker \
+            --environment "${RAILWAY_ENVIRONMENT}" \
+            --skip-deploys \
+            RAILWAY_DOCKERFILE_PATH=Dockerfile.publishing-worker \
+            --json >/tmp/railway-set-publishing-worker.json
 
       - name: Deploy Railway service
         env:

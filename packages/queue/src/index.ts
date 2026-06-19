@@ -1,13 +1,20 @@
 import { Queue, type JobsOptions } from "bullmq";
 import { Redis } from "ioredis";
 import { assertRedisTls } from "@streamos/redis";
-import type { RepurposingPlanQueueJobPayload } from "@streamos/types/jobs";
+import type {
+  PublicationExecutionJobPayload,
+  PublicationReconciliationJobPayload,
+  RepurposingPlanQueueJobPayload,
+} from "@streamos/types/jobs";
 
 export const STREAM_JOB_QUEUE_NAME = "streamos-media";
 export const TRANSCRIPTION_TRIGGER_JOB_NAME = "transcription.trigger";
 export const CLIP_GENERATION_JOB_NAME = "clip.generate";
 export const REPURPOSING_QUEUE_NAME = "streamos-repurposing";
 export const REPURPOSING_PLAN_JOB_NAME = "repurposing.plan";
+export const PUBLICATION_QUEUE_NAME = "streamos-publishing";
+export const PUBLICATION_EXECUTION_JOB_NAME = "publication.publish";
+export const PUBLICATION_RECONCILE_JOB_NAME = "publication.reconcile";
 export const VIDEO_PUBLISHED_ENRICHMENT_STATUSES = [
   "asset_available",
   "enrichment_required",
@@ -62,8 +69,16 @@ export type RepurposingPlanQueue = Queue<
   void,
   typeof REPURPOSING_PLAN_JOB_NAME
 >;
+export type PublicationQueue = Queue<
+  PublicationExecutionJobPayload | PublicationReconciliationJobPayload,
+  void,
+  typeof PUBLICATION_EXECUTION_JOB_NAME | typeof PUBLICATION_RECONCILE_JOB_NAME
+>;
 
 export type RepurposingPlanQueueJobData = RepurposingPlanQueueJobPayload;
+export type PublicationExecutionQueueJobData = PublicationExecutionJobPayload;
+export type PublicationReconciliationQueueJobData =
+  PublicationReconciliationJobPayload;
 
 function sanitizeDeterministicSegment(value: string): string {
   return value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-");
@@ -122,9 +137,16 @@ type RepurposingPlanQueueState = {
   shutdownHookRegistered?: boolean;
 };
 
+type PublicationQueueState = {
+  connection?: Redis;
+  queue?: PublicationQueue;
+  shutdownHookRegistered?: boolean;
+};
+
 const globalQueueState = globalThis as typeof globalThis & {
   __streamosStreamJobQueueState?: StreamJobQueueState;
   __streamosRepurposingPlanQueueState?: RepurposingPlanQueueState;
+  __streamosPublicationQueueState?: PublicationQueueState;
 };
 
 function getQueueState(): StreamJobQueueState {
@@ -135,6 +157,11 @@ function getQueueState(): StreamJobQueueState {
 function getRepurposingPlanQueueState(): RepurposingPlanQueueState {
   globalQueueState.__streamosRepurposingPlanQueueState ??= {};
   return globalQueueState.__streamosRepurposingPlanQueueState;
+}
+
+function getPublicationQueueState(): PublicationQueueState {
+  globalQueueState.__streamosPublicationQueueState ??= {};
+  return globalQueueState.__streamosPublicationQueueState;
 }
 
 function getRedisUrl(source: NodeJS.ProcessEnv = process.env): string {
@@ -192,6 +219,25 @@ function registerRepurposingPlanShutdownHook(): void {
   const close = () => {
     void closeRepurposingPlanQueue().catch((error) => {
       console.error("[streamos-repurposing-queue] shutdown failed", error);
+    });
+  };
+
+  process.once("beforeExit", close);
+  process.once("SIGINT", close);
+  process.once("SIGTERM", close);
+  state.shutdownHookRegistered = true;
+}
+
+function registerPublicationShutdownHook(): void {
+  const state = getPublicationQueueState();
+
+  if (state.shutdownHookRegistered || typeof process === "undefined") {
+    return;
+  }
+
+  const close = () => {
+    void closePublicationQueue().catch((error) => {
+      console.error("[streamos-publishing-queue] shutdown failed", error);
     });
   };
 
@@ -265,6 +311,41 @@ export function getRepurposingPlanQueue(options?: {
   return queue;
 }
 
+export function getPublicationQueue(options?: {
+  queueName?: string;
+  redisUrl?: string;
+}): PublicationQueue {
+  const state = getPublicationQueueState();
+
+  if (state.queue) {
+    return state.queue;
+  }
+
+  const redisUrl = options?.redisUrl ?? getRedisUrl();
+  const connection = createRedisConnection(redisUrl);
+  const queue = new Queue<
+    PublicationExecutionJobPayload | PublicationReconciliationJobPayload,
+    void,
+    | typeof PUBLICATION_EXECUTION_JOB_NAME
+    | typeof PUBLICATION_RECONCILE_JOB_NAME
+  >(
+    options?.queueName ??
+      process.env.PUBLICATION_QUEUE_NAME?.trim() ??
+      process.env.QUEUE_DEFAULT_NAME?.trim() ??
+      PUBLICATION_QUEUE_NAME,
+    {
+      connection,
+      defaultJobOptions: PUBLICATION_JOB_OPTIONS,
+    },
+  );
+
+  state.connection = connection;
+  state.queue = queue;
+  registerPublicationShutdownHook();
+
+  return queue;
+}
+
 export async function dispatchStreamOSJob(
   job: StreamOSJob,
 ): Promise<StreamOSJob> {
@@ -286,6 +367,32 @@ export async function dispatchRepurposingPlanJob(
   await queue.add(REPURPOSING_PLAN_JOB_NAME, job, {
     ...REPURPOSING_PLAN_JOB_OPTIONS,
     jobId: job.queue_job_id,
+  });
+
+  return job;
+}
+
+export async function dispatchPublicationExecutionJob(
+  job: PublicationExecutionJobPayload,
+): Promise<PublicationExecutionJobPayload> {
+  const queue = getPublicationQueue();
+
+  await queue.add(PUBLICATION_EXECUTION_JOB_NAME, job, {
+    ...PUBLICATION_JOB_OPTIONS,
+    jobId: getPublicationExecutionJobId(job.content_publication_id),
+  });
+
+  return job;
+}
+
+export async function dispatchPublicationReconciliationJob(
+  job: PublicationReconciliationJobPayload,
+): Promise<PublicationReconciliationJobPayload> {
+  const queue = getPublicationQueue();
+
+  await queue.add(PUBLICATION_RECONCILE_JOB_NAME, job, {
+    ...PUBLICATION_JOB_OPTIONS,
+    jobId: getPublicationReconciliationJobId(job.content_publication_id),
   });
 
   return job;
@@ -313,4 +420,43 @@ export async function closeRepurposingPlanQueue(): Promise<void> {
 
   await queue?.close();
   connection?.disconnect();
+}
+
+export async function closePublicationQueue(): Promise<void> {
+  const state = getPublicationQueueState();
+  const queue = state.queue;
+  const connection = state.connection;
+
+  state.queue = undefined;
+  state.connection = undefined;
+
+  await queue?.close();
+  connection?.disconnect();
+}
+
+export const PUBLICATION_JOB_OPTIONS: JobsOptions = {
+  attempts: 5,
+  backoff: {
+    delay: 60_000,
+    type: "exponential",
+  },
+  removeOnComplete: {
+    age: 86_400,
+    count: 1_000,
+  },
+  removeOnFail: {
+    age: 604_800,
+  },
+};
+
+export function getPublicationExecutionJobId(
+  contentPublicationId: string,
+): string {
+  return getDeterministicJobId("publication-execution", contentPublicationId);
+}
+
+export function getPublicationReconciliationJobId(
+  contentPublicationId: string,
+): string {
+  return getDeterministicJobId("publication-reconcile", contentPublicationId);
 }

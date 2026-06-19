@@ -78,6 +78,17 @@ const CONTENT_JOB_RETRY_REQUIRED = [
   "SUPABASE_SERVICE_ROLE_KEY",
 ];
 
+const PUBLISHING_WORKER_REQUIRED = [
+  "REDIS_URL",
+  "APP_ENCRYPTION_KEY",
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "YOUTUBE_CLIENT_ID",
+  "YOUTUBE_CLIENT_SECRET",
+  "TIKTOK_CLIENT_KEY",
+  "TIKTOK_CLIENT_SECRET",
+];
+
 const CLIP_WORKER_REQUIRED = [
   "REDIS_URL",
   "AUTOMATION_SERVICE_URL",
@@ -257,6 +268,14 @@ module.exports = {
         max: 65535,
         min: 1,
       },
+      PUBLICATION_QUEUE_NAME: {
+        kind: "string",
+      },
+      PUBLISHING_WORKER_CONCURRENCY: {
+        kind: "integer",
+        max: 25,
+        min: 1,
+      },
       QUEUE_DEFAULT_NAME: {
         kind: "string",
       },
@@ -393,6 +412,12 @@ module.exports = {
       ],
       publicNetworking: "disabled",
       required: CLIP_WORKER_REQUIRED,
+      runtime: "node",
+    },
+    "publishing-worker": {
+      optional: ["PUBLICATION_QUEUE_NAME", "PUBLISHING_WORKER_CONCURRENCY"],
+      publicNetworking: "disabled",
+      required: PUBLISHING_WORKER_REQUIRED,
       runtime: "node",
     },
     "repurposing-worker": {

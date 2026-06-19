@@ -16,6 +16,7 @@ import {
   getClipGenerationJobId,
   type ClipGenerationQueue,
 } from "./jobs/clipGenerationQueue.js";
+import type { PublicationExecutionQueue } from "./jobs/publicationExecutionQueue.js";
 import { streamEndedPayloadSchema } from "./jobs/transcriptionQueue.js";
 import {
   createOAuthRouter,
@@ -51,6 +52,7 @@ type CreateAppOptions = {
   allowedOrigins?: string[];
   apiGatewaySecret?: string;
   clipGenerationQueue?: ClipGenerationQueue;
+  publicationExecutionQueue?: PublicationExecutionQueue;
   nodeEnv?: string;
   oauth?: Partial<
     Pick<CreateOAuthRouterOptions, "fetchImpl" | "repository" | "stateStore">
@@ -645,7 +647,10 @@ async function assertKnownStreamForTranscription({
   }
 }
 
-export function createApp(options: CreateAppOptions = {}): Express {
+export function createApp(
+  options: CreateAppOptions = {},
+  publicationExecutionQueue?: PublicationExecutionQueue,
+): Express {
   const app = express();
   const securityConfig = resolveSecurityConfig(options);
   const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
@@ -775,6 +780,8 @@ export function createApp(options: CreateAppOptions = {}): Express {
     requireAppApiSecret(securityConfig.apiGatewaySecret),
     createContentPublicationsRouter({
       fetchImpl: options.oauth?.fetchImpl,
+      publicationExecutionQueue:
+        options.publicationExecutionQueue ?? publicationExecutionQueue,
     }),
   );
   app.use(

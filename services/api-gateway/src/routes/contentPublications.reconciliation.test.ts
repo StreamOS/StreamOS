@@ -93,6 +93,22 @@ describe("content publications reconciliation routes", () => {
           }
 
           if (
+            requestUrl.includes("/rest/v1/content_publications") &&
+            method === "PATCH"
+          ) {
+            const parsedBody = JSON.parse(body ?? "{}") as Record<
+              string,
+              unknown
+            >;
+
+            expect(parsedBody.reconciliation_status).toBe("queued");
+            expect(parsedBody.reconcile_max_retries).toBe(3);
+            expect(parsedBody.provider_failure_code).toBeNull();
+            expect(parsedBody.remote_status).toBeUndefined();
+            return jsonResponse([]);
+          }
+
+          if (
             requestUrl.includes("/rest/v1/content_publication_events") &&
             method === "GET"
           ) {
@@ -153,6 +169,137 @@ describe("content publications reconciliation routes", () => {
       });
       expect(JSON.stringify(payload)).not.toContain("test-service-role-key");
       expect(JSON.stringify(payload)).not.toContain("refresh_token");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("queues a TikTok publication reconciliation when a remote publish id exists", async () => {
+    useSupabaseTestEnv();
+    const app = createApp({
+      apiGatewaySecret: API_SECRET,
+      nodeEnv: "test",
+      oauth: {
+        fetchImpl: async (input, init) => {
+          const requestUrl =
+            typeof input === "string"
+              ? input
+              : input instanceof URL
+                ? input.toString()
+                : input.url;
+          const method = init?.method ?? "GET";
+
+          if (
+            requestUrl.includes("/rest/v1/content_publications") &&
+            method === "GET"
+          ) {
+            return jsonResponse([
+              {
+                content_job_id: CONTENT_JOB_ID,
+                desired_visibility: "public",
+                effective_visibility: "public",
+                external_post_id: null,
+                external_url: null,
+                id: PUBLICATION_ID,
+                last_reconciled_at: null,
+                publication_status: "published",
+                provider_failure_code: null,
+                provider_failure_metadata: {},
+                provider_failure_reason: null,
+                reconciliation_status: "idle",
+                reconcile_max_retries: 3,
+                reconcile_next_retry_at: null,
+                reconcile_retry_count: 0,
+                remote_processing_status: "pending",
+                remote_state: {
+                  providerPublishId: "tiktok-publish-1",
+                  remotePostId: "tiktok-publish-1",
+                  remoteStatus: "published",
+                },
+                remote_status: "published",
+                remote_upload_status: "processed",
+                snapshot_hash: "b".repeat(64),
+                target_platform: "tiktok",
+                updated_at: "2026-06-19T13:15:00.000Z",
+                user_id: USER_ID,
+              },
+            ]);
+          }
+
+          if (
+            requestUrl.includes("/rest/v1/content_publications") &&
+            method === "PATCH"
+          ) {
+            const parsedBody = JSON.parse(body ?? "{}") as Record<
+              string,
+              unknown
+            >;
+
+            expect(parsedBody.reconciliation_status).toBe("queued");
+            expect(parsedBody.reconcile_max_retries).toBe(3);
+            expect(parsedBody.provider_failure_code).toBeNull();
+            expect(parsedBody.remote_status).toBeUndefined();
+            return jsonResponse([]);
+          }
+
+          if (
+            requestUrl.includes("/rest/v1/content_publication_events") &&
+            method === "GET"
+          ) {
+            return jsonResponse([
+              {
+                actor_id: USER_ID,
+                content_publication_id: PUBLICATION_ID,
+                created_at: "2026-06-19T13:10:00.000Z",
+                event_type: "reconcile_requested",
+                id: "55555555-5555-4555-8555-555555555555",
+                metadata: {
+                  queue_job_id:
+                    getPublicationReconciliationJobId(PUBLICATION_ID),
+                },
+                previous_publication_status: "published",
+                publication_status: "published",
+                source: "api-gateway",
+                user_id: USER_ID,
+              },
+            ]);
+          }
+
+          return new Response("not found", { status: 404 });
+        },
+      },
+    });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/api/content-publications/${PUBLICATION_ID}/observability?user_id=${USER_ID}`,
+        {
+          headers: {
+            Authorization: `Bearer ${API_SECRET}`,
+          },
+        },
+      );
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.status).toBe("publication_observability_ready");
+      expect(payload.target_platform).toBe("tiktok");
+      expect(payload.remote_state).toMatchObject({
+        providerPublishId: "tiktok-publish-1",
+        remotePostId: "tiktok-publish-1",
+        remoteStatus: "published",
+      });
+      expect(payload.events).toHaveLength(1);
+      expect(payload.events[0]).toMatchObject({
+        event_type: "reconcile_requested",
+        source: "api-gateway",
+      });
     } finally {
       server.close();
     }
@@ -227,7 +374,11 @@ describe("content publications reconciliation routes", () => {
                 reconcile_next_retry_at: null,
                 reconcile_retry_count: 0,
                 remote_processing_status: null,
-                remote_state: {},
+                remote_state: {
+                  providerPublishId: "youtube-video-1",
+                  remotePostId: "youtube-video-1",
+                  remoteStatus: "published",
+                },
                 remote_status: "unknown",
                 remote_upload_status: null,
                 snapshot_hash: "b".repeat(64),

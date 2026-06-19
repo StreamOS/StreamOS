@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildCanonicalPublicationDraft,
+  buildPublicationManualActionPolicy,
   extractPublicationAccountCapabilityOverlay,
   getPublicationCapabilityDefinition,
   PUBLICATION_CAPABILITY_VERSION,
@@ -48,6 +49,7 @@ void test("publication capability registry keeps canonical and provider-specific
   );
 
   assert.equal(tiktok.providerSupportStatus, "conditional");
+  assert.ok(tiktok.requiredScopes.includes("video.publish"));
   assert.ok(
     tiktok.providerMappedFields.some((field) => field.key === "caption"),
   );
@@ -95,6 +97,30 @@ void test("canonical draft stays provider-neutral and keeps Shorts as a format p
 
   assert.equal(tiktokDraft.formatProfile, "short_form");
   assert.equal(tiktokDraft.assetReference.sourcePlatform, "tiktok");
+});
+
+void test("resolvePublicationCapabilities resolves TikTok privacy preview and keeps the payload structured", () => {
+  const tiktokDraft = buildCanonicalPublicationDraft({
+    approvedBundle: APPROVED_BUNDLE,
+    contentJob: {
+      id: APPROVED_BUNDLE.content_job_id,
+      queueJobId: APPROVED_BUNDLE.queue_job_id,
+      streamId: "33333333-3333-4333-8333-333333333333",
+    },
+    targetPlatform: "tiktok",
+  });
+  const resolution = resolvePublicationCapabilities({
+    canonicalDraft: tiktokDraft,
+    targetPlatform: "tiktok",
+  });
+
+  assert.equal(
+    resolution.providerPayloadPreview.privacy_level,
+    "PUBLIC_TO_EVERYONE",
+  );
+  assert.equal(resolution.providerPayloadPreview.format_profile, "short_form");
+  assert.equal(resolution.providerPayloadPreview.target_platform, "tiktok");
+  assert.equal(resolution.providerPayloadPreview.title, "Video title one");
 });
 
 void test("extractPublicationAccountCapabilityOverlay resolves dynamic target-account capabilities from metadata", () => {
@@ -221,4 +247,48 @@ void test("resolvePublicationCapabilities marks unsupported providers explicitly
       (issue) => issue.code === "unsupported_target_platform",
     ),
   );
+});
+
+void test("publication manual action policy supports TikTok retry and reconciliation contracts", () => {
+  const retryPolicy = buildPublicationManualActionPolicy({
+    connectionScopes: ["video.publish"],
+    connectionStatus: "connected",
+    contentJobReviewStatus: "approved",
+    contentJobStatus: "done",
+    externalPostId: null,
+    hasApprovedBundle: true,
+    hasPublishableAsset: true,
+    maxRetries: 3,
+    publicationStatus: "failed_retryable",
+    reconcileMaxRetries: 3,
+    reconcileRetryCount: 0,
+    reconciliationStatus: "idle",
+    remotePublishId: "publish-123",
+    retryCount: 0,
+    targetPlatform: "tiktok",
+  });
+
+  assert.equal(retryPolicy.canRetry, true);
+  assert.equal(retryPolicy.nextAction, "retry_publish");
+
+  const reconcilePolicy = buildPublicationManualActionPolicy({
+    connectionScopes: ["video.publish"],
+    connectionStatus: "connected",
+    contentJobReviewStatus: "approved",
+    contentJobStatus: "done",
+    externalPostId: null,
+    hasApprovedBundle: true,
+    hasPublishableAsset: true,
+    maxRetries: 3,
+    publicationStatus: "published",
+    reconcileMaxRetries: 3,
+    reconcileRetryCount: 0,
+    reconciliationStatus: "idle",
+    remotePublishId: "publish-123",
+    retryCount: 0,
+    targetPlatform: "tiktok",
+  });
+
+  assert.equal(reconcilePolicy.canReconcile, true);
+  assert.equal(reconcilePolicy.actions.reconcile_now.allowed, true);
 });

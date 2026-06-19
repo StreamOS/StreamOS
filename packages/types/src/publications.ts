@@ -204,7 +204,14 @@ export type PublicationRemoteVisibility =
 export type PublicationRemoteState = {
   desiredVisibility: PublicationCanonicalDraft["visibility"];
   effectiveVisibility: PublicationRemoteVisibility;
-  provider: "youtube";
+  provider: "youtube" | "tiktok";
+  providerMediaType?: "video";
+  providerMode?: "direct_post";
+  providerPostId?: string | null;
+  providerPublishId?: string | null;
+  providerPublicPostIds?: string[];
+  providerStatus?: string | null;
+  providerUploadStatus?: string | null;
   remotePostId: string;
   remoteProcessingStatus: string | null;
   remoteStatus: PublicationRemoteStatus;
@@ -213,6 +220,7 @@ export type PublicationRemoteState = {
   reconciledAt: string;
   rejectionReason: string | null;
   snapshotHash: string;
+  creatorInfoSnapshot?: Record<string, unknown>;
 };
 
 const CANONICAL_VISIBILITY_VALUES = [
@@ -495,7 +503,12 @@ const TIKTOK_SUPPORT: PublicationCapabilityDefinition = {
       supportStatus: "supported",
     }),
     field({
-      allowedValues: ["friends", "private", "public"],
+      allowedValues: [
+        "PUBLIC_TO_EVERYONE",
+        "FOLLOWER_OF_CREATOR",
+        "MUTUAL_FOLLOW_FRIENDS",
+        "SELF_ONLY",
+      ],
       canonicalKey: "visibility",
       group: "provider_mapped",
       key: "privacy_level",
@@ -564,7 +577,7 @@ const TIKTOK_SUPPORT: PublicationCapabilityDefinition = {
     }),
   ],
   providerSupportStatus: "conditional",
-  requiredScopes: [],
+  requiredScopes: ["video.publish"],
   targetPlatform: "tiktok",
 };
 
@@ -713,6 +726,7 @@ export type ContentPublicationManualActionInput = {
   reconcileMaxRetries: number;
   reconcileRetryCount: number;
   reconciliationStatus: PublicationReconciliationStatus;
+  remotePublishId: string | null;
   maxRetries: number;
   retryCount: number;
   targetPlatform: StreamPlatform;
@@ -793,10 +807,10 @@ export function isApprovedRepurposingPlanResult(
 function buildRetryDecision(
   input: ContentPublicationManualActionInput,
 ): ContentPublicationManualActionDecision {
-  if (input.targetPlatform !== "youtube") {
+  if (input.targetPlatform !== "youtube" && input.targetPlatform !== "tiktok") {
     return blockedDecision(
       "target_platform_unsupported",
-      "Retry publish is available for the current YouTube publication contract only.",
+      "Retry publish is available for the current publication contract only.",
     );
   }
 
@@ -877,29 +891,30 @@ function buildRetryDecision(
     );
   }
 
-  const requiredScopes =
-    getPublicationCapabilityDefinition("youtube").requiredScopes;
+  const requiredScopes = getPublicationCapabilityDefinition(
+    input.targetPlatform,
+  ).requiredScopes;
   const connectionScopes = new Set(input.connectionScopes);
 
   if (!requiredScopes.every((scope) => connectionScopes.has(scope))) {
     return blockedDecision(
       "missing_publish_scopes",
-      "Retry publish requires the YouTube publish scope to still be granted.",
+      `Retry publish requires the ${input.targetPlatform} publish scope to still be granted.`,
     );
   }
 
   return allowedDecision(
-    "Retry publish is allowed and will re-enqueue the frozen YouTube publish contract.",
+    "Retry publish is allowed and will re-enqueue the frozen publication contract.",
   );
 }
 
 function buildReconcileDecision(
   input: ContentPublicationManualActionInput,
 ): ContentPublicationManualActionDecision {
-  if (input.targetPlatform !== "youtube") {
+  if (input.targetPlatform !== "youtube" && input.targetPlatform !== "tiktok") {
     return blockedDecision(
       "target_platform_unsupported",
-      "Reconcile now is available for the current YouTube publication contract only.",
+      "Reconcile now is available for the current publication contract only.",
     );
   }
 
@@ -954,10 +969,12 @@ function buildReconcileDecision(
     );
   }
 
-  if (!input.externalPostId) {
+  const remotePublishId = input.remotePublishId ?? input.externalPostId;
+
+  if (!remotePublishId) {
     return blockedDecision(
       "remote_post_missing",
-      "Reconcile now requires an existing remote post id.",
+      "Reconcile now requires an existing remote publish id.",
     );
   }
 
@@ -993,10 +1010,10 @@ function buildReconcileDecision(
 function buildFinalFailDecision(
   input: ContentPublicationManualActionInput,
 ): ContentPublicationManualActionDecision {
-  if (input.targetPlatform !== "youtube") {
+  if (input.targetPlatform !== "youtube" && input.targetPlatform !== "tiktok") {
     return blockedDecision(
       "target_platform_unsupported",
-      "Mark final failed is available for the current YouTube publication contract only.",
+      "Mark final failed is available for the current publication contract only.",
     );
   }
 
@@ -1119,7 +1136,9 @@ export function extractPublicationAccountCapabilityOverlay(connection: {
       normalized.allowedVisibility ??
       normalized.visibility_options ??
       normalized.privacy_options ??
-      normalized.privacy_levels,
+      normalized.privacy_levels ??
+      normalized.privacy_level_options ??
+      normalized.privacyLevelOptions,
   );
   const allowedCommentControls = parseStringArray(
     normalized.allowed_comment_controls ??
@@ -1542,7 +1561,7 @@ function buildProviderPayloadPreview({
       .map((value) => value.trim())
       .filter(Boolean)
       .join("\n\n");
-    preview.privacy_level = canonicalDraft.visibility;
+    preview.privacy_level = toTikTokPrivacyLevel(canonicalDraft.visibility);
     preview.comment_control = providerOverrides.comment_control ?? "allowed";
     preview.duet_control = providerOverrides.duet_control ?? "allowed";
     preview.stitch_control = providerOverrides.stitch_control ?? "allowed";
@@ -1696,6 +1715,21 @@ function firstNonEmpty(
   }
 
   return undefined;
+}
+
+function toTikTokPrivacyLevel(
+  visibility: PublicationCanonicalDraft["visibility"],
+): string {
+  switch (visibility) {
+    case "friends_only":
+      return "MUTUAL_FOLLOW_FRIENDS";
+    case "private":
+      return "SELF_ONLY";
+    case "public":
+      return "PUBLIC_TO_EVERYONE";
+    case "unlisted":
+      return "SELF_ONLY";
+  }
 }
 
 function isCanonicalValueEmpty(value: unknown): boolean {

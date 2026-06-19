@@ -692,6 +692,7 @@ function buildPublicationDashboardItem({
     reconcileMaxRetries: publication.reconcile_max_retries,
     reconcileRetryCount: publication.reconcile_retry_count,
     reconciliationStatus: publication.reconciliation_status,
+    remotePublishId: getPublicationRemotePublishId(publication.remote_state),
     retryCount: publication.retry_count,
     targetPlatform: publication.target_platform,
   });
@@ -1354,6 +1355,53 @@ function latestTimestamp(values: Array<string | null>): string | null {
   }
 
   return new Date(Math.max(...timestamps)).toISOString();
+}
+
+function getPublicationRemotePublishId(
+  remoteState: Record<string, unknown> | null,
+): string | null {
+  if (!remoteState) {
+    return null;
+  }
+
+  const candidateKeys = [
+    "provider_publish_id",
+    "providerPublishId",
+    "provider_post_id",
+    "providerPostId",
+    "publicaly_available_post_id",
+    "publically_available_post_id",
+    "publicly_available_post_id",
+    "remotePostId",
+    "post_id",
+    "publish_id",
+  ] as const;
+
+  for (const key of candidateKeys) {
+    const value = remoteState[key];
+
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+
+    if (Array.isArray(value) && value.length > 0) {
+      const first = value[0];
+
+      if (typeof first === "string" && first.trim().length > 0) {
+        return first.trim();
+      }
+
+      if (typeof first === "number" && Number.isFinite(first)) {
+        return String(first);
+      }
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+
+  return null;
 }
 
 function summarizePublicationTimelineMetadata(metadata: unknown): string {

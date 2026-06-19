@@ -99,6 +99,11 @@ export const SUPPORTED_MEDIA_PROVIDERS = [
 
 export type SupportedProvider = (typeof SUPPORTED_MEDIA_PROVIDERS)[number];
 
+export const PUBLICATION_TARGET_PLATFORMS = ["youtube", "tiktok"] as const;
+
+export type PublicationTargetPlatform =
+  (typeof PUBLICATION_TARGET_PLATFORMS)[number];
+
 export type WebhookMediaJobType = "STREAM_ONLINE" | "NEW_VIDEO_PUBLISHED";
 
 export interface ContentJob {
@@ -204,6 +209,15 @@ export interface AutomationCallbackPayload {
   result?: Record<string, unknown>;
   error?: string;
 }
+
+export type PublicationExecutionJobPayload = {
+  content_publication_id: string;
+  target_platform: PublicationTargetPlatform;
+  user_id: string;
+};
+
+export type PublicationReconciliationJobPayload =
+  PublicationExecutionJobPayload;
 
 export type WebhookMediaJobPayload =
   | StreamOnlineJobPayload

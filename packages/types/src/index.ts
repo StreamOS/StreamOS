@@ -591,6 +591,11 @@ export const CONTENT_PUBLICATION_EVENT_TYPES = [
   "published",
   "failed_retryable",
   "failed_permanent",
+  "reconcile_requested",
+  "reconcile_skipped",
+  "reconcile_failed_retryable",
+  "reconcile_failed_permanent",
+  "reconciled",
 ] as const;
 
 export type ContentPublicationEventType =
@@ -618,6 +623,7 @@ export type ContentPublicationValidationCode =
 
 export type ContentPublicationSnapshot = {
   approvedBundle: RepurposingPlanResult;
+  capability: Record<string, unknown>;
   contentJob: {
     id: string;
     queueJobId: string | null;
@@ -630,6 +636,7 @@ export type ContentPublicationSnapshot = {
     platform: StreamPlatform;
     scopes: string[];
   };
+  providerOverrides: Record<string, Record<string, unknown>>;
   targetPlatform: StreamPlatform;
 };
 
@@ -639,16 +646,26 @@ export type ContentPublication = {
   id: string;
   userId: string;
   contentJobId: string;
+  desiredVisibility: PublicationCanonicalDraft["visibility"];
+  effectiveVisibility: string | null;
+  lastReconciledAt: string | null;
   platformConnectionId: string;
   targetPlatform: StreamPlatform;
   publicationStatus: ContentPublicationStatus;
+  providerFailureCode: PublicationProviderFailureCode | null;
+  providerFailureMetadata: Record<string, unknown>;
+  providerFailureReason: string | null;
+  providerOverrides: Record<string, Record<string, unknown>>;
+  reconciliationStatus: PublicationReconciliationStatus;
+  reconcileMaxRetries: number;
+  reconcileNextRetryAt: string | null;
+  reconcileRetryCount: number;
   reviewStatusAtRequest: ContentJobReviewStatus;
   requestedBy: string;
   requestedAt: string;
   validatedAt: string | null;
   requestIntentHash: string;
   snapshotHash: string;
-  providerOverrides: Record<string, Record<string, unknown>>;
   snapshot: ContentPublicationSnapshot;
   validationCode: ContentPublicationValidationCode | null;
   validationMessage: string | null;
@@ -659,6 +676,10 @@ export type ContentPublication = {
   externalPostId: string | null;
   externalUrl: string | null;
   publishedAt: string | null;
+  remoteProcessingStatus: string | null;
+  remoteState: Record<string, unknown>;
+  remoteStatus: PublicationRemoteStatus | null;
+  remoteUploadStatus: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -677,3 +698,9 @@ export type ContentPublicationEvent = {
 };
 
 export * from "./publications.js";
+import type {
+  PublicationCanonicalDraft,
+  PublicationProviderFailureCode,
+  PublicationReconciliationStatus,
+  PublicationRemoteStatus,
+} from "./publications.js";

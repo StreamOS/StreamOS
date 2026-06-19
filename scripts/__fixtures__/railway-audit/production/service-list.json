@@ -35,6 +35,11 @@
     "url": null
   },
   {
+    "id": "svc-publishing-production",
+    "name": "publishing-worker",
+    "url": null
+  },
+  {
     "id": "svc-release-gate-runner-production",
     "name": "release-gate-runner",
     "url": null

@@ -210,7 +210,7 @@ describe("TikTok OAuth gateway routes", () => {
         "S256",
       );
       expect(authorizeUrl.searchParams.get("scope")).toBe(
-        "user.info.basic,user.info.profile,user.info.stats",
+        "user.info.basic,user.info.profile,user.info.stats,video.publish",
       );
     } finally {
       server.close();

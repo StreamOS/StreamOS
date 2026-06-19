@@ -50,6 +50,13 @@
         "serviceDomains": []
       }
     },
+    "svc-publishing-production": {
+      "name": "publishing-worker",
+      "networking": {
+        "privateNetworkEndpoint": "publishing-worker-production",
+        "serviceDomains": []
+      }
+    },
     "svc-release-gate-runner-production": {
       "name": "release-gate-runner",
       "networking": {

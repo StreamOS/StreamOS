@@ -127,6 +127,7 @@ type PublicationRow = {
   reconcile_next_retry_at: string | null;
   reconcile_retry_count: number;
   provider_overrides: Record<string, Record<string, unknown>>;
+  remote_state: Record<string, unknown> | null;
   retry_count: number;
   snapshot_hash: string;
   snapshot: Record<string, unknown>;
@@ -504,11 +505,14 @@ export function createContentPublicationsRouter({
         return;
       }
 
-      if (publication.target_platform !== "youtube") {
+      if (
+        publication.target_platform !== "youtube" &&
+        publication.target_platform !== "tiktok"
+      ) {
         response.status(400).json({
           error: "unsupported_target_platform",
           message:
-            "Publishing execution is currently available for YouTube only.",
+            "Publishing execution is currently available for YouTube and TikTok only.",
         });
         return;
       }
@@ -604,7 +608,7 @@ export function createContentPublicationsRouter({
         return;
       }
 
-      if (connection.platform !== "youtube") {
+      if (connection.platform !== publication.target_platform) {
         response.status(409).json({
           error: "platform_mismatch",
           message:
@@ -622,8 +626,9 @@ export function createContentPublicationsRouter({
         return;
       }
 
-      const requiredScopes =
-        getPublicationCapabilityDefinition("youtube").requiredScopes;
+      const requiredScopes = getPublicationCapabilityDefinition(
+        publication.target_platform,
+      ).requiredScopes;
       const connectionScopes = connection.scopes ?? [];
 
       if (
@@ -656,7 +661,7 @@ export function createContentPublicationsRouter({
         publicationExecutionQueue,
         {
           content_publication_id: publication.id,
-          target_platform: "youtube",
+          target_platform: publication.target_platform,
           user_id: publication.user_id,
         },
       );
@@ -1044,16 +1049,23 @@ export function createContentPublicationsRouter({
         return;
       }
 
-      if (publication.target_platform !== "youtube") {
+      if (
+        publication.target_platform !== "youtube" &&
+        publication.target_platform !== "tiktok"
+      ) {
         response.status(400).json({
           error: "unsupported_target_platform",
           message:
-            "Publication reconciliation is currently available for YouTube only.",
+            "Publication reconciliation is currently available for YouTube and TikTok only.",
         });
         return;
       }
 
-      if (!publication.external_post_id) {
+      const remotePublishId = getPublicationRemotePublishId(
+        publication.remote_state,
+      );
+
+      if (!remotePublishId) {
         const now = new Date().toISOString();
         await patchSupabaseRows({
           client: supabase,
@@ -1115,7 +1127,7 @@ export function createContentPublicationsRouter({
         publicationExecutionQueue,
         {
           content_publication_id: publication.id,
-          target_platform: "youtube",
+          target_platform: publication.target_platform,
           user_id: publication.user_id,
         },
       );
@@ -1148,6 +1160,7 @@ export function createContentPublicationsRouter({
         metadata: {
           content_job_id: publication.content_job_id,
           external_post_id: publication.external_post_id,
+          remote_publish_id: remotePublishId,
           queue_job_id: queuedJob.queueJobId,
           snapshot_hash: publication.snapshot_hash,
           target_platform: publication.target_platform,
@@ -1655,6 +1668,22 @@ async function executePublicationManualAction({
     };
   }
 
+  if (
+    publication.target_platform !== "youtube" &&
+    publication.target_platform !== "tiktok"
+  ) {
+    return {
+      body: {
+        error: "unsupported_target_platform",
+        message:
+          "Publish and reconcile manual actions are only supported for YouTube and TikTok publications.",
+      },
+      statusCode: 409,
+    };
+  }
+
+  const publicationTargetPlatform = publication.target_platform;
+
   const contentJob = await loadRepurposingContentJob({
     contentJobId: publication.content_job_id,
     supabase,
@@ -1683,8 +1712,11 @@ async function executePublicationManualAction({
     reconcileMaxRetries: publication.reconcile_max_retries,
     reconcileRetryCount: publication.reconcile_retry_count,
     reconciliationStatus: publication.reconciliation_status,
+    remotePublishId:
+      publication.external_post_id ??
+      getPublicationRemotePublishId(publication.remote_state),
     retryCount: publication.retry_count,
-    targetPlatform: publication.target_platform,
+    targetPlatform: publicationTargetPlatform,
   });
   const actionKey = getManualActionPolicyKey(action);
   const decision = manualActionPolicy.actions[actionKey];
@@ -1717,7 +1749,7 @@ async function executePublicationManualAction({
       publicationExecutionQueue as PublicationExecutionQueue,
       {
         content_publication_id: publication.id,
-        target_platform: "youtube",
+        target_platform: publicationTargetPlatform,
         user_id: publication.user_id,
       },
     );
@@ -1782,7 +1814,7 @@ async function executePublicationManualAction({
       publicationExecutionQueue as PublicationExecutionQueue,
       {
         content_publication_id: publication.id,
-        target_platform: "youtube",
+        target_platform: publicationTargetPlatform,
         user_id: publication.user_id,
       },
     );
@@ -1903,6 +1935,29 @@ function normalizeConnectionStatus(
   }
 
   return null;
+}
+
+function getPublicationRemotePublishId(
+  remoteState: Record<string, unknown> | null,
+): string | null {
+  if (!remoteState) {
+    return null;
+  }
+
+  const candidate = [
+    remoteState.provider_publish_id,
+    remoteState.providerPublishId,
+    remoteState.provider_post_id,
+    remoteState.providerPostId,
+    remoteState.publicaly_available_post_id,
+    remoteState.publically_available_post_id,
+    remoteState.publicly_available_post_id,
+    remoteState.remotePostId,
+    remoteState.post_id,
+    remoteState.publish_id,
+  ].find((value) => typeof value === "string" && value.trim().length > 0);
+
+  return typeof candidate === "string" ? candidate.trim() : null;
 }
 
 function getManualActionPolicyKey(

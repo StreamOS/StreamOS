@@ -43,7 +43,12 @@ export type ContentPublicationEventType =
   | "publishing"
   | "published"
   | "failed_retryable"
-  | "failed_permanent";
+  | "failed_permanent"
+  | "reconcile_requested"
+  | "reconcile_skipped"
+  | "reconcile_failed_retryable"
+  | "reconcile_failed_permanent"
+  | "reconciled";
 export type VodAssetStatus =
   | "ingested"
   | "transcribing"
@@ -662,22 +667,36 @@ export type Database = {
           capability_version: string;
           content_job_id: string;
           created_at: string;
+          desired_visibility: string;
+          effective_visibility: string | null;
           external_post_id: string | null;
           external_url: string | null;
           id: string;
+          last_reconciled_at: string | null;
           max_retries: number;
           next_retry_at: string | null;
           platform_connection_id: string;
           published_at: string | null;
           publication_status: ContentPublicationStatus;
+          provider_failure_code: string | null;
+          provider_failure_metadata: Json;
+          provider_failure_reason: string | null;
           request_intent_hash: string;
           requested_at: string;
           requested_by: string;
           provider_overrides: Json;
+          reconciliation_status: string;
+          reconcile_max_retries: number;
+          reconcile_next_retry_at: string | null;
+          reconcile_retry_count: number;
           retry_count: number;
           review_status_at_request: ContentJobReviewStatus;
           snapshot: Json;
           snapshot_hash: string;
+          remote_processing_status: string | null;
+          remote_state: Json;
+          remote_status: string;
+          remote_upload_status: string | null;
           target_platform: Database["public"]["Enums"]["stream_platform"];
           updated_at: string;
           user_id: string;
@@ -691,22 +710,36 @@ export type Database = {
           capability_version?: string;
           content_job_id: string;
           created_at?: string;
+          desired_visibility?: string;
+          effective_visibility?: string | null;
           external_post_id?: string | null;
           external_url?: string | null;
           id?: string;
+          last_reconciled_at?: string | null;
           max_retries?: number;
           next_retry_at?: string | null;
           platform_connection_id: string;
           published_at?: string | null;
           publication_status?: ContentPublicationStatus;
+          provider_failure_code?: string | null;
+          provider_failure_metadata?: Json;
+          provider_failure_reason?: string | null;
           request_intent_hash: string;
           requested_at?: string;
           requested_by: string;
           provider_overrides?: Json;
+          reconciliation_status?: string;
+          reconcile_max_retries?: number;
+          reconcile_next_retry_at?: string | null;
+          reconcile_retry_count?: number;
           retry_count?: number;
           review_status_at_request: ContentJobReviewStatus;
           snapshot?: Json;
           snapshot_hash: string;
+          remote_processing_status?: string | null;
+          remote_state?: Json;
+          remote_status?: string;
+          remote_upload_status?: string | null;
           target_platform: Database["public"]["Enums"]["stream_platform"];
           updated_at?: string;
           user_id: string;
@@ -720,22 +753,36 @@ export type Database = {
           capability_version?: string;
           content_job_id?: string;
           created_at?: string;
+          desired_visibility?: string;
+          effective_visibility?: string | null;
           external_post_id?: string | null;
           external_url?: string | null;
           id?: string;
+          last_reconciled_at?: string | null;
           max_retries?: number;
           next_retry_at?: string | null;
           platform_connection_id?: string;
           published_at?: string | null;
           publication_status?: ContentPublicationStatus;
+          provider_failure_code?: string | null;
+          provider_failure_metadata?: Json;
+          provider_failure_reason?: string | null;
           request_intent_hash?: string;
           requested_at?: string;
           requested_by?: string;
           provider_overrides?: Json;
+          reconciliation_status?: string;
+          reconcile_max_retries?: number;
+          reconcile_next_retry_at?: string | null;
+          reconcile_retry_count?: number;
           retry_count?: number;
           review_status_at_request?: ContentJobReviewStatus;
           snapshot?: Json;
           snapshot_hash?: string;
+          remote_processing_status?: string | null;
+          remote_state?: Json;
+          remote_status?: string;
+          remote_upload_status?: string | null;
           target_platform?: Database["public"]["Enums"]["stream_platform"];
           updated_at?: string;
           user_id?: string;

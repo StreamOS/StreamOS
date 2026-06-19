@@ -132,6 +132,26 @@ services:
       SUPABASE_URL: ${SUPABASE_DOCKER_URL:-${SUPABASE_URL:-}}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
 
+  publishing-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.publishing-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      PUBLICATION_QUEUE_NAME: streamos-publishing
+      PUBLISHING_WORKER_CONCURRENCY: ${PUBLISHING_WORKER_CONCURRENCY:-1}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-}
+      SUPABASE_URL: ${SUPABASE_DOCKER_URL:-${SUPABASE_URL:-}}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
+      YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
+      TIKTOK_CLIENT_KEY: ${TIKTOK_CLIENT_KEY:-}
+      TIKTOK_CLIENT_SECRET: ${TIKTOK_CLIENT_SECRET:-}
+
   clip-worker:
     build:
       context: .
