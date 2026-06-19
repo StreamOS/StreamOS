@@ -207,7 +207,7 @@ describe("PublicationStatusConsole", () => {
     expect(html).toContain("Mark final failed");
     expect(html).toContain("Blocked");
     expect(html).toContain("Review snapshot");
-    expect(html).toContain("Audit trail");
+    expect(html).toContain("History timeline");
     expect(html).toContain("Publication status");
     expect(html).toContain("Lightweight analytics");
     expect(html).toContain("Raw / Debug");
@@ -217,7 +217,12 @@ describe("PublicationStatusConsole", () => {
     expect(html).toContain("Open remote post");
     expect(html).toContain("NovaPlays Main");
     expect(html).not.toContain("No history entries yet");
-    expect(html).toContain("Append-only publication history");
+    expect(html).toContain("Normalized, append-only publication history");
+    expect(html).toContain("Queued for publishing");
+    expect(html).toContain("Provider");
+    expect(html).toContain("Target channel");
+    expect(html).toContain("Current UI status");
+    expect(html).toContain("Latest safe error hint");
     expect(html).toContain("post-123...");
     expect(html).toContain("Approved");
     expect(html).toContain("Manual review required");
@@ -231,6 +236,158 @@ describe("PublicationStatusConsole", () => {
     expect(html).not.toContain("automation-service.railway.internal");
     expect(html).not.toContain("OpenAI");
     expect(html).not.toContain("publish now");
+  });
+
+  it("renders a normalized history timeline with safe fallback labels", () => {
+    const publication = makePublication({
+      id: "publication-timeline",
+      content_job_id: "job-timeline",
+      platform_connection_id: "connection-timeline",
+      publication_status: "failed_retryable",
+      reconciliation_status: "queued",
+      review_status_at_request: "approved",
+      target_platform: "youtube",
+      updated_at: "2026-06-19T12:15:00.000Z",
+    });
+    const job = makeJob({
+      id: "job-timeline",
+      result: {
+        confidence: 91,
+        manual_review_required: true,
+        provider: "openai",
+        warnings: ["safe warning"],
+      },
+      review_status: "approved",
+      status: "done",
+      stream_id: "stream-timeline",
+    });
+    const model = buildPublicationDashboardModel({
+      channels: [
+        makeChannel({
+          display_name: "Timeline Channel",
+          id: "channel-timeline",
+          platform: "youtube",
+        }),
+      ],
+      connections: [
+        makeConnection({
+          channel_id: "channel-timeline",
+          id: "connection-timeline",
+          platform: "youtube",
+          scopes: ["publish:write"],
+          status: "connected",
+        }),
+      ],
+      contentJobs: [job],
+      publicationEvents: [
+        makeEvent({
+          content_publication_id: "publication-timeline",
+          created_at: "2026-06-19T12:00:00.000Z",
+          event_type: "requested",
+          id: "timeline-event-1",
+          metadata: {
+            target_platform: "youtube",
+          },
+          previous_publication_status: null,
+          publication_status: "requested",
+          source: "api-gateway",
+        }),
+        makeEvent({
+          content_publication_id: "publication-timeline",
+          created_at: "2026-06-19T12:08:00.000Z",
+          event_type: "queued",
+          id: "timeline-event-2",
+          metadata: {
+            manual_action: "retry_publish",
+            queue_job_id: "publication-queue-job-1",
+            retry_count: 1,
+          },
+          previous_publication_status: "requested",
+          publication_status: "queued",
+          source: "api-gateway",
+        }),
+        makeEvent({
+          content_publication_id: "publication-timeline",
+          created_at: "2026-06-19T12:05:00.000Z",
+          event_type: "validated",
+          id: "timeline-event-2b",
+          metadata: {
+            validation_code: "validated",
+            validation_message:
+              "Gateway accepted the frozen publication snapshot.",
+          },
+          previous_publication_status: "queued",
+          publication_status: "queued",
+          source: "api-gateway",
+        }),
+        makeEvent({
+          content_publication_id: "publication-timeline",
+          created_at: "2026-06-19T12:10:00.000Z",
+          event_type: "failed_retryable",
+          id: "timeline-event-3",
+          metadata: {
+            error_code: "provider_rate_limited",
+            retry_after_seconds: 30,
+            retry_owner: "bullmq",
+            retryable: true,
+            upstream_status: 429,
+          },
+          previous_publication_status: "queued",
+          publication_status: "failed_retryable",
+          source: "automation-service",
+        }),
+        makeEvent({
+          content_publication_id: "publication-timeline",
+          created_at: "2026-06-19T12:15:00.000Z",
+          event_type:
+            "worker_reported_failure" as unknown as PublicationEventRow["event_type"],
+          id: "timeline-event-4",
+          metadata: {
+            queue_job_id: "reconcile-job-1",
+            retry_owner: "manual",
+            retry_count: 2,
+          },
+          previous_publication_status: "failed_retryable",
+          publication_status: "queued",
+          source: "custom-worker",
+        }),
+      ],
+      publications: [publication],
+      vodAssets: [
+        makeVodAsset({
+          source_url: "https://cdn.example.com/vods/stream-timeline.mp4",
+          stream_id: "stream-timeline",
+        }),
+      ],
+    });
+
+    const timeline = model.selectedPublication?.history ?? [];
+    const html = renderToStaticMarkup(
+      <PublicationStatusConsole model={model} />,
+    );
+
+    expect(timeline[0]?.timelineLabel).toBe("Unknown event");
+    expect(timeline[0]?.timelineDescription).toContain("safe fallback");
+    expect(timeline[1]?.timelineLabel).toBe("Retry requested");
+    expect(timeline[1]?.timelineTone).toBe("amber");
+    expect(timeline[1]?.metadataSummary).toContain("upstream 429");
+    expect(timeline[2]?.timelineLabel).toBe("Retry queued");
+    expect(timeline[2]?.timelineDescription).toContain("queue");
+    expect(timeline[2]?.metadataSummary).toContain("retry 1");
+    expect(timeline[3]?.timelineLabel).toBe("Queued for publishing");
+    expect(timeline[4]?.timelineLabel).toBe("Publication requested");
+    expect(model.selectedPublication?.latestSafeErrorHint).toContain(
+      "retryable outcome",
+    );
+    expect(html).toContain("History timeline");
+    expect(html).toContain("Queued for publishing");
+    expect(html).toContain("Retry requested");
+    expect(html).toContain("Retry queued");
+    expect(html).toContain("Unknown event");
+    expect(html).toContain("Remote URL");
+    expect(html).toContain("Not available");
+    expect(html).toContain("Metadata summary");
+    expect(html).toContain("Latest safe error hint");
   });
 
   it("renders a clear empty state when no publications exist", () => {

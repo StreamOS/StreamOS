@@ -1,5 +1,8 @@
 import type { Tables } from "@streamos/database";
-import { buildPublicationDashboardModel } from "@/components/modules/PublicationStatusConsole.utils";
+import {
+  buildPublicationDashboardModel,
+  type PublicationRow,
+} from "@/components/modules/PublicationStatusConsole.utils";
 import { PublicationStatusConsole } from "@/components/modules/PublicationStatusConsole";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { ensureCreatorForUser } from "@/lib/supabase/creator";
@@ -11,7 +14,6 @@ type PublicationPageProps = {
   }>;
 };
 
-type PublicationRow = Tables<"content_publications">;
 type PublicationEventRow = Tables<"content_publication_events">;
 type PublicationJobRow = Tables<"content_jobs">;
 type PublicationConnectionRow = Tables<"platform_connections">;

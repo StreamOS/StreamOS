@@ -5,6 +5,9 @@ import type {
   ContentJobReviewStatus,
   ContentPublicationEventType,
   ContentPublicationStatus,
+  PublicationProviderFailureCode,
+  PublicationReconciliationStatus,
+  PublicationRemoteStatus,
   StreamPlatform,
   ContentPublicationManualActionPolicy,
 } from "@streamos/types";
@@ -13,7 +16,23 @@ import {
   isApprovedRepurposingPlanResult,
 } from "@streamos/types";
 
-export type PublicationRow = Tables<"content_publications">;
+export type PublicationRow = Tables<"content_publications"> & {
+  desired_visibility: string | null;
+  effective_visibility: string | null;
+  last_reconciled_at: string | null;
+  provider_failure_code: PublicationProviderFailureCode | null;
+  provider_failure_metadata: Record<string, unknown>;
+  provider_failure_reason: string | null;
+  reconcile_max_retries: number;
+  reconcile_next_retry_at: string | null;
+  reconcile_retry_count: number;
+  reconciliation_status: PublicationReconciliationStatus;
+  remote_processing_status: string | null;
+  remote_state: Record<string, unknown>;
+  remote_status: PublicationRemoteStatus | null;
+  remote_upload_status: string | null;
+  validation_metadata: Record<string, unknown>;
+};
 export type PublicationEventRow = Tables<"content_publication_events">;
 export type PublicationJobRow = Tables<"content_jobs">;
 export type PublicationConnectionRow = Tables<"platform_connections">;
@@ -33,6 +52,20 @@ export type PublicationStatusTone =
   | "rose"
   | "slate"
   | "violet";
+
+export type PublicationTimelineCategory =
+  | "created"
+  | "queued"
+  | "execution_started"
+  | "provider_result"
+  | "reconciliation"
+  | "retry_requested"
+  | "retry_queued"
+  | "retry_blocked"
+  | "reauth_required"
+  | "manual_action_blocked"
+  | "final_failed"
+  | "unknown";
 
 export type PublicationDashboardModel = {
   items: PublicationDashboardItem[];
@@ -63,7 +96,7 @@ export type PublicationDashboardItem = {
   deliveryStatusDescription: string;
   deliveryStatusLabel: string;
   deliveryStatusTone: PublicationStatusTone;
-  desiredVisibility: string;
+  desiredVisibility: string | null;
   effectiveVisibility: string | null;
   externalPostId: string | null;
   externalUrl: string | null;
@@ -71,6 +104,7 @@ export type PublicationDashboardItem = {
   history: PublicationEventSummary[];
   id: string;
   lastReconciledAt: string | null;
+  latestSafeErrorHint: string | null;
   manualReviewRequired: boolean;
   manualActions: ContentPublicationManualActionPolicy;
   publicationStatus: ContentPublicationStatus;
@@ -136,9 +170,15 @@ export type PublicationEventSummary = {
   eventLabel: string;
   id: string;
   metadata: string;
+  metadataSummary: string;
+  timelineCategory: PublicationTimelineCategory;
+  timelineDescription: string;
+  timelineLabel: string;
+  timelineTone: PublicationStatusTone;
   previousPublicationStatus: string | null;
   publicationStatus: string;
   source: string;
+  isFallback: boolean;
 };
 
 export type PublicationDebugSnapshot = {
@@ -217,9 +257,7 @@ const PUBLICATION_STATUS_LABELS: Record<ContentPublicationStatus, string> = {
   validated: "Validated",
 };
 
-const PUBLICATION_EVENT_LABELS: Partial<
-  Record<ContentPublicationEventType, string>
-> = {
+const PUBLICATION_EVENT_LABELS: Record<string, string> = {
   canceled: "Canceled",
   failed_permanent: "Failed permanent",
   failed_retryable: "Failed retryable",
@@ -234,6 +272,78 @@ const PUBLICATION_EVENT_LABELS: Partial<
   rejected: "Rejected",
   requested: "Requested",
   validated: "Validated",
+};
+
+const PUBLICATION_TIMELINE_META: Record<
+  PublicationTimelineCategory,
+  {
+    description: string;
+    label: string;
+    tone: PublicationStatusTone;
+  }
+> = {
+  created: {
+    description: "The publication snapshot was created from an approved job.",
+    label: "Publication requested",
+    tone: "violet",
+  },
+  execution_started: {
+    description:
+      "The gateway handed the frozen publication contract to the worker queue.",
+    label: "Publishing started",
+    tone: "amber",
+  },
+  final_failed: {
+    description: "The publication reached a terminal failure state.",
+    label: "Final failure",
+    tone: "rose",
+  },
+  manual_action_blocked: {
+    description: "A manual action was blocked by policy or validation.",
+    label: "Manual action blocked",
+    tone: "slate",
+  },
+  provider_result: {
+    description: "The provider returned a publication result.",
+    label: "Provider result",
+    tone: "emerald",
+  },
+  queued: {
+    description:
+      "The publication was accepted and queued for server-side execution.",
+    label: "Queued for publishing",
+    tone: "violet",
+  },
+  reconciliation: {
+    description: "Remote state reconciliation was requested or recorded.",
+    label: "Reconciliation",
+    tone: "amber",
+  },
+  reauth_required: {
+    description: "The connection requires re-authentication or fresh scopes.",
+    label: "Re-auth required",
+    tone: "amber",
+  },
+  retry_blocked: {
+    description: "Retrying is blocked until the policy or contract changes.",
+    label: "Retry blocked",
+    tone: "rose",
+  },
+  retry_queued: {
+    description: "A retry was queued for later server-side execution.",
+    label: "Retry queued",
+    tone: "violet",
+  },
+  retry_requested: {
+    description: "The publication produced a retryable failure.",
+    label: "Retry requested",
+    tone: "amber",
+  },
+  unknown: {
+    description: "The event was recorded with a safe fallback label.",
+    label: "Unknown event",
+    tone: "slate",
+  },
 };
 
 const SENSITIVE_KEY_PATTERNS = [
@@ -449,9 +559,30 @@ export function getPublicationWorkflowStatusLabel(
 }
 
 export function getPublicationEventLabel(
-  status: ContentPublicationEventType,
+  status: ContentPublicationEventType | string,
 ): string {
-  return PUBLICATION_EVENT_LABELS[status] ?? capitalizeLabel(status);
+  return (
+    PUBLICATION_EVENT_LABELS[status as ContentPublicationEventType] ??
+    capitalizeLabel(status)
+  );
+}
+
+export function getPublicationTimelineCategoryLabel(
+  category: PublicationTimelineCategory,
+): string {
+  return PUBLICATION_TIMELINE_META[category].label;
+}
+
+export function getPublicationTimelineCategoryTone(
+  category: PublicationTimelineCategory,
+): PublicationStatusTone {
+  return PUBLICATION_TIMELINE_META[category].tone;
+}
+
+export function getPublicationTimelineCategoryDescription(
+  category: PublicationTimelineCategory,
+): string {
+  return PUBLICATION_TIMELINE_META[category].description;
 }
 
 export function getPublicationConnectionStatusLabel(
@@ -512,15 +643,34 @@ function buildPublicationDashboardItem({
       actorLabel: getActorLabel(event.actor_id, event.source),
       createdAt: event.created_at,
       eventLabel: getPublicationEventLabel(event.event_type),
+      isFallback: isPublicationTimelineFallback(event.event_type),
       id: event.id,
       metadata: formatPublicationRawBlock(event.metadata),
+      metadataSummary: summarizePublicationTimelineMetadata(event.metadata),
       previousPublicationStatus: event.previous_publication_status,
       publicationStatus: event.publication_status,
       source: event.source,
+      timelineCategory: getPublicationTimelineCategory(
+        event,
+        publication,
+        contentJob,
+      ),
+      timelineDescription: getPublicationTimelineDescription(
+        event,
+        publication,
+        contentJob,
+      ),
+      timelineLabel: getPublicationTimelineLabel(
+        event,
+        publication,
+        contentJob,
+      ),
+      timelineTone: getPublicationTimelineTone(event, publication, contentJob),
     }),
   );
   const reviewSnapshot = buildReviewSnapshot(publication, contentJob);
   const failure = buildFailureSummary(publication);
+  const latestSafeErrorHint = getLatestSafeErrorHint(history, failure);
   const normalizedConnectionStatus = normalizeConnectionStatus(
     connection?.status ?? null,
   );
@@ -584,6 +734,7 @@ function buildPublicationDashboardItem({
     history,
     id: publication.id,
     lastReconciledAt: publication.last_reconciled_at,
+    latestSafeErrorHint,
     manualReviewRequired: reviewSnapshot.manualReviewRequired,
     manualActions,
     publicationStatus: publication.publication_status,
@@ -678,6 +829,34 @@ function buildFailureSummary(
   };
 }
 
+function getLatestSafeErrorHint(
+  history: PublicationEventSummary[],
+  failure: PublicationFailureSummary,
+): string | null {
+  const fallbackCategories: PublicationTimelineCategory[] = [
+    "retry_blocked",
+    "retry_requested",
+    "retry_queued",
+    "reauth_required",
+    "manual_action_blocked",
+    "final_failed",
+  ];
+
+  const matchingEvent = history.find((event) =>
+    fallbackCategories.includes(event.timelineCategory),
+  );
+
+  if (matchingEvent?.timelineDescription) {
+    return matchingEvent.timelineDescription;
+  }
+
+  if (failure.message && failure.message !== "Not available") {
+    return failure.message;
+  }
+
+  return null;
+}
+
 function buildReviewSnapshot(
   publication: PublicationRow,
   contentJob: PublicationJobRow | null,
@@ -703,6 +882,277 @@ function buildReviewSnapshot(
       sanitizePublicationFreeformText(warning),
     ),
   };
+}
+
+function getPublicationTimelineCategory(
+  event: PublicationEventRow,
+  publication: PublicationRow,
+  contentJob: PublicationJobRow | null,
+): PublicationTimelineCategory {
+  const eventType = event.event_type as string;
+
+  switch (eventType) {
+    case "requested":
+      return "created";
+    case "validated":
+    case "queued":
+      return "queued";
+    case "publishing":
+      return "execution_started";
+    case "published":
+      return "provider_result";
+    case "failed_retryable":
+    case "reconcile_failed_retryable":
+      return "retry_requested";
+    case "failed_permanent":
+    case "reconcile_failed_permanent":
+      return "final_failed";
+    case "rejected":
+    case "canceled":
+      return "manual_action_blocked";
+    case "reconcile_requested":
+      return "reconciliation";
+    case "reconcile_skipped":
+    case "reconciled":
+      return "provider_result";
+    default:
+      if (event.source.includes("reconcile") || event.source === "worker") {
+        return "reconciliation";
+      }
+
+      if (
+        contentJob?.status === "failed" ||
+        publication.publication_status === "failed_permanent"
+      ) {
+        return "final_failed";
+      }
+
+      return "unknown";
+  }
+}
+
+function getPublicationTimelineTone(
+  event: PublicationEventRow,
+  publication: PublicationRow,
+  contentJob: PublicationJobRow | null,
+): PublicationStatusTone {
+  return PUBLICATION_TIMELINE_META[
+    getPublicationTimelineCategory(event, publication, contentJob)
+  ].tone;
+}
+
+function getPublicationTimelineLabel(
+  event: PublicationEventRow,
+  publication: PublicationRow,
+  contentJob: PublicationJobRow | null,
+): string {
+  const eventType = event.event_type as string;
+  const category = getPublicationTimelineCategory(
+    event,
+    publication,
+    contentJob,
+  );
+
+  if (category === "queued" && event.event_type === "queued") {
+    const manualAction = readString(event.metadata, "manual_action");
+
+    if (manualAction === "retry_publish") {
+      return "Retry queued";
+    }
+
+    if (manualAction === "reconcile_now") {
+      return "Reconciliation queued";
+    }
+  }
+
+  if (eventType === "reconcile_requested") {
+    return "Reconciliation requested";
+  }
+
+  if (eventType === "reconcile_skipped") {
+    return "Reconciliation skipped";
+  }
+
+  if (eventType === "reconciled") {
+    return "Reconciled";
+  }
+
+  if (eventType === "reconcile_failed_retryable") {
+    return "Reconciliation retryable failure";
+  }
+
+  if (eventType === "reconcile_failed_permanent") {
+    return "Reconciliation permanent failure";
+  }
+
+  if (
+    category === "provider_result" &&
+    publication.publication_status === "published"
+  ) {
+    return "Published";
+  }
+
+  if (category === "retry_requested") {
+    return "Retry requested";
+  }
+
+  return getPublicationTimelineCategoryLabel(category);
+}
+
+function getPublicationTimelineDescription(
+  event: PublicationEventRow,
+  publication: PublicationRow,
+  contentJob: PublicationJobRow | null,
+): string {
+  const category = getPublicationTimelineCategory(
+    event,
+    publication,
+    contentJob,
+  );
+  const manualAction = readString(event.metadata, "manual_action");
+  const reason = readString(event.metadata, "reason");
+  const errorCode = readString(event.metadata, "error_code");
+  const upstreamStatus = readNumber(event.metadata, "upstream_status");
+  const retryOwner = readString(event.metadata, "retry_owner");
+  const retryAfterSeconds = readNumber(event.metadata, "retry_after_seconds");
+  const queueJobId = readString(event.metadata, "queue_job_id");
+  const externalPostId = readString(event.metadata, "external_post_id");
+  const reconcileRetryCount = readNumber(
+    event.metadata,
+    "reconcile_retry_count",
+  );
+  const retryCount = readNumber(event.metadata, "retry_count");
+  const reviewStatus = readString(event.metadata, "review_status");
+  const validationCode = readString(event.metadata, "validation_code");
+
+  const contextualParts: string[] = [];
+
+  if (manualAction) {
+    contextualParts.push(
+      `manual action ${formatPublicationContextValue(manualAction)}`,
+    );
+  }
+
+  if (queueJobId) {
+    contextualParts.push(`queue ${formatCompactId(queueJobId)}`);
+  }
+
+  if (externalPostId) {
+    contextualParts.push(`remote ${formatCompactId(externalPostId)}`);
+  }
+
+  if (retryCount !== null) {
+    contextualParts.push(`retry ${retryCount}`);
+  }
+
+  if (reconcileRetryCount !== null) {
+    contextualParts.push(`reconcile retry ${reconcileRetryCount}`);
+  }
+
+  if (retryOwner) {
+    contextualParts.push(
+      `retry owner ${formatPublicationContextValue(retryOwner)}`,
+    );
+  }
+
+  if (typeof retryAfterSeconds === "number") {
+    contextualParts.push(`retry in ${retryAfterSeconds}s`);
+  }
+
+  if (typeof upstreamStatus === "number") {
+    contextualParts.push(`upstream ${upstreamStatus}`);
+  }
+
+  if (reviewStatus) {
+    contextualParts.push(
+      `review ${formatPublicationContextValue(reviewStatus)}`,
+    );
+  }
+
+  if (validationCode) {
+    contextualParts.push(
+      `validation ${formatPublicationContextValue(validationCode)}`,
+    );
+  }
+
+  if (errorCode) {
+    contextualParts.push(`error ${formatPublicationContextValue(errorCode)}`);
+  }
+
+  if (reason) {
+    contextualParts.push(formatPublicationContextValue(reason));
+  }
+
+  switch (category) {
+    case "created":
+      return "The publication snapshot was captured from an approved repurposing job.";
+    case "queued":
+      return contextualParts.length > 0
+        ? `The publication was queued for server-side execution. ${contextualParts.join(" · ")}.`
+        : "The publication was queued for server-side execution.";
+    case "execution_started":
+      return contextualParts.length > 0
+        ? `Publishing execution started server-side. ${contextualParts.join(" · ")}.`
+        : "Publishing execution started server-side.";
+    case "provider_result":
+      return contextualParts.length > 0
+        ? `The provider returned a publication result. ${contextualParts.join(" · ")}.`
+        : "The provider returned a publication result.";
+    case "reconciliation":
+      return contextualParts.length > 0
+        ? `Remote reconciliation was recorded server-side. ${contextualParts.join(" · ")}.`
+        : "Remote reconciliation was recorded server-side.";
+    case "retry_requested":
+      return contextualParts.length > 0
+        ? `The publication produced a retryable outcome. ${contextualParts.join(" · ")}.`
+        : "The publication produced a retryable outcome.";
+    case "retry_queued":
+      return contextualParts.length > 0
+        ? `A retry was queued server-side. ${contextualParts.join(" · ")}.`
+        : "A retry was queued server-side.";
+    case "retry_blocked":
+      return contextualParts.length > 0
+        ? `Retrying remains blocked. ${contextualParts.join(" · ")}.`
+        : "Retrying remains blocked.";
+    case "reauth_required":
+      return contextualParts.length > 0
+        ? `The connection requires re-authentication or fresh scopes. ${contextualParts.join(" · ")}.`
+        : "The connection requires re-authentication or fresh scopes.";
+    case "manual_action_blocked":
+      return contextualParts.length > 0
+        ? `A manual action was blocked by policy. ${contextualParts.join(" · ")}.`
+        : "A manual action was blocked by policy.";
+    case "final_failed":
+      return contextualParts.length > 0
+        ? `The publication reached a terminal failure state. ${contextualParts.join(" · ")}.`
+        : "The publication reached a terminal failure state.";
+    case "unknown":
+    default:
+      return contextualParts.length > 0
+        ? `A safe fallback timeline event was recorded. ${contextualParts.join(" · ")}.`
+        : "A safe fallback timeline event was recorded.";
+  }
+}
+
+function isPublicationTimelineFallback(
+  eventType: ContentPublicationEventType | string,
+): boolean {
+  return !(
+    eventType === "requested" ||
+    eventType === "validated" ||
+    eventType === "rejected" ||
+    eventType === "canceled" ||
+    eventType === "queued" ||
+    eventType === "publishing" ||
+    eventType === "published" ||
+    eventType === "failed_retryable" ||
+    eventType === "failed_permanent" ||
+    eventType === "reconcile_requested" ||
+    eventType === "reconcile_skipped" ||
+    eventType === "reconcile_failed_retryable" ||
+    eventType === "reconcile_failed_permanent" ||
+    eventType === "reconciled"
+  );
 }
 
 function getActorLabel(actorId: string, source: string): string {
@@ -906,6 +1356,81 @@ function latestTimestamp(values: Array<string | null>): string | null {
   return new Date(Math.max(...timestamps)).toISOString();
 }
 
+function summarizePublicationTimelineMetadata(metadata: unknown): string {
+  if (!isRecord(metadata)) {
+    return "Not available";
+  }
+
+  const parts: string[] = [];
+  const manualAction = readString(metadata, "manual_action");
+  const queueJobId = readString(metadata, "queue_job_id");
+  const retryOwner = readString(metadata, "retry_owner");
+  const errorCode = readString(metadata, "error_code");
+  const validationCode = readString(metadata, "validation_code");
+  const reason = readString(metadata, "reason");
+  const reviewStatus = readString(metadata, "review_status");
+  const source = readString(metadata, "source");
+  const targetPlatform = readString(metadata, "target_platform");
+  const upstreamStatus = readNumber(metadata, "upstream_status");
+  const retryCount = readNumber(metadata, "retry_count");
+  const reconcileRetryCount = readNumber(metadata, "reconcile_retry_count");
+  const retryAfterSeconds = readNumber(metadata, "retry_after_seconds");
+
+  if (manualAction) {
+    parts.push(`manual action ${formatPublicationContextValue(manualAction)}`);
+  }
+
+  if (queueJobId) {
+    parts.push(`queue ${formatCompactId(queueJobId)}`);
+  }
+
+  if (retryOwner) {
+    parts.push(`retry owner ${formatPublicationContextValue(retryOwner)}`);
+  }
+
+  if (retryCount !== null) {
+    parts.push(`retry ${retryCount}`);
+  }
+
+  if (reconcileRetryCount !== null) {
+    parts.push(`reconcile retry ${reconcileRetryCount}`);
+  }
+
+  if (typeof upstreamStatus === "number") {
+    parts.push(`upstream ${upstreamStatus}`);
+  }
+
+  if (typeof retryAfterSeconds === "number") {
+    parts.push(`retry in ${retryAfterSeconds}s`);
+  }
+
+  if (validationCode) {
+    parts.push(`validation ${formatPublicationContextValue(validationCode)}`);
+  }
+
+  if (errorCode) {
+    parts.push(`error ${formatPublicationContextValue(errorCode)}`);
+  }
+
+  if (reviewStatus) {
+    parts.push(`review ${formatPublicationContextValue(reviewStatus)}`);
+  }
+
+  if (targetPlatform) {
+    parts.push(`platform ${formatPublicationContextValue(targetPlatform)}`);
+  }
+
+  if (source) {
+    parts.push(`source ${formatPublicationContextValue(source)}`);
+  }
+
+  if (reason) {
+    parts.push(formatPublicationContextValue(reason));
+  }
+
+  return parts.length > 0 ? parts.join(" · ") : "Not available";
+}
+
 function sanitizePublicationString(value: string): string {
   return STRING_REDACTIONS.reduce(
     (current, [pattern, replacement]) => current.replace(pattern, replacement),
@@ -953,6 +1478,22 @@ function readNumber(value: unknown, ...keys: string[]): number | null {
   return null;
 }
 
+function readString(value: unknown, ...keys: string[]): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const candidate = value[key];
+
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return sanitizePublicationFreeformText(candidate.trim());
+    }
+  }
+
+  return null;
+}
+
 function readBoolean(value: unknown, ...keys: string[]): boolean {
   if (!isRecord(value)) {
     return false;
@@ -965,4 +1506,20 @@ function capitalizeLabel(value: string): string {
   return value
     .replaceAll("_", " ")
     .replace(/(^|\s)\S/g, (match) => match.toUpperCase());
+}
+
+function formatPublicationContextValue(value: string): string {
+  return sanitizePublicationFreeformText(value)
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatCompactId(value: string): string {
+  if (value.length <= 16) {
+    return value;
+  }
+
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }

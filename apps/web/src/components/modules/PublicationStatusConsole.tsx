@@ -228,14 +228,6 @@ function PublicationDetail({
 
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <DetailStat
-            label="Requested visibility"
-            value={formatVisibility(publication.desiredVisibility)}
-          />
-          <DetailStat
-            label="Effective visibility"
-            value={formatVisibility(publication.effectiveVisibility)}
-          />
-          <DetailStat
             label="Last reconciled"
             value={formatPublicationTimestamp(publication.lastReconciledAt)}
           />
@@ -288,6 +280,33 @@ function PublicationDetail({
           <DetailStat
             label="Confidence"
             value={publication.reviewSnapshot.confidence ?? "Not available"}
+          />
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <DetailStat
+            label="Provider"
+            value={publication.connection.providerLabel}
+          />
+          <DetailStat
+            label="Target channel"
+            value={publication.connection.channelDisplayName ?? "Not linked"}
+          />
+          <DetailStat
+            label="Current UI status"
+            value={publication.deliveryStatusLabel}
+          />
+          <DetailStat
+            label="Requested visibility"
+            value={formatVisibility(publication.desiredVisibility)}
+          />
+          <DetailStat
+            label="Effective visibility"
+            value={formatVisibility(publication.effectiveVisibility)}
+          />
+          <DetailStat
+            label="Latest safe error hint"
+            value={publication.latestSafeErrorHint ?? "None"}
           />
         </div>
       </section>
@@ -430,13 +449,23 @@ function PublicationDetail({
               </span>
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
-                  Audit trail
+                  History timeline
                 </p>
                 <h3 className="mt-1 text-lg font-semibold text-white">
-                  Append-only publication history
+                  Normalized, append-only publication history
                 </h3>
               </div>
             </div>
+
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
+              The timeline is normalized from{" "}
+              <code className="rounded bg-surface-950 px-1.5 py-0.5 text-xs text-slate-200">
+                content_publication_events
+              </code>{" "}
+              and keeps creator-facing context, safe error hints, and
+              reconciliation updates together without exposing raw secrets or
+              worker internals.
+            </p>
 
             <div className="mt-5 space-y-3">
               {publication.history.length > 0 ? (
@@ -445,28 +474,56 @@ function PublicationDetail({
                     className="rounded-lg border border-white/10 bg-white/5 p-4"
                     key={event.id}
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-0">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusPill
+                            label={event.timelineLabel}
+                            tone={event.timelineTone}
+                          />
+                          {event.isFallback ? (
+                            <StatusPill label="Fallback" tone="slate" />
+                          ) : null}
+                        </div>
                         <p className="text-sm font-semibold text-white">
-                          {event.eventLabel}
+                          {event.timelineDescription}
                         </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {event.actorLabel} - {event.source}
+                        <p className="text-xs text-slate-500">
+                          {event.eventLabel} - {event.actorLabel} -{" "}
+                          {event.source}
                         </p>
                       </div>
                       <time className="text-xs text-slate-500">
                         {formatPublicationTimestamp(event.createdAt)}
                       </time>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
+
+                    <div className="mt-4 flex flex-wrap gap-2 text-xs">
                       <span className="rounded-full border border-white/10 bg-surface-900/80 px-2.5 py-1 text-slate-300">
                         Current: {event.publicationStatus}
                       </span>
                       <span className="rounded-full border border-white/10 bg-surface-900/80 px-2.5 py-1 text-slate-400">
                         Previous: {event.previousPublicationStatus ?? "None"}
                       </span>
+                      <span className="rounded-full border border-white/10 bg-surface-900/80 px-2.5 py-1 text-slate-400">
+                        Category: {event.timelineCategory.replaceAll("_", " ")}
+                      </span>
                     </div>
-                    {event.metadata !== "Not available" && (
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <InfoRow label="Actor" value={event.actorLabel} />
+                      <InfoRow label="Source" value={event.source} />
+                      <InfoRow
+                        label="Metadata summary"
+                        value={event.metadataSummary}
+                      />
+                      <InfoRow
+                        label="Status trail"
+                        value={`${event.previousPublicationStatus ?? "None"} -> ${event.publicationStatus}`}
+                      />
+                    </div>
+
+                    {event.metadata !== "Not available" ? (
                       <details className="mt-3">
                         <summary className="cursor-pointer text-xs font-semibold text-slate-300">
                           Sanitized event metadata
@@ -475,7 +532,7 @@ function PublicationDetail({
                           {event.metadata}
                         </pre>
                       </details>
-                    )}
+                    ) : null}
                   </article>
                 ))
               ) : (
