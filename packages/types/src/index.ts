@@ -597,12 +597,19 @@ export type ContentPublicationEventType =
   (typeof CONTENT_PUBLICATION_EVENT_TYPES)[number];
 
 export const CONTENT_PUBLICATION_VALIDATION_CODES = [
+  "account_capability_missing",
   "content_job_not_found",
+  "conditional_field_unresolved",
+  "invalid_provider_override_value",
   "missing_publish_scopes",
+  "policy_blocked",
+  "provider_override_mismatch",
+  "provider_override_unsupported_field",
   "platform_connection_not_found",
   "platform_mismatch",
   "publication_not_ready",
   "publishable_bundle_missing",
+  "unsupported_capability_version",
   "unsupported_target_platform",
 ] as const;
 
@@ -627,6 +634,8 @@ export type ContentPublicationSnapshot = {
 };
 
 export type ContentPublication = {
+  capabilitySnapshot: Record<string, unknown>;
+  capabilityVersion: string;
   id: string;
   userId: string;
   contentJobId: string;
@@ -639,6 +648,7 @@ export type ContentPublication = {
   validatedAt: string | null;
   requestIntentHash: string;
   snapshotHash: string;
+  providerOverrides: Record<string, Record<string, unknown>>;
   snapshot: ContentPublicationSnapshot;
   validationCode: ContentPublicationValidationCode | null;
   validationMessage: string | null;
@@ -665,3 +675,5 @@ export type ContentPublicationEvent = {
   source: string;
   userId: string;
 };
+
+export * from "./publications.js";

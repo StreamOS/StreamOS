@@ -9,6 +9,14 @@ import type {
   ContentPublicationStatus,
   StreamPlatform,
 } from "@streamos/types";
+import {
+  buildCanonicalPublicationDraft,
+  extractPublicationAccountCapabilityOverlay,
+  PUBLICATION_CAPABILITY_VERSION,
+  resolvePublicationCapabilities,
+  type PublicationCapabilityResolution,
+  type PublicationProviderOverrides,
+} from "@streamos/types";
 
 import {
   callSupabaseRpc,
@@ -18,8 +26,12 @@ import {
 } from "../lib/supabaseRest.js";
 
 const publicationRequestSchema = z.object({
+  capability_version: z.string().trim().min(1).optional(),
   content_job_id: z.string().uuid(),
   platform_connection_id: z.string().uuid(),
+  provider_overrides: z
+    .record(z.string(), z.record(z.string(), z.unknown()))
+    .default({}),
   target_platform: z.enum(STREAM_PLATFORMS),
   user_id: z.string().uuid(),
 });
@@ -58,20 +70,26 @@ type PublicationContentJobRow = {
 
 type PublicationConnectionRow = {
   id: string;
+  metadata: Record<string, unknown> | null;
   platform: StreamPlatform;
+  provider_profile: Record<string, unknown> | null;
   scopes: string[] | null;
   status: string;
   user_id: string;
 };
 
 type PublicationRow = {
+  capability_snapshot: Record<string, unknown>;
+  capability_version: string;
   content_job_id: string;
   id: string;
   platform_connection_id: string;
   publication_status: ContentPublicationStatus;
   request_intent_hash: string;
   requested_at: string;
+  provider_overrides: Record<string, Record<string, unknown>>;
   snapshot_hash: string;
+  snapshot: Record<string, unknown>;
   target_platform: StreamPlatform;
   user_id: string;
   validated_at: string | null;
@@ -80,16 +98,32 @@ type PublicationRow = {
 };
 
 type PublicationMutationResult = {
+  capability_snapshot: Record<string, unknown>;
+  capability_status: string;
+  capability_version: string;
+  capability_warnings: PublicationCapabilityResolution["warnings"];
   content_job_id: string;
   content_publication_id: string;
   platform_connection_id: string;
   publication_status: ContentPublicationStatus;
   request_intent_hash: string;
+  provider_overrides: PublicationProviderOverrides;
   snapshot_hash: string;
   status: "publication_validated";
   target_platform: StreamPlatform;
   validated_at: string | null;
 };
+
+class PublicationCapabilityValidationError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+    public readonly resolution: PublicationCapabilityResolution,
+  ) {
+    super(message);
+    this.name = "PublicationCapabilityValidationError";
+  }
+}
 
 export function createContentPublicationsRouter({
   fetchImpl = fetch,
@@ -122,24 +156,47 @@ export function createContentPublicationsRouter({
     }
 
     try {
-      const publication = await createPublicationRequest({
+      const publicationRequest = await createPublicationRequest({
         input: parsedPayload.data,
         supabase,
       });
 
       response.status(200).json({
-        content_job_id: publication.content_job_id,
-        content_publication_id: publication.id,
-        platform_connection_id: publication.platform_connection_id,
-        publication_status: publication.publication_status,
-        request_intent_hash: publication.request_intent_hash,
-        snapshot_hash: publication.snapshot_hash,
+        capability_snapshot: publicationRequest.publication.capability_snapshot,
+        capability_status:
+          publicationRequest.capabilityResolution.providerSupportStatus,
+        capability_version: publicationRequest.publication.capability_version,
+        capability_warnings: publicationRequest.capabilityResolution.warnings,
+        content_job_id: publicationRequest.publication.content_job_id,
+        content_publication_id: publicationRequest.publication.id,
+        platform_connection_id:
+          publicationRequest.publication.platform_connection_id,
+        publication_status: publicationRequest.publication.publication_status,
+        provider_overrides: publicationRequest.publication.provider_overrides,
+        request_intent_hash: publicationRequest.publication.request_intent_hash,
+        snapshot_hash: publicationRequest.publication.snapshot_hash,
         status: "publication_validated",
-        target_platform: publication.target_platform,
-        validated_at: publication.validated_at,
+        target_platform: publicationRequest.publication.target_platform,
+        validated_at: publicationRequest.publication.validated_at,
       } satisfies PublicationMutationResult);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+
+      if (error instanceof PublicationCapabilityValidationError) {
+        const statusCode = getPublicationCapabilityValidationStatus(error.code);
+
+        response.status(statusCode).json({
+          capability_snapshot: error.resolution,
+          capability_status: error.resolution.providerSupportStatus,
+          capability_version: error.resolution.capabilityVersion,
+          capability_warnings: error.resolution.warnings,
+          error: error.code,
+          message,
+          unsupported_fields: error.resolution.unsupportedFields,
+          warnings: error.resolution.warnings,
+        });
+        return;
+      }
 
       if (message === "content_job_not_found") {
         response.status(404).json({
@@ -154,6 +211,33 @@ export function createContentPublicationsRouter({
           error: "publication_not_ready",
           message:
             "The selected repurposing job is not approved and ready for publishing.",
+        });
+        return;
+      }
+
+      if (message === "provider_override_mismatch") {
+        response.status(409).json({
+          error: "provider_override_mismatch",
+          message:
+            "Provider overrides must be namespaced to the selected target platform.",
+        });
+        return;
+      }
+
+      if (message === "provider_override_unsupported_field") {
+        response.status(400).json({
+          error: "provider_override_unsupported_field",
+          message:
+            "The selected provider override field is not allowed by the capability matrix.",
+        });
+        return;
+      }
+
+      if (message === "unsupported_capability_version") {
+        response.status(400).json({
+          error: "unsupported_capability_version",
+          message:
+            "The requested capability version is not supported by the gateway.",
         });
         return;
       }
@@ -220,7 +304,10 @@ async function createPublicationRequest({
 }: {
   input: PublicationRequestPayload;
   supabase: SupabaseRestClient;
-}): Promise<PublicationRow> {
+}): Promise<{
+  capabilityResolution: PublicationCapabilityResolution;
+  publication: PublicationRow;
+}> {
   const contentJob = await loadRepurposingContentJob({
     contentJobId: input.content_job_id,
     supabase,
@@ -267,6 +354,53 @@ async function createPublicationRequest({
     throw new Error("publication_not_ready");
   }
 
+  const canonicalDraft = buildCanonicalPublicationDraft({
+    approvedBundle: approvedBundle.data,
+    contentJob: {
+      id: contentJob.id,
+      queueJobId: contentJob.queue_job_id,
+      streamId: contentJob.stream_id,
+    },
+    targetPlatform: input.target_platform,
+  });
+  const capabilityVersion =
+    input.capability_version?.trim() || PUBLICATION_CAPABILITY_VERSION;
+  const providerOverrides = input.provider_overrides;
+  const capabilityResolution = resolvePublicationCapabilities({
+    accountCapabilities: extractPublicationAccountCapabilityOverlay(connection),
+    capabilityVersion,
+    canonicalDraft,
+    policy: {
+      allowedTargets: ["youtube", "tiktok"],
+      forbidAutoPublish: true,
+      requireManualReview: true,
+    },
+    providerOverrides,
+    targetPlatform: input.target_platform,
+  });
+
+  if (capabilityResolution.providerSupportStatus === "unsupported") {
+    throw new PublicationCapabilityValidationError(
+      "Publishing to the selected target platform is unsupported.",
+      "unsupported_target_platform",
+      capabilityResolution,
+    );
+  }
+
+  if (capabilityResolution.blockingErrors.length > 0) {
+    const firstBlockingError = capabilityResolution.blockingErrors[0];
+
+    if (!firstBlockingError) {
+      throw new Error("publication_not_ready");
+    }
+
+    throw new PublicationCapabilityValidationError(
+      firstBlockingError.message,
+      firstBlockingError.code,
+      capabilityResolution,
+    );
+  }
+
   if ((connection.scopes ?? []).length === 0) {
     throw new Error("missing_publish_scopes");
   }
@@ -276,6 +410,9 @@ async function createPublicationRequest({
     approvedBundle: approvedBundle.data,
     contentJob,
     connection,
+    capabilityResolution,
+    capabilityVersion: capabilityResolution.capabilityVersion,
+    providerOverrides,
     targetPlatform: input.target_platform,
   });
   const snapshotHash = createHash("sha256")
@@ -301,16 +438,22 @@ async function createPublicationRequest({
   });
 
   if (existingPublication) {
-    return existingPublication;
+    return {
+      capabilityResolution,
+      publication: existingPublication,
+    };
   }
 
   const publication = await callSupabaseRpc<PublicationRow>({
     args: {
+      p_capability_snapshot: snapshot,
+      p_capability_version: capabilityResolution.capabilityVersion,
       p_content_job_id: contentJob.id,
       p_platform_connection_id: connection.id,
       p_requested_by: input.user_id,
       p_requested_at: new Date().toISOString(),
       p_request_intent_hash: requestIntentHash,
+      p_provider_overrides: providerOverrides,
       p_snapshot: snapshot,
       p_snapshot_hash: snapshotHash,
       p_target_platform: input.target_platform,
@@ -329,7 +472,10 @@ async function createPublicationRequest({
     functionName: "record_content_publication_request",
   });
 
-  return publication;
+  return {
+    capabilityResolution,
+    publication,
+  };
 }
 
 async function loadRepurposingContentJob({
@@ -370,7 +516,7 @@ async function loadPlatformConnection({
     client: supabase,
     params: {
       id: `eq.${platformConnectionId}`,
-      select: "id,platform,scopes,status,user_id",
+      select: "id,metadata,platform,provider_profile,scopes,status,user_id",
       user_id: `eq.${userId}`,
     },
     table: "platform_connections",
@@ -393,7 +539,7 @@ async function loadExistingPublication({
     params: {
       request_intent_hash: `eq.${requestIntentHash}`,
       select:
-        "content_job_id,id,platform_connection_id,publication_status,request_intent_hash,requested_at,snapshot_hash,target_platform,user_id,validated_at,validation_code,validation_message",
+        "capability_snapshot,capability_version,content_job_id,id,platform_connection_id,publication_status,provider_overrides,request_intent_hash,requested_at,snapshot,snapshot_hash,target_platform,user_id,validated_at,validation_code,validation_message",
       user_id: `eq.${userId}`,
     },
     table: "content_publications",
@@ -404,17 +550,36 @@ async function loadExistingPublication({
 
 function buildPublicationSnapshot({
   approvedBundle,
+  capabilityResolution,
+  capabilityVersion,
   contentJob,
   connection,
+  providerOverrides,
   targetPlatform,
 }: {
   approvedBundle: z.infer<typeof repurposingBundleSchema>;
+  capabilityResolution: PublicationCapabilityResolution;
+  capabilityVersion: string;
   contentJob: PublicationContentJobRow;
   connection: PublicationConnectionRow;
+  providerOverrides: PublicationProviderOverrides;
   targetPlatform: StreamPlatform;
 }): Record<string, unknown> {
   return {
     approvedBundle,
+    capability: {
+      accountCapabilities: capabilityResolution.accountCapabilities,
+      capabilityVersion,
+      canonicalDraft: capabilityResolution.canonicalDraft,
+      dynamicCapabilityKeys: capabilityResolution.dynamicCapabilityKeys,
+      providerOverrides,
+      providerPayloadPreview: capabilityResolution.providerPayloadPreview,
+      providerSupportStatus: capabilityResolution.providerSupportStatus,
+      resolvedDefaults: capabilityResolution.resolvedDefaults,
+      targetPlatform,
+      unsupportedFields: capabilityResolution.unsupportedFields,
+      warnings: capabilityResolution.warnings,
+    },
     contentJob: {
       id: contentJob.id,
       queueJobId: contentJob.queue_job_id,
@@ -427,6 +592,28 @@ function buildPublicationSnapshot({
       platform: connection.platform,
       scopes: connection.scopes ?? [],
     },
+    providerOverrides,
     targetPlatform,
   };
+}
+
+function getPublicationCapabilityValidationStatus(code: string): number {
+  switch (code) {
+    case "account_capability_missing":
+    case "conditional_field_unresolved":
+    case "missing_publish_scopes":
+    case "platform_connection_not_found":
+    case "platform_mismatch":
+    case "publication_not_ready":
+    case "publishable_bundle_missing":
+      return 409;
+    case "provider_override_mismatch":
+      return 409;
+    case "provider_override_unsupported_field":
+    case "unsupported_capability_version":
+    case "unsupported_target_platform":
+      return 400;
+    default:
+      return 422;
+  }
 }

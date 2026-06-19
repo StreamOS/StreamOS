@@ -658,6 +658,8 @@ export type Database = {
       };
       content_publications: {
         Row: {
+          capability_snapshot: Json;
+          capability_version: string;
           content_job_id: string;
           created_at: string;
           external_post_id: string | null;
@@ -671,6 +673,7 @@ export type Database = {
           request_intent_hash: string;
           requested_at: string;
           requested_by: string;
+          provider_overrides: Json;
           retry_count: number;
           review_status_at_request: ContentJobReviewStatus;
           snapshot: Json;
@@ -684,6 +687,8 @@ export type Database = {
           validation_metadata: Json;
         };
         Insert: {
+          capability_snapshot?: Json;
+          capability_version?: string;
           content_job_id: string;
           created_at?: string;
           external_post_id?: string | null;
@@ -697,6 +702,7 @@ export type Database = {
           request_intent_hash: string;
           requested_at?: string;
           requested_by: string;
+          provider_overrides?: Json;
           retry_count?: number;
           review_status_at_request: ContentJobReviewStatus;
           snapshot?: Json;
@@ -710,6 +716,8 @@ export type Database = {
           validation_metadata?: Json;
         };
         Update: {
+          capability_snapshot?: Json;
+          capability_version?: string;
           content_job_id?: string;
           created_at?: string;
           external_post_id?: string | null;
@@ -723,6 +731,7 @@ export type Database = {
           request_intent_hash?: string;
           requested_at?: string;
           requested_by?: string;
+          provider_overrides?: Json;
           retry_count?: number;
           review_status_at_request?: ContentJobReviewStatus;
           snapshot?: Json;
@@ -1375,8 +1384,11 @@ export type Database = {
       };
       record_content_publication_request: {
         Args: {
+          p_capability_snapshot?: Json;
+          p_capability_version?: string;
           p_content_job_id: string;
           p_platform_connection_id: string;
+          p_provider_overrides?: Json;
           p_target_platform: Database["public"]["Enums"]["stream_platform"];
           p_user_id: string;
           p_requested_by: string;
