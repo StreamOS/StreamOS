@@ -306,6 +306,59 @@ jobs:
       - name: Install Railway CLI
         run: npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
 
+      - name: Link Railway production project
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          railway link --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json >/dev/null
+
+      - name: Provision repurposing-worker when missing
+        if: ${{ matrix.service == 'repurposing-worker' }}
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          service_list="$(railway service list --environment "${RAILWAY_ENVIRONMENT}" --json)"
+          service_exists="$(
+            node -e '
+              const fs = require("node:fs");
+              const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+              const services = Array.isArray(payload)
+                ? payload
+                : Array.isArray(payload.services)
+                  ? payload.services
+                  : [];
+              const exists = services.some((service) => service?.name === "repurposing-worker");
+              process.stdout.write(exists ? "yes" : "no");
+            ' <<<"${service_list}"
+          )"
+
+          if [ "${service_exists}" = "yes" ]; then
+            echo "repurposing-worker already exists in Railway production." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          railway add \
+            --service repurposing-worker \
+            --repo "${GITHUB_REPOSITORY}" \
+            --variables "RAILWAY_DOCKERFILE_PATH=Dockerfile.repurposing-worker" \
+            --json >/tmp/railway-add-repurposing-worker.json
+
+          {
+            echo "## repurposing-worker provisioning"
+            echo ""
+            echo "- Environment: ${RAILWAY_ENVIRONMENT}"
+            echo "- Service: repurposing-worker"
+            echo "- Source: `${GITHUB_REPOSITORY}`"
+            echo "- Dockerfile: `Dockerfile.repurposing-worker`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Deploy Railway service
         env:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
