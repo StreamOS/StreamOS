@@ -337,7 +337,6 @@ jobs:
 
           railway add \
             --service repurposing-worker \
-            --repo "${GITHUB_REPOSITORY}" \
             --variables "RAILWAY_DOCKERFILE_PATH=Dockerfile.repurposing-worker" \
             --json >/tmp/railway-add-repurposing-worker.json
 
@@ -346,8 +345,8 @@ jobs:
             echo ""
             echo "- Environment: ${RAILWAY_ENVIRONMENT}"
             echo "- Service: repurposing-worker"
-            echo "- Source: `${GITHUB_REPOSITORY}`"
-            echo "- Dockerfile: `Dockerfile.repurposing-worker`"
+            echo "- Source: empty service provisioned in the existing project"
+            echo "- Dockerfile path: `Dockerfile.repurposing-worker`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Deploy Railway service
