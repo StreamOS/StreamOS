@@ -21,11 +21,15 @@ import {
   getRepurposingJobTitle,
   getDefaultRepurposingExportSelection,
   getRepurposingExportBundleDetails,
+  getRepurposingExportAnalyticsSummary,
+  getRepurposingExportHistoryEntries,
   getRepurposingExportTemplates,
   resolveSelectedJob,
   sanitizeRepurposingFreeformText,
   type ReviewEventRow,
   type ContentJobRow,
+  type RepurposingExportAnalyticsSummary,
+  type RepurposingExportHistoryEntry,
   type RepurposingExportSelection,
   type RepurposingExportTemplateDetails,
   type JobStatusFilter,
@@ -148,10 +152,50 @@ export function RepurposingReviewConsole({
     useState<RepurposingExportSelection>(() =>
       getDefaultRepurposingExportSelection(initialJobs[0] ?? null),
     );
+  const [exportPlatformFilter, setExportPlatformFilter] = useState<
+    RepurposingExportTargetPlatform | "all"
+  >("all");
+  const [exportStatusFilter, setExportStatusFilter] = useState<
+    "all" | "exported" | "not_exported"
+  >("all");
+  const [exportPeriodFilter, setExportPeriodFilter] = useState<
+    "all" | "last_7_days" | "last_30_days"
+  >("all");
+
+  const exportAnalyticsSummary = useMemo(
+    () => getRepurposingExportAnalyticsSummary(jobs, exportEvents),
+    [exportEvents, jobs],
+  );
+  const exportHistoryEntries = useMemo(
+    () => getRepurposingExportHistoryEntries(exportEvents),
+    [exportEvents],
+  );
+  const exportHistoryByJobId = useMemo(
+    () => groupExportHistoryEntriesByJobId(exportHistoryEntries),
+    [exportHistoryEntries],
+  );
 
   const filteredJobs = useMemo(
-    () => jobs.filter((job) => matchesFilter(job, filter)),
-    [filter, jobs],
+    () =>
+      jobs.filter(
+        (job) =>
+          matchesFilter(job, filter) &&
+          matchesExportFilters(
+            job,
+            exportHistoryByJobId,
+            exportPlatformFilter,
+            exportStatusFilter,
+            exportPeriodFilter,
+          ),
+      ),
+    [
+      exportHistoryByJobId,
+      exportPeriodFilter,
+      exportPlatformFilter,
+      exportStatusFilter,
+      filter,
+      jobs,
+    ],
   );
 
   const selectedJob = useMemo(
@@ -177,8 +221,8 @@ export function RepurposingReviewConsole({
     [exportSelection, selectedJob],
   );
   const selectedExportHistory = useMemo(
-    () => getSelectedExportTrail(exportEvents, selectedJob?.id ?? null),
-    [exportEvents, selectedJob?.id],
+    () => (selectedJob ? (exportHistoryByJobId.get(selectedJob.id) ?? []) : []),
+    [exportHistoryByJobId, selectedJob],
   );
   const selectedAuditTrail = useMemo(
     () => getSelectedAuditTrail(initialAuditEvents, selectedJob?.id ?? null),
@@ -285,491 +329,568 @@ export function RepurposingReviewConsole({
   }
 
   return (
-    <section className="grid gap-6 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
-      <aside className="card h-fit xl:sticky xl:top-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="rounded-lg border border-signal-green/20 bg-signal-green/10 p-2 text-signal-green">
-            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-          </span>
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
-              Review queue
-            </p>
-            <h2 className="mt-1 text-lg font-semibold text-white">
-              Repurposing Jobs
-            </h2>
-          </div>
-        </div>
+    <div className="space-y-6">
+      <ExportAnalyticsSummaryPanel summary={exportAnalyticsSummary} />
 
-        <div className="mt-5 grid grid-cols-2 gap-3 text-center text-xs sm:grid-cols-4 xl:grid-cols-2">
-          <Counter label="Pending" value={counts.pending} />
-          <Counter label="Processing" value={counts.processing} />
-          <Counter label="Failed" value={counts.failed} />
-          <Counter label="Done" value={counts.done} />
-        </div>
-
-        <div className="mt-5 flex flex-wrap gap-2">
-          {statusFilters.map((item) => (
-            <button
-              aria-pressed={filter === item.value}
-              className={
-                filter === item.value
-                  ? "btn-primary min-h-9 px-3 py-1.5"
-                  : "btn-ghost min-h-9 px-3 py-1.5"
-              }
-              key={item.value}
-              onClick={() => setFilter(item.value)}
-              type="button"
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-5 space-y-3">
-          {filteredJobs.length === 0 ? (
-            <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-slate-400">
-              {getEmptyStateMessage(filter, jobs.length)}
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+        <aside className="card h-fit xl:sticky xl:top-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="rounded-lg border border-signal-green/20 bg-signal-green/10 p-2 text-signal-green">
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
+                Review queue
+              </p>
+              <h2 className="mt-1 text-lg font-semibold text-white">
+                Repurposing Jobs
+              </h2>
             </div>
-          ) : (
-            filteredJobs.map((job) => {
-              const summary = getRepurposingJobSummary(job);
+          </div>
 
-              return (
-                <button
-                  className={`block w-full rounded-xl border p-4 text-left transition ${
-                    selectedJob?.id === job.id
-                      ? "border-signal-green/30 bg-signal-green/10"
-                      : "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10"
-                  }`}
-                  key={job.id}
-                  onClick={() => setSelectedJobId(job.id)}
-                  type="button"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate font-semibold text-white">
-                        {getRepurposingJobTitle(job)}
+          <div className="mt-5 grid grid-cols-2 gap-3 text-center text-xs sm:grid-cols-4 xl:grid-cols-2">
+            <Counter label="Pending" value={counts.pending} />
+            <Counter label="Processing" value={counts.processing} />
+            <Counter label="Failed" value={counts.failed} />
+            <Counter label="Done" value={counts.done} />
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            {statusFilters.map((item) => (
+              <button
+                aria-pressed={filter === item.value}
+                className={
+                  filter === item.value
+                    ? "btn-primary min-h-9 px-3 py-1.5"
+                    : "btn-ghost min-h-9 px-3 py-1.5"
+                }
+                key={item.value}
+                onClick={() => setFilter(item.value)}
+                type="button"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-5 space-y-3 rounded-xl border border-white/10 bg-white/5 p-3">
+            <FilterGroup
+              label="Platform"
+              options={[
+                { label: "All", value: "all" },
+                { label: "TikTok", value: "tiktok" },
+                { label: "YouTube Shorts", value: "youtube_shorts" },
+              ]}
+              value={exportPlatformFilter}
+              onChange={(value) =>
+                setExportPlatformFilter(
+                  value as RepurposingExportTargetPlatform | "all",
+                )
+              }
+            />
+            <FilterGroup
+              label="Export status"
+              options={[
+                { label: "All", value: "all" },
+                { label: "Exported", value: "exported" },
+                { label: "Not exported", value: "not_exported" },
+              ]}
+              value={exportStatusFilter}
+              onChange={(value) =>
+                setExportStatusFilter(
+                  value as "all" | "exported" | "not_exported",
+                )
+              }
+            />
+            <FilterGroup
+              label="Period"
+              options={[
+                { label: "All time", value: "all" },
+                { label: "Last 7 days", value: "last_7_days" },
+                { label: "Last 30 days", value: "last_30_days" },
+              ]}
+              value={exportPeriodFilter}
+              onChange={(value) =>
+                setExportPeriodFilter(
+                  value as "all" | "last_7_days" | "last_30_days",
+                )
+              }
+            />
+          </div>
+
+          <div className="mt-5 space-y-3">
+            {filteredJobs.length === 0 ? (
+              <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-slate-400">
+                {getEmptyStateMessage(filter, jobs.length)}
+              </div>
+            ) : (
+              filteredJobs.map((job) => {
+                const summary = getRepurposingJobSummary(job);
+                const jobExportHistory = exportHistoryByJobId.get(job.id) ?? [];
+                const hasExportHistory = jobExportHistory.length > 0;
+                const approvedWithoutExport =
+                  summary.reviewStatus === "approved" && !hasExportHistory;
+
+                return (
+                  <button
+                    className={`block w-full rounded-xl border p-4 text-left transition ${
+                      selectedJob?.id === job.id
+                        ? "border-signal-green/30 bg-signal-green/10"
+                        : "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10"
+                    }`}
+                    key={job.id}
+                    onClick={() => setSelectedJobId(job.id)}
+                    type="button"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold text-white">
+                          {getRepurposingJobTitle(job)}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-400">
+                          {job.queue_job_id ?? job.id}
+                        </div>
                       </div>
-                      <div className="mt-1 text-xs text-slate-400">
-                        {job.queue_job_id ?? job.id}
-                      </div>
+                      <StatusBadge status={job.status} />
                     </div>
-                    <StatusBadge status={job.status} />
-                  </div>
 
-                  <div className="mt-3 text-sm leading-6 text-slate-300">
-                    {getRepurposingJobPreview(job)}
-                  </div>
+                    <div className="mt-3 text-sm leading-6 text-slate-300">
+                      {getRepurposingJobPreview(job)}
+                    </div>
 
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-                    <span>{formatRetrySummary(job)}</span>
-                    <span>{formatUpdatedAt(job.updated_at)}</span>
-                  </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                      <span>{formatRetrySummary(job)}</span>
+                      <span>{formatUpdatedAt(job.updated_at)}</span>
+                    </div>
 
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
-                    <MetaPill label="Provider" value={summary.sourceProvider} />
-                    <MetaPill
-                      label="Targets"
-                      value={formatArrayValue(summary.targetPlatforms)}
-                    />
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+                      <MetaPill
+                        label="Provider"
+                        value={summary.sourceProvider}
+                      />
+                      <MetaPill
+                        label="Targets"
+                        value={formatArrayValue(summary.targetPlatforms)}
+                      />
+                      <MetaPill
+                        label="Review"
+                        value={getRepurposingReviewStatusLabel(
+                          summary.reviewStatus,
+                        )}
+                      />
+                      <MetaPill
+                        label="Manual"
+                        value={
+                          summary.manualReviewRequired ? "Required" : "Optional"
+                        }
+                      />
+                      <MetaPill
+                        label="Export"
+                        value={
+                          hasExportHistory
+                            ? "Exported"
+                            : approvedWithoutExport
+                              ? "Approved but not exported"
+                              : "Not exported"
+                        }
+                      />
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </aside>
+
+        <article className="card min-w-0">
+          {selectedJob && hasVisibleJobs ? (
+            <div className="space-y-6">
+              <header className="flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
+                    Selected job
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">
+                    {getRepurposingJobTitle(selectedJob)}
+                  </h2>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+                    Manual-review-only repurposing brief. Keine Publishing-,
+                    Datei-Export- oder Rendering-Aktion in diesem Flow.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
                     <MetaPill
                       label="Review"
-                      value={getRepurposingReviewStatusLabel(
-                        summary.reviewStatus,
+                      value={formatReviewDecisionSummary(
+                        selectedSummary?.reviewStatus,
                       )}
                     />
                     <MetaPill
                       label="Manual"
                       value={
-                        summary.manualReviewRequired ? "Required" : "Optional"
+                        selectedSummary?.manualReviewRequired
+                          ? "Required"
+                          : "Optional"
                       }
                     />
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </aside>
-
-      <article className="card min-w-0">
-        {selectedJob && hasVisibleJobs ? (
-          <div className="space-y-6">
-            <header className="flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
-                  Selected job
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold text-white">
-                  {getRepurposingJobTitle(selectedJob)}
-                </h2>
-                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-                  Manual-review-only repurposing brief. Keine Publishing-,
-                  Datei-Export- oder Rendering-Aktion in diesem Flow.
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <MetaPill
-                    label="Review"
-                    value={formatReviewDecisionSummary(
-                      selectedSummary?.reviewStatus,
-                    )}
-                  />
-                  <MetaPill
-                    label="Manual"
-                    value={
-                      selectedSummary?.manualReviewRequired
-                        ? "Required"
-                        : "Optional"
-                    }
-                  />
-                  <MetaPill label="Clipboard" value="Sanitized local copy" />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge status={selectedJob.status} />
-                <span className="inline-flex min-h-8 items-center rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-slate-200">
-                  {formatReviewDecisionSummary(selectedSummary?.reviewStatus)}
-                </span>
-                <button
-                  className="btn-ghost min-h-9 gap-2 px-3 py-1.5 text-sm"
-                  onClick={() => {
-                    void copyReviewBundle(selectedJob).then(() => {
-                      setCopiedJobId(selectedJob.id);
-                      window.setTimeout(() => {
-                        setCopiedJobId((current) =>
-                          current === selectedJob.id ? null : current,
-                        );
-                      }, 1500);
-                    });
-                  }}
-                  title="Copies a sanitized summary to your clipboard."
-                  aria-label="Copy sanitized review summary to clipboard"
-                  type="button"
-                >
-                  <ClipboardCopy className="h-4 w-4" aria-hidden="true" />
-                  {copiedJobId === selectedJob.id
-                    ? "Copied"
-                    : "Copy sanitized review summary"}
-                </button>
-              </div>
-            </header>
-
-            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <InfoCard label="Content job id" value={selectedJob.id} />
-              <InfoCard
-                label="Queue job id"
-                value={selectedJob.queue_job_id ?? "not assigned"}
-              />
-              <InfoCard
-                label="Source provider"
-                value={selectedSummary?.sourceProvider ?? "Not available"}
-              />
-              <InfoCard
-                label="Source title"
-                value={selectedSummary?.sourceTitle ?? "Not available"}
-              />
-              <InfoCard
-                label="Source identifier"
-                value={selectedSummary?.sourceIdentifier ?? "Not available"}
-              />
-              <InfoCard
-                label="Target platforms"
-                value={formatArrayValue(selectedSummary?.targetPlatforms ?? [])}
-              />
-              <InfoCard
-                label="Generated at"
-                value={selectedSummary?.generatedAt ?? "Not available"}
-              />
-              <InfoCard
-                label="Model provider"
-                value={selectedSummary?.modelProvider ?? "Not available"}
-              />
-              <InfoCard
-                label="Model name"
-                value={selectedSummary?.modelName ?? "Not available"}
-              />
-              <InfoCard
-                label="Retry budget"
-                value={`${selectedJob.retry_count} / ${selectedJob.max_retries}`}
-              />
-              <InfoCard
-                label="Manual review"
-                value={
-                  selectedSummary?.manualReviewRequired
-                    ? "Required"
-                    : "Not marked"
-                }
-              />
-              <InfoCard
-                label="Review status"
-                value={formatReviewDecisionSummary(
-                  selectedSummary?.reviewStatus,
-                )}
-              />
-              <InfoCard
-                label="Reviewer notes"
-                value={
-                  selectedSummary?.reviewerNotes?.trim()
-                    ? sanitizeRepurposingFreeformText(
-                        selectedSummary.reviewerNotes,
-                      )
-                    : "No reviewer notes"
-                }
-              />
-              <InfoCard
-                label="Reviewed at"
-                value={selectedSummary?.reviewedAt ?? "Not reviewed yet"}
-              />
-              <InfoCard
-                label="Reviewed by"
-                value={selectedSummary?.reviewedBy ?? "Not reviewed yet"}
-              />
-              <InfoCard
-                label="Confidence"
-                value={selectedSummary?.confidence ?? "Not available"}
-              />
-            </section>
-
-            <section className="grid gap-4 xl:grid-cols-2">
-              <DetailPanel
-                label="Title suggestions"
-                value={readTextArray(selectedJob.result, "title_suggestions")}
-              />
-              <DetailPanel
-                label="Captions"
-                value={readTextArray(selectedJob.result, "captions")}
-              />
-              <DetailPanel
-                label="Descriptions"
-                value={readTextArray(selectedJob.result, "descriptions")}
-              />
-              <DetailPanel
-                label="Hashtag sets"
-                value={readNestedTextArray(selectedJob.result, "hashtag_sets")}
-              />
-              <DetailPanel
-                label="Hook ideas"
-                value={readTextArray(selectedJob.result, "hook_ideas")}
-              />
-              <DetailPanel
-                label="Short-form plan"
-                value={
-                  readText(selectedJob.result, "short_form_plan") ??
-                  "Not available"
-                }
-              />
-              <DetailPanel
-                label="AI review notes"
-                value={readTextArray(selectedJob.result, "review_notes")}
-              />
-              <DetailPanel
-                label="Warnings"
-                value={readTextArray(selectedJob.result, "warnings")}
-              />
-            </section>
-
-            <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              <form
-                action={reviewAction}
-                className="rounded-xl border border-white/10 bg-white/5 p-4"
-                key={selectedJob.id}
-              >
-                <div className="flex items-start gap-3">
-                  <span className="rounded-lg border border-signal-green/20 bg-signal-green/10 p-2 text-signal-green">
-                    <PencilLine className="h-4 w-4" aria-hidden="true" />
-                  </span>
-                  <div>
-                    <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
-                      Persisted review
-                    </p>
-                    <h3 className="mt-1 text-lg font-semibold text-white">
-                      Approve, reject, or request changes
-                    </h3>
+                    <MetaPill label="Clipboard" value="Sanitized local copy" />
                   </div>
                 </div>
 
-                <input name="jobId" type="hidden" value={selectedJob.id} />
-
-                <label className="mt-4 block">
-                  <span className="text-sm font-medium text-slate-200">
-                    Reviewer notes
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge status={selectedJob.status} />
+                  <span className="inline-flex min-h-8 items-center rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-slate-200">
+                    {formatReviewDecisionSummary(selectedSummary?.reviewStatus)}
                   </span>
-                  <textarea
-                    className="mt-2 min-h-32 w-full rounded-xl border border-white/10 bg-surface-900/80 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-signal-green/40"
-                    name="reviewerNotes"
-                    placeholder="Add an internal review note for this repurposing brief."
-                    defaultValue={selectedSummary?.reviewerNotes ?? ""}
-                  />
-                </label>
-
-                <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  {REPURPOSING_REVIEW_DECISIONS.map((decision) => (
-                    <ReviewDecisionButton decision={decision} key={decision} />
-                  ))}
+                  <button
+                    className="btn-ghost min-h-9 gap-2 px-3 py-1.5 text-sm"
+                    onClick={() => {
+                      void copyReviewBundle(selectedJob).then(() => {
+                        setCopiedJobId(selectedJob.id);
+                        window.setTimeout(() => {
+                          setCopiedJobId((current) =>
+                            current === selectedJob.id ? null : current,
+                          );
+                        }, 1500);
+                      });
+                    }}
+                    title="Copies a sanitized summary to your clipboard."
+                    aria-label="Copy sanitized review summary to clipboard"
+                    type="button"
+                  >
+                    <ClipboardCopy className="h-4 w-4" aria-hidden="true" />
+                    {copiedJobId === selectedJob.id
+                      ? "Copied"
+                      : "Copy sanitized review summary"}
+                  </button>
                 </div>
+              </header>
 
-                <p className="mt-3 text-xs leading-5 text-slate-400">
-                  Review decisions are stored server-side with an append-only
-                  audit trail. There is no publishing, file export, worker
-                  dispatch, or AI execution from this surface.
-                </p>
-              </form>
-
-              <section className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="flex items-start gap-3">
-                  <span className="rounded-lg border border-signal-green/20 bg-signal-green/10 p-2 text-signal-green">
-                    <MessageSquareMore className="h-4 w-4" aria-hidden="true" />
-                  </span>
-                  <div>
-                    <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
-                      Audit trail
-                    </p>
-                    <h3 className="mt-1 text-lg font-semibold text-white">
-                      Review history for this job
-                    </h3>
-                  </div>
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  {selectedAuditTrail.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-white/10 bg-white/5 p-4 text-sm text-slate-400">
-                      No review events stored yet.
-                    </div>
-                  ) : (
-                    selectedAuditTrail.map((event) => (
-                      <article
-                        className="rounded-xl border border-white/10 bg-surface-900/75 p-4"
-                        key={event.id}
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span
-                            className={`inline-flex min-h-8 items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-semibold ${getRepurposingReviewDecisionClassName(
-                              event.review_status,
-                            )}`}
-                          >
-                            {formatReviewDecisionSummary(event.review_status)}
-                          </span>
-                          <time
-                            className="text-xs text-slate-400"
-                            dateTime={event.reviewed_at}
-                          >
-                            {formatUpdatedAt(event.reviewed_at)}
-                          </time>
-                        </div>
-
-                        <p className="mt-3 text-sm leading-6 text-slate-200">
-                          {event.reviewer_notes
-                            ? sanitizeRepurposingFreeformText(
-                                event.reviewer_notes,
-                              )
-                            : "No reviewer notes recorded."}
-                        </p>
-
-                        <dl className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
-                          <ReviewTrailDefinition
-                            label="Previous status"
-                            value={formatReviewDecisionSummary(
-                              event.previous_review_status,
-                            )}
-                          />
-                          <ReviewTrailDefinition
-                            label="Reviewer"
-                            value={event.reviewed_by}
-                          />
-                        </dl>
-                      </article>
-                    ))
+              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <InfoCard label="Content job id" value={selectedJob.id} />
+                <InfoCard
+                  label="Queue job id"
+                  value={selectedJob.queue_job_id ?? "not assigned"}
+                />
+                <InfoCard
+                  label="Source provider"
+                  value={selectedSummary?.sourceProvider ?? "Not available"}
+                />
+                <InfoCard
+                  label="Source title"
+                  value={selectedSummary?.sourceTitle ?? "Not available"}
+                />
+                <InfoCard
+                  label="Source identifier"
+                  value={selectedSummary?.sourceIdentifier ?? "Not available"}
+                />
+                <InfoCard
+                  label="Target platforms"
+                  value={formatArrayValue(
+                    selectedSummary?.targetPlatforms ?? [],
                   )}
-                </div>
+                />
+                <InfoCard
+                  label="Generated at"
+                  value={selectedSummary?.generatedAt ?? "Not available"}
+                />
+                <InfoCard
+                  label="Model provider"
+                  value={selectedSummary?.modelProvider ?? "Not available"}
+                />
+                <InfoCard
+                  label="Model name"
+                  value={selectedSummary?.modelName ?? "Not available"}
+                />
+                <InfoCard
+                  label="Retry budget"
+                  value={`${selectedJob.retry_count} / ${selectedJob.max_retries}`}
+                />
+                <InfoCard
+                  label="Manual review"
+                  value={
+                    selectedSummary?.manualReviewRequired
+                      ? "Required"
+                      : "Not marked"
+                  }
+                />
+                <InfoCard
+                  label="Review status"
+                  value={formatReviewDecisionSummary(
+                    selectedSummary?.reviewStatus,
+                  )}
+                />
+                <InfoCard
+                  label="Reviewer notes"
+                  value={
+                    selectedSummary?.reviewerNotes?.trim()
+                      ? sanitizeRepurposingFreeformText(
+                          selectedSummary.reviewerNotes,
+                        )
+                      : "No reviewer notes"
+                  }
+                />
+                <InfoCard
+                  label="Reviewed at"
+                  value={selectedSummary?.reviewedAt ?? "Not reviewed yet"}
+                />
+                <InfoCard
+                  label="Reviewed by"
+                  value={selectedSummary?.reviewedBy ?? "Not reviewed yet"}
+                />
+                <InfoCard
+                  label="Confidence"
+                  value={selectedSummary?.confidence ?? "Not available"}
+                />
               </section>
-            </section>
 
-            <section className="grid gap-4 xl:grid-cols-2">
-              <ExportBundleSection
-                actionId={buildExportActionId(selectedJob.id, "bundle")}
-                bundle={selectedExportBundle}
-                copyState={exportCopyState}
-                copiedActionId={copiedExportActionId}
-                onCopy={() =>
-                  void copyExportOption(
-                    {
-                      body: selectedExportBundle?.bundleText ?? "",
-                      eventType: "copy_bundle",
-                      targetPlatform: (selectedExportBundle?.targetPlatform ??
-                        "tiktok") as RepurposingExportTargetPlatform,
-                      templateKey: "bundle",
-                      title: "Approved export bundle",
-                    },
-                    selectedExportBundle?.bundleText ?? "",
-                  )
-                }
-                onSelectionChange={setExportSelection}
-                selection={exportSelection}
-              />
+              <section className="grid gap-4 xl:grid-cols-2">
+                <DetailPanel
+                  label="Title suggestions"
+                  value={readTextArray(selectedJob.result, "title_suggestions")}
+                />
+                <DetailPanel
+                  label="Captions"
+                  value={readTextArray(selectedJob.result, "captions")}
+                />
+                <DetailPanel
+                  label="Descriptions"
+                  value={readTextArray(selectedJob.result, "descriptions")}
+                />
+                <DetailPanel
+                  label="Hashtag sets"
+                  value={readNestedTextArray(
+                    selectedJob.result,
+                    "hashtag_sets",
+                  )}
+                />
+                <DetailPanel
+                  label="Hook ideas"
+                  value={readTextArray(selectedJob.result, "hook_ideas")}
+                />
+                <DetailPanel
+                  label="Short-form plan"
+                  value={
+                    readText(selectedJob.result, "short_form_plan") ??
+                    "Not available"
+                  }
+                />
+                <DetailPanel
+                  label="AI review notes"
+                  value={readTextArray(selectedJob.result, "review_notes")}
+                />
+                <DetailPanel
+                  label="Warnings"
+                  value={readTextArray(selectedJob.result, "warnings")}
+                />
+              </section>
 
-              <ExportTemplatesSection
-                actionIdPrefix={selectedJob.id}
-                copyState={exportCopyState}
-                copiedActionId={copiedExportActionId}
-                onCopy={(template) =>
-                  void copyExportOption(
-                    {
-                      body: template.body,
-                      eventType: "copy_template",
-                      targetPlatform: template.targetPlatform,
-                      templateKey: template.templateKey,
-                      title: template.title,
-                    },
-                    template.body,
-                  )
-                }
-                templates={selectedExportTemplates}
-              />
-            </section>
+              <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <form
+                  action={reviewAction}
+                  className="rounded-xl border border-white/10 bg-white/5 p-4"
+                  key={selectedJob.id}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="rounded-lg border border-signal-green/20 bg-signal-green/10 p-2 text-signal-green">
+                      <PencilLine className="h-4 w-4" aria-hidden="true" />
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
+                        Persisted review
+                      </p>
+                      <h3 className="mt-1 text-lg font-semibold text-white">
+                        Approve, reject, or request changes
+                      </h3>
+                    </div>
+                  </div>
 
-            <ExportAuditHistorySection events={selectedExportHistory} />
+                  <input name="jobId" type="hidden" value={selectedJob.id} />
 
-            <section className="grid gap-4 xl:grid-cols-2">
-              <RawPanel
-                label="Open raw payload"
-                value={formatSanitizedJsonBlock(selectedJob.payload)}
-              />
-              <RawPanel
-                label="Open raw result"
-                value={formatSanitizedJsonBlock(selectedJob.result)}
-              />
-            </section>
+                  <label className="mt-4 block">
+                    <span className="text-sm font-medium text-slate-200">
+                      Reviewer notes
+                    </span>
+                    <textarea
+                      className="mt-2 min-h-32 w-full rounded-xl border border-white/10 bg-surface-900/80 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-signal-green/40"
+                      name="reviewerNotes"
+                      placeholder="Add an internal review note for this repurposing brief."
+                      defaultValue={selectedSummary?.reviewerNotes ?? ""}
+                    />
+                  </label>
 
-            <section className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-              <div className="flex items-center gap-2 text-slate-200">
-                <AlertTriangle className="h-4 w-4 text-amber-300" />
-                Review contract
-              </div>
-              <p className="mt-2 leading-6 text-slate-400">
-                This view is intentionally read-only. Approved repurposing
-                actions, publishing, cross-posting, clip export, and rendering
-                remain out of scope until a separate backend contract exists.
-              </p>
-            </section>
-          </div>
-        ) : (
-          <div className="grid min-h-96 place-items-center rounded-xl border border-dashed border-white/10 bg-white/5 text-center">
-            <div className="max-w-md px-6 py-10">
-              <h2 className="text-xl font-semibold text-white">
-                {jobs.length === 0
-                  ? "No repurposing jobs found"
-                  : "No jobs match this filter"}
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-slate-400">
-                {getEmptyStateMessage(filter, jobs.length)}
-              </p>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    {REPURPOSING_REVIEW_DECISIONS.map((decision) => (
+                      <ReviewDecisionButton
+                        decision={decision}
+                        key={decision}
+                      />
+                    ))}
+                  </div>
+
+                  <p className="mt-3 text-xs leading-5 text-slate-400">
+                    Review decisions are stored server-side with an append-only
+                    audit trail. There is no publishing, file export, worker
+                    dispatch, or AI execution from this surface.
+                  </p>
+                </form>
+
+                <section className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="rounded-lg border border-signal-green/20 bg-signal-green/10 p-2 text-signal-green">
+                      <MessageSquareMore
+                        className="h-4 w-4"
+                        aria-hidden="true"
+                      />
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
+                        Audit trail
+                      </p>
+                      <h3 className="mt-1 text-lg font-semibold text-white">
+                        Review history for this job
+                      </h3>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    {selectedAuditTrail.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-white/10 bg-white/5 p-4 text-sm text-slate-400">
+                        No review events stored yet.
+                      </div>
+                    ) : (
+                      selectedAuditTrail.map((event) => (
+                        <article
+                          className="rounded-xl border border-white/10 bg-surface-900/75 p-4"
+                          key={event.id}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span
+                              className={`inline-flex min-h-8 items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-semibold ${getRepurposingReviewDecisionClassName(
+                                event.review_status,
+                              )}`}
+                            >
+                              {formatReviewDecisionSummary(event.review_status)}
+                            </span>
+                            <time
+                              className="text-xs text-slate-400"
+                              dateTime={event.reviewed_at}
+                            >
+                              {formatUpdatedAt(event.reviewed_at)}
+                            </time>
+                          </div>
+
+                          <p className="mt-3 text-sm leading-6 text-slate-200">
+                            {event.reviewer_notes
+                              ? sanitizeRepurposingFreeformText(
+                                  event.reviewer_notes,
+                                )
+                              : "No reviewer notes recorded."}
+                          </p>
+
+                          <dl className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
+                            <ReviewTrailDefinition
+                              label="Previous status"
+                              value={formatReviewDecisionSummary(
+                                event.previous_review_status,
+                              )}
+                            />
+                            <ReviewTrailDefinition
+                              label="Reviewer"
+                              value={event.reviewed_by}
+                            />
+                          </dl>
+                        </article>
+                      ))
+                    )}
+                  </div>
+                </section>
+              </section>
+
+              <section className="grid gap-4 xl:grid-cols-2">
+                <ExportBundleSection
+                  actionId={buildExportActionId(selectedJob.id, "bundle")}
+                  bundle={selectedExportBundle}
+                  copyState={exportCopyState}
+                  copiedActionId={copiedExportActionId}
+                  onCopy={() =>
+                    void copyExportOption(
+                      {
+                        body: selectedExportBundle?.bundleText ?? "",
+                        eventType: "copy_bundle",
+                        targetPlatform: (selectedExportBundle?.targetPlatform ??
+                          "tiktok") as RepurposingExportTargetPlatform,
+                        templateKey: "bundle",
+                        title: "Approved export bundle",
+                      },
+                      selectedExportBundle?.bundleText ?? "",
+                    )
+                  }
+                  onSelectionChange={setExportSelection}
+                  selection={exportSelection}
+                />
+
+                <ExportTemplatesSection
+                  actionIdPrefix={selectedJob.id}
+                  copyState={exportCopyState}
+                  copiedActionId={copiedExportActionId}
+                  onCopy={(template) =>
+                    void copyExportOption(
+                      {
+                        body: template.body,
+                        eventType: "copy_template",
+                        targetPlatform: template.targetPlatform,
+                        templateKey: template.templateKey,
+                        title: template.title,
+                      },
+                      template.body,
+                    )
+                  }
+                  templates={selectedExportTemplates}
+                />
+              </section>
+
+              <ExportAuditHistorySection events={selectedExportHistory} />
+
+              <section className="grid gap-4 xl:grid-cols-2">
+                <RawPanel
+                  label="Open raw payload"
+                  value={formatSanitizedJsonBlock(selectedJob.payload)}
+                />
+                <RawPanel
+                  label="Open raw result"
+                  value={formatSanitizedJsonBlock(selectedJob.result)}
+                />
+              </section>
+
+              <section className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                <div className="flex items-center gap-2 text-slate-200">
+                  <AlertTriangle className="h-4 w-4 text-amber-300" />
+                  Review contract
+                </div>
+                <p className="mt-2 leading-6 text-slate-400">
+                  This view is intentionally read-only. Approved repurposing
+                  actions, publishing, cross-posting, clip export, and rendering
+                  remain out of scope until a separate backend contract exists.
+                </p>
+              </section>
             </div>
-          </div>
-        )}
-      </article>
-    </section>
+          ) : (
+            <div className="grid min-h-96 place-items-center rounded-xl border border-dashed border-white/10 bg-white/5 text-center">
+              <div className="max-w-md px-6 py-10">
+                <h2 className="text-xl font-semibold text-white">
+                  {jobs.length === 0
+                    ? "No repurposing jobs found"
+                    : "No jobs match this filter"}
+                </h2>
+                <p className="mt-3 text-sm leading-6 text-slate-400">
+                  {getEmptyStateMessage(filter, jobs.length)}
+                </p>
+              </div>
+            </div>
+          )}
+        </article>
+      </section>
+    </div>
   );
 }
 
@@ -1008,6 +1129,182 @@ function ReviewTrailDefinition({
       <dd className="mt-1 break-words text-xs leading-5 text-slate-200">
         {value ?? "Not available"}
       </dd>
+    </div>
+  );
+}
+
+function ExportAnalyticsSummaryPanel({
+  summary,
+}: {
+  summary: RepurposingExportAnalyticsSummary;
+}) {
+  return (
+    <section className="card">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="rounded-lg border border-signal-green/20 bg-signal-green/10 p-2 text-signal-green">
+          <MessageSquareMore className="h-4 w-4" aria-hidden="true" />
+        </span>
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Export analytics
+          </p>
+          <h2 className="mt-1 text-lg font-semibold text-white">
+            Workspace export summary
+          </h2>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <SummaryMetric
+          label="Total exports"
+          value={summary.totalExports.toString()}
+        />
+        <SummaryMetric
+          label="Latest export"
+          value={
+            summary.latestExportAt
+              ? formatUpdatedAt(summary.latestExportAt)
+              : "No exports yet"
+          }
+        />
+        <SummaryMetric
+          label="Top platform"
+          value={
+            summary.topPlatform
+              ? getRepurposingExportTargetPlatformLabel(summary.topPlatform)
+              : "Not available"
+          }
+        />
+        <SummaryMetric
+          label="Approved not exported"
+          value={summary.approvedJobsWithoutExport.toString()}
+        />
+        <SummaryMetric
+          label="Last 7 days"
+          value={summary.exportsLast7Days.toString()}
+        />
+        <SummaryMetric
+          label="Last 30 days"
+          value={summary.exportsLast30Days.toString()}
+        />
+      </div>
+
+      <div className="mt-5 grid gap-3 xl:grid-cols-3">
+        <SummaryBreakdown
+          label="By platform"
+          items={[
+            {
+              label: "TikTok",
+              value: summary.exportsByPlatform.tiktok,
+            },
+            {
+              label: "YouTube Shorts",
+              value: summary.exportsByPlatform.youtube_shorts,
+            },
+          ]}
+        />
+        <SummaryBreakdown
+          label="By template"
+          items={[
+            { label: "Bundle", value: summary.exportsByTemplate.bundle },
+            {
+              label: "TikTok template",
+              value: summary.exportsByTemplate.tiktok,
+            },
+            {
+              label: "YouTube Shorts template",
+              value: summary.exportsByTemplate.youtube_shorts,
+            },
+          ]}
+        />
+        <SummaryBreakdown
+          label="By event type"
+          items={[
+            {
+              label: "Bundle copy",
+              value: summary.exportsByEventType.copy_bundle,
+            },
+            {
+              label: "Platform template copy",
+              value: summary.exportsByEventType.copy_template,
+            },
+          ]}
+        />
+      </div>
+    </section>
+  );
+}
+
+function SummaryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+        {label}
+      </p>
+      <p className="mt-2 text-sm font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+function SummaryBreakdown({
+  items,
+  label,
+}: {
+  items: Array<{ label: string; value: number }>;
+  label: string;
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+        {label}
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {items.map((item) => (
+          <span
+            className="inline-flex min-h-8 items-center rounded-lg border border-white/10 bg-surface-900/70 px-2.5 py-1 text-xs font-semibold text-slate-200"
+            key={item.label}
+          >
+            {item.label}: {item.value}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FilterGroup({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: Array<{ label: string; value: string }>;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+        {label}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {options.map((option) => (
+          <button
+            aria-pressed={value === option.value}
+            className={
+              value === option.value
+                ? "btn-primary min-h-8 px-3 py-1.5 text-xs"
+                : "btn-ghost min-h-8 px-3 py-1.5 text-xs"
+            }
+            key={option.value}
+            onClick={() => onChange(option.value)}
+            type="button"
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1315,7 +1612,7 @@ function ExportTemplatesSection({
 function ExportAuditHistorySection({
   events,
 }: {
-  events: RepurposingExportEventRow[];
+  events: RepurposingExportHistoryEntry[];
 }) {
   return (
     <section className="rounded-xl border border-white/10 bg-white/5 p-4">
@@ -1325,10 +1622,10 @@ function ExportAuditHistorySection({
         </span>
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
-            Export audit
+            Export history
           </p>
           <h3 className="mt-1 text-lg font-semibold text-white">
-            Recent copy events
+            Recent export events
           </h3>
         </div>
       </div>
@@ -1336,45 +1633,54 @@ function ExportAuditHistorySection({
       <div className="mt-4 space-y-3">
         {events.length === 0 ? (
           <div className="rounded-lg border border-dashed border-white/10 bg-white/5 p-4 text-sm text-slate-400">
-            No export audit events stored yet.
+            Noch nicht exportiert.
           </div>
         ) : (
           events.map((event) => (
             <article
               className="rounded-xl border border-white/10 bg-surface-900/75 p-4"
-              key={event.id}
+              key={`${event.contentJobId}:${event.createdAt}:${event.templateKey}`}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="inline-flex min-h-8 items-center rounded-lg border border-signal-green/30 bg-signal-green/10 px-2.5 py-1 text-xs font-semibold text-signal-green">
-                  {getRepurposingExportEventLabel(event.event_type)}
+                  {getRepurposingExportEventLabel(event.eventType)}
                 </span>
-                <time
-                  className="text-xs text-slate-400"
-                  dateTime={event.created_at}
-                >
-                  {formatUpdatedAt(event.created_at)}
-                </time>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                  <span>{event.actorLabel}</span>
+                  <span>•</span>
+                  <time
+                    className="text-xs text-slate-400"
+                    dateTime={event.createdAt}
+                  >
+                    {formatUpdatedAt(event.createdAt)}
+                  </time>
+                </div>
               </div>
 
               <p className="mt-3 text-sm leading-6 text-slate-200">
-                {getRepurposingExportTemplateLabel(event.template_key)} -{" "}
-                {getRepurposingExportTargetPlatformLabel(event.target_platform)}
+                {getRepurposingExportTargetPlatformLabel(event.targetPlatform)}{" "}
+                · {getRepurposingExportTemplateLabel(event.templateKey)}
               </p>
 
               <dl className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
                 <ReviewTrailDefinition
                   label="Review status"
                   value={formatReviewDecisionSummary(
-                    event.review_status_at_export,
+                    event.reviewStatusAtExport,
                   )}
                 />
                 <ReviewTrailDefinition
                   label="Bundle hash"
                   value={
-                    event.bundle_hash
-                      ? `${event.bundle_hash.slice(0, 12)}...`
+                    event.bundleHash
+                      ? `${event.bundleHash.slice(0, 12)}...`
                       : "Not available"
                   }
+                />
+                <ReviewTrailDefinition label="Source" value={event.source} />
+                <ReviewTrailDefinition
+                  label="Metadata"
+                  value={event.metadataSummary ?? "Not available"}
                 />
               </dl>
             </article>
@@ -1449,22 +1755,62 @@ function getSelectedAuditTrail(
     );
 }
 
-function getSelectedExportTrail(
-  exportEvents: RepurposingExportEventRow[],
-  selectedJobId: string | null,
-): RepurposingExportEventRow[] {
-  if (!selectedJobId) {
-    return [];
+function groupExportHistoryEntriesByJobId(
+  entries: RepurposingExportHistoryEntry[],
+): Map<string, RepurposingExportHistoryEntry[]> {
+  const grouped = new Map<string, RepurposingExportHistoryEntry[]>();
+
+  for (const entry of entries) {
+    const currentEntries = grouped.get(entry.contentJobId) ?? [];
+    currentEntries.push(entry);
+    grouped.set(entry.contentJobId, currentEntries);
   }
 
-  return exportEvents
-    .filter((event) => event.content_job_id === selectedJobId)
-    .slice()
-    .sort(
-      (left, right) =>
-        new Date(right.created_at).getTime() -
-        new Date(left.created_at).getTime(),
-    );
+  return grouped;
+}
+
+function matchesExportFilters(
+  job: ContentJobRow,
+  exportHistoryByJobId: Map<string, RepurposingExportHistoryEntry[]>,
+  platformFilter: RepurposingExportTargetPlatform | "all",
+  statusFilter: "all" | "exported" | "not_exported",
+  periodFilter: "all" | "last_7_days" | "last_30_days",
+): boolean {
+  const history = exportHistoryByJobId.get(job.id) ?? [];
+  const hasExportHistory = history.length > 0;
+
+  if (
+    platformFilter !== "all" &&
+    !history.some((entry) => entry.targetPlatform === platformFilter)
+  ) {
+    return false;
+  }
+
+  if (statusFilter === "exported" && !hasExportHistory) {
+    return false;
+  }
+
+  if (statusFilter === "not_exported" && hasExportHistory) {
+    return false;
+  }
+
+  if (periodFilter === "all") {
+    return true;
+  }
+
+  const referenceAt = hasExportHistory ? history[0]?.createdAt : job.updated_at;
+  if (!referenceAt) {
+    return false;
+  }
+
+  const referenceTime = new Date(referenceAt).getTime();
+  const now = Date.now();
+  const threshold =
+    periodFilter === "last_7_days"
+      ? now - 7 * 24 * 60 * 60 * 1000
+      : now - 30 * 24 * 60 * 60 * 1000;
+
+  return referenceTime >= threshold;
 }
 
 function buildExportActionId(

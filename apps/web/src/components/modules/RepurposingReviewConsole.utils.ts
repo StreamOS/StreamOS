@@ -2,6 +2,8 @@ import type { Tables } from "@streamos/database";
 import {
   getRepurposingReviewStatusLabel,
   getRepurposingExportTemplateLabel,
+  type RepurposingExportEventRow,
+  type RepurposingExportEventType,
   type RepurposingExportTemplateKey,
   type RepurposingExportTargetPlatform,
   type RepurposingReviewEventRow,
@@ -546,6 +548,31 @@ export type RepurposingExportTemplateDetails = {
   title: string;
 };
 
+export type RepurposingExportHistoryEntry = {
+  actorLabel: string;
+  bundleHash: string | null;
+  contentJobId: string;
+  createdAt: string;
+  eventType: RepurposingExportEventType;
+  metadataSummary: string | null;
+  reviewStatusAtExport: RepurposingReviewStatus;
+  source: string;
+  targetPlatform: RepurposingExportTargetPlatform;
+  templateKey: RepurposingExportTemplateKey;
+};
+
+export type RepurposingExportAnalyticsSummary = {
+  approvedJobsWithoutExport: number;
+  exportsByEventType: Record<RepurposingExportEventType, number>;
+  exportsByPlatform: Record<RepurposingExportTargetPlatform, number>;
+  exportsByTemplate: Record<RepurposingExportTemplateKey, number>;
+  exportsLast30Days: number;
+  exportsLast7Days: number;
+  latestExportAt: string | null;
+  totalExports: number;
+  topPlatform: RepurposingExportTargetPlatform | null;
+};
+
 type RepurposingExportPlatformTemplateKey = Exclude<
   RepurposingExportTemplateKey,
   "bundle"
@@ -841,6 +868,120 @@ export function getRepurposingExportTemplates(
   );
 }
 
+export function getRepurposingExportHistoryEntries(
+  exportEvents: RepurposingExportEventRow[],
+  viewerUserId: string | null | undefined = null,
+): RepurposingExportHistoryEntry[] {
+  return exportEvents
+    .slice()
+    .sort(
+      (left, right) =>
+        new Date(right.created_at).getTime() -
+        new Date(left.created_at).getTime(),
+    )
+    .map((event) => ({
+      actorLabel: formatExportActorLabel(event.actor_id, viewerUserId),
+      bundleHash: event.bundle_hash,
+      contentJobId: event.content_job_id,
+      createdAt: event.created_at,
+      eventType: event.event_type,
+      metadataSummary: formatExportMetadataSummary(event.metadata),
+      reviewStatusAtExport: event.review_status_at_export,
+      source: sanitizeString(event.source ?? "Not available"),
+      targetPlatform: event.target_platform,
+      templateKey: event.template_key,
+    }));
+}
+
+export function getRepurposingExportAnalyticsSummary(
+  jobs: ContentJobRow[],
+  exportEvents: RepurposingExportEventRow[],
+  now: Date = new Date(),
+): RepurposingExportAnalyticsSummary {
+  const summary: RepurposingExportAnalyticsSummary = {
+    approvedJobsWithoutExport: 0,
+    exportsByEventType: {
+      copy_bundle: 0,
+      copy_template: 0,
+    },
+    exportsByPlatform: {
+      tiktok: 0,
+      youtube_shorts: 0,
+    },
+    exportsByTemplate: {
+      bundle: 0,
+      tiktok: 0,
+      youtube_shorts: 0,
+    },
+    exportsLast30Days: 0,
+    exportsLast7Days: 0,
+    latestExportAt: null,
+    totalExports: exportEvents.length,
+    topPlatform: null,
+  };
+
+  const exportJobIds = new Set<string>();
+  const sevenDaysAgo = now.getTime() - 7 * 24 * 60 * 60 * 1000;
+  const thirtyDaysAgo = now.getTime() - 30 * 24 * 60 * 60 * 1000;
+
+  for (const event of exportEvents) {
+    exportJobIds.add(event.content_job_id);
+    summary.exportsByEventType[event.event_type] += 1;
+    summary.exportsByPlatform[event.target_platform] += 1;
+    summary.exportsByTemplate[event.template_key] += 1;
+
+    const eventTime = new Date(event.created_at).getTime();
+    if (eventTime >= sevenDaysAgo) {
+      summary.exportsLast7Days += 1;
+    }
+    if (eventTime >= thirtyDaysAgo) {
+      summary.exportsLast30Days += 1;
+    }
+
+    if (
+      !summary.latestExportAt ||
+      eventTime > new Date(summary.latestExportAt).getTime()
+    ) {
+      summary.latestExportAt = event.created_at;
+    }
+  }
+
+  summary.approvedJobsWithoutExport = jobs.filter((job) => {
+    if (!getRepurposingExportEligibility(job).eligible) {
+      return false;
+    }
+
+    return !exportJobIds.has(job.id);
+  }).length;
+
+  summary.topPlatform = resolveTopExportPlatform(summary.exportsByPlatform);
+
+  return summary;
+}
+
+export function isRepurposingJobExported(
+  jobId: string,
+  exportEvents: RepurposingExportEventRow[],
+): boolean {
+  return exportEvents.some((event) => event.content_job_id === jobId);
+}
+
+export function getLatestRepurposingExportAt(
+  jobId: string,
+  exportEvents: RepurposingExportEventRow[],
+): string | null {
+  const latest = exportEvents
+    .filter((event) => event.content_job_id === jobId)
+    .slice()
+    .sort(
+      (left, right) =>
+        new Date(right.created_at).getTime() -
+        new Date(left.created_at).getTime(),
+    )[0];
+
+  return latest?.created_at ?? null;
+}
+
 function normalizeReviewStatus(status: unknown): RepurposingReviewStatus {
   switch (status) {
     case "approved":
@@ -851,4 +992,64 @@ function normalizeReviewStatus(status: unknown): RepurposingReviewStatus {
     default:
       return "needs_review";
   }
+}
+
+function resolveTopExportPlatform(
+  counts: Record<RepurposingExportTargetPlatform, number>,
+): RepurposingExportTargetPlatform | null {
+  const orderedPlatforms: RepurposingExportTargetPlatform[] = [
+    "tiktok",
+    "youtube_shorts",
+  ];
+
+  let topPlatform: RepurposingExportTargetPlatform | null = null;
+  let topCount = 0;
+
+  for (const platform of orderedPlatforms) {
+    const count = counts[platform];
+    if (count > topCount) {
+      topCount = count;
+      topPlatform = platform;
+    }
+  }
+
+  return topCount > 0 ? topPlatform : null;
+}
+
+function formatExportActorLabel(
+  actorId: string,
+  viewerUserId: string | null | undefined,
+): string {
+  if (viewerUserId && actorId === viewerUserId) {
+    return "You";
+  }
+
+  return `Actor ${actorId.slice(0, 8)}…`;
+}
+
+function formatExportMetadataSummary(metadata: unknown): string | null {
+  if (!isRecord(metadata)) {
+    return null;
+  }
+
+  const parts: string[] = [];
+  const bundleLength = readNumber(metadata, "bundle_length");
+  const eventLabel = readString(metadata, "event_label");
+  const templateLabel = readString(metadata, "template_label");
+  const targetPlatform = readString(metadata, "target_platform");
+
+  if (typeof bundleLength === "number") {
+    parts.push(`bundle_length: ${bundleLength}`);
+  }
+  if (eventLabel) {
+    parts.push(eventLabel);
+  }
+  if (templateLabel) {
+    parts.push(templateLabel);
+  }
+  if (targetPlatform) {
+    parts.push(targetPlatform);
+  }
+
+  return parts.length > 0 ? parts.join(" • ") : null;
 }
