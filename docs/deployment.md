@@ -11,6 +11,7 @@ This document defines the production deployment topology for the StreamOS monore
 | `services/automation-service`      | FastAPI                | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                                                                   |
 | `workers/stream-job-worker`        | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-media` consumer for stream materialization and transcription fan-out                  |
 | `workers/repurposing-worker`       | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-repurposing` consumer for manual-review-only repurposing plans                        |
+| `workers/publishing-worker`        | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-publishing` consumer for approved publication execution and reconciliation            |
 | `workers/transcription-worker`     | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI                                                    |
 | `workers/content-job-retry-worker` | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into BullMQ                                                      |
 | `release-gate-runner`              | Node.js operator shell | Railway private worker/service                                 | Proof-only runtime for `pnpm rollout:check:production` using the gate-required release-candidate snapshot |
@@ -19,10 +20,11 @@ This document defines the production deployment topology for the StreamOS monore
 
 - Browser code must call the Next.js app or `services/api-gateway`; it must not call AI providers directly.
 - `services/api-gateway` is the public backend entrypoint for external webhooks, app-facing backend APIs, platform OAuth flows, provider token refresh, metrics writes, and queue-producing commands.
-- `services/api-gateway` also owns the server-side publication validation contract at `POST /api/content-publications`; it freezes approved repurposing snapshots and records `content_publications` plus `content_publication_events` without starting a publish worker yet.
+- `services/api-gateway` also owns the server-side publication contract at `POST /api/content-publications` and the publish/reconcile actions under `/api/content-publications/:id/publish` and `/api/content-publications/:id/reconcile`; it freezes approved repurposing snapshots, validates tenant and scope eligibility, writes `content_publications` plus `content_publication_events`, and enqueues `streamos-publishing` jobs for server-side worker execution.
 - `services/automation-service` should use private Railway networking in production. Do not call it from browser code or Vercel client bundles; only Railway services/workers in the same project/environment should call it.
 - `workers/stream-job-worker` is the only canonical `streamos-media` consumer. It materializes `streams`, creates durable `content_jobs`, and enqueues canonical `transcription.trigger` jobs when a media event already includes, or the API Gateway can resolve, enough transcription input such as `vodAssetUrl`.
 - `workers/repurposing-worker` is the only canonical `streamos-repurposing` consumer. It consumes durable `repurposing.plan` jobs, calls `services/automation-service` at `POST /repurposing/plan`, and persists a manual-review-only result to `content_jobs.result`.
+- `workers/publishing-worker` is the only canonical `streamos-publishing` consumer. It executes approved publication jobs against server-owned provider write APIs, performs publication reconciliation, and persists publication status plus audit events in Supabase.
 - `workers/transcription-worker` consumes only `streamos-transcription`, calls `services/automation-service`, and writes transcription job status plus derived transcript state to Supabase.
 - `workers/content-job-retry-worker` owns retry orchestration for failed `content_jobs`; it uses the Supabase service-role key server-side and requeues only supported job payloads. Row-level `content_jobs.max_retries` is the source of truth for retry budget, including manual retries from the dashboard.
 - `release-gate-runner` is not a product service. It exists only to provide a Railway-internal shell/runtime that contains the same gate-required release-candidate snapshot as the services under test, so `pnpm rollout:check:production` can run with private Automation Service reachability and the required monorepo sources.
@@ -414,6 +416,76 @@ pnpm --filter @streamos/content-job-retry-worker test
 pnpm --filter @streamos/content-job-retry-worker build
 ```
 
+## Railway Worker Dyno: `workers/publishing-worker`
+
+The publishing worker is the canonical `streamos-publishing` consumer. It
+executes queued publication jobs for approved repurposing snapshots, writes
+publication state transitions and audit events to Supabase, and performs
+provider-side reconciliation. The current worker implementation supports both
+YouTube and TikTok publication targets, so the environment must provision both
+sets of provider client credentials when the service is enabled.
+
+Recommended Docker configuration:
+
+| Setting           | Value                          |
+| ----------------- | ------------------------------ |
+| Dockerfile Path   | `Dockerfile.publishing-worker` |
+| Service Type      | Worker                         |
+| Public Networking | Disabled                       |
+
+Required variables:
+
+```bash
+REDIS_URL=rediss://default:password@host:6379
+APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+YOUTUBE_CLIENT_ID=
+YOUTUBE_CLIENT_SECRET=
+TIKTOK_CLIENT_KEY=
+TIKTOK_CLIENT_SECRET=
+```
+
+Optional variables:
+
+```bash
+PUBLICATION_QUEUE_NAME=streamos-publishing
+PUBLISHING_WORKER_CONCURRENCY=1
+```
+
+The worker must not be exposed with a public domain. It is a private
+Railway-only background service and should never be called from browser code.
+It also must not require `AUTOMATION_SERVICE_URL`; provider write calls remain
+embedded in the worker and are executed only through its BullMQ queue.
+
+Operator rollout checklist:
+
+1. Confirm the Railway project already contains a `publishing-worker` service
+   in the target environment.
+2. Confirm the service is deployed from the intended release-candidate commit
+   and uses `Dockerfile.publishing-worker` from the repository root build
+   context.
+3. Verify the required environment variables above are present in Railway and
+   that no browser-facing `NEXT_PUBLIC_*` secrets are configured for the
+   worker.
+4. Keep public networking disabled and do not attach a public domain.
+5. Confirm the gateway can enqueue `publication.publish` and
+   `publication.reconcile` jobs into `streamos-publishing`.
+6. Run a controlled publish smoke test against an already approved repurposing
+   job, then verify the publication status transitions, audit events, and
+   reconciliation path without leaking secrets.
+7. If the service fails on startup, first check provider credentials, Supabase
+   service-role access, and Redis connectivity before changing any publish
+   contract code.
+
+Validation:
+
+```bash
+pnpm --filter @streamos/publishing-worker lint
+pnpm --filter @streamos/publishing-worker test
+pnpm --filter @streamos/publishing-worker build
+```
+
 ## Railway Private Service: `release-gate-runner`
 
 Use a dedicated Railway worker or private service for production-gate proofs
@@ -488,8 +560,16 @@ pnpm railway:audit --env production --format markdown > audit-production.md
 values in repo files or generated reports. If `RAILWAY_TOKEN` is explicitly set
 in the current shell, that shared token overrides the env-specific Railway
 tokens for the audit run. The audit inventory now includes
-`release-gate-runner`; if that service is missing in the audited environment,
-the environment is not proof-ready.
+`release-gate-runner` and `publishing-worker`; if either service is missing in
+the audited environment, the environment is not proof-ready.
+
+For `publishing-worker`, the audit expects:
+
+- the service to be present in the Railway inventory
+- public networking to stay disabled
+- no public domain to be attached
+- the worker-specific required env contract to be populated, without requiring
+  `AUTOMATION_SERVICE_URL`
 
 For a deployed release candidate, run the production gate from the dedicated
 `release-gate-runner` runtime, or an equivalent Railway shell that contains the

@@ -154,6 +154,7 @@ module.exports = {
       "AUTOMATION_SERVICE_URL",
       "NODE_ENV",
       "REDIS_URL",
+      "SERVICE_INVENTORY",
       "STREAM_EVENT_WEBHOOK_SECRET",
     ],
   },

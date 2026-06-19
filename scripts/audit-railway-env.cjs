@@ -12,6 +12,7 @@ const {
   formatMarkdownReport,
   hasBlockingFindings,
   getServicePublicUrl,
+  parseServiceListPayload,
 } = require("./lib/railway-audit-core.cjs");
 const {
   requestHealth,
@@ -998,6 +999,15 @@ function loadLiveEnvironment({
 
   for (const serviceName of Object.keys(whitelist.services)) {
     const serviceConfig = serviceConfigByName.get(serviceName);
+    const listedService = parseServiceListPayload(serviceList).find(
+      (entry) => entry.name === serviceName,
+    );
+    const inventoryPresent = Boolean(serviceConfig && listedService);
+
+    if (!inventoryPresent) {
+      serviceVariables[serviceName] = {};
+      continue;
+    }
 
     if (
       serviceConfig?.variables &&

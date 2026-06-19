@@ -190,6 +190,7 @@ The production deployment topology is documented in
 - `services/automation-service` deploys to Railway first, or Fly.io when GPU-backed Whisper becomes required.
 - `workers/stream-job-worker` deploys to Railway as the canonical `streamos-media` consumer and materializes durable stream/content-job state.
 - `workers/repurposing-worker` deploys to Railway as the canonical `streamos-repurposing` consumer and calls `POST /repurposing/plan` for manual-review-only repurposing plans.
+- `workers/publishing-worker` deploys to Railway as the canonical `streamos-publishing` consumer and executes approved publication and reconciliation jobs for server-side provider writes.
 - `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.
 - `workers/clip-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for clip scoring.
 - `workers/content-job-retry-worker` deploys to Railway as a Node.js BullMQ worker that requeues retryable failed `content_jobs`.
@@ -278,11 +279,13 @@ clipboard-only export bundle for manual use. Raw provider events without a
 direct `vodAssetUrl` still rely on server-side enrichment against existing
 assets before they can trigger automatic transcription.
 
-`POST /api/content-publications` is the server-side publication validation
-contract for approved repurposing jobs. It freezes a publish snapshot, writes
+`POST /api/content-publications` is the server-side publication contract for
+approved repurposing jobs. It freezes a publish snapshot, writes
 `content_publications`, and appends `content_publication_events` for audit
-history. This contract does not publish to providers yet and does not add a
-publish worker or browser-visible provider write path.
+history. The gateway then enqueues the deterministic `publication.publish`
+job into `streamos-publishing`, where `workers/publishing-worker` performs the
+server-side provider write and reconciliation work. The browser still does not
+call provider write APIs directly.
 
 `GET /api/observability` is a protected server-to-server snapshot route for
 operator use. It requires `API_GATEWAY_SECRET`, returns the current

@@ -52,17 +52,20 @@ apps/web/src/
 - BullMQ orchestration for transcription triggers, clip generation, stream jobs,
   and durable content-job retries.
 - AI jobs for transcription and clip scoring in `services/automation-service`.
-  Title generation and broader repurposing remain future server-side contracts
-  and are not active media-worker endpoints today.
+  Title generation remains a future server-side contract, while approved
+  repurposing publication execution is handled by the gateway plus
+  `workers/publishing-worker` and is not a browser-visible provider write path.
+- Publication validation and execution for approved repurposing jobs through
+  `POST /api/content-publications`, `POST /api/content-publications/:id/publish`,
+  and `POST /api/content-publications/:id/reconcile`; the gateway freezes the
+  publish snapshot and enqueues `streamos-publishing`, while
+  `workers/publishing-worker` performs the server-side provider write and
+  reconciliation work.
 - Rate limiting, retry handling, and audit logging for external API calls.
 - `GET /api/observability` is a protected server-to-server snapshot route for
   operator use. In production it must be backed by Redis so rate limiting,
   replay protection, and observability counters share cluster-wide state; the
   memory backend is only for local and test runs.
-- `POST /api/content-publications` is the server-side publication contract for
-  approved repurposing jobs. It freezes a publish snapshot, records
-  `content_publications`, and appends `content_publication_events`; it does not
-  publish directly or invoke a worker yet.
 
 ## Data Model Status
 
@@ -113,6 +116,9 @@ Use REST route handlers or the API gateway for simple commands and webhooks:
 - `services/api-gateway`: `/api/auth/kick/connect`
 - `services/api-gateway`: `/api/auth/kick/callback`
 - `services/api-gateway`: `/api/clips/generate`
+- `services/api-gateway`: `/api/content-publications`
+- `services/api-gateway`: `/api/content-publications/:id/publish`
+- `services/api-gateway`: `/api/content-publications/:id/reconcile`
 - `services/api-gateway`: `/api/metrics/sync`
 - `services/api-gateway`: `/api/content-jobs/retry`
 - `services/api-gateway`: `/api/platforms/:provider/disconnect`
@@ -137,6 +143,10 @@ Use realtime channels or server-sent events for live viewer counts, stream statu
   consumer. It receives durable `repurposing.plan` jobs, calls
   `services/automation-service` at `POST /repurposing/plan`, and persists a
   manual-review-only plan result in `content_jobs.result`.
+- `workers/publishing-worker` is the canonical `streamos-publishing`
+  consumer. It receives `publication.publish` and `publication.reconcile`
+  jobs, executes server-side provider write APIs, and persists publication
+  state transitions plus audit events.
 - `workers/transcription-worker` consumes only `streamos-transcription`, calls
   `services/automation-service`, and persists `vod_assets`,
   `stream_transcripts`, clip follow-up jobs, and transcription job status.
@@ -154,7 +164,11 @@ Use realtime channels or server-sent events for live viewer counts, stream statu
 - `POST /api/content-publications` validates a request against an approved
   repurposing result, a matching platform connection, and the server-side
   publish snapshot. The gateway writes the publication snapshot and audit
-  events to Supabase, but execution/publishing remains a later contract.
+  events to Supabase, then enqueues the deterministic `publication.publish`
+  job in `streamos-publishing` for the server-side publishing worker.
+- `POST /api/content-publications/:id/publish` and
+  `POST /api/content-publications/:id/reconcile` are the operator and retry
+  actions for the same server-owned publication contract.
 
 ## Twitch OAuth Placement Decision
 

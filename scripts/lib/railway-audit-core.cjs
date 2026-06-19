@@ -154,6 +154,20 @@ function parseServiceListPayload(payload) {
   return [];
 }
 
+function hasServiceInventoryEntry({
+  environmentConfig,
+  serviceList,
+  serviceName,
+}) {
+  const listedServices = parseServiceListPayload(serviceList);
+  const listedService = listedServices.find(
+    (entry) => entry.name === serviceName,
+  );
+  const configuredService = environmentConfig?.servicesByName?.[serviceName];
+
+  return Boolean(listedService && configuredService);
+}
+
 function getServicePublicUrl(serviceList, serviceName) {
   const services = parseServiceListPayload(serviceList);
   const service = services.find((entry) => entry.name === serviceName);
@@ -934,6 +948,58 @@ function createNetworkRow({
   };
 }
 
+function createInventoryRow({
+  environment,
+  environmentConfig,
+  serviceList,
+  serviceName,
+  whitelist,
+}) {
+  const present = hasServiceInventoryEntry({
+    environmentConfig,
+    serviceList,
+    serviceName,
+  });
+
+  if (present) {
+    return {
+      checks: ["inventory"],
+      findings: [],
+      required: false,
+      scope: "service",
+      status: "✅",
+      summary: "Service is present in the Railway inventory.",
+      valueState: "present",
+      variable: "SERVICE_INVENTORY",
+    };
+  }
+
+  return {
+    checks: ["inventory"],
+    findings: [
+      createFinding({
+        environment,
+        flag: "MISSING",
+        message: "Service is missing from the Railway environment inventory.",
+        priority: getFindingPriority({
+          environment,
+          flag: "MISSING",
+          variableName: "SERVICE_INVENTORY",
+          whitelist,
+        }),
+        serviceName,
+        variableName: "SERVICE_INVENTORY",
+      }),
+    ],
+    required: false,
+    scope: "service",
+    status: "❌",
+    summary: "Service is missing from the Railway environment inventory.",
+    valueState: "missing",
+    variable: "SERVICE_INVENTORY",
+  };
+}
+
 function buildEffectiveValues(sharedVariables, serviceVariables) {
   return {
     ...sharedVariables,
@@ -1053,6 +1119,14 @@ function auditEnvironment({
     );
     const environmentServiceConfig =
       environmentConfig.servicesByName[serviceName];
+    const serviceInventoryRow = createInventoryRow({
+      environment,
+      environmentConfig,
+      serviceList: rawEnvironment.serviceList,
+      serviceName,
+      whitelist,
+    });
+    const serviceAvailable = serviceInventoryRow.status === "✅";
     const effectiveValues = buildEffectiveValues(
       sharedVariables,
       serviceVariables,
@@ -1063,6 +1137,9 @@ function auditEnvironment({
     ]);
     const rows = [];
     const infoExtras = [];
+
+    rows.push(serviceInventoryRow);
+    prioritizedFixes.push(...serviceInventoryRow.findings);
 
     for (const variableName of [
       ...serviceConfig.required,
@@ -1115,24 +1192,29 @@ function auditEnvironment({
       prioritizedFixes.push(...row.findings);
     }
 
-    const networkingRow = createNetworkRow({
-      environment,
-      serviceConfig,
-      serviceDomains: environmentServiceConfig?.networking?.serviceDomains,
-      servicePublicUrl: getServicePublicUrl(
-        rawEnvironment.serviceList,
+    const serviceHealthChecks = serviceAvailable
+      ? healthChecks.filter(
+          (check) =>
+            check.category === "health" && check.service === serviceName,
+        )
+      : [];
+
+    if (serviceAvailable) {
+      const networkingRow = createNetworkRow({
+        environment,
+        serviceConfig,
+        serviceDomains: environmentServiceConfig?.networking?.serviceDomains,
+        servicePublicUrl: getServicePublicUrl(
+          rawEnvironment.serviceList,
+          serviceName,
+        ),
         serviceName,
-      ),
-      serviceName,
-      whitelist,
-    });
+        whitelist,
+      });
 
-    rows.push(networkingRow);
-    prioritizedFixes.push(...networkingRow.findings);
-
-    const serviceHealthChecks = healthChecks.filter(
-      (check) => check.category === "health" && check.service === serviceName,
-    );
+      rows.push(networkingRow);
+      prioritizedFixes.push(...networkingRow.findings);
+    }
 
     for (const check of serviceHealthChecks) {
       if (!check.ok && !check.unverified) {
@@ -1502,6 +1584,7 @@ module.exports = {
   buildOwnershipIndex,
   formatMarkdownReport,
   getServicePublicUrl,
+  hasServiceInventoryEntry,
   hasBlockingFindings,
   parseEnvironmentConfigPayload,
   parseServiceListPayload,

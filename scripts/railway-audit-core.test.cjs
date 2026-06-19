@@ -36,6 +36,10 @@ function loadEnvironment(environment) {
   };
 }
 
+function cloneEnvironment(environment) {
+  return structuredClone(environment);
+}
+
 test("buildAuditReport flags production private-network and health regressions", () => {
   const report = buildAuditReport({
     project: whitelist.project,
@@ -114,6 +118,161 @@ test("buildAuditReport falls back to service list URLs for required public netwo
 
   assert.equal(networkRow.status, "✅");
   assert.match(networkRow.summary, /Public networking is enabled/);
+});
+
+test("buildAuditReport includes publishing-worker as a private worker without automation-service env", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironment("production"),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const publishingRows =
+    report.environments.production.services["publishing-worker"].variables;
+  const inventoryRow = publishingRows.find(
+    (row) => row.variable === "SERVICE_INVENTORY",
+  );
+  const networkRow = publishingRows.find(
+    (row) => row.variable === "PUBLIC_NETWORKING",
+  );
+
+  assert.ok(inventoryRow);
+  assert.equal(inventoryRow.status, "✅");
+  assert.match(inventoryRow.summary, /present in the Railway inventory/);
+  assert.ok(networkRow);
+  assert.equal(networkRow.status, "✅");
+  assert.match(networkRow.summary, /Service remains private as expected/);
+  assert.equal(
+    publishingRows.some((row) => row.variable === "AUTOMATION_SERVICE_URL"),
+    false,
+  );
+  assert.ok(publishingRows.some((row) => row.variable === "REDIS_URL"));
+  assert.ok(publishingRows.some((row) => row.variable === "SUPABASE_URL"));
+  assert.ok(
+    publishingRows.some((row) => row.variable === "SUPABASE_SERVICE_ROLE_KEY"),
+  );
+  assert.ok(publishingRows.some((row) => row.variable === "YOUTUBE_CLIENT_ID"));
+  assert.ok(
+    publishingRows.some((row) => row.variable === "YOUTUBE_CLIENT_SECRET"),
+  );
+  assert.ok(publishingRows.some((row) => row.variable === "TIKTOK_CLIENT_KEY"));
+  assert.ok(
+    publishingRows.some((row) => row.variable === "TIKTOK_CLIENT_SECRET"),
+  );
+});
+
+test("buildAuditReport flags a missing publishing-worker inventory entry as blocking", () => {
+  const production = cloneEnvironment(loadEnvironment("production"));
+  delete production.environmentConfig.services["svc-publishing-production"];
+  production.serviceList = production.serviceList.filter(
+    (entry) => entry.name !== "publishing-worker",
+  );
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const publishingRows =
+    report.environments.production.services["publishing-worker"].variables;
+  const inventoryRow = publishingRows.find(
+    (row) => row.variable === "SERVICE_INVENTORY",
+  );
+
+  assert.ok(inventoryRow);
+  assert.equal(inventoryRow.status, "❌");
+  assert.match(
+    inventoryRow.summary,
+    /missing from the Railway environment inventory/,
+  );
+  assert.ok(
+    report.environments.production.prioritizedFixes.some(
+      (finding) =>
+        finding.service === "publishing-worker" &&
+        finding.variable === "SERVICE_INVENTORY" &&
+        finding.flag === "MISSING" &&
+        finding.priority === "CRITICAL",
+    ),
+  );
+});
+
+test("buildAuditReport flags publishing-worker public networking exposure", () => {
+  const production = cloneEnvironment(loadEnvironment("production"));
+  production.environmentConfig.services[
+    "svc-publishing-production"
+  ].networking.serviceDomains = ["publishing-worker-production.up.railway.app"];
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const networkRow = report.environments.production.services[
+    "publishing-worker"
+  ].variables.find((row) => row.variable === "PUBLIC_NETWORKING");
+
+  assert.equal(networkRow.status, "❌");
+  assert.match(networkRow.summary, /Public networking must stay disabled/);
+});
+
+test("buildAuditReport flags missing required publishing-worker env and ignores optional env gaps", () => {
+  const production = cloneEnvironment(loadEnvironment("production"));
+  delete production.serviceVariables["publishing-worker"].YOUTUBE_CLIENT_ID;
+  delete production.serviceVariables["publishing-worker"]
+    .PUBLICATION_QUEUE_NAME;
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const publishingRows =
+    report.environments.production.services["publishing-worker"].variables;
+  const requiredRow = publishingRows.find(
+    (row) => row.variable === "YOUTUBE_CLIENT_ID",
+  );
+  const optionalRow = publishingRows.find(
+    (row) => row.variable === "PUBLICATION_QUEUE_NAME",
+  );
+
+  assert.equal(requiredRow.status, "❌");
+  assert.match(requiredRow.summary, /Required variable is not set/);
+  assert.equal(optionalRow.status, "✅");
+  assert.match(optionalRow.summary, /Optional variable is unset/);
+});
+
+test("buildAuditReport does not require AUTOMATION_SERVICE_URL for publishing-worker", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironment("production"),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const publishingRows =
+    report.environments.production.services["publishing-worker"].variables;
+
+  assert.equal(
+    publishingRows.some((row) => row.variable === "AUTOMATION_SERVICE_URL"),
+    false,
+  );
 });
 
 test("hasBlockingFindings ignores unverifiable SSH health checks", () => {
