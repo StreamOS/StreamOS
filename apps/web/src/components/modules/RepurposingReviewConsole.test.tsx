@@ -81,6 +81,7 @@ describe("RepurposingReviewConsole", () => {
     expect(html).toContain("Approve, reject, or request changes");
     expect(html).toContain("Approved");
     expect(html).toContain("Looks good with a shorter hook.");
+    expect(html).toContain("Copy sanitized review summary");
     expect(html).toContain("Open raw payload");
     expect(html).toContain("Open raw result");
     expect(html).toContain("<details");

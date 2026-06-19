@@ -279,12 +279,13 @@ export function RepurposingReviewConsole({
                       }, 1500);
                     });
                   }}
+                  title="Copies a sanitized summary to your clipboard."
                   type="button"
                 >
                   <ClipboardCopy className="h-4 w-4" aria-hidden="true" />
                   {copiedJobId === selectedJob.id
                     ? "Copied"
-                    : "Copy review bundle"}
+                    : "Copy sanitized review summary"}
                 </button>
               </div>
             </header>
