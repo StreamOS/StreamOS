@@ -11,6 +11,10 @@ const {
 const { validateHealthPayload } = require("./check-deployment.cjs");
 
 const fixturesDir = join(__dirname, "__fixtures__", "railway-audit");
+const expectedServices = Object.keys(whitelist.services);
+const privateServices = expectedServices.filter(
+  (serviceName) => serviceName !== "api-gateway",
+);
 
 function readJson(...segments) {
   return JSON.parse(readFileSync(join(fixturesDir, ...segments), "utf8"));
@@ -72,6 +76,58 @@ function loadEnvironmentFromRoot(rootName, environment) {
       "shared-variables.json",
     ),
   };
+}
+
+function getServiceId(environment, serviceName) {
+  return environment.serviceList.find((entry) => entry.name === serviceName)
+    ?.id;
+}
+
+function loadHappyPathEnvironment(environment) {
+  const loaded = cloneEnvironment(loadEnvironment(environment));
+  const automationServiceId = getServiceId(loaded, "automation-service");
+  const apiGatewayHealth = loaded.healthChecks.find(
+    (check) => check.name === "api-gateway-public-health",
+  );
+  const automationPathHealth = loaded.healthChecks.find(
+    (check) => check.name === "transcription-worker-automation-path",
+  );
+
+  if (
+    automationServiceId &&
+    loaded.environmentConfig.services[automationServiceId]
+  ) {
+    loaded.environmentConfig.services[
+      automationServiceId
+    ].networking.serviceDomains = [];
+  }
+
+  const automationServiceListEntry = loaded.serviceList.find(
+    (entry) => entry.name === "automation-service",
+  );
+
+  if (automationServiceListEntry) {
+    automationServiceListEntry.url = null;
+  }
+
+  if (apiGatewayHealth) {
+    apiGatewayHealth.bodyText = '{"service":"api-gateway","status":"ok"}';
+    apiGatewayHealth.httpStatus = 200;
+    apiGatewayHealth.ok = true;
+    delete apiGatewayHealth.message;
+  }
+
+  if (automationPathHealth) {
+    automationPathHealth.bodyText =
+      '{"service":"automation-service","status":"ok"}';
+    automationPathHealth.httpStatus = 200;
+    automationPathHealth.ok = true;
+    automationPathHealth.target =
+      "http://automation-service-production.railway.internal:8000/health";
+    delete automationPathHealth.message;
+  }
+
+  return loaded;
 }
 
 function cloneEnvironment(environment) {
@@ -613,6 +669,294 @@ test("buildAuditReport does not require AUTOMATION_SERVICE_URL for publishing-wo
     publishingRows.some((row) => row.variable === "AUTOMATION_SERVICE_URL"),
     false,
   );
+});
+
+test("buildAuditReport models every expected service as present and private in the happy path", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadHappyPathEnvironment("production"),
+      staging: loadHappyPathEnvironment("staging"),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  for (const environmentName of ["staging", "production"]) {
+    for (const serviceName of expectedServices) {
+      const serviceRows =
+        report.environments[environmentName].services[serviceName].variables;
+      const inventoryRow = serviceRows.find(
+        (row) => row.variable === "SERVICE_INVENTORY",
+      );
+      const networkingRow = serviceRows.find(
+        (row) => row.variable === "PUBLIC_NETWORKING",
+      );
+
+      assert.ok(
+        report.environments[environmentName].services[serviceName],
+        `${environmentName} is missing ${serviceName}`,
+      );
+      assert.ok(
+        inventoryRow,
+        `${environmentName} is missing inventory for ${serviceName}`,
+      );
+      assert.match(inventoryRow.summary, /present in the Railway inventory/);
+      assert.ok(
+        networkingRow,
+        `${environmentName} is missing networking for ${serviceName}`,
+      );
+
+      if (serviceName === "api-gateway") {
+        assert.match(
+          networkingRow.summary,
+          /Public networking is enabled as expected/,
+        );
+      } else {
+        assert.match(
+          networkingRow.summary,
+          /Service remains private as expected/,
+        );
+      }
+    }
+  }
+});
+
+test("buildAuditReport exposes the retry worker repurposing queue contract explicitly", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironment("production"),
+      staging: loadEnvironment("staging"),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  for (const environmentName of ["staging", "production"]) {
+    const retryWorkerRows =
+      report.environments[environmentName].services["content-job-retry-worker"]
+        .variables;
+    const repurposingQueueRow = retryWorkerRows.find(
+      (row) => row.variable === "REPURPOSING_QUEUE_NAME",
+    );
+
+    assert.ok(repurposingQueueRow);
+    assert.match(
+      repurposingQueueRow.summary,
+      /configured via service|Optional variable is unset/,
+    );
+  }
+});
+
+test("buildAuditReport requires REPURPOSING_QUEUE_NAME for content-job-retry-worker", () => {
+  const production = cloneEnvironment(loadEnvironment("production"));
+  delete production.serviceVariables["content-job-retry-worker"]
+    .REPURPOSING_QUEUE_NAME;
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const retryWorkerRows =
+    report.environments.production.services["content-job-retry-worker"]
+      .variables;
+  const repurposingQueueRow = retryWorkerRows.find(
+    (row) => row.variable === "REPURPOSING_QUEUE_NAME",
+  );
+
+  assert.match(repurposingQueueRow.summary, /Required variable is not set/);
+});
+
+test("buildAuditReport keeps AUTOMATION_SERVICE_URL on the workers that actually need it", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironment("production"),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  for (const serviceName of [
+    "clip-worker",
+    "repurposing-worker",
+    "transcription-worker",
+  ]) {
+    assert.ok(
+      report.environments.production.services[serviceName].variables.some(
+        (row) => row.variable === "AUTOMATION_SERVICE_URL",
+      ),
+      `${serviceName} should own AUTOMATION_SERVICE_URL`,
+    );
+  }
+
+  for (const serviceName of [
+    "content-job-retry-worker",
+    "publishing-worker",
+    "release-gate-runner",
+    "stream-job-worker",
+  ]) {
+    assert.equal(
+      report.environments.production.services[serviceName].variables.some(
+        (row) => row.variable === "AUTOMATION_SERVICE_URL",
+      ),
+      false,
+      `${serviceName} should not model AUTOMATION_SERVICE_URL`,
+    );
+  }
+});
+
+test("buildAuditReport flags missing private services as blocking inventory drift", () => {
+  for (const serviceName of privateServices) {
+    const production = cloneEnvironment(loadEnvironment("production"));
+    const serviceId = getServiceId(production, serviceName);
+
+    assert.ok(serviceId, `${serviceName} is missing a production service id`);
+    delete production.environmentConfig.services[serviceId];
+    production.serviceList = production.serviceList.filter(
+      (entry) => entry.name !== serviceName,
+    );
+
+    const report = buildAuditReport({
+      project: whitelist.project,
+      rawEnvironments: {
+        production,
+      },
+      validateHealthPayload,
+      whitelist,
+    });
+
+    const inventoryRow = report.environments.production.services[
+      serviceName
+    ].variables.find((row) => row.variable === "SERVICE_INVENTORY");
+
+    assert.match(
+      inventoryRow.summary,
+      /missing from the Railway environment inventory/,
+    );
+    assert.ok(
+      report.environments.production.prioritizedFixes.some(
+        (finding) =>
+          finding.service === serviceName &&
+          finding.variable === "SERVICE_INVENTORY" &&
+          finding.flag === "MISSING",
+      ),
+    );
+  }
+});
+
+test("buildAuditReport flags public networking exposure for every private service", () => {
+  for (const serviceName of privateServices) {
+    const production = cloneEnvironment(loadEnvironment("production"));
+    const serviceId = getServiceId(production, serviceName);
+
+    assert.ok(serviceId, `${serviceName} is missing a production service id`);
+    production.environmentConfig.services[serviceId].networking.serviceDomains =
+      [`${serviceName}-production.up.railway.app`];
+
+    const report = buildAuditReport({
+      project: whitelist.project,
+      rawEnvironments: {
+        production,
+      },
+      validateHealthPayload,
+      whitelist,
+    });
+
+    const networkingRow = report.environments.production.services[
+      serviceName
+    ].variables.find((row) => row.variable === "PUBLIC_NETWORKING");
+
+    assert.match(networkingRow.summary, /Public networking must stay disabled/);
+  }
+});
+
+test("buildAuditReport keeps worker-owned secrets and provider secrets scoped to the correct services", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironment("production"),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const forbiddenVariablesByService = {
+    "clip-worker": [
+      "APP_ENCRYPTION_KEY",
+      "TWITCH_CLIENT_SECRET",
+      "YOUTUBE_CLIENT_SECRET",
+    ],
+    "content-job-retry-worker": [
+      "APP_ENCRYPTION_KEY",
+      "AUTOMATION_SERVICE_URL",
+      "TWITCH_CLIENT_SECRET",
+      "YOUTUBE_CLIENT_SECRET",
+    ],
+    "publishing-worker": ["AUTOMATION_SERVICE_URL"],
+    "release-gate-runner": [
+      "APP_ENCRYPTION_KEY",
+      "AUTOMATION_SERVICE_URL",
+      "TWITCH_CLIENT_SECRET",
+      "YOUTUBE_CLIENT_SECRET",
+    ],
+    "repurposing-worker": [
+      "APP_ENCRYPTION_KEY",
+      "TWITCH_CLIENT_SECRET",
+      "YOUTUBE_CLIENT_SECRET",
+    ],
+    "stream-job-worker": [
+      "APP_ENCRYPTION_KEY",
+      "AUTOMATION_SERVICE_URL",
+      "TWITCH_CLIENT_SECRET",
+      "YOUTUBE_CLIENT_SECRET",
+    ],
+    "transcription-worker": [
+      "APP_ENCRYPTION_KEY",
+      "CLIP_WORKER_CONCURRENCY",
+      "TWITCH_CLIENT_SECRET",
+      "YOUTUBE_CLIENT_SECRET",
+    ],
+  };
+
+  for (const [serviceName, forbiddenVariables] of Object.entries(
+    forbiddenVariablesByService,
+  )) {
+    const serviceRows =
+      report.environments.production.services[serviceName].variables;
+
+    for (const variableName of forbiddenVariables) {
+      assert.equal(
+        serviceRows.some((row) => row.variable === variableName),
+        false,
+        `${serviceName} should not model ${variableName}`,
+      );
+    }
+  }
+});
+
+test("buildAuditReport keeps secret values redacted from the report payload", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironment("production"),
+      staging: loadEnvironment("staging"),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const serializedReport = JSON.stringify(report);
+
+  assert.doesNotMatch(serializedReport, /shared-service-role-key/);
+  assert.doesNotMatch(serializedReport, /password@/);
+  assert.doesNotMatch(serializedReport, /APP_ENCRYPTION_KEY=.*replace-with/);
 });
 
 test("hasBlockingFindings ignores unverifiable SSH health checks", () => {

@@ -2,7 +2,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
+const whitelist = require("./config/railway-env-whitelist.cjs");
 const { buildServiceConfigIndex } = require("./audit-railway-env.cjs");
+
+const expectedServices = Object.keys(whitelist.services);
+const privateServices = expectedServices.filter(
+  (serviceName) => serviceName !== "api-gateway",
+);
 
 function runAuditCli(args, rootName = "railway-audit") {
   const fixturesDir = join(__dirname, "__fixtures__", rootName);
@@ -84,6 +90,76 @@ test("audit CLI renders publishing-worker in JSON output for staging and product
     ),
     false,
   );
+});
+
+test("audit CLI renders every expected service in markdown output for staging and production", () => {
+  const result = runAuditCli([
+    "--environments",
+    "staging,production",
+    "--format",
+    "markdown",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+
+  for (const serviceName of expectedServices) {
+    const sectionMatches = result.stdout.match(
+      new RegExp(`^### ${serviceName}$`, "gm"),
+    );
+
+    assert.equal(
+      sectionMatches?.length ?? 0,
+      2,
+      `Expected two markdown sections for ${serviceName}`,
+    );
+  }
+});
+
+test("audit CLI renders every expected service in JSON output for staging and production", () => {
+  const result = runAuditCli([
+    "--environments",
+    "staging,production",
+    "--format",
+    "json",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+
+  const report = JSON.parse(result.stdout);
+
+  for (const environmentName of ["staging", "production"]) {
+    for (const serviceName of expectedServices) {
+      assert.ok(
+        report.environments[environmentName].services[serviceName],
+        `${environmentName} is missing ${serviceName}`,
+      );
+    }
+  }
+});
+
+test("audit CLI keeps every non-gateway service private in the rendered markdown output", () => {
+  const result = runAuditCli([
+    "--environments",
+    "staging,production",
+    "--format",
+    "markdown",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+
+  assert.match(
+    result.stdout,
+    /### api-gateway[\s\S]*Public networking is enabled as expected\./,
+  );
+
+  for (const serviceName of privateServices) {
+    assert.match(
+      result.stdout,
+      new RegExp(
+        `### ${serviceName}[\\s\\S]*Service remains private as expected\\.`,
+      ),
+    );
+  }
 });
 
 test("audit CLI renders api-gateway Twitch and YouTube ownership in markdown output", () => {

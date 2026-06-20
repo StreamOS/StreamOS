@@ -1066,6 +1066,7 @@ function buildEffectiveValues(sharedVariables, serviceVariables) {
 function buildRedisConsistency({ rawEnvironment, whitelist }) {
   const sharedVariables = parseVariablePayload(rawEnvironment.sharedVariables);
   const entries = [];
+  const rawValues = [];
 
   for (const [serviceName, serviceConfig] of Object.entries(
     whitelist.services,
@@ -1084,17 +1085,17 @@ function buildRedisConsistency({ rawEnvironment, whitelist }) {
     const effectiveValue =
       serviceVariables.REDIS_URL ?? sharedVariables.REDIS_URL;
 
+    rawValues.push(effectiveValue);
     entries.push({
       service: serviceName,
-      value: effectiveValue,
       valueState: effectiveValue ? redactUrl(effectiveValue) : "missing",
     });
   }
 
   const distinctValues = new Set(
-    entries
-      .map((entry) => entry.value)
-      .filter((value) => typeof value === "string" && value.trim().length > 0),
+    rawValues.filter(
+      (value) => typeof value === "string" && value.trim().length > 0,
+    ),
   );
 
   if (distinctValues.size <= 1) {

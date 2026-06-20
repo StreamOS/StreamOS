@@ -42,6 +42,7 @@ const CONTENT_JOB_RETRY_REQUIRED = [
   "CONTENT_JOB_RETRY_BACKOFF_MS",
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
+  "REPURPOSING_QUEUE_NAME",
 ];
 
 const PUBLISHING_WORKER_REQUIRED = [
@@ -419,7 +420,6 @@ module.exports = {
       optional: [
         "CLIP_GENERATION_QUEUE_NAME",
         "QUEUE_DEFAULT_NAME",
-        "REPURPOSING_QUEUE_NAME",
         "TRANSCRIPTION_QUEUE_NAME",
       ],
       publicNetworking: "disabled",

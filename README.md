@@ -240,6 +240,7 @@ the Redis protocol endpoint, not the REST endpoint:
 REDIS_URL=rediss://default:password@host.upstash.io:6379
 CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
+REPURPOSING_QUEUE_NAME=streamos-repurposing
 API_GATEWAY_SECRET=
 API_GATEWAY_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 API_GATEWAY_RATE_LIMIT_MAX=120

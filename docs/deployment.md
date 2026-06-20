@@ -13,7 +13,7 @@ This document defines the production deployment topology for the StreamOS monore
 | `workers/repurposing-worker`       | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-repurposing` consumer for manual-review-only repurposing plans                        |
 | `workers/publishing-worker`        | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-publishing` consumer for approved publication execution and reconciliation            |
 | `workers/transcription-worker`     | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI                                                    |
-| `workers/content-job-retry-worker` | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into BullMQ                                                      |
+| `workers/content-job-retry-worker` | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into transcription, clip, and repurposing queues                 |
 | `release-gate-runner`              | Node.js operator shell | Railway private worker/service                                 | Proof-only runtime for `pnpm rollout:check:production` using the gate-required release-candidate snapshot |
 
 ## Service Boundaries
@@ -403,9 +403,11 @@ pnpm --filter @streamos/clip-worker build
 
 The content job retry worker scans failed `content_jobs`, claims retryable rows
 with optimistic `retry_count` checks, and requeues supported jobs with BullMQ
-`attempts=3` and exponential backoff. It uses the row-level `max_retries` value
-as the retry budget so `/dashboard/jobs` can manually release an exhausted job
-by raising that value.
+`attempts=3` and exponential backoff. It keeps retry support aligned with the
+deployed queue contract, including transcription, clip-generation, and
+repurposing when those queue names are configured. It uses the row-level
+`max_retries` value as the retry budget so `/dashboard/jobs` can manually
+release an exhausted job by raising that value.
 
 Recommended Docker configuration:
 
@@ -425,6 +427,7 @@ CONTENT_JOB_RETRY_ATTEMPTS=3
 CONTENT_JOB_RETRY_BACKOFF_MS=30000
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
+REPURPOSING_QUEUE_NAME=streamos-repurposing
 ```
 
 Optional variables:
@@ -432,7 +435,6 @@ Optional variables:
 ```bash
 CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
 QUEUE_DEFAULT_NAME=streamos-media
-REPURPOSING_QUEUE_NAME=streamos-repurposing
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
 ```
 

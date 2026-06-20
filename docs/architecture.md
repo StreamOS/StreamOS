@@ -97,9 +97,10 @@ Current tenant-owned and service-managed entities include:
 - `youtube_websub_subscriptions`
 
 `content_jobs` already carries durable retry state through `retry_count`,
-`max_retries`, `error_message`, and `next_retry_at`. Failed jobs can be requeued by
-`workers/content-job-retry-worker` into the transcription or clip-generation
-queues.
+`max_retries`, `error_message`, and `next_retry_at`. Failed jobs can be
+requeued by `workers/content-job-retry-worker` into the transcription,
+clip-generation, or repurposing queues when the deployed contract supports
+those targets.
 
 Use `user_id` on every Supabase table plus row-level security policies scoped to `user_id = auth.uid()` for tenant isolation. Service-role keys must remain server-only.
 
