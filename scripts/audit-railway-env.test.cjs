@@ -3,19 +3,24 @@ const assert = require("node:assert/strict");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-test("audit CLI renders JSON from fixtures without calling Railway", () => {
+function runAuditCli(args) {
   const fixturesDir = join(__dirname, "__fixtures__", "railway-audit");
-  const result = spawnSync(
+
+  return spawnSync(
     process.execPath,
     [
       join(__dirname, "audit-railway-env.cjs"),
       `--fixtures-dir=${fixturesDir}`,
-      "--format=json",
+      ...args,
     ],
     {
       encoding: "utf8",
     },
   );
+}
+
+test("audit CLI renders JSON from fixtures without calling Railway", () => {
+  const result = runAuditCli(["--format=json"]);
 
   assert.equal(result.status, 0, result.stderr);
 
@@ -27,22 +32,7 @@ test("audit CLI renders JSON from fixtures without calling Railway", () => {
 });
 
 test("audit CLI accepts split staging flags with fixture data", () => {
-  const fixturesDir = join(__dirname, "__fixtures__", "railway-audit");
-  const result = spawnSync(
-    process.execPath,
-    [
-      join(__dirname, "audit-railway-env.cjs"),
-      "--fixtures-dir",
-      fixturesDir,
-      "--env",
-      "staging",
-      "--format",
-      "json",
-    ],
-    {
-      encoding: "utf8",
-    },
-  );
+  const result = runAuditCli(["--env", "staging", "--format", "json"]);
 
   assert.equal(result.status, 0, result.stderr);
 
@@ -53,24 +43,44 @@ test("audit CLI accepts split staging flags with fixture data", () => {
 });
 
 test("audit CLI accepts split production flags with fixture data", () => {
-  const fixturesDir = join(__dirname, "__fixtures__", "railway-audit");
-  const result = spawnSync(
-    process.execPath,
-    [
-      join(__dirname, "audit-railway-env.cjs"),
-      "--fixtures-dir",
-      fixturesDir,
-      "--env",
-      "production",
-      "--format",
-      "markdown",
-    ],
-    {
-      encoding: "utf8",
-    },
-  );
+  const result = runAuditCli(["--env", "production", "--format", "markdown"]);
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /## production/);
   assert.doesNotMatch(result.stdout, /## staging/);
+});
+
+test("audit CLI renders publishing-worker in markdown output for staging and production", () => {
+  const result = runAuditCli(["--format", "markdown"]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /### publishing-worker/);
+
+  const sectionMatches = result.stdout.match(/^### publishing-worker$/gm) ?? [];
+  assert.equal(sectionMatches.length, 2);
+  assert.match(result.stdout, /### publishing-worker[\s\S]*SERVICE_INVENTORY/);
+  assert.match(result.stdout, /### publishing-worker[\s\S]*PUBLIC_NETWORKING/);
+});
+
+test("audit CLI renders publishing-worker in JSON output for staging and production", () => {
+  const result = runAuditCli(["--format", "json"]);
+
+  assert.equal(result.status, 0, result.stderr);
+
+  const report = JSON.parse(result.stdout);
+
+  assert.ok(report.environments.staging.services["publishing-worker"]);
+  assert.ok(report.environments.production.services["publishing-worker"]);
+  assert.equal(
+    report.environments.staging.services["publishing-worker"].variables.some(
+      (row) => row.variable === "AUTOMATION_SERVICE_URL",
+    ),
+    false,
+  );
+  assert.equal(
+    report.environments.production.services["publishing-worker"].variables.some(
+      (row) => row.variable === "AUTOMATION_SERVICE_URL",
+    ),
+    false,
+  );
 });
