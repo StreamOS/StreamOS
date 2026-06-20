@@ -303,16 +303,25 @@ jobs:
           check_status() {
             local path="$1"
             local expected_status="$2"
+            local response_file="smoke.response.json"
             local status
 
-            if ! status="$(vercel --token="${VERCEL_TOKEN}" curl "${path}" --deployment "${DEPLOYMENT_URL}" -- -s -o /dev/null -w "%{http_code}" 2>smoke.stderr)"; then
+            if ! vercel --token="${VERCEL_TOKEN}" curl "${path}" --deployment "${DEPLOYMENT_URL}" --trace --json --yes >"${response_file}" 2>smoke.stderr; then
               cat smoke.stderr
+              exit 1
+            fi
+
+            if ! status="$(node -e 'const fs = require("node:fs"); const payload = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const code = payload?.response?.status ?? payload?.response?.statusCode ?? payload?.status; if (code === undefined || code === null || code === "") process.exit(2); process.stdout.write(String(code));' "${response_file}")"; then
+              echo "::error::Unable to parse Vercel smoke response for ${path}."
+              cat smoke.stderr
+              cat "${response_file}"
               exit 1
             fi
 
             if [ "${status}" != "${expected_status}" ]; then
               echo "::error::Expected ${path} to return ${expected_status}, got ${status}."
               cat smoke.stderr
+              cat "${response_file}"
               exit 1
             fi
 

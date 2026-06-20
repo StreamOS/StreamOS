@@ -586,14 +586,23 @@ jobs:
             exit 1
           fi
 
-          if ! status="$(vercel --token="${VERCEL_TOKEN}" curl "/dashboard" --deployment "${DEPLOYMENT_URL}" -- -s -o /dev/null -w "%{http_code}" 2>smoke.stderr)"; then
+          response_file="smoke.response.json"
+          if ! vercel --token="${VERCEL_TOKEN}" curl "/dashboard" --deployment "${DEPLOYMENT_URL}" --trace --json --yes >"${response_file}" 2>smoke.stderr; then
             cat smoke.stderr
+            exit 1
+          fi
+
+          if ! status="$(node -e 'const fs = require("node:fs"); const payload = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const code = payload?.response?.status ?? payload?.response?.statusCode ?? payload?.status; if (code === undefined || code === null || code === "") process.exit(2); process.stdout.write(String(code));' "${response_file}")"; then
+            echo "::error::Unable to parse Vercel smoke response for /dashboard."
+            cat smoke.stderr
+            cat "${response_file}"
             exit 1
           fi
 
           if ! [[ "${status}" =~ ^(200|307)$ ]]; then
             echo "::error::Expected ${DEPLOYMENT_URL}/dashboard to return 200 or 307, got ${status}."
             cat smoke.stderr
+            cat "${response_file}"
             exit 1
           fi
 
