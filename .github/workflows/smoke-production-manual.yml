@@ -52,7 +52,7 @@ jobs:
             local expected_pattern="$2"
             local status
 
-            if ! status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" "${PROD_APP_URL}${path}" 2>smoke.stderr)"; then
+            if ! status="$(vercel --yes --token="${VERCEL_TOKEN}" curl "${PROD_APP_URL}${path}" -- -s -o /dev/null -w "%{http_code}" 2>smoke.stderr)"; then
               cat smoke.stderr
               exit 1
             fi
