@@ -305,7 +305,7 @@ jobs:
             local expected_status="$2"
             local status
 
-            if ! status="$(vercel --token="${VERCEL_TOKEN}" curl "${DEPLOYMENT_URL}${path}" \
+            if ! status="$(vercel --yes --token="${VERCEL_TOKEN}" curl "${DEPLOYMENT_URL}${path}" \
               -s -o /dev/null -w "%{http_code}" 2>smoke.stderr)"; then
               cat smoke.stderr
               exit 1
