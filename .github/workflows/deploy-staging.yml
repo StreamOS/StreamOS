@@ -175,6 +175,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # shellcheck disable=SC2016
 
           npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
 
