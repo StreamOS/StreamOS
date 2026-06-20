@@ -17,21 +17,30 @@ import type {
 } from "@streamos/types";
 import {
   buildCanonicalPublicationDraft,
+  buildPublicationFanoutRequestIntentHash,
   buildPublicationManualActionPolicy,
   extractPublicationAccountCapabilityOverlay,
   getPublicationCapabilityDefinition,
   PUBLICATION_CAPABILITY_VERSION,
   isApprovedRepurposingPlanResult,
+  type ContentPublicationFanoutBlockReason,
+  CONTENT_PUBLICATION_FANOUT_BLOCK_REASONS,
+  type ContentPublicationFanoutSnapshot,
+  type ContentPublicationFanoutTargetStatus,
+  type ContentPublicationFanoutStatus,
+  type PublicationFanoutPolicy,
   resolvePublicationCapabilities,
   type PublicationCapabilityResolution,
   type PublicationProviderOverrides,
 } from "@streamos/types";
+import { PUBLICATION_TARGET_PLATFORMS } from "@streamos/types/jobs";
 
 import {
   callSupabaseRpc,
   createSupabaseRestClient,
   patchSupabaseRows,
   readSupabaseRows,
+  upsertSupabaseRow,
   type SupabaseRestClient,
 } from "../lib/supabaseRest.js";
 import {
@@ -51,6 +60,44 @@ const publicationRequestSchema = z.object({
   target_platform: z.enum(STREAM_PLATFORMS),
   user_id: z.string().uuid(),
 });
+
+const publicationFanoutTargetRequestSchema = z.object({
+  platform_connection_id: z.string().uuid(),
+  provider_overrides: z.record(z.string(), z.unknown()).default({}),
+  target_platform: z.enum(PUBLICATION_TARGET_PLATFORMS),
+});
+
+const publicationFanoutRequestSchema = z
+  .object({
+    capability_version: z.string().trim().min(1).optional(),
+    content_job_id: z.string().uuid(),
+    fanout_policy: z
+      .literal("prepare_valid_targets")
+      .default("prepare_valid_targets"),
+    targets: z
+      .array(publicationFanoutTargetRequestSchema)
+      .min(1)
+      .max(PUBLICATION_TARGET_PLATFORMS.length),
+    user_id: z.string().uuid(),
+  })
+  .superRefine((input, context) => {
+    const targetKeys = new Set<string>();
+
+    for (const [index, target] of input.targets.entries()) {
+      const targetKey = `${target.target_platform}:${target.platform_connection_id}`;
+
+      if (targetKeys.has(targetKey)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Targets must be unique per platform connection.",
+          path: ["targets", index],
+        });
+        continue;
+      }
+
+      targetKeys.add(targetKey);
+    }
+  });
 
 const publicationExecutionRequestSchema = z.object({
   user_id: z.string().uuid(),
@@ -83,6 +130,12 @@ const repurposingBundleSchema = z.object({
 });
 
 type PublicationRequestPayload = z.infer<typeof publicationRequestSchema>;
+type PublicationFanoutRequestPayload = z.infer<
+  typeof publicationFanoutRequestSchema
+>;
+type PublicationFanoutTargetRequestPayload = z.infer<
+  typeof publicationFanoutTargetRequestSchema
+>;
 
 type PublicationContentJobRow = {
   id: string;
@@ -173,6 +226,40 @@ type PublicationExecutionMutationResult = {
   target_platform: StreamPlatform;
 };
 
+type PublicationFanoutTargetMutationResult = {
+  block_message: string | null;
+  block_reason: string | null;
+  capability_snapshot: Record<string, unknown>;
+  capability_version: string;
+  content_publication_id: string | null;
+  content_publication_status: ContentPublicationStatus | null;
+  platform_connection_id: string;
+  provider_overrides: Record<string, unknown>;
+  request_intent_hash: string;
+  target_platform: "tiktok" | "youtube";
+  target_status: ContentPublicationFanoutTargetStatus;
+  validated_at: string | null;
+};
+
+type PublicationFanoutMutationResult = {
+  blocked_target_count: number;
+  content_job_id: string;
+  content_publication_fanout_id: string;
+  fanout_policy: PublicationFanoutPolicy;
+  fanout_status: ContentPublicationFanoutStatus;
+  requested_by: string;
+  request_intent_hash: string;
+  snapshot_hash: string;
+  status:
+    | "publication_fanout_blocked"
+    | "publication_fanout_partially_validated"
+    | "publication_fanout_validated";
+  target_count: number;
+  targets: PublicationFanoutTargetMutationResult[];
+  validated_target_count: number;
+  user_id: string;
+};
+
 type PublicationManualActionResponse = {
   content_job_id: string;
   content_publication_id: string;
@@ -248,6 +335,45 @@ type PublicationObservabilityRow = {
   target_platform: StreamPlatform;
   updated_at: string;
   user_id: string;
+};
+
+type PublicationFanoutRow = {
+  blocked_target_count: number;
+  content_job_id: string;
+  created_at: string;
+  fanout_policy: PublicationFanoutPolicy;
+  fanout_status: ContentPublicationFanoutStatus;
+  id: string;
+  requested_at: string;
+  requested_by: string;
+  request_intent_hash: string;
+  review_status_at_request: ContentJobReviewStatus;
+  snapshot: Record<string, unknown>;
+  snapshot_hash: string;
+  target_count: number;
+  updated_at: string;
+  user_id: string;
+  validated_at: string | null;
+  validated_target_count: number;
+};
+
+type PublicationFanoutTargetRow = {
+  block_message: string | null;
+  block_reason: string | null;
+  capability_snapshot: Record<string, unknown>;
+  capability_version: string;
+  content_publication_fanout_id: string;
+  content_publication_id: string | null;
+  created_at: string;
+  id: string;
+  platform_connection_id: string;
+  provider_overrides: Record<string, unknown>;
+  request_intent_hash: string;
+  target_platform: PublicationFanoutTargetRequestPayload["target_platform"];
+  target_status: ContentPublicationFanoutTargetStatus;
+  updated_at: string;
+  user_id: string;
+  validated_at: string | null;
 };
 
 type PublicationReconciliationMutationResult = {
@@ -440,6 +566,81 @@ export function createContentPublicationsRouter({
           error instanceof Error
             ? error.message
             : "Publication request could not be validated.",
+      });
+    }
+  });
+
+  router.post("/fanout", async (request, response) => {
+    const parsedPayload = publicationFanoutRequestSchema.safeParse(
+      request.body,
+    );
+
+    if (!parsedPayload.success) {
+      response.status(400).json({
+        error: "invalid_publication_fanout_request_payload",
+        issues: parsedPayload.error.issues,
+      });
+      return;
+    }
+
+    let supabase: SupabaseRestClient;
+
+    try {
+      supabase = createSupabaseRestClient({ fetchImpl });
+    } catch (error) {
+      response.status(503).json({
+        error: "supabase_not_configured",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    try {
+      const publicationFanout = await createPublicationFanoutRequest({
+        input: parsedPayload.data,
+        supabase,
+      });
+
+      response
+        .status(
+          publicationFanout.status === "publication_fanout_blocked" ? 409 : 200,
+        )
+        .json(publicationFanout satisfies PublicationFanoutMutationResult);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (message === "content_job_not_found") {
+        response.status(404).json({
+          error: "content_job_not_found",
+          message: "Approved repurposing job could not be found.",
+        });
+        return;
+      }
+
+      if (message === "publication_not_ready") {
+        response.status(409).json({
+          error: "publication_not_ready",
+          message:
+            "The selected repurposing job is not approved and ready for fanout.",
+        });
+        return;
+      }
+
+      if (message === "publishable_bundle_missing") {
+        response.status(409).json({
+          error: "publishable_bundle_missing",
+          message:
+            "The approved repurposing result does not contain a publishable bundle.",
+        });
+        return;
+      }
+
+      response.status(502).json({
+        error: "publication_fanout_failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Publication fanout could not be validated.",
       });
     }
   });
@@ -1382,6 +1583,293 @@ async function createPublicationRequest({
     capabilityResolution,
     publication,
   };
+}
+
+async function createPublicationFanoutRequest({
+  input,
+  supabase,
+}: {
+  input: PublicationFanoutRequestPayload;
+  supabase: SupabaseRestClient;
+}): Promise<PublicationFanoutMutationResult> {
+  const contentJob = await loadRepurposingContentJob({
+    contentJobId: input.content_job_id,
+    supabase,
+    userId: input.user_id,
+  });
+
+  if (!contentJob) {
+    throw new Error("content_job_not_found");
+  }
+
+  const approvedBundle = repurposingBundleSchema.safeParse(
+    contentJob.result ?? {},
+  );
+
+  if (
+    contentJob.job_type !== "repurposing" ||
+    contentJob.type !== "repurposing" ||
+    contentJob.review_status !== "approved" ||
+    !["done", "completed"].includes(contentJob.status)
+  ) {
+    throw new Error("publication_not_ready");
+  }
+
+  if (
+    !approvedBundle.success ||
+    approvedBundle.data.content_job_id !== contentJob.id
+  ) {
+    throw new Error("publishable_bundle_missing");
+  }
+
+  const fanoutPolicy = input.fanout_policy;
+  const capabilityVersion =
+    input.capability_version?.trim() || PUBLICATION_CAPABILITY_VERSION;
+  const requestedTargets = sortPublicationFanoutTargets(input.targets);
+  const requestIntentHash = buildPublicationFanoutRequestIntentHash({
+    capabilityVersion,
+    contentJobId: contentJob.id,
+    fanoutPolicy,
+    requestedBy: input.user_id,
+    targets: requestedTargets.map((target) => ({
+      platformConnectionId: target.platform_connection_id,
+      providerOverrides: target.provider_overrides,
+      targetPlatform: target.target_platform,
+    })),
+    userId: input.user_id,
+  });
+
+  const targetResults: PublicationFanoutTargetMutationResult[] = [];
+
+  for (const target of requestedTargets) {
+    const targetRequestIntentHash = createHash("sha256")
+      .update(
+        [
+          requestIntentHash,
+          target.target_platform,
+          target.platform_connection_id,
+        ].join("|"),
+        "utf8",
+      )
+      .digest("hex");
+
+    try {
+      const publicationRequest = await createPublicationRequest({
+        input: {
+          capability_version: capabilityVersion,
+          content_job_id: input.content_job_id,
+          platform_connection_id: target.platform_connection_id,
+          provider_overrides: {
+            [target.target_platform]: target.provider_overrides,
+          },
+          target_platform: target.target_platform,
+          user_id: input.user_id,
+        },
+        supabase,
+      });
+
+      targetResults.push({
+        block_message: null,
+        block_reason: null,
+        capability_snapshot: publicationRequest.publication.capability_snapshot,
+        capability_version: publicationRequest.publication.capability_version,
+        content_publication_id: publicationRequest.publication.id,
+        content_publication_status:
+          publicationRequest.publication.publication_status,
+        platform_connection_id: target.platform_connection_id,
+        provider_overrides: target.provider_overrides,
+        request_intent_hash: targetRequestIntentHash,
+        target_platform: target.target_platform,
+        target_status: "validated",
+        validated_at: publicationRequest.publication.validated_at,
+      });
+    } catch (error) {
+      const block = getPublicationFanoutTargetBlock(error);
+
+      if (!block) {
+        throw error;
+      }
+
+      targetResults.push({
+        block_message: block.message,
+        block_reason: block.reason,
+        capability_snapshot: {},
+        capability_version: capabilityVersion,
+        content_publication_id: null,
+        content_publication_status: null,
+        platform_connection_id: target.platform_connection_id,
+        provider_overrides: target.provider_overrides,
+        request_intent_hash: targetRequestIntentHash,
+        target_platform: target.target_platform,
+        target_status: "blocked",
+        validated_at: null,
+      });
+    }
+  }
+
+  const validatedTargetCount = targetResults.filter(
+    (target) => target.target_status === "validated",
+  ).length;
+  const blockedTargetCount = targetResults.length - validatedTargetCount;
+  const fanoutStatus: ContentPublicationFanoutStatus =
+    blockedTargetCount === 0
+      ? "validated"
+      : validatedTargetCount === 0
+        ? "blocked"
+        : "partially_validated";
+  const fanoutSnapshot: ContentPublicationFanoutSnapshot = {
+    approvedBundle: approvedBundle.data,
+    contentJob: {
+      id: contentJob.id,
+      queueJobId: contentJob.queue_job_id,
+      reviewStatus: contentJob.review_status,
+      status: contentJob.status,
+      streamId: contentJob.stream_id,
+    },
+    capabilityVersion,
+    fanoutPolicy,
+    requestedTargets: requestedTargets.map((target) => ({
+      platformConnectionId: target.platform_connection_id,
+      providerOverrides: target.provider_overrides,
+      targetPlatform: target.target_platform,
+    })),
+  };
+  const snapshotHash = createHash("sha256")
+    .update(JSON.stringify(fanoutSnapshot), "utf8")
+    .digest("hex");
+  const requestedAt = new Date().toISOString();
+
+  const fanout = await upsertSupabaseRow<PublicationFanoutRow>({
+    client: supabase,
+    onConflict: "user_id,request_intent_hash",
+    payload: {
+      blocked_target_count: blockedTargetCount,
+      content_job_id: contentJob.id,
+      fanout_policy: fanoutPolicy,
+      fanout_status: fanoutStatus,
+      requested_at: requestedAt,
+      requested_by: input.user_id,
+      request_intent_hash: requestIntentHash,
+      review_status_at_request: contentJob.review_status,
+      snapshot: fanoutSnapshot,
+      snapshot_hash: snapshotHash,
+      target_count: requestedTargets.length,
+      user_id: input.user_id,
+      validated_at: requestedAt,
+      validated_target_count: validatedTargetCount,
+    },
+    returnRepresentation: true,
+    table: "content_publication_fanouts",
+  });
+
+  if (!fanout) {
+    throw new Error("publication_fanout_request_failed");
+  }
+
+  for (const target of targetResults) {
+    await upsertSupabaseRow<PublicationFanoutTargetRow>({
+      client: supabase,
+      onConflict: "user_id,request_intent_hash",
+      payload: {
+        block_message: target.block_message,
+        block_reason: target.block_reason,
+        capability_snapshot: target.capability_snapshot,
+        capability_version: target.capability_version,
+        content_publication_fanout_id: fanout.id,
+        content_publication_id: target.content_publication_id,
+        platform_connection_id: target.platform_connection_id,
+        provider_overrides: target.provider_overrides,
+        request_intent_hash: target.request_intent_hash,
+        target_platform: target.target_platform,
+        target_status: target.target_status,
+        user_id: input.user_id,
+        validated_at: target.validated_at,
+      },
+      returnRepresentation: true,
+      table: "content_publication_fanout_targets",
+    });
+  }
+
+  return {
+    blocked_target_count: blockedTargetCount,
+    content_job_id: contentJob.id,
+    content_publication_fanout_id: fanout.id,
+    fanout_policy: fanout.fanout_policy,
+    fanout_status: fanoutStatus,
+    requested_by: input.user_id,
+    request_intent_hash: requestIntentHash,
+    snapshot_hash: snapshotHash,
+    status:
+      fanoutStatus === "blocked"
+        ? "publication_fanout_blocked"
+        : fanoutStatus === "partially_validated"
+          ? "publication_fanout_partially_validated"
+          : "publication_fanout_validated",
+    target_count: requestedTargets.length,
+    targets: targetResults,
+    validated_target_count: validatedTargetCount,
+    user_id: input.user_id,
+  };
+}
+
+function sortPublicationFanoutTargets(
+  targets: PublicationFanoutTargetRequestPayload[],
+): PublicationFanoutTargetRequestPayload[] {
+  return [...targets].sort((left, right) => {
+    if (left.target_platform !== right.target_platform) {
+      return left.target_platform.localeCompare(right.target_platform);
+    }
+
+    return left.platform_connection_id.localeCompare(
+      right.platform_connection_id,
+    );
+  });
+}
+
+function getPublicationFanoutTargetBlock(
+  error: unknown,
+): { message: string; reason: ContentPublicationFanoutBlockReason } | null {
+  if (error instanceof PublicationCapabilityValidationError) {
+    if (isPublicationFanoutBlockReason(error.code)) {
+      return {
+        message: error.message,
+        reason: error.code,
+      };
+    }
+
+    return {
+      message: error.message,
+      reason: "fanout_not_ready",
+    };
+  }
+
+  if (error instanceof Error) {
+    switch (error.message) {
+      case "content_job_not_found":
+      case "publication_not_ready":
+      case "publishable_bundle_missing":
+      case "platform_connection_not_found":
+      case "platform_mismatch":
+      case "missing_publish_scopes":
+      case "fanout_not_ready":
+        return {
+          message: error.message,
+          reason: error.message,
+        };
+      default:
+        return null;
+    }
+  }
+
+  return null;
+}
+
+function isPublicationFanoutBlockReason(
+  value: string,
+): value is ContentPublicationFanoutBlockReason {
+  return CONTENT_PUBLICATION_FANOUT_BLOCK_REASONS.includes(
+    value as ContentPublicationFanoutBlockReason,
+  );
 }
 
 async function loadRepurposingContentJob({

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   ConnectionStatus,
   ContentJobReviewStatus,
@@ -777,6 +778,192 @@ export function buildPublicationManualActionPolicy(
         : explanation,
     nextAction,
   };
+}
+
+export const PUBLICATION_FANOUT_POLICIES = [
+  "all_or_nothing_preflight",
+  "prepare_valid_targets",
+] as const;
+
+export type PublicationFanoutPolicy =
+  (typeof PUBLICATION_FANOUT_POLICIES)[number];
+
+export const CONTENT_PUBLICATION_FANOUT_STATUSES = [
+  "requested",
+  "validated",
+  "partially_validated",
+  "blocked",
+  "canceled",
+] as const;
+
+export type ContentPublicationFanoutStatus =
+  (typeof CONTENT_PUBLICATION_FANOUT_STATUSES)[number];
+
+export const CONTENT_PUBLICATION_FANOUT_TARGET_STATUSES = [
+  "blocked",
+  "validated",
+] as const;
+
+export type ContentPublicationFanoutTargetStatus =
+  (typeof CONTENT_PUBLICATION_FANOUT_TARGET_STATUSES)[number];
+
+export const CONTENT_PUBLICATION_FANOUT_BLOCK_REASONS = [
+  "account_capability_missing",
+  "content_job_not_found",
+  "conditional_field_unresolved",
+  "fanout_not_ready",
+  "invalid_provider_override_value",
+  "missing_publish_scopes",
+  "missing_required_canonical_field",
+  "platform_connection_not_found",
+  "platform_mismatch",
+  "policy_blocked",
+  "publication_not_ready",
+  "publishable_bundle_missing",
+  "provider_override_mismatch",
+  "provider_override_unsupported_field",
+  "unsupported_capability_version",
+  "unsupported_target_platform",
+] as const;
+
+export type ContentPublicationFanoutBlockReason =
+  (typeof CONTENT_PUBLICATION_FANOUT_BLOCK_REASONS)[number];
+
+export type PublicationFanoutTargetPlatform = Extract<
+  StreamPlatform,
+  "tiktok" | "youtube"
+>;
+
+export type PublicationFanoutRequestTarget = {
+  platformConnectionId: string;
+  providerOverrides: Record<string, unknown>;
+  targetPlatform: PublicationFanoutTargetPlatform;
+};
+
+export type ContentPublicationFanoutSnapshot = {
+  approvedBundle: RepurposingPlanResult;
+  contentJob: {
+    id: string;
+    queueJobId: string | null;
+    reviewStatus: ContentJobReviewStatus;
+    status: ContentJobStatus;
+    streamId: string | null;
+  };
+  capabilityVersion: string;
+  fanoutPolicy: PublicationFanoutPolicy;
+  requestedTargets: PublicationFanoutRequestTarget[];
+};
+
+export type ContentPublicationFanoutTarget = {
+  blockMessage: string | null;
+  blockReason: ContentPublicationFanoutBlockReason | null;
+  contentPublicationId: string | null;
+  contentPublicationStatus: ContentPublicationStatus | null;
+  createdAt: string;
+  id: string;
+  platformConnectionId: string;
+  providerOverrides: Record<string, unknown>;
+  requestIntentHash: string;
+  targetPlatform: PublicationFanoutTargetPlatform;
+  targetStatus: ContentPublicationFanoutTargetStatus;
+  updatedAt: string;
+  userId: string;
+  validatedAt: string | null;
+};
+
+export type ContentPublicationFanout = {
+  blockedTargetCount: number;
+  contentJobId: string;
+  createdAt: string;
+  fanoutPolicy: PublicationFanoutPolicy;
+  fanoutStatus: ContentPublicationFanoutStatus;
+  id: string;
+  requestedAt: string;
+  requestedBy: string;
+  requestIntentHash: string;
+  reviewStatusAtRequest: ContentJobReviewStatus;
+  snapshot: ContentPublicationFanoutSnapshot;
+  snapshotHash: string;
+  targetCount: number;
+  updatedAt: string;
+  userId: string;
+  validatedTargetCount: number;
+};
+
+export type ContentPublicationFanoutRequest = {
+  capabilityVersion?: string;
+  contentJobId: string;
+  fanoutPolicy?: PublicationFanoutPolicy;
+  requestedBy?: string;
+  targets: PublicationFanoutRequestTarget[];
+  userId: string;
+};
+
+export type ContentPublicationFanoutResponse = {
+  blockedTargetCount: number;
+  contentJobId: string;
+  contentPublicationFanoutId: string;
+  fanoutPolicy: PublicationFanoutPolicy;
+  fanoutStatus: ContentPublicationFanoutStatus;
+  requestedBy: string;
+  requestIntentHash: string;
+  snapshotHash: string;
+  status:
+    | "publication_fanout_blocked"
+    | "publication_fanout_partially_validated"
+    | "publication_fanout_validated";
+  targetCount: number;
+  targets: ContentPublicationFanoutTarget[];
+  validatedTargetCount: number;
+  userId: string;
+};
+
+export function buildPublicationFanoutRequestIntentHash({
+  capabilityVersion,
+  contentJobId,
+  fanoutPolicy = "prepare_valid_targets",
+  requestedBy,
+  targets,
+  userId,
+}: {
+  capabilityVersion?: string;
+  contentJobId: string;
+  fanoutPolicy?: PublicationFanoutPolicy;
+  requestedBy: string;
+  targets: PublicationFanoutRequestTarget[];
+  userId: string;
+}): string {
+  const normalizedTargets = targets
+    .map((target) => ({
+      platformConnectionId: target.platformConnectionId,
+      providerOverrides: sortJsonValue(target.providerOverrides),
+      targetPlatform: target.targetPlatform,
+    }))
+    .sort((left, right) => {
+      if (left.targetPlatform !== right.targetPlatform) {
+        return left.targetPlatform.localeCompare(right.targetPlatform);
+      }
+
+      if (left.platformConnectionId !== right.platformConnectionId) {
+        return left.platformConnectionId.localeCompare(
+          right.platformConnectionId,
+        );
+      }
+
+      return JSON.stringify(left.providerOverrides).localeCompare(
+        JSON.stringify(right.providerOverrides),
+      );
+    });
+
+  return createSha256Digest({
+    capabilityVersion:
+      capabilityVersion?.trim() || PUBLICATION_CAPABILITY_VERSION,
+    contentJobId,
+    fanoutPolicy,
+    requestedBy,
+    targets: normalizedTargets,
+    userId,
+  });
 }
 
 export function isApprovedRepurposingPlanResult(
@@ -1754,6 +1941,28 @@ function isCanonicalValueEmpty(value: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function createSha256Digest(value: Record<string, unknown>): string {
+  return createHash("sha256")
+    .update(JSON.stringify(sortJsonValue(value)), "utf8")
+    .digest("hex");
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sortJsonValue(item));
+  }
+
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortJsonValue(value[key])]),
+  );
 }
 
 function toRecord(value: unknown): Record<string, unknown> {

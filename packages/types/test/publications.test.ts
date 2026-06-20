@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildCanonicalPublicationDraft,
+  buildPublicationFanoutRequestIntentHash,
   buildPublicationManualActionPolicy,
   extractPublicationAccountCapabilityOverlay,
   getPublicationCapabilityDefinition,
@@ -194,6 +195,62 @@ void test("resolvePublicationCapabilities accepts YouTube overrides and resolves
     "#repurposing",
   ]);
   assert.equal(resolution.capabilityVersion, PUBLICATION_CAPABILITY_VERSION);
+});
+
+void test("buildPublicationFanoutRequestIntentHash stays stable across target order and hides secret-like payloads", () => {
+  const hashA = buildPublicationFanoutRequestIntentHash({
+    contentJobId: APPROVED_BUNDLE.content_job_id,
+    requestedBy: "11111111-1111-4111-8111-111111111111",
+    targets: [
+      {
+        platformConnectionId: "33333333-3333-4333-8333-333333333333",
+        providerOverrides: {
+          youtube: {
+            notify_subscribers: false,
+          },
+        },
+        targetPlatform: "youtube",
+      },
+      {
+        platformConnectionId: "44444444-4444-4444-8444-444444444444",
+        providerOverrides: {
+          tiktok: {
+            allow_comments: true,
+          },
+        },
+        targetPlatform: "tiktok",
+      },
+    ],
+    userId: "11111111-1111-4111-8111-111111111111",
+  });
+  const hashB = buildPublicationFanoutRequestIntentHash({
+    contentJobId: APPROVED_BUNDLE.content_job_id,
+    requestedBy: "11111111-1111-4111-8111-111111111111",
+    targets: [
+      {
+        platformConnectionId: "44444444-4444-4444-8444-444444444444",
+        providerOverrides: {
+          tiktok: {
+            allow_comments: true,
+          },
+        },
+        targetPlatform: "tiktok",
+      },
+      {
+        platformConnectionId: "33333333-3333-4333-8333-333333333333",
+        providerOverrides: {
+          youtube: {
+            notify_subscribers: false,
+          },
+        },
+        targetPlatform: "youtube",
+      },
+    ],
+    userId: "11111111-1111-4111-8111-111111111111",
+  });
+
+  assert.equal(hashA, hashB);
+  assert.match(hashA, /^[a-f0-9]{64}$/);
 });
 
 void test("resolvePublicationCapabilities rejects provider override namespace mismatches", () => {

@@ -61,6 +61,10 @@ apps/web/src/
   publish snapshot and enqueues `streamos-publishing`, while
   `workers/publishing-worker` performs the server-side provider write and
   reconciliation work.
+- Publication fanout preparation for approved repurposing jobs through
+  `POST /api/content-publications/fanout`; the gateway validates the approved
+  snapshot once, evaluates each requested target server-side, and persists
+  fanout audit rows before any publication worker path is used.
 - Rate limiting, retry handling, and audit logging for external API calls.
 - `GET /api/observability` is a protected server-to-server snapshot route for
   operator use. In production it must be backed by Redis so rate limiting,

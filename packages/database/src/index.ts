@@ -49,6 +49,16 @@ export type ContentPublicationEventType =
   | "reconcile_failed_retryable"
   | "reconcile_failed_permanent"
   | "reconciled";
+export type ContentPublicationFanoutStatus =
+  | "blocked"
+  | "canceled"
+  | "partially_validated"
+  | "requested"
+  | "validated";
+export type ContentPublicationFanoutTargetStatus = "blocked" | "validated";
+export type PublicationFanoutPolicy =
+  | "all_or_nothing_preflight"
+  | "prepare_valid_targets";
 export type VodAssetStatus =
   | "ingested"
   | "transcribing"
@@ -848,6 +858,155 @@ export type Database = {
             foreignKeyName: "content_publication_events_publication_user_fkey";
             columns: ["content_publication_id", "user_id"];
             referencedRelation: "content_publications";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
+      content_publication_fanouts: {
+        Row: {
+          blocked_target_count: number;
+          content_job_id: string;
+          created_at: string;
+          fanout_policy: PublicationFanoutPolicy;
+          fanout_status: ContentPublicationFanoutStatus;
+          id: string;
+          requested_at: string;
+          requested_by: string;
+          request_intent_hash: string;
+          review_status_at_request: ContentJobReviewStatus;
+          snapshot: Json;
+          snapshot_hash: string;
+          target_count: number;
+          updated_at: string;
+          user_id: string;
+          validated_at: string | null;
+          validated_target_count: number;
+        };
+        Insert: {
+          blocked_target_count?: number;
+          content_job_id: string;
+          created_at?: string;
+          fanout_policy?: PublicationFanoutPolicy;
+          fanout_status?: ContentPublicationFanoutStatus;
+          id?: string;
+          requested_at?: string;
+          requested_by: string;
+          request_intent_hash: string;
+          review_status_at_request: ContentJobReviewStatus;
+          snapshot?: Json;
+          snapshot_hash: string;
+          target_count?: number;
+          updated_at?: string;
+          user_id: string;
+          validated_at?: string | null;
+          validated_target_count?: number;
+        };
+        Update: {
+          blocked_target_count?: number;
+          content_job_id?: string;
+          created_at?: string;
+          fanout_policy?: PublicationFanoutPolicy;
+          fanout_status?: ContentPublicationFanoutStatus;
+          id?: string;
+          requested_at?: string;
+          requested_by?: string;
+          request_intent_hash?: string;
+          review_status_at_request?: ContentJobReviewStatus;
+          snapshot?: Json;
+          snapshot_hash?: string;
+          target_count?: number;
+          updated_at?: string;
+          user_id?: string;
+          validated_at?: string | null;
+          validated_target_count?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_publication_fanouts_content_job_user_fkey";
+            columns: ["content_job_id", "user_id"];
+            referencedRelation: "content_jobs";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_fanouts_requested_by_fkey";
+            columns: ["requested_by"];
+            referencedRelation: "auth.users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      content_publication_fanout_targets: {
+        Row: {
+          block_message: string | null;
+          block_reason: string | null;
+          capability_snapshot: Json;
+          capability_version: string;
+          content_publication_fanout_id: string;
+          content_publication_id: string | null;
+          created_at: string;
+          id: string;
+          platform_connection_id: string;
+          provider_overrides: Json;
+          request_intent_hash: string;
+          target_platform: Database["public"]["Enums"]["stream_platform"];
+          target_status: ContentPublicationFanoutTargetStatus;
+          updated_at: string;
+          user_id: string;
+          validated_at: string | null;
+        };
+        Insert: {
+          block_message?: string | null;
+          block_reason?: string | null;
+          capability_snapshot?: Json;
+          capability_version?: string;
+          content_publication_fanout_id: string;
+          content_publication_id?: string | null;
+          created_at?: string;
+          id?: string;
+          platform_connection_id: string;
+          provider_overrides?: Json;
+          request_intent_hash: string;
+          target_platform: Database["public"]["Enums"]["stream_platform"];
+          target_status: ContentPublicationFanoutTargetStatus;
+          updated_at?: string;
+          user_id: string;
+          validated_at?: string | null;
+        };
+        Update: {
+          block_message?: string | null;
+          block_reason?: string | null;
+          capability_snapshot?: Json;
+          capability_version?: string;
+          content_publication_fanout_id?: string;
+          content_publication_id?: string | null;
+          created_at?: string;
+          id?: string;
+          platform_connection_id?: string;
+          provider_overrides?: Json;
+          request_intent_hash?: string;
+          target_platform?: Database["public"]["Enums"]["stream_platform"];
+          target_status?: ContentPublicationFanoutTargetStatus;
+          updated_at?: string;
+          user_id?: string;
+          validated_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_publication_fanout_targets_fanout_user_fkey";
+            columns: ["content_publication_fanout_id", "user_id"];
+            referencedRelation: "content_publication_fanouts";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_fanout_targets_publication_user_fkey";
+            columns: ["content_publication_id", "user_id"];
+            referencedRelation: "content_publications";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_fanout_targets_connection_user_fkey";
+            columns: ["platform_connection_id", "user_id"];
+            referencedRelation: "platform_connections";
             referencedColumns: ["id", "user_id"];
           },
         ];

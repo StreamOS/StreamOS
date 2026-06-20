@@ -297,6 +297,12 @@ job into `streamos-publishing`, where `workers/publishing-worker` performs the
 server-side provider write and reconciliation work. The browser still does not
 call provider write APIs directly.
 
+`POST /api/content-publications/fanout` is the server-side fanout contract for
+approved repurposing jobs that should prepare multiple target publications in
+one request. It validates the repurposing snapshot once, validates each target
+server-side, and writes durable fanout audit rows before any publication worker
+path is used. The browser still does not call provider write APIs directly.
+
 `GET /api/observability` is a protected server-to-server snapshot route for
 operator use. It requires `API_GATEWAY_SECRET`, returns the current
 observability backend (`redis` in production, `memory` only for local/test
