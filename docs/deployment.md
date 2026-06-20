@@ -634,6 +634,78 @@ merge blocker. Re-run the cross-environment audit after the drift is fixed.
 
 - Keep the publish execution separate from audit and proof checks.
 
+### Publishing-worker Release Approval Form
+
+Use this compact form only for operator sign-off. Leave every value blank until
+the evidence is available. Never record secret values, tokens, or private URLs.
+
+**Release Metadata**
+
+- RC SHA:
+- Branch / PR:
+- Target environment:
+- Railway project / environment:
+- Date checked:
+- Operator / approver:
+- Relevant deployment IDs:
+
+**Audit Status**
+
+- [ ] `audit-premerge-cross-env.md` reviewed
+- [ ] `staging` and `production` included
+- [ ] No `MISSING` blocker for `publishing-worker`
+- [ ] No `DANGEROUS_EXPOSURE` blocker for `publishing-worker`
+- [ ] No real `STAGING_DRIFT` blocker for `publishing-worker`
+- [ ] No secret values visible in Markdown or JSON reports
+- [ ] Markdown and JSON support the same rollout decision
+- [ ] `publishing-worker` is listed correctly in the audit report
+
+**Worker Privacy**
+
+- [ ] `publishing-worker` exists in the target environment
+- [ ] Service type is Worker / Background Worker
+- [ ] Public Networking is disabled
+- [ ] No public domain is attached
+- [ ] No public healthcheck is required
+- [ ] Worker is in the expected Railway project
+- [ ] Worker is in the expected Railway environment
+- [ ] Worker was deployed from the expected RC SHA
+- [ ] Logs show no secret values
+
+**Env Status**
+
+- [ ] All required env names are present
+- [ ] `REDIS_URL` present when required
+- [ ] `SUPABASE_URL` present
+- [ ] `SUPABASE_SERVICE_ROLE_KEY` present
+- [ ] Publishing queue name present when required by the deployed worker
+- [ ] `APP_ENCRYPTION_KEY` present when the deployed worker requires token decryption
+- [ ] `AUTOMATION_SERVICE_URL` is not required for the current worker contract
+- [ ] No provider secrets were moved into `apps/web` or Vercel
+
+**Gate Status**
+
+- [ ] Production gate ran from a proof-capable Railway runtime
+- [ ] Runner is in the same Railway project
+- [ ] Runner is in the same Railway environment
+- [ ] Runner contains the same RC SHA
+- [ ] API Gateway runtime provenance matches the RC SHA
+- [ ] Gate passed green
+- [ ] Gate contains no real YouTube publish
+- [ ] Gate contains no third-party write
+- [ ] Known non-blocking warnings are documented
+
+**Decision**
+
+- Decision: `Freigegeben` / `Blockiert` / `Zurückgestellt`
+- Reason:
+
+Freigabe ist nur gültig, wenn RC SHA, Audit-Status, Worker-Privatsphäre, Env-
+Status und Gate-Status bestätigt sind und kein Blocker vorliegt. Wenn ein
+harter Blocker existiert, setze die Entscheidung auf `Blockiert`. Wenn die
+Nachweise unvollständig oder widersprüchlich sind, setze die Entscheidung auf
+`Zurückgestellt`.
+
 For a deployed release candidate, run the production gate from the dedicated
 `release-gate-runner` runtime, or an equivalent Railway shell that contains the
 same gate-required release-candidate snapshot, in the same Railway project and
