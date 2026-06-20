@@ -53,6 +53,9 @@ export function PublicationStatusConsole({
             <a href="/dashboard/jobs/repurposing" className="btn-primary">
               Repurposing Review
             </a>
+            <Link href="/dashboard/publications/fanouts" className="btn-ghost">
+              Crossposting summary
+            </Link>
             <a href="/dashboard/content" className="btn-ghost">
               Content Overview
             </a>
