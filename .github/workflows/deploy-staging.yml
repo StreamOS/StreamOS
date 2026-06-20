@@ -179,8 +179,8 @@ jobs:
           npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
 
           service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
-          # shellcheck disable=SC2016
           service_exists="$(
+            # shellcheck disable=SC2016
             node -e '
               const fs = require("node:fs");
               const payload = JSON.parse(fs.readFileSync(0, "utf8"));
