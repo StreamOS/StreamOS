@@ -1,66 +1,77 @@
-create table if not exists public.content_publications (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
-  content_job_id uuid not null,
-  platform_connection_id uuid not null,
-  target_platform public.stream_platform not null,
-  publication_status text not null default 'requested',
-  review_status_at_request text not null,
-  requested_by uuid not null references auth.users(id) on delete cascade,
-  requested_at timestamptz not null default now(),
-  validated_at timestamptz,
-  request_intent_hash text not null,
-  snapshot_hash text not null,
-  snapshot jsonb not null default '{}'::jsonb,
-  validation_code text,
-  validation_message text,
-  validation_metadata jsonb not null default '{}'::jsonb,
-  retry_count integer not null default 0,
-  max_retries integer not null default 0,
-  next_retry_at timestamptz,
-  external_post_id text,
-  external_url text,
-  published_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint content_publications_publication_status_check
-    check (
-      publication_status in (
-        'requested',
-        'validated',
-        'queued',
-        'publishing',
-        'published',
-        'failed_retryable',
-        'failed_permanent',
-        'canceled',
-        'rejected'
-      )
-    ),
-  constraint content_publications_review_status_check
-    check (review_status_at_request in ('needs_review', 'approved', 'rejected', 'needs_changes')),
-  constraint content_publications_request_intent_hash_length
-    check (char_length(request_intent_hash) = 64),
-  constraint content_publications_snapshot_hash_length
-    check (char_length(snapshot_hash) = 64),
-  constraint content_publications_validation_code_length
-    check (validation_code is null or char_length(validation_code) between 1 and 120),
-  constraint content_publications_validation_message_length
-    check (validation_message is null or char_length(validation_message) <= 4000),
-  constraint content_publications_external_post_id_length
-    check (external_post_id is null or char_length(external_post_id) <= 180),
-  constraint content_publications_external_url_length
-    check (external_url is null or char_length(external_url) <= 2048),
-  constraint content_publications_requested_by_fkey
-    foreign key (requested_by)
-    references auth.users(id) on delete cascade,
-  constraint content_publications_content_job_user_fkey
-    foreign key (content_job_id, user_id)
-    references public.content_jobs(id, user_id) on delete cascade,
-  constraint content_publications_connection_user_fkey
-    foreign key (platform_connection_id, user_id)
-    references public.platform_connections(id, user_id) on delete cascade
-);
+do $$
+begin
+  if not exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = 'content_publications'
+  ) then
+    create table public.content_publications (
+      id uuid primary key default gen_random_uuid(),
+      user_id uuid not null references auth.users(id) on delete cascade,
+      content_job_id uuid not null,
+      platform_connection_id uuid not null,
+      target_platform public.stream_platform not null,
+      publication_status text not null default 'requested',
+      review_status_at_request text not null,
+      requested_by uuid not null references auth.users(id) on delete cascade,
+      requested_at timestamptz not null default now(),
+      validated_at timestamptz,
+      request_intent_hash text not null,
+      snapshot_hash text not null,
+      snapshot jsonb not null default '{}'::jsonb,
+      validation_code text,
+      validation_message text,
+      validation_metadata jsonb not null default '{}'::jsonb,
+      retry_count integer not null default 0,
+      max_retries integer not null default 0,
+      next_retry_at timestamptz,
+      external_post_id text,
+      external_url text,
+      published_at timestamptz,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      constraint content_publications_publication_status_check
+        check (
+          publication_status in (
+            'requested',
+            'validated',
+            'queued',
+            'publishing',
+            'published',
+            'failed_retryable',
+            'failed_permanent',
+            'canceled',
+            'rejected'
+          )
+        ),
+      constraint content_publications_review_status_check
+        check (review_status_at_request in ('needs_review', 'approved', 'rejected', 'needs_changes')),
+      constraint content_publications_request_intent_hash_length
+        check (char_length(request_intent_hash) = 64),
+      constraint content_publications_snapshot_hash_length
+        check (char_length(snapshot_hash) = 64),
+      constraint content_publications_validation_code_length
+        check (validation_code is null or char_length(validation_code) between 1 and 120),
+      constraint content_publications_validation_message_length
+        check (validation_message is null or char_length(validation_message) <= 4000),
+      constraint content_publications_external_post_id_length
+        check (external_post_id is null or char_length(external_post_id) <= 180),
+      constraint content_publications_external_url_length
+        check (external_url is null or char_length(external_url) <= 2048),
+      constraint content_publications_requested_by_fkey
+        foreign key (requested_by)
+        references auth.users(id) on delete cascade,
+      constraint content_publications_content_job_user_fkey
+        foreign key (content_job_id, user_id)
+        references public.content_jobs(id, user_id) on delete cascade,
+      constraint content_publications_connection_user_fkey
+        foreign key (platform_connection_id, user_id)
+        references public.platform_connections(id, user_id) on delete cascade
+    );
+  end if;
+end
+$$;
 
 alter table public.content_publications enable row level security;
 
@@ -91,66 +102,77 @@ revoke insert, update, delete on public.content_publications from authenticated;
 grant select on public.content_publications to authenticated;
 grant all on public.content_publications to service_role;
 
-create table if not exists public.content_publication_events (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
-  content_publication_id uuid not null,
-  actor_id uuid not null references auth.users(id) on delete cascade,
-  event_type text not null,
-  previous_publication_status text,
-  publication_status text not null,
-  source text not null default 'api-gateway',
-  metadata jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now(),
-  constraint content_publication_events_publication_user_fkey
-    foreign key (content_publication_id, user_id)
-    references public.content_publications(id, user_id) on delete cascade,
-  constraint content_publication_events_event_type_check
-    check (
-      event_type in (
-        'requested',
-        'validated',
-        'rejected',
-        'canceled',
-        'queued',
-        'publishing',
-        'published',
-        'failed_retryable',
-        'failed_permanent'
-      )
-    ),
-  constraint content_publication_events_previous_status_check
-    check (
-      previous_publication_status is null
-      or previous_publication_status in (
-        'requested',
-        'validated',
-        'queued',
-        'publishing',
-        'published',
-        'failed_retryable',
-        'failed_permanent',
-        'canceled',
-        'rejected'
-      )
-    ),
-  constraint content_publication_events_publication_status_check
-    check (
-      publication_status in (
-        'requested',
-        'validated',
-        'queued',
-        'publishing',
-        'published',
-        'failed_retryable',
-        'failed_permanent',
-        'canceled',
-        'rejected'
-      )
-    ),
-  constraint content_publication_events_source_length_check
-    check (char_length(source) between 1 and 220)
-);
+do $$
+begin
+  if not exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = 'content_publication_events'
+  ) then
+    create table public.content_publication_events (
+      id uuid primary key default gen_random_uuid(),
+      user_id uuid not null references auth.users(id) on delete cascade,
+      content_publication_id uuid not null,
+      actor_id uuid not null references auth.users(id) on delete cascade,
+      event_type text not null,
+      previous_publication_status text,
+      publication_status text not null,
+      source text not null default 'api-gateway',
+      metadata jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now(),
+      constraint content_publication_events_publication_user_fkey
+        foreign key (content_publication_id, user_id)
+        references public.content_publications(id, user_id) on delete cascade,
+      constraint content_publication_events_event_type_check
+        check (
+          event_type in (
+            'requested',
+            'validated',
+            'rejected',
+            'canceled',
+            'queued',
+            'publishing',
+            'published',
+            'failed_retryable',
+            'failed_permanent'
+          )
+        ),
+      constraint content_publication_events_previous_status_check
+        check (
+          previous_publication_status is null
+          or previous_publication_status in (
+            'requested',
+            'validated',
+            'queued',
+            'publishing',
+            'published',
+            'failed_retryable',
+            'failed_permanent',
+            'canceled',
+            'rejected'
+          )
+        ),
+      constraint content_publication_events_publication_status_check
+        check (
+          publication_status in (
+            'requested',
+            'validated',
+            'queued',
+            'publishing',
+            'published',
+            'failed_retryable',
+            'failed_permanent',
+            'canceled',
+            'rejected'
+          )
+        ),
+      constraint content_publication_events_source_length_check
+        check (char_length(source) between 1 and 220)
+    );
+  end if;
+end
+$$;
 
 alter table public.content_publication_events enable row level security;
 
