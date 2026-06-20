@@ -604,6 +604,12 @@ SSH/internal probe is unverified while all hard blockers are green, hold the
 rollout for manual review. Do not promote until the missing information has
 been clarified.
 
+For `audit-premerge-cross-env.md`, treat any `publishing-worker` finding in
+`SERVICE_INVENTORY` / `MISSING`, `PUBLIC_NETWORKING` /
+`DANGEROUS_EXPOSURE`, required-env failures, or relevant `STAGING_DRIFT` as a
+merge blocker. Re-run the cross-environment audit after the drift is fixed.
+`api-gateway` may remain public; `publishing-worker` may not.
+
 ### Publishing-worker Decision Tree
 
 1. Is `publishing-worker` present in the target Railway environment?
