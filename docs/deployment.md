@@ -571,6 +571,63 @@ For `publishing-worker`, the audit expects:
 - the worker-specific required env contract to be populated, without requiring
   `AUTOMATION_SERVICE_URL`
 
+### Publishing-worker Audit Interpretation
+
+`pnpm railway:audit` renders the same underlying report as Markdown or JSON.
+Markdown is for operator review. JSON is for CI, automation, and machine
+comparison. If the Markdown and JSON outputs disagree about service presence,
+public networking, or finding severity, block the rollout and re-run the audit.
+If a finding appears in only one format, treat it as a report-contract problem
+and do not promote until the audit output is reconciled.
+
+For `publishing-worker`, use the following matrix to translate audit findings
+into rollout decisions:
+
+| Finding / flag                                                 | Example trigger                                                                                                                                                                                                       | Service             | Env                   | Rollout decision                                         | Operator action                                                                                                                             | Re-audit?   |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | --------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `SERVICE_INVENTORY` / `MISSING`                                | `publishing-worker` is absent from the Railway service list or environment config                                                                                                                                     | `publishing-worker` | staging or production | Block rollout                                            | Provision the service in the target Railway environment and confirm the inventory entry exists                                              | Yes         |
+| `PUBLIC_NETWORKING` / `DANGEROUS_EXPOSURE`                     | A public domain is attached or `serviceDomains` is populated for the worker                                                                                                                                           | `publishing-worker` | staging or production | Block rollout                                            | Remove the public domain, disable public networking, and keep the worker private                                                            | Yes         |
+| Required env missing or invalid                                | `REDIS_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, or another required worker variable is missing, empty, or invalid, including `PUBLICATION_QUEUE_NAME` only if the deployed worker version marks it required | `publishing-worker` | staging or production | Block rollout                                            | Restore the required Railway variables and verify the worker contract before retrying                                                       | Yes         |
+| `APP_ENCRYPTION_KEY` missing                                   | The current worker code actually requires token decryption and the key is unset                                                                                                                                       | `publishing-worker` | staging or production | Block rollout when the current code contract requires it | Restore the key only if the deployed worker version needs it for token handling                                                             | Yes         |
+| `AUTOMATION_SERVICE_URL` missing                               | The worker contract does not use `AUTOMATION_SERVICE_URL`                                                                                                                                                             | `publishing-worker` | staging or production | Not blocking                                             | No action unless a later worker contract adds this dependency                                                                               | No          |
+| `WRONG_SCOPE`, `WRONG_SERVICE`, or secret `DANGEROUS_EXPOSURE` | A secret or variable is attached to the wrong service or exposed on a service that should not own it                                                                                                                  | `publishing-worker` | staging or production | Block rollout                                            | Move the variable to the correct owner and remove any exposure before retrying                                                              | Yes         |
+| `STAGING_DRIFT`                                                | Staging and production differ on service presence, networking, or variable status                                                                                                                                     | `publishing-worker` | cross-environment     | Manual review required                                   | Compare both environments, confirm whether the drift is intentional, and block if it changes required envs, service presence, or networking | Usually yes |
+| `HEALTHCHECK_FAILED`                                           | A verifiable worker health probe fails                                                                                                                                                                                | `publishing-worker` | staging or production | Block rollout                                            | Fix the runtime or deployment, then re-audit after the worker is healthy again                                                              | Yes         |
+
+Do not apply the worker networking rule to `api-gateway`. `api-gateway` is the
+public backend entry point and may legitimately keep public networking
+enabled. The worker rule is the opposite: `publishing-worker` must stay
+private.
+
+If the report is incomplete, contains unknown service metadata, or the Railway
+SSH/internal probe is unverified while all hard blockers are green, hold the
+rollout for manual review. Do not promote until the missing information has
+been clarified.
+
+### Publishing-worker Decision Tree
+
+1. Is `publishing-worker` present in the target Railway environment?
+   - No: block rollout.
+2. Is public networking disabled for `publishing-worker`?
+   - No: block rollout.
+3. Does the worker have a public domain or public URL?
+   - Yes: block rollout.
+4. Are all required worker env variables present and valid?
+   - No: block rollout.
+5. Are any secret values visible in the Markdown or JSON audit output?
+   - Yes: block rollout.
+6. Does staging differ from production?
+   - Yes: manually review the drift first; block if the difference touches required envs, service presence, or networking.
+7. Was the worker deployed from the expected release-candidate commit?
+   - No: block rollout.
+8. Are only optional or known non-blocking hints left?
+   - Yes: rollout can continue.
+9. Is the production gate green?
+   - No: do not promote.
+10. Real provider publishing is never part of the gate itself.
+
+- Keep the publish execution separate from audit and proof checks.
+
 For a deployed release candidate, run the production gate from the dedicated
 `release-gate-runner` runtime, or an equivalent Railway shell that contains the
 same gate-required release-candidate snapshot, in the same Railway project and
