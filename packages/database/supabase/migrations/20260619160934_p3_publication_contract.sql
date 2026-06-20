@@ -1,10 +1,7 @@
 do $$
 begin
   if not exists (
-    select 1
-    from information_schema.tables
-    where table_schema = 'public'
-      and table_name = 'content_publications'
+    select to_regclass('public.content_publications')
   ) then
     create table public.content_publications (
       id uuid primary key default gen_random_uuid(),
@@ -105,10 +102,7 @@ grant all on public.content_publications to service_role;
 do $$
 begin
   if not exists (
-    select 1
-    from information_schema.tables
-    where table_schema = 'public'
-      and table_name = 'content_publication_events'
+    select to_regclass('public.content_publication_events')
   ) then
     create table public.content_publication_events (
       id uuid primary key default gen_random_uuid(),
