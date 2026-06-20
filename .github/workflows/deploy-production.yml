@@ -315,84 +315,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # shellcheck disable=SC2016
 
           npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
 
           service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
-          # shellcheck disable=SC2016
-          service_exists="$(
-            node -e '
-              const fs = require("node:fs");
-              const payload = JSON.parse(fs.readFileSync(0, "utf8"));
-              const services = Array.isArray(payload)
-                ? payload
-                : Array.isArray(payload.services)
-                  ? payload.services
-                  : [];
-              const exists = services.some((service) => service?.name === "repurposing-worker");
-              process.stdout.write(exists ? "yes" : "no");
-            ' <<<"${service_list}"
-          )"
+          if printf '%s' "${service_list}" | jq -e 'if type == "array" then . elif has("services") then .services else [] end | any(.name == "repurposing-worker")' >/dev/null; then
+            service_exists="yes"
+          else
+            service_exists="no"
+          fi
 
           if [ "${service_exists}" = "yes" ]; then
             echo "repurposing-worker already exists in Railway production." >> "${GITHUB_STEP_SUMMARY}"
           else
             railway_service_response="$(
-              node -e '
-                (async () => {
-                  const endpoint = "https://backboard.railway.com/graphql/v2";
-                  const token = process.env.RAILWAY_TOKEN;
-                  const projectId = process.env.RAILWAY_PROJECT_ID;
-
-                  if (!token) {
-                    throw new Error("RAILWAY_TOKEN is required.");
-                  }
-
-                  const response = await fetch(endpoint, {
-                    method: "POST",
-                    headers: {
-                      Authorization: `Bearer ${token}`,
-                      "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                      query: "mutation serviceCreate($input: ServiceCreateInput!) { serviceCreate(input: $input) { id name } }",
-                      variables: {
-                        input: {
-                          name: "repurposing-worker",
-                          projectId,
-                        },
-                      },
-                    }),
-                  });
-
-                  const payload = await response.json();
-
-                  if (!response.ok || payload.errors?.length > 0) {
-                    const message =
-                      payload.errors?.map((error) => error.message).join("; ") ||
-                      `HTTP ${response.status}`;
-                    throw new Error(`Railway serviceCreate failed: ${message}`);
-                  }
-
-                  const service = payload.data?.serviceCreate;
-
-                  if (!service?.id || service?.name !== "repurposing-worker") {
-                    throw new Error("Railway serviceCreate returned an unexpected payload.");
-                  }
-
-                  process.stdout.write(JSON.stringify(service));
-                })().catch((error) => {
-                  console.error(error instanceof Error ? error.message : String(error));
-                  process.exit(1);
-                });
-              '
+              SERVICE_NAME=repurposing-worker node scripts/railway-service-create.cjs
             )"
-            repurposing_worker_service_id="$(
-              node -e '
-                const payload = JSON.parse(process.argv[1]);
-                process.stdout.write(payload.id);
-              ' "${railway_service_response}"
-            )"
+            repurposing_worker_service_id="$(printf '%s' "${railway_service_response}" | jq -r '.id')"
 
             {
               echo "## repurposing-worker provisioning"
@@ -420,82 +360,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # shellcheck disable=SC2016
 
           service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
-          # shellcheck disable=SC2016
-          service_exists="$(
-            node -e '
-              const fs = require("node:fs");
-              const payload = JSON.parse(fs.readFileSync(0, "utf8"));
-              const services = Array.isArray(payload)
-                ? payload
-                : Array.isArray(payload.services)
-                  ? payload.services
-                  : [];
-              const exists = services.some((service) => service?.name === "publishing-worker");
-              process.stdout.write(exists ? "yes" : "no");
-            ' <<<"${service_list}"
-          )"
+          if printf '%s' "${service_list}" | jq -e 'if type == "array" then . elif has("services") then .services else [] end | any(.name == "publishing-worker")' >/dev/null; then
+            service_exists="yes"
+          else
+            service_exists="no"
+          fi
 
           if [ "${service_exists}" = "yes" ]; then
             echo "publishing-worker already exists in Railway production." >> "${GITHUB_STEP_SUMMARY}"
           else
             railway_service_response="$(
-              node -e '
-                (async () => {
-                  const endpoint = "https://backboard.railway.com/graphql/v2";
-                  const token = process.env.RAILWAY_TOKEN;
-                  const projectId = process.env.RAILWAY_PROJECT_ID;
-
-                  if (!token) {
-                    throw new Error("RAILWAY_TOKEN is required.");
-                  }
-
-                  const response = await fetch(endpoint, {
-                    method: "POST",
-                    headers: {
-                      Authorization: `Bearer ${token}`,
-                      "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                      query: "mutation serviceCreate($input: ServiceCreateInput!) { serviceCreate(input: $input) { id name } }",
-                      variables: {
-                        input: {
-                          name: "publishing-worker",
-                          projectId,
-                        },
-                      },
-                    }),
-                  });
-
-                  const payload = await response.json();
-
-                  if (!response.ok || payload.errors?.length > 0) {
-                    const message =
-                      payload.errors?.map((error) => error.message).join("; ") ||
-                      `HTTP ${response.status}`;
-                    throw new Error(`Railway serviceCreate failed: ${message}`);
-                  }
-
-                  const service = payload.data?.serviceCreate;
-
-                  if (!service?.id || service?.name !== "publishing-worker") {
-                    throw new Error("Railway serviceCreate returned an unexpected payload.");
-                  }
-
-                  process.stdout.write(JSON.stringify(service));
-                })().catch((error) => {
-                  console.error(error instanceof Error ? error.message : String(error));
-                  process.exit(1);
-                });
-              '
+              SERVICE_NAME=publishing-worker node scripts/railway-service-create.cjs
             )"
-            publishing_worker_service_id="$(
-              node -e '
-                const payload = JSON.parse(process.argv[1]);
-                process.stdout.write(payload.id);
-              ' "${railway_service_response}"
-            )"
+            publishing_worker_service_id="$(printf '%s' "${railway_service_response}" | jq -r '.id')"
 
             {
               echo "## publishing-worker provisioning"
