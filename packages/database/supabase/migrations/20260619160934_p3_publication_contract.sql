@@ -26,6 +26,7 @@ begin
       published_at timestamptz,
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now(),
+      constraint content_publications_id_user_id_unique unique (id, user_id),
       constraint content_publications_publication_status_check
         check (
           publication_status in (
@@ -96,6 +97,20 @@ revoke insert, update, delete on public.content_publications from authenticated;
 
 grant select on public.content_publications to authenticated;
 grant all on public.content_publications to service_role;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'content_publications_id_user_id_unique'
+      and conrelid = 'public.content_publications'::regclass
+  ) then
+    alter table public.content_publications
+      add constraint content_publications_id_user_id_unique unique (id, user_id);
+  end if;
+end
+$$;
 
 do $$
 begin
