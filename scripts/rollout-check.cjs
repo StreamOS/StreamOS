@@ -30,6 +30,10 @@ const RUNNER_PROVENANCE_SCHEMA_VERSION = 1;
 const RELEASE_GATE_RUNNER_SERVICE = "release-gate-runner";
 const API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES = [
   {
+    name: "@streamos/types",
+    path: "packages/types",
+  },
+  {
     name: "@streamos/redis",
     path: "packages/redis",
   },
@@ -250,18 +254,19 @@ Usage:
 Required checks:
   1. Supabase migration/RLS/index validator
   2. API Gateway typecheck
-  3. API Gateway runtime package build: @streamos/redis
-  4. API Gateway runtime package build: @streamos/queue
-  5. API Gateway runtime package build: @streamos/youtube-websub
-  6. API Gateway integration and signed-webhook tests
-  7. API Gateway build
-  8. Stream-job-worker test and build
-  9. transcription-worker runtime package build: @streamos/types
-  10. transcription-worker runtime package build: @streamos/queue
-  11. transcription-worker runtime package build: @streamos/redis
-  12. Transcription-worker test and build
-  13. Transcription E2E: webhook -> BullMQ -> worker -> content_jobs write
-  14. Deployment health checks for API Gateway and Automation Service
+  3. API Gateway runtime package build: @streamos/types
+  4. API Gateway runtime package build: @streamos/redis
+  5. API Gateway runtime package build: @streamos/queue
+  6. API Gateway runtime package build: @streamos/youtube-websub
+  7. API Gateway integration and signed-webhook tests
+  8. API Gateway build
+  9. Stream-job-worker test and build
+  10. transcription-worker runtime package build: @streamos/types
+  11. transcription-worker runtime package build: @streamos/queue
+  12. transcription-worker runtime package build: @streamos/redis
+  13. Transcription-worker test and build
+  14. Transcription E2E: webhook -> BullMQ -> worker -> content_jobs write
+  15. Deployment health checks for API Gateway and Automation Service
 
 Production-gate runtime:
   - Must run from the dedicated Railway service release-gate-runner, or an equivalent

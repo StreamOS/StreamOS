@@ -941,6 +941,44 @@ test("buildAuditReport keeps worker-owned secrets and provider secrets scoped to
   }
 });
 
+test("buildAuditReport flags CLIP_WORKER_CONCURRENCY as wrong scope on api-gateway and content-job-retry-worker", () => {
+  const production = cloneEnvironment(loadEnvironment("production"));
+  production.serviceVariables["api-gateway"].CLIP_WORKER_CONCURRENCY = "3";
+  production.serviceVariables[
+    "content-job-retry-worker"
+  ].CLIP_WORKER_CONCURRENCY = "4";
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  for (const serviceName of ["api-gateway", "content-job-retry-worker"]) {
+    const serviceRows =
+      report.environments.production.services[serviceName].variables;
+    const concurrencyRow = serviceRows.find(
+      (row) => row.variable === "CLIP_WORKER_CONCURRENCY",
+    );
+
+    assert.ok(concurrencyRow, `${serviceName} should include the extra row`);
+    assert.equal(concurrencyRow.status, "\u274c");
+    assert.match(concurrencyRow.summary, /belongs to clip-worker/);
+    assert.ok(
+      report.environments.production.prioritizedFixes.some(
+        (finding) =>
+          finding.service === serviceName &&
+          finding.variable === "CLIP_WORKER_CONCURRENCY" &&
+          finding.flag === "WRONG_SERVICE" &&
+          finding.priority === "HIGH",
+      ),
+    );
+  }
+});
+
 test("buildAuditReport keeps secret values redacted from the report payload", () => {
   const report = buildAuditReport({
     project: whitelist.project,
