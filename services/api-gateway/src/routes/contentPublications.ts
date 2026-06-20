@@ -2562,6 +2562,32 @@ async function loadPublicationFanoutTargetById({
   return rows[0] ?? null;
 }
 
+async function loadPublicationFanoutTargetByPublicationId({
+  fanoutId,
+  publicationId,
+  supabase,
+  userId,
+}: {
+  fanoutId: string;
+  publicationId: string;
+  supabase: SupabaseRestClient;
+  userId: string;
+}): Promise<PublicationFanoutTargetRow | null> {
+  const rows = await readSupabaseRows<PublicationFanoutTargetRow>({
+    client: supabase,
+    params: {
+      content_publication_fanout_id: `eq.${fanoutId}`,
+      content_publication_id: `eq.${publicationId}`,
+      select:
+        "block_message,block_reason,capability_snapshot,capability_version,content_publication_fanout_id,content_publication_id,created_at,last_action_at,last_action_key,last_action_result,last_block_reason,last_rechecked_at,id,platform_connection_id,provider_overrides,request_intent_hash,target_platform,target_status,updated_at,user_id,validated_at",
+      user_id: `eq.${userId}`,
+    },
+    table: "content_publication_fanout_targets",
+  });
+
+  return rows[0] ?? null;
+}
+
 async function loadPublicationFanoutTargets({
   fanoutId,
   supabase,
@@ -3014,10 +3040,10 @@ async function retryPublicationFanoutChild({
     };
   }
 
-  const target = await loadPublicationFanoutTargetById({
+  const target = await loadPublicationFanoutTargetByPublicationId({
     fanoutId: fanout.id,
     supabase,
-    targetId: publication.id,
+    publicationId: publication.id,
     userId,
   });
 
