@@ -292,23 +292,17 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
-      - name: Link Vercel project
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          vercel link --yes \
-            --project "${VERCEL_PROJECT_ID}" \
-            --team "${VERCEL_ORG_ID}" \
-            --token="${VERCEL_TOKEN}"
-
       - name: Smoke protected Vercel deployment
         env:
           DEPLOYMENT_URL: ${{ needs.deploy-web.outputs.url }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
+
+          if [ -z "${DEPLOYMENT_URL}" ]; then
+            echo "::error::Deployment URL output is empty."
+            exit 1
+          fi
 
           check_status() {
             local path="$1"
