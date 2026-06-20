@@ -101,43 +101,52 @@ Required Railway variables:
 
 ```bash
 NODE_ENV=production
-HOST=::
-PORT=4000
 REDIS_URL=rediss://default:password@host:6379
-QUEUE_DEFAULT_NAME=streamos-media
-CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
-TRANSCRIPTION_QUEUE_NAME=streamos-transcription
 API_GATEWAY_SECRET=
 API_GATEWAY_ALLOWED_ORIGINS=https://app.streamos.example
-CONNECT_SUCCESS_REDIRECT=https://app.streamos.example/dashboard/platforms
-API_GATEWAY_RATE_LIMIT_MAX=120
-API_GATEWAY_RATE_LIMIT_WINDOW_MS=60000
 STREAM_EVENT_WEBHOOK_SECRET=
 APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 TWITCH_CLIENT_ID=
 TWITCH_CLIENT_SECRET=
-TWITCH_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/twitch/callback
-TWITCH_SCOPES=user:read:email moderator:read:followers
+TWITCH_EVENTSUB_SECRET=
 YOUTUBE_CLIENT_ID=
 YOUTUBE_CLIENT_SECRET=
-YOUTUBE_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/youtube/callback
-YOUTUBE_SCOPES=https://www.googleapis.com/auth/youtube.readonly
+YOUTUBE_WEBHOOK_SECRET=
 TIKTOK_CLIENT_KEY=
 TIKTOK_CLIENT_SECRET=
-TIKTOK_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/tiktok/callback
-TIKTOK_SCOPES=user.info.basic
 KICK_CLIENT_ID=
 KICK_CLIENT_SECRET=
-KICK_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/kick/callback
-KICK_SCOPES=user:read channel:read events:subscribe channel:follow channel:subscription
-KICK_WEBHOOK_SECRET=
-RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 ```
 
 Twitch, YouTube, TikTok, and Kick OAuth are gateway-owned and must use the API
 Gateway callback URLs shown above.
+
+Optional Railway overrides:
+
+```bash
+HOST=::
+PORT=4000
+QUEUE_DEFAULT_NAME=streamos-media
+CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
+TRANSCRIPTION_QUEUE_NAME=streamos-transcription
+CONNECT_SUCCESS_REDIRECT=https://app.streamos.example/dashboard/platforms
+API_GATEWAY_RATE_LIMIT_MAX=120
+API_GATEWAY_RATE_LIMIT_WINDOW_MS=60000
+TWITCH_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/twitch/callback
+TWITCH_SCOPES=user:read:email moderator:read:followers
+YOUTUBE_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/youtube/callback
+YOUTUBE_SCOPES=https://www.googleapis.com/auth/youtube.readonly
+TIKTOK_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/tiktok/callback
+TIKTOK_SCOPES=user.info.basic
+KICK_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/kick/callback
+KICK_SCOPES=user:read channel:read events:subscribe channel:follow channel:subscription
+RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
+```
+
+`TWITCH_EVENTSUB_SECRET` accepts the compatibility alias `TWITCH_WEBHOOK_SECRET`.
+`YOUTUBE_WEBHOOK_SECRET` accepts the compatibility alias `YOUTUBE_WEBSUB_SECRET`.
 
 `REDIS_URL` is mandatory in production for the API gateway because
 observability, distributed rate limiting, and webhook replay protection must
@@ -188,9 +197,22 @@ Recommended Docker configuration:
 Required variables:
 
 ```bash
+OPENAI_API_KEY=
+```
+
+`OPENAI_MODEL` is reserved for complex analysis tasks. `OPENAI_TITLE_MODEL`
+remains a server-only reserved setting for a future canonical title-generation
+or repurposing contract. `video.published` can now create a durable
+`repurposing` plan content job and enqueue `repurposing.plan` when provider
+enrichment resolves `asset_available` and the connected platform metadata
+explicitly opts in; the active production endpoints are now `/clips/analyze`,
+`/repurposing/plan`, and `/transcriptions/process`.
+
+Optional Railway overrides:
+
+```bash
 HOST=::
 PORT=8000
-OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o
 OPENAI_TITLE_MODEL=gpt-4o-mini
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
@@ -202,14 +224,6 @@ STREAMOS_E2E_MODE=false
 TRANSCRIPTION_PROCESSOR_MODE=openai
 RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 ```
-
-`OPENAI_MODEL` is reserved for complex analysis tasks. `OPENAI_TITLE_MODEL`
-remains a server-only reserved setting for a future canonical title-generation
-or repurposing contract. `video.published` can now create a durable
-`repurposing` plan content job and enqueue `repurposing.plan` when provider
-enrichment resolves `asset_available` and the connected platform metadata
-explicitly opts in; the active production endpoints are now `/clips/analyze`,
-`/repurposing/plan`, and `/transcriptions/process`.
 
 Keep public networking disabled for steady-state production. During first deploy only, you may temporarily enable a Railway public domain to smoke-test `/health`, then remove it and verify from the dedicated `release-gate-runner` Railway shell with `node scripts/check-deployment.cjs --expect-private-automation`.
 
@@ -268,7 +282,6 @@ Required variables:
 
 ```bash
 REDIS_URL=rediss://default:password@host:6379
-TRANSCRIPTION_QUEUE_NAME=streamos-transcription
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
@@ -280,6 +293,8 @@ QUEUE_DEFAULT_NAME=streamos-media
 STREAM_JOB_QUEUE_NAME=streamos-media
 STREAM_JOB_WORKER_CONCURRENCY=5
 STREAM_JOB_ALERT_WEBHOOK_URL=
+REPURPOSING_QUEUE_NAME=streamos-repurposing
+TRANSCRIPTION_QUEUE_NAME=streamos-transcription
 ```
 
 This worker must not call `AUTOMATION_SERVICE_URL` and must not depend on
@@ -314,10 +329,17 @@ Required variables:
 ```bash
 REDIS_URL=rediss://default:password@host:6379
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
-TRANSCRIPTION_WORKER_CONCURRENCY=2
 AUTOMATION_SERVICE_URL=http://${{automation-service.RAILWAY_PRIVATE_DOMAIN}}:8000
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
+```
+
+Optional variables:
+
+```bash
+CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
+TRANSCRIPTION_QUEUE_NAME=streamos-transcription
+TRANSCRIPTION_WORKER_CONCURRENCY=2
 ```
 
 If the Railway service is named differently, replace `automation-service` in the reference variable with the exact Railway service name. The rendered value must end in `railway.internal` and must use `http` plus the Automation Service port.
@@ -397,15 +419,21 @@ Required variables:
 
 ```bash
 REDIS_URL=rediss://default:password@host:6379
-CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
-TRANSCRIPTION_QUEUE_NAME=streamos-transcription
-CLIP_WORKER_CONCURRENCY=2
 CONTENT_JOB_RETRY_WORKER_BATCH_SIZE=25
 CONTENT_JOB_RETRY_WORKER_POLL_INTERVAL_MS=60000
 CONTENT_JOB_RETRY_ATTEMPTS=3
 CONTENT_JOB_RETRY_BACKOFF_MS=30000
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
+```
+
+Optional variables:
+
+```bash
+CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
+QUEUE_DEFAULT_NAME=streamos-media
+REPURPOSING_QUEUE_NAME=streamos-repurposing
+TRANSCRIPTION_QUEUE_NAME=streamos-transcription
 ```
 
 Validation:

@@ -86,6 +86,30 @@ test("audit CLI renders publishing-worker in JSON output for staging and product
   );
 });
 
+test("audit CLI renders api-gateway Twitch and YouTube ownership in markdown output", () => {
+  const result = runAuditCli([
+    "--environments",
+    "staging,production",
+    "--format",
+    "markdown",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  const apiGatewaySection = result.stdout.match(
+    /### api-gateway[\s\S]*?\n### automation-service/,
+  )?.[0];
+
+  assert.ok(apiGatewaySection, result.stdout);
+  assert.match(apiGatewaySection, /TWITCH_CLIENT_ID/);
+  assert.match(apiGatewaySection, /TWITCH_CLIENT_SECRET/);
+  assert.match(apiGatewaySection, /TWITCH_EVENTSUB_SECRET/);
+  assert.match(apiGatewaySection, /YOUTUBE_CLIENT_ID/);
+  assert.match(apiGatewaySection, /YOUTUBE_CLIENT_SECRET/);
+  assert.match(apiGatewaySection, /YOUTUBE_WEBHOOK_SECRET/);
+  assert.doesNotMatch(apiGatewaySection, /KICK_WEBHOOK_SECRET/);
+  assert.doesNotMatch(apiGatewaySection, /CLIP_WORKER_CONCURRENCY/);
+});
+
 test("audit CLI keeps publishing-worker happy-path output non-blocking in markdown and JSON", () => {
   const markdownResult = runAuditCli(
     ["--environments", "staging,production", "--format", "markdown"],

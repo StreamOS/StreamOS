@@ -1,57 +1,28 @@
 const API_GATEWAY_REQUIRED = [
   "NODE_ENV",
-  "HOST",
-  "PORT",
   "REDIS_URL",
-  "QUEUE_DEFAULT_NAME",
-  "CLIP_GENERATION_QUEUE_NAME",
-  "TRANSCRIPTION_QUEUE_NAME",
-  "CLIP_WORKER_CONCURRENCY",
   "API_GATEWAY_SECRET",
   "API_GATEWAY_ALLOWED_ORIGINS",
-  "CONNECT_SUCCESS_REDIRECT",
-  "API_GATEWAY_RATE_LIMIT_MAX",
-  "API_GATEWAY_RATE_LIMIT_WINDOW_MS",
   "STREAM_EVENT_WEBHOOK_SECRET",
   "APP_ENCRYPTION_KEY",
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
+  "TWITCH_CLIENT_ID",
+  "TWITCH_CLIENT_SECRET",
+  "TWITCH_EVENTSUB_SECRET",
   "YOUTUBE_CLIENT_ID",
   "YOUTUBE_CLIENT_SECRET",
-  "YOUTUBE_REDIRECT_URI",
-  "YOUTUBE_SCOPES",
+  "YOUTUBE_WEBHOOK_SECRET",
   "TIKTOK_CLIENT_KEY",
   "TIKTOK_CLIENT_SECRET",
-  "TIKTOK_REDIRECT_URI",
-  "TIKTOK_SCOPES",
   "KICK_CLIENT_ID",
   "KICK_CLIENT_SECRET",
-  "KICK_REDIRECT_URI",
-  "KICK_SCOPES",
-  "KICK_WEBHOOK_SECRET",
-  "RAILWAY_HEALTHCHECK_TIMEOUT_SEC",
 ];
 
-const AUTOMATION_SERVICE_REQUIRED = [
-  "HOST",
-  "PORT",
-  "OPENAI_API_KEY",
-  "OPENAI_MODEL",
-  "OPENAI_TITLE_MODEL",
-  "OPENAI_TRANSCRIPTION_MODEL",
-  "OPENAI_BASE_URL",
-  "OPENAI_TIMEOUT_SECONDS",
-  "OPENAI_MAX_TRANSCRIPTION_MEDIA_BYTES",
-  "REPLICATE_API_TOKEN",
-  "STREAMOS_E2E_MODE",
-  "TRANSCRIPTION_PROCESSOR_MODE",
-  "RAILWAY_HEALTHCHECK_TIMEOUT_SEC",
-];
+const AUTOMATION_SERVICE_REQUIRED = ["OPENAI_API_KEY"];
 
 const TRANSCRIPTION_WORKER_REQUIRED = [
   "REDIS_URL",
-  "TRANSCRIPTION_QUEUE_NAME",
-  "TRANSCRIPTION_WORKER_CONCURRENCY",
   "AUTOMATION_SERVICE_URL",
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
@@ -59,17 +30,12 @@ const TRANSCRIPTION_WORKER_REQUIRED = [
 
 const STREAM_JOB_WORKER_REQUIRED = [
   "REDIS_URL",
-  "TRANSCRIPTION_QUEUE_NAME",
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
 ];
 
 const CONTENT_JOB_RETRY_REQUIRED = [
   "REDIS_URL",
-  "CLIP_GENERATION_QUEUE_NAME",
-  "REPURPOSING_QUEUE_NAME",
-  "TRANSCRIPTION_QUEUE_NAME",
-  "CLIP_WORKER_CONCURRENCY",
   "CONTENT_JOB_RETRY_WORKER_BATCH_SIZE",
   "CONTENT_JOB_RETRY_WORKER_POLL_INTERVAL_MS",
   "CONTENT_JOB_RETRY_ATTEMPTS",
@@ -111,15 +77,7 @@ module.exports = {
     name: "terrific-reflection",
   },
   environments: ["staging", "production"],
-  forbiddenRailwayPatterns: [
-    "NEXT_PUBLIC_*",
-    "TWITCH_CLIENT_ID",
-    "TWITCH_CLIENT_SECRET",
-    "TWITCH_REDIRECT_URI",
-    "TWITCH_SCOPES",
-    "APP_ENV",
-    "STREAMOS_DEMO_MODE",
-  ],
+  forbiddenRailwayPatterns: ["NEXT_PUBLIC_*", "APP_ENV", "STREAMOS_DEMO_MODE"],
   platformManagedPatterns: ["RAILWAY_*"],
   sensitiveNamePatterns: [
     "_API_KEY",
@@ -146,16 +104,29 @@ module.exports = {
       "NODE_ENV",
       "REDIS_URL",
       "STREAM_EVENT_WEBHOOK_SECRET",
-      "TRANSCRIPTION_PROCESSOR_MODE",
     ],
     productionCriticalMissing: [
       "API_GATEWAY_SECRET",
       "APP_ENCRYPTION_KEY",
       "AUTOMATION_SERVICE_URL",
+      "API_GATEWAY_ALLOWED_ORIGINS",
       "NODE_ENV",
       "REDIS_URL",
-      "SERVICE_INVENTORY",
       "STREAM_EVENT_WEBHOOK_SECRET",
+      "SUPABASE_URL",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "OPENAI_API_KEY",
+      "TWITCH_CLIENT_ID",
+      "TWITCH_CLIENT_SECRET",
+      "TWITCH_EVENTSUB_SECRET",
+      "YOUTUBE_CLIENT_ID",
+      "YOUTUBE_CLIENT_SECRET",
+      "YOUTUBE_WEBHOOK_SECRET",
+      "TIKTOK_CLIENT_KEY",
+      "TIKTOK_CLIENT_SECRET",
+      "KICK_CLIENT_ID",
+      "KICK_CLIENT_SECRET",
+      "SERVICE_INVENTORY",
     ],
   },
   validators: {
@@ -167,14 +138,6 @@ module.exports = {
       },
       API_GATEWAY_RATE_LIMIT_ENABLED: {
         kind: "boolean",
-      },
-      API_GATEWAY_RATE_LIMIT_MAX: {
-        kind: "integer",
-        min: 1,
-      },
-      API_GATEWAY_RATE_LIMIT_WINDOW_MS: {
-        kind: "integer",
-        min: 1,
       },
       API_GATEWAY_SECRET: {
         kind: "string",
@@ -233,9 +196,6 @@ module.exports = {
       KICK_SCOPES: {
         kind: "scopes",
       },
-      KICK_WEBHOOK_SECRET: {
-        kind: "string",
-      },
       NODE_ENV: {
         allowed: ["development", "production", "staging", "test"],
         kind: "enum",
@@ -280,13 +240,17 @@ module.exports = {
       QUEUE_DEFAULT_NAME: {
         kind: "string",
       },
-      RAILWAY_HEALTHCHECK_TIMEOUT_SEC: {
-        kind: "integer",
-        min: 1,
-      },
       REDIS_URL: {
         kind: "url",
         protocols: ["redis:", "rediss:"],
+      },
+      REPURPOSING_QUEUE_NAME: {
+        kind: "string",
+      },
+      REPURPOSING_WORKER_CONCURRENCY: {
+        kind: "integer",
+        max: 25,
+        min: 1,
       },
       REPLICATE_API_TOKEN: {
         kind: "string",
@@ -303,10 +267,27 @@ module.exports = {
         protocols: ["https:"],
         rejectPrivateHosts: true,
       },
-      STREAM_EVENT_WEBHOOK_SECRET: {
-        kind: "string",
+      STREAM_JOB_ALERT_WEBHOOK_URL: {
+        kind: "url",
+        protocols: ["http:", "https:"],
       },
       STREAM_JOB_QUEUE_NAME: {
+        kind: "string",
+      },
+      STREAM_JOB_WORKER_CONCURRENCY: {
+        kind: "integer",
+        max: 50,
+        min: 1,
+      },
+      TRANSCRIPTION_QUEUE_NAME: {
+        kind: "string",
+      },
+      TRANSCRIPTION_WORKER_CONCURRENCY: {
+        kind: "integer",
+        max: 25,
+        min: 1,
+      },
+      STREAM_EVENT_WEBHOOK_SECRET: {
         kind: "string",
       },
       SUPABASE_SERVICE_ROLE_KEY: {
@@ -333,14 +314,6 @@ module.exports = {
         allowed: ["openai", "stub", "fail"],
         kind: "enum",
       },
-      TRANSCRIPTION_QUEUE_NAME: {
-        kind: "string",
-      },
-      TRANSCRIPTION_WORKER_CONCURRENCY: {
-        kind: "integer",
-        max: 25,
-        min: 1,
-      },
       YOUTUBE_CLIENT_ID: {
         kind: "string",
       },
@@ -358,10 +331,25 @@ module.exports = {
       YOUTUBE_SCOPES: {
         kind: "scopes",
       },
-      YOUTUBE_WEBHOOK_SECRET: {
+      TWITCH_CLIENT_ID: {
         kind: "string",
       },
-      YOUTUBE_WEBSUB_SECRET: {
+      TWITCH_CLIENT_SECRET: {
+        kind: "string",
+      },
+      TWITCH_EVENTSUB_SECRET: {
+        aliases: ["TWITCH_WEBHOOK_SECRET"],
+        kind: "string",
+      },
+      TWITCH_REDIRECT_URI: {
+        kind: "url",
+        protocols: ["http:", "https:"],
+      },
+      TWITCH_SCOPES: {
+        kind: "scopes",
+      },
+      YOUTUBE_WEBHOOK_SECRET: {
+        aliases: ["YOUTUBE_WEBSUB_SECRET"],
         kind: "string",
       },
       YOUTUBE_WEBSUB_VERIFY_TOKEN: {
@@ -378,11 +366,26 @@ module.exports = {
       },
       optional: [
         "API_GATEWAY_RATE_LIMIT_ENABLED",
+        "API_GATEWAY_RATE_LIMIT_MAX",
+        "API_GATEWAY_RATE_LIMIT_WINDOW_MS",
+        "CONNECT_SUCCESS_REDIRECT",
+        "HOST",
+        "PORT",
+        "QUEUE_DEFAULT_NAME",
+        "CLIP_GENERATION_QUEUE_NAME",
+        "TRANSCRIPTION_QUEUE_NAME",
         "STREAMOS_PUBLIC_URL",
+        "TWITCH_REDIRECT_URI",
+        "TWITCH_SCOPES",
+        "YOUTUBE_REDIRECT_URI",
+        "YOUTUBE_SCOPES",
         "YOUTUBE_CONNECT_SUCCESS_REDIRECT",
-        "YOUTUBE_WEBHOOK_SECRET",
-        "YOUTUBE_WEBSUB_SECRET",
         "YOUTUBE_WEBSUB_VERIFY_TOKEN",
+        "TIKTOK_REDIRECT_URI",
+        "TIKTOK_SCOPES",
+        "KICK_REDIRECT_URI",
+        "KICK_SCOPES",
+        "RAILWAY_HEALTHCHECK_TIMEOUT_SEC",
       ],
       publicNetworking: "required",
       required: API_GATEWAY_REQUIRED,
@@ -394,13 +397,31 @@ module.exports = {
         localPortVar: "PORT",
         publicUrlPreferred: false,
       },
-      optional: [],
+      optional: [
+        "HOST",
+        "PORT",
+        "OPENAI_BASE_URL",
+        "OPENAI_MAX_TRANSCRIPTION_MEDIA_BYTES",
+        "OPENAI_MODEL",
+        "OPENAI_TIMEOUT_SECONDS",
+        "OPENAI_TITLE_MODEL",
+        "OPENAI_TRANSCRIPTION_MODEL",
+        "RAILWAY_HEALTHCHECK_TIMEOUT_SEC",
+        "REPLICATE_API_TOKEN",
+        "STREAMOS_E2E_MODE",
+        "TRANSCRIPTION_PROCESSOR_MODE",
+      ],
       publicNetworking: "disabled",
       required: AUTOMATION_SERVICE_REQUIRED,
       runtime: "python",
     },
     "content-job-retry-worker": {
-      optional: ["QUEUE_DEFAULT_NAME", "REPURPOSING_QUEUE_NAME"],
+      optional: [
+        "CLIP_GENERATION_QUEUE_NAME",
+        "QUEUE_DEFAULT_NAME",
+        "REPURPOSING_QUEUE_NAME",
+        "TRANSCRIPTION_QUEUE_NAME",
+      ],
       publicNetworking: "disabled",
       required: CONTENT_JOB_RETRY_REQUIRED,
       runtime: "node",
@@ -432,7 +453,11 @@ module.exports = {
       runtime: "node",
     },
     "transcription-worker": {
-      optional: ["CLIP_GENERATION_QUEUE_NAME"],
+      optional: [
+        "CLIP_GENERATION_QUEUE_NAME",
+        "TRANSCRIPTION_QUEUE_NAME",
+        "TRANSCRIPTION_WORKER_CONCURRENCY",
+      ],
       publicNetworking: "disabled",
       required: TRANSCRIPTION_WORKER_REQUIRED,
       runtime: "node",
@@ -443,6 +468,8 @@ module.exports = {
         "STREAM_JOB_ALERT_WEBHOOK_URL",
         "STREAM_JOB_QUEUE_NAME",
         "STREAM_JOB_WORKER_CONCURRENCY",
+        "REPURPOSING_QUEUE_NAME",
+        "TRANSCRIPTION_QUEUE_NAME",
       ],
       publicNetworking: "disabled",
       required: STREAM_JOB_WORKER_REQUIRED,

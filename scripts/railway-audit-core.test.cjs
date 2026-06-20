@@ -202,6 +202,63 @@ test("buildAuditReport includes publishing-worker as a private worker without au
   );
 });
 
+test("buildAuditReport treats gateway-owned Twitch and YouTube secrets as Railway-managed and accepts webhook aliases", () => {
+  const production = cloneEnvironment(loadEnvironment("production"));
+  const apiGatewayVariables = production.serviceVariables["api-gateway"];
+
+  apiGatewayVariables.TWITCH_WEBHOOK_SECRET =
+    apiGatewayVariables.TWITCH_EVENTSUB_SECRET;
+  delete apiGatewayVariables.TWITCH_EVENTSUB_SECRET;
+  apiGatewayVariables.YOUTUBE_WEBSUB_SECRET =
+    apiGatewayVariables.YOUTUBE_WEBHOOK_SECRET;
+  delete apiGatewayVariables.YOUTUBE_WEBHOOK_SECRET;
+  delete apiGatewayVariables.CLIP_WORKER_CONCURRENCY;
+  delete apiGatewayVariables.KICK_WEBHOOK_SECRET;
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const apiGatewayRows =
+    report.environments.production.services["api-gateway"].variables;
+
+  assert.equal(
+    apiGatewayRows.some((row) => row.variable === "TWITCH_WEBHOOK_SECRET"),
+    false,
+  );
+  assert.equal(
+    apiGatewayRows.some((row) => row.variable === "YOUTUBE_WEBSUB_SECRET"),
+    false,
+  );
+  assert.ok(
+    apiGatewayRows.find((row) => row.variable === "TWITCH_EVENTSUB_SECRET"),
+  );
+  assert.ok(
+    apiGatewayRows.find((row) => row.variable === "YOUTUBE_WEBHOOK_SECRET"),
+  );
+  assert.ok(apiGatewayRows.find((row) => row.variable === "TWITCH_CLIENT_ID"));
+  assert.ok(
+    apiGatewayRows.find((row) => row.variable === "TWITCH_CLIENT_SECRET"),
+  );
+  assert.ok(apiGatewayRows.find((row) => row.variable === "YOUTUBE_CLIENT_ID"));
+  assert.ok(
+    apiGatewayRows.find((row) => row.variable === "YOUTUBE_CLIENT_SECRET"),
+  );
+  assert.equal(
+    apiGatewayRows.some((row) => row.variable === "CLIP_WORKER_CONCURRENCY"),
+    false,
+  );
+  assert.equal(
+    apiGatewayRows.some((row) => row.variable === "KICK_WEBHOOK_SECRET"),
+    false,
+  );
+});
+
 test("buildAuditReport keeps publishing-worker happy-path fixtures clean in staging and production", () => {
   const report = buildAuditReport({
     project: whitelist.project,
