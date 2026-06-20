@@ -1,8 +1,6 @@
 do $$
 begin
-  if not exists (
-    select to_regclass('public.content_publications')
-  ) then
+  if to_regclass('public.content_publications') is null then
     create table public.content_publications (
       id uuid primary key default gen_random_uuid(),
       user_id uuid not null references auth.users(id) on delete cascade,
@@ -101,9 +99,7 @@ grant all on public.content_publications to service_role;
 
 do $$
 begin
-  if not exists (
-    select to_regclass('public.content_publication_events')
-  ) then
+  if to_regclass('public.content_publication_events') is null then
     create table public.content_publication_events (
       id uuid primary key default gen_random_uuid(),
       user_id uuid not null references auth.users(id) on delete cascade,
