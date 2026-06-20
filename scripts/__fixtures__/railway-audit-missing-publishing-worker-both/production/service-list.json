@@ -1,0 +1,42 @@
+[
+  {
+    "id": "svc-api-production",
+    "name": "api-gateway",
+    "url": "https://api-gateway-production.up.railway.app"
+  },
+  {
+    "id": "svc-automation-production",
+    "name": "automation-service",
+    "url": "https://automation-service-production.up.railway.app"
+  },
+  {
+    "id": "svc-repurposing-production",
+    "name": "repurposing-worker",
+    "url": null
+  },
+  {
+    "id": "svc-transcription-production",
+    "name": "transcription-worker",
+    "url": null
+  },
+  {
+    "id": "svc-stream-job-production",
+    "name": "stream-job-worker",
+    "url": null
+  },
+  {
+    "id": "svc-retry-production",
+    "name": "content-job-retry-worker",
+    "url": null
+  },
+  {
+    "id": "svc-clip-production",
+    "name": "clip-worker",
+    "url": null
+  },
+  {
+    "id": "svc-release-gate-runner-production",
+    "name": "release-gate-runner",
+    "url": null
+  }
+]

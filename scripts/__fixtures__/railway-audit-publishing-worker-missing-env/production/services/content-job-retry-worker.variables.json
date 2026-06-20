@@ -1,0 +1,11 @@
+{
+  "CLIP_GENERATION_QUEUE_NAME": "streamos-clip-generation",
+  "CONTENT_JOB_RETRY_ATTEMPTS": "3",
+  "CONTENT_JOB_RETRY_BACKOFF_MS": "30000",
+  "CONTENT_JOB_RETRY_WORKER_BATCH_SIZE": "25",
+  "CONTENT_JOB_RETRY_WORKER_POLL_INTERVAL_MS": "60000",
+  "TRANSCRIPTION_QUEUE_NAME": "streamos-transcription",
+  "REDIS_URL": "rediss://default:password@redis.upstash.io:6379",
+  "SUPABASE_URL": "https://streamos.supabase.co",
+  "SUPABASE_SERVICE_ROLE_KEY": "shared-service-role-key"
+}

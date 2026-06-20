@@ -1,0 +1,68 @@
+{
+  "privateNetworkDisabled": false,
+  "services": {
+    "svc-api-production": {
+      "name": "api-gateway",
+      "networking": {
+        "privateNetworkEndpoint": "api-gateway-production",
+        "serviceDomains": ["api-gateway-production.up.railway.app"]
+      }
+    },
+    "svc-automation-production": {
+      "name": "automation-service",
+      "networking": {
+        "privateNetworkEndpoint": "automation-service-production",
+        "serviceDomains": ["automation-service-production.up.railway.app"]
+      }
+    },
+    "svc-repurposing-production": {
+      "name": "repurposing-worker",
+      "networking": {
+        "privateNetworkEndpoint": "repurposing-worker-production",
+        "serviceDomains": []
+      }
+    },
+    "svc-transcription-production": {
+      "name": "transcription-worker",
+      "networking": {
+        "privateNetworkEndpoint": "transcription-worker-production",
+        "serviceDomains": []
+      }
+    },
+    "svc-stream-job-production": {
+      "name": "stream-job-worker",
+      "networking": {
+        "privateNetworkEndpoint": "stream-job-worker-production",
+        "serviceDomains": []
+      }
+    },
+    "svc-retry-production": {
+      "name": "content-job-retry-worker",
+      "networking": {
+        "privateNetworkEndpoint": "retry-worker-production",
+        "serviceDomains": []
+      }
+    },
+    "svc-clip-production": {
+      "name": "clip-worker",
+      "networking": {
+        "privateNetworkEndpoint": "clip-worker-production",
+        "serviceDomains": []
+      }
+    },
+    "svc-publishing-production": {
+      "name": "publishing-worker",
+      "networking": {
+        "privateNetworkEndpoint": "publishing-worker-production",
+        "serviceDomains": []
+      }
+    },
+    "svc-release-gate-runner-production": {
+      "name": "release-gate-runner",
+      "networking": {
+        "privateNetworkEndpoint": "release-gate-runner-production",
+        "serviceDomains": []
+      }
+    }
+  }
+}

@@ -1,0 +1,43 @@
+[
+  {
+    "bodyText": "{\"service\":\"api-gateway\",\"status\":\"ok\"}",
+    "category": "health",
+    "expectedService": "api-gateway",
+    "httpStatus": 200,
+    "method": "public-fetch",
+    "name": "api-gateway-public-health",
+    "ok": true,
+    "service": "api-gateway",
+    "target": "https://api-gateway-staging.up.railway.app/health"
+  },
+  {
+    "bodyText": "{\"service\":\"automation-service\",\"status\":\"ok\"}",
+    "category": "health",
+    "expectedService": "automation-service",
+    "httpStatus": 200,
+    "method": "railway-ssh-python",
+    "name": "automation-service-local-health",
+    "ok": true,
+    "service": "automation-service",
+    "target": "http://127.0.0.1:8000/health"
+  },
+  {
+    "bodyText": "{\"service\":\"automation-service\",\"status\":\"ok\"}",
+    "category": "health",
+    "expectedService": "automation-service",
+    "httpStatus": 200,
+    "method": "railway-ssh-worker-path",
+    "name": "transcription-worker-automation-path",
+    "ok": true,
+    "service": "transcription-worker",
+    "target": "http://automation-service.railway.internal:8000/health"
+  },
+  {
+    "category": "redis",
+    "method": "railway-ssh-node",
+    "name": "api-gateway-redis",
+    "ok": true,
+    "service": "api-gateway",
+    "target": "rediss://redis.upstash.io:6379"
+  }
+]

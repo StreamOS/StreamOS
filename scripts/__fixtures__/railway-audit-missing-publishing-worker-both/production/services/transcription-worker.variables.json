@@ -1,0 +1,5 @@
+{
+  "AUTOMATION_SERVICE_URL": "https://automation-service-production.up.railway.app",
+  "TRANSCRIPTION_QUEUE_NAME": "streamos-transcription",
+  "TRANSCRIPTION_WORKER_CONCURRENCY": "2"
+}

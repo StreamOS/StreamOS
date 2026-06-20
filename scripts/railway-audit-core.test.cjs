@@ -16,6 +16,15 @@ function readJson(...segments) {
   return JSON.parse(readFileSync(join(fixturesDir, ...segments), "utf8"));
 }
 
+function readJsonFromRoot(rootName, ...segments) {
+  return JSON.parse(
+    readFileSync(
+      join(__dirname, "__fixtures__", rootName, ...segments),
+      "utf8",
+    ),
+  );
+}
+
 function loadEnvironment(environment) {
   const serviceVariables = {};
 
@@ -33,6 +42,35 @@ function loadEnvironment(environment) {
     serviceList: readJson(environment, "service-list.json"),
     serviceVariables,
     sharedVariables: readJson(environment, "shared-variables.json"),
+  };
+}
+
+function loadEnvironmentFromRoot(rootName, environment) {
+  const serviceVariables = {};
+
+  for (const serviceName of Object.keys(whitelist.services)) {
+    serviceVariables[serviceName] = readJsonFromRoot(
+      rootName,
+      environment,
+      "services",
+      `${serviceName}.variables.json`,
+    );
+  }
+
+  return {
+    environmentConfig: readJsonFromRoot(
+      rootName,
+      environment,
+      "environment-config.json",
+    ),
+    healthChecks: readJsonFromRoot(rootName, environment, "health.json"),
+    serviceList: readJsonFromRoot(rootName, environment, "service-list.json"),
+    serviceVariables,
+    sharedVariables: readJsonFromRoot(
+      rootName,
+      environment,
+      "shared-variables.json",
+    ),
   };
 }
 
@@ -161,6 +199,217 @@ test("buildAuditReport includes publishing-worker as a private worker without au
   assert.ok(publishingRows.some((row) => row.variable === "TIKTOK_CLIENT_KEY"));
   assert.ok(
     publishingRows.some((row) => row.variable === "TIKTOK_CLIENT_SECRET"),
+  );
+});
+
+test("buildAuditReport keeps publishing-worker happy-path fixtures clean in staging and production", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironmentFromRoot("railway-audit", "production"),
+      staging: loadEnvironmentFromRoot("railway-audit", "staging"),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const stagingRows =
+    report.environments.staging.services["publishing-worker"].variables;
+  const productionRows =
+    report.environments.production.services["publishing-worker"].variables;
+
+  for (const rows of [stagingRows, productionRows]) {
+    assert.equal(
+      rows.find((row) => row.variable === "SERVICE_INVENTORY").status,
+      "✅",
+    );
+    assert.equal(
+      rows.find((row) => row.variable === "PUBLIC_NETWORKING").status,
+      "✅",
+    );
+    assert.equal(
+      rows.some((row) => row.variable === "AUTOMATION_SERVICE_URL"),
+      false,
+    );
+  }
+});
+
+test("buildAuditReport flags staging missing publishing-worker fixtures", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironmentFromRoot(
+        "railway-audit-missing-publishing-worker-staging",
+        "production",
+      ),
+      staging: loadEnvironmentFromRoot(
+        "railway-audit-missing-publishing-worker-staging",
+        "staging",
+      ),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const stagingInventoryRow = report.environments.staging.services[
+    "publishing-worker"
+  ].variables.find((row) => row.variable === "SERVICE_INVENTORY");
+
+  assert.equal(stagingInventoryRow.status, "❌");
+  assert.match(
+    stagingInventoryRow.summary,
+    /missing from the Railway environment inventory/,
+  );
+  assert.ok(
+    report.stagingDrift.some(
+      (finding) =>
+        finding.service === "publishing-worker" &&
+        finding.variable === "SERVICE_INVENTORY" &&
+        finding.flag === "STAGING_DRIFT",
+    ),
+  );
+});
+
+test("buildAuditReport flags production missing publishing-worker fixtures", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironmentFromRoot(
+        "railway-audit-missing-publishing-worker-production",
+        "production",
+      ),
+      staging: loadEnvironmentFromRoot(
+        "railway-audit-missing-publishing-worker-production",
+        "staging",
+      ),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const productionInventoryRow = report.environments.production.services[
+    "publishing-worker"
+  ].variables.find((row) => row.variable === "SERVICE_INVENTORY");
+
+  assert.equal(productionInventoryRow.status, "❌");
+  assert.match(
+    productionInventoryRow.summary,
+    /missing from the Railway environment inventory/,
+  );
+  assert.ok(
+    report.stagingDrift.some(
+      (finding) =>
+        finding.service === "publishing-worker" &&
+        finding.variable === "SERVICE_INVENTORY" &&
+        finding.flag === "STAGING_DRIFT",
+    ),
+  );
+});
+
+test("buildAuditReport flags both-environment missing publishing-worker fixtures", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironmentFromRoot(
+        "railway-audit-missing-publishing-worker-both",
+        "production",
+      ),
+      staging: loadEnvironmentFromRoot(
+        "railway-audit-missing-publishing-worker-both",
+        "staging",
+      ),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const stagingInventoryRow = report.environments.staging.services[
+    "publishing-worker"
+  ].variables.find((row) => row.variable === "SERVICE_INVENTORY");
+  const productionInventoryRow = report.environments.production.services[
+    "publishing-worker"
+  ].variables.find((row) => row.variable === "SERVICE_INVENTORY");
+
+  assert.equal(stagingInventoryRow.status, "❌");
+  assert.equal(productionInventoryRow.status, "❌");
+  assert.equal(
+    report.stagingDrift.some(
+      (finding) =>
+        finding.service === "publishing-worker" &&
+        finding.variable === "SERVICE_INVENTORY",
+    ),
+    false,
+  );
+});
+
+test("buildAuditReport flags publishing-worker public networking exposure in fixture roots", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironmentFromRoot(
+        "railway-audit-publishing-worker-public-exposure",
+        "production",
+      ),
+      staging: loadEnvironmentFromRoot(
+        "railway-audit-publishing-worker-public-exposure",
+        "staging",
+      ),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const productionNetworkRow = report.environments.production.services[
+    "publishing-worker"
+  ].variables.find((row) => row.variable === "PUBLIC_NETWORKING");
+
+  assert.equal(productionNetworkRow.status, "❌");
+  assert.match(
+    productionNetworkRow.summary,
+    /Public networking must stay disabled/,
+  );
+});
+
+test("buildAuditReport flags missing publishing-worker envs in fixture roots", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironmentFromRoot(
+        "railway-audit-publishing-worker-missing-env",
+        "production",
+      ),
+      staging: loadEnvironmentFromRoot(
+        "railway-audit-publishing-worker-missing-env",
+        "staging",
+      ),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const publishingRows =
+    report.environments.production.services["publishing-worker"].variables;
+
+  assert.equal(
+    publishingRows.find((row) => row.variable === "REDIS_URL").status,
+    "❌",
+  );
+  assert.equal(
+    publishingRows.find((row) => row.variable === "SUPABASE_URL").status,
+    "❌",
+  );
+  assert.equal(
+    publishingRows.find((row) => row.variable === "SUPABASE_SERVICE_ROLE_KEY")
+      .status,
+    "❌",
+  );
+  assert.equal(
+    publishingRows.find((row) => row.variable === "APP_ENCRYPTION_KEY").status,
+    "❌",
+  );
+  assert.equal(
+    publishingRows.some((row) => row.variable === "AUTOMATION_SERVICE_URL"),
+    false,
   );
 });
 
