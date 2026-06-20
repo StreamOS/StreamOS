@@ -49,7 +49,7 @@ jobs:
             local response_file="smoke.response.json"
             local status
 
-            if ! vercel --token="${VERCEL_TOKEN}" curl "${path}" --deployment "${PROD_APP_URL}" --trace --json --yes >"${response_file}" 2>smoke.stderr; then
+            if ! vercel curl "${path}" --deployment "${PROD_APP_URL}" --trace --json --yes >"${response_file}" 2>smoke.stderr; then
               cat smoke.stderr
               exit 1
             fi

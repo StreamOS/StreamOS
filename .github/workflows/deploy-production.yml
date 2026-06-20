@@ -593,7 +593,7 @@ jobs:
           fi
 
           response_file="smoke.response.json"
-          if ! vercel --token="${VERCEL_TOKEN}" curl "/dashboard" --deployment "${DEPLOYMENT_URL}" --trace --json --yes >"${response_file}" 2>smoke.stderr; then
+          if ! vercel curl "/dashboard" --deployment "${DEPLOYMENT_URL}" --trace --json --yes >"${response_file}" 2>smoke.stderr; then
             cat smoke.stderr
             exit 1
           fi
