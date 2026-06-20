@@ -648,7 +648,7 @@ the evidence is available. Never record secret values, tokens, or private URLs.
 - Date checked:
 - Operator / approver:
 - Relevant deployment IDs:
-- Freigabe ist ohne eindeutigen RC-SHA ungultig.
+- Freigabe ist ohne eindeutigen RC-SHA ungültig.
 
 **Audit Status**
 
@@ -707,19 +707,76 @@ harter Blocker existiert, setze die Entscheidung auf `Blockiert`. Wenn die
 Nachweise unvollständig oder widersprüchlich sind, setze die Entscheidung auf
 `Zurückgestellt`.
 
-**Beispielausfüllung**
+**Beispielausfüllung ohne Secrets**
 
-```text
-RC SHA: 0123abcd4567efgh8901ijkl2345mnop6789qrst
-Branch / PR: fix/publishing-worker-production-rc / PR #1234
-Target environment: production
-Railway project / environment: terrific-reflection / production
-Date checked: 2026-06-20
-Operator / approver: operator-name
-Relevant deployment IDs: deploy_abc123
-Decision: Freigegeben
-Reason: Audit clean, worker private, required env present, production gate green.
-```
+_Die Werte unten sind fiktiv und kein Produktionsnachweis. Echte Freigabe
+erfordert echte Audit- und Gate-Nachweise. Wenn ein harter Blocker vorliegt,
+darf das Formular nicht auf `Freigegeben` stehen. Keine Secret-Werte
+eintragen._
+
+**Release Metadata**
+
+- [x] RC SHA: `abc1234def5678example`
+- [x] Branch / PR: `release/publishing-worker-rollout` / `PR #1234`
+- [x] Target environment: `production`
+- [x] Railway project / environment: `terrific-reflection` / `production`
+- [x] Date checked: `2026-06-20`
+- [x] Operator / approver: `operator@example`
+- [x] Relevant deployment IDs: `railway-deploy-example-001`
+- [x] Freigabe ist ohne eindeutigen RC-SHA ungültig.
+
+**Audit Status**
+
+- [x] `audit-premerge-cross-env.md` reviewed
+- [x] Markdown report reviewed
+- [x] JSON report reviewed, falls vorhanden
+- [x] `publishing-worker` in staging korrekt gelistet
+- [x] `publishing-worker` in production korrekt gelistet
+- [x] Kein `MISSING` Blocker
+- [x] Kein `DANGEROUS_EXPOSURE` Blocker
+- [x] Keine echte `publishing-worker`-Drift
+- [x] Keine Secret-Werte in Reports
+- [x] Markdown und JSON stützen dieselbe Entscheidung
+
+**Worker Privacy**
+
+- [x] `publishing-worker` existiert in `production`
+- [x] Service-Typ ist Worker / Background Worker
+- [x] Public Networking ist deaktiviert
+- [x] Keine öffentliche Domain vorhanden
+- [x] Kein öffentlicher Healthcheck erforderlich
+- [x] Service gehört zum richtigen Railway Project
+- [x] Service gehört zum richtigen Railway Environment
+- [x] Service wurde aus dem erwarteten RC-SHA deployt
+- [x] Logs enthalten keine Secrets
+
+**Env Status**
+
+- [x] `REDIS_URL` vorhanden, falls laut Worker-Contract Pflicht
+- [x] `SUPABASE_URL` vorhanden
+- [x] `SUPABASE_SERVICE_ROLE_KEY` vorhanden
+- [x] Publishing-Queue-Name vorhanden, falls laut Worker-Contract Pflicht
+- [x] `APP_ENCRYPTION_KEY` vorhanden, falls der Worker Token-Entschlüsselung benötigt
+- [x] Sonstige Pflichtvariablen aus dem Worker-Code sind vorhanden
+- [x] `AUTOMATION_SERVICE_URL` ist nicht erforderlich
+- [x] Keine Provider-Secrets nach `apps/web` oder Vercel verschoben
+
+**Gate Status**
+
+- [x] Production-Gate wurde aus proof-fähigem Railway-Kontext ausgeführt
+- [x] Runner gehört zum selben Railway Project
+- [x] Runner gehört zum selben Railway Environment
+- [x] Runner enthält denselben RC-SHA
+- [x] API-Gateway Runtime-Provenance passt zum RC-SHA
+- [x] Gate ist grün
+- [x] Gate enthält keinen echten YouTube-Publish
+- [x] Gate enthält keinen echten Drittanbieter-Write
+- [x] Bekannte nicht-blockierende Warnungen sind dokumentiert
+
+**Decision**
+
+- [x] Decision: `Freigegeben`
+- [x] Reason: Audit clean, worker privat, Pflicht-Env vollständig, production gate grün.
 
 For a deployed release candidate, run the production gate from the dedicated
 `release-gate-runner` runtime, or an equivalent Railway shell that contains the
