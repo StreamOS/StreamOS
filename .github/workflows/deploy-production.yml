@@ -586,7 +586,7 @@ jobs:
             exit 1
           fi
 
-          if ! status="$(vercel --yes --token="${VERCEL_TOKEN}" curl "${DEPLOYMENT_URL}/dashboard" -- -s -o /dev/null -w "%{http_code}" 2>smoke.stderr)"; then
+          if ! status="$(vercel --token="${VERCEL_TOKEN}" curl "/dashboard" --deployment "${DEPLOYMENT_URL}" -- -s -o /dev/null -w "%{http_code}" 2>smoke.stderr)"; then
             cat smoke.stderr
             exit 1
           fi
