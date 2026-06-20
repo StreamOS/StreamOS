@@ -3,7 +3,10 @@ import test from "node:test";
 
 import {
   buildCanonicalPublicationDraft,
+  buildPublicationFanoutChildRetryActionPolicy,
+  buildPublicationFanoutParentRefreshActionPolicy,
   buildPublicationFanoutRequestIntentHash,
+  buildPublicationFanoutTargetRecheckActionPolicy,
   buildPublicationManualActionPolicy,
   extractPublicationAccountCapabilityOverlay,
   getPublicationCapabilityDefinition,
@@ -348,4 +351,112 @@ void test("publication manual action policy supports TikTok retry and reconcilia
 
   assert.equal(reconcilePolicy.canReconcile, true);
   assert.equal(reconcilePolicy.actions.reconcile_now.allowed, true);
+});
+
+void test("publication fanout target recheck policy allows a blocked target with a valid connection and approved bundle", () => {
+  const policy = buildPublicationFanoutTargetRecheckActionPolicy({
+    connection: {
+      metadata: {},
+      platform: "youtube",
+      provider_profile: {},
+      scopes: ["https://www.googleapis.com/auth/youtube.upload"],
+      status: "connected",
+    },
+    contentJob: {
+      id: APPROVED_BUNDLE.content_job_id,
+      queueJobId: APPROVED_BUNDLE.queue_job_id,
+      result: APPROVED_BUNDLE,
+      reviewStatus: "approved",
+      status: "done",
+      streamId: "33333333-3333-4333-8333-333333333333",
+    },
+    fanoutStatus: "partially_validated",
+    providerOverrides: {
+      youtube: {},
+    },
+    targetPlatform: "youtube",
+    targetStatus: "blocked",
+  });
+
+  assert.equal(policy.allowed, true);
+  assert.equal(policy.actionKey, "recheck_target");
+  assert.equal(policy.intent, "preflight");
+  assert.equal(policy.requiresConfirmation, false);
+  assert.equal(policy.safeLabel, "Erneut prüfen");
+});
+
+void test("publication fanout target recheck policy blocks when the target is not blocked", () => {
+  const policy = buildPublicationFanoutTargetRecheckActionPolicy({
+    connection: {
+      metadata: {},
+      platform: "youtube",
+      provider_profile: {},
+      scopes: ["https://www.googleapis.com/auth/youtube.upload"],
+      status: "connected",
+    },
+    contentJob: {
+      id: APPROVED_BUNDLE.content_job_id,
+      queueJobId: APPROVED_BUNDLE.queue_job_id,
+      result: APPROVED_BUNDLE,
+      reviewStatus: "approved",
+      status: "done",
+      streamId: "33333333-3333-4333-8333-333333333333",
+    },
+    fanoutStatus: "validated",
+    providerOverrides: {
+      youtube: {},
+    },
+    targetPlatform: "youtube",
+    targetStatus: "validated",
+  });
+
+  assert.equal(policy.allowed, false);
+  assert.equal(policy.blockReason, "target_not_blocked");
+});
+
+void test("publication fanout child retry policy allows a child publication that belongs to the fanout and remains retryable", () => {
+  const manualRetryPolicy = buildPublicationManualActionPolicy({
+    connectionScopes: ["https://www.googleapis.com/auth/youtube.upload"],
+    connectionStatus: "connected",
+    contentJobReviewStatus: "approved",
+    contentJobStatus: "done",
+    externalPostId: null,
+    hasApprovedBundle: true,
+    hasPublishableAsset: true,
+    maxRetries: 3,
+    publicationStatus: "failed_retryable",
+    reconcileMaxRetries: 3,
+    reconcileRetryCount: 0,
+    reconciliationStatus: "idle",
+    remotePublishId: "publish-123",
+    retryCount: 1,
+    targetPlatform: "youtube",
+  });
+
+  const policy = buildPublicationFanoutChildRetryActionPolicy({
+    belongsToFanout: true,
+    fanoutStatus: "partially_validated",
+    hasApprovedBundle: true,
+    hasPublishableAsset: true,
+    manualRetryPolicy,
+    publicationStatus: "failed_retryable",
+    targetPlatform: "youtube",
+  });
+
+  assert.equal(policy.allowed, true);
+  assert.equal(policy.actionKey, "retry_child");
+  assert.equal(policy.intent, "retry");
+  assert.equal(policy.requiresConfirmation, true);
+  assert.equal(policy.safeLabel, "Erneut versuchen");
+});
+
+void test("publication fanout parent refresh policy is available whenever the fanout exists", () => {
+  const policy = buildPublicationFanoutParentRefreshActionPolicy({
+    fanoutStatus: "validated",
+  });
+
+  assert.equal(policy.allowed, true);
+  assert.equal(policy.actionKey, "refresh_parent_aggregate");
+  assert.equal(policy.intent, "recompute");
+  assert.equal(policy.severity, "low");
 });

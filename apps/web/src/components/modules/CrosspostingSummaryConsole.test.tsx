@@ -1,6 +1,8 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
 
 import {
   buildPublicationDashboardModel,
@@ -743,7 +745,11 @@ describe("CrosspostingSummaryConsole", () => {
                   short_form_plan: "Live short-form plan",
                   title_suggestions: ["Live title"],
                 }),
-                contentJob: { streamId: "stream-live" },
+                contentJob: {
+                  reviewStatus: "needs_review",
+                  status: "running",
+                  streamId: "stream-live",
+                },
               },
               snapshot_hash:
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -918,6 +924,11 @@ describe("CrosspostingSummaryConsole", () => {
     expect(html).toContain("Target publications");
     expect(html).toContain("Historie ansehen");
     expect(html).toContain("Open remote post");
+    expect(html).toContain("Fanout controls");
+    expect(html).toContain("Status aktualisieren");
+    expect(html).toContain("Erneut prüfen");
+    expect(html).toContain("No child publication exists for this target yet");
+    expect(html).toContain("disabled");
     expect(html).toContain("Requested visibility");
     expect(html).toContain("Effective visibility");
     expect(html).toContain("Re-auth required");
@@ -935,6 +946,143 @@ describe("CrosspostingSummaryConsole", () => {
     expect(html).not.toContain("user:pass@example.com");
     expect(html).not.toContain("automation-service.railway.internal");
     expect(html).not.toContain("OpenAI");
+  });
+
+  it("renders a retry action for a retryable child publication without exposing unsafe data", () => {
+    const publicationModel = buildPublicationDashboardModel({
+      channels: [
+        makeChannel({
+          display_name: "Retry Channel",
+          id: "channel-retry",
+          platform: "youtube",
+        }),
+      ],
+      connections: [
+        makeConnection({
+          channel_id: "channel-retry",
+          id: "connection-retry",
+          platform: "youtube",
+          provider_profile: {
+            display_name: "Retry Creator",
+          },
+          scopes: ["https://www.googleapis.com/auth/youtube.upload"],
+          status: "connected",
+        }),
+      ],
+      contentJobs: [
+        makeJob({
+          id: "job-retryable",
+          result: makeApprovedBundle({
+            content_job_id: "job-retryable",
+            queue_job_id: "queue-retryable",
+            short_form_plan: "Retry short-form plan",
+            title_suggestions: ["Retry title"],
+          }),
+          review_status: "approved",
+          status: "done",
+          stream_id: "stream-retryable",
+        }),
+      ],
+      publicationEvents: [],
+      publications: [
+        makePublication({
+          content_job_id: "job-retryable",
+          desired_visibility: "public",
+          effective_visibility: "public",
+          external_url: "https://www.youtube.com/watch?v=retry-safe",
+          id: "publication-retryable",
+          platform_connection_id: "connection-retry",
+          publication_status: "failed_retryable",
+          remote_status: "missing",
+          review_status_at_request: "approved",
+          target_platform: "youtube",
+          updated_at: "2026-06-20T11:25:00.000Z",
+        }),
+      ],
+      vodAssets: [
+        makeVodAsset({
+          source_url: "https://cdn.example.com/vods/retry.mp4",
+          stream_id: "stream-retryable",
+        }),
+      ],
+    });
+
+    const model = buildCrosspostingSummaryDashboardModel({
+      channels: [
+        makeChannel({
+          display_name: "Retry Channel",
+          id: "channel-retry",
+          platform: "youtube",
+        }),
+      ],
+      connections: [
+        makeConnection({
+          channel_id: "channel-retry",
+          id: "connection-retry",
+          platform: "youtube",
+          provider_profile: {
+            display_name: "Retry Creator",
+          },
+          scopes: ["https://www.googleapis.com/auth/youtube.upload"],
+          status: "connected",
+        }),
+      ],
+      fanoutTargets: [
+        makeFanoutTarget({
+          content_publication_fanout_id: "fanout-retry",
+          content_publication_id: "publication-retryable",
+          id: "fanout-target-retry",
+          platform_connection_id: "connection-retry",
+          request_intent_hash: "intent-retry",
+          target_platform: "youtube",
+          target_status: "validated",
+        }),
+      ],
+      fanouts: [
+        makeFanout({
+          blocked_target_count: 0,
+          content_job_id: "job-retryable",
+          fanout_policy: "prepare_valid_targets",
+          fanout_status: "validated",
+          id: "fanout-retry",
+          request_intent_hash: "fanout-intent-retry",
+          review_status_at_request: "approved",
+          snapshot: {
+            approvedBundle: makeApprovedBundle({
+              content_job_id: "job-retryable",
+              queue_job_id: "queue-retryable",
+              short_form_plan: "Retry short-form plan",
+              title_suggestions: ["Retry title"],
+            }),
+            contentJob: {
+              id: "job-retryable",
+              queueJobId: "queue-retryable",
+              reviewStatus: "approved",
+              status: "done",
+              streamId: "stream-retryable",
+            },
+          },
+          snapshot_hash:
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          target_count: 1,
+          validated_target_count: 1,
+          updated_at: "2026-06-20T11:20:00.000Z",
+        }),
+      ],
+      initialSelectedFanoutId: "fanout-retry",
+      publications: publicationModel.items,
+    });
+
+    const html = renderToStaticMarkup(
+      <CrosspostingSummaryConsole model={model} />,
+    );
+
+    expect(html).toContain("Erneut versuchen");
+    expect(html).toContain("Retries exactly this child publication");
+    expect(html).toContain("Status aktualisieren");
+    expect(html).not.toContain("Raw / Debug");
+    expect(html).not.toContain("access_token");
+    expect(html).not.toContain("automation-service.railway.internal");
   });
 
   it("renders a clear empty state when no fanouts exist", () => {

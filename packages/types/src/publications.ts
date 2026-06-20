@@ -861,6 +861,11 @@ export type ContentPublicationFanoutTarget = {
   contentPublicationStatus: ContentPublicationStatus | null;
   createdAt: string;
   id: string;
+  lastActionAt: string | null;
+  lastActionKey: ContentPublicationFanoutActionKey | null;
+  lastActionResult: string | null;
+  lastBlockReason: ContentPublicationFanoutBlockReason | null;
+  lastRecheckedAt: string | null;
   platformConnectionId: string;
   providerOverrides: Record<string, unknown>;
   requestIntentHash: string;
@@ -875,6 +880,10 @@ export type ContentPublicationFanout = {
   blockedTargetCount: number;
   contentJobId: string;
   createdAt: string;
+  lastActionAt: string | null;
+  lastActionKey: ContentPublicationFanoutActionKey | null;
+  lastActionResult: string | null;
+  lastAggregateRefreshedAt: string | null;
   fanoutPolicy: PublicationFanoutPolicy;
   fanoutStatus: ContentPublicationFanoutStatus;
   id: string;
@@ -916,6 +925,70 @@ export type ContentPublicationFanoutResponse = {
   targets: ContentPublicationFanoutTarget[];
   validatedTargetCount: number;
   userId: string;
+};
+
+export const CONTENT_PUBLICATION_FANOUT_ACTION_KEYS = [
+  "recheck_target",
+  "refresh_parent_aggregate",
+  "retry_child",
+] as const;
+
+export type ContentPublicationFanoutActionKey =
+  (typeof CONTENT_PUBLICATION_FANOUT_ACTION_KEYS)[number];
+
+export type ContentPublicationFanoutActionIntent =
+  | "preflight"
+  | "recompute"
+  | "retry";
+
+export type ContentPublicationFanoutActionSeverity = "low" | "medium";
+
+export type ContentPublicationFanoutActionDecision = {
+  actionKey: ContentPublicationFanoutActionKey;
+  allowed: boolean;
+  blockReason: string | null;
+  expectedResult: string;
+  intent: ContentPublicationFanoutActionIntent;
+  requiresConfirmation: boolean;
+  safeDescription: string;
+  safeLabel: string;
+  severity: ContentPublicationFanoutActionSeverity;
+};
+
+export type PublicationFanoutTargetRecheckActionInput = {
+  connection: {
+    metadata?: unknown;
+    platform: StreamPlatform;
+    provider_profile?: unknown;
+    scopes?: string[] | null;
+    status: ConnectionStatus | null;
+  } | null;
+  contentJob: {
+    id: string;
+    queueJobId: string | null;
+    result: unknown;
+    reviewStatus: ContentJobReviewStatus | null;
+    status: ContentJobStatus | null;
+    streamId: string | null;
+  };
+  fanoutStatus: ContentPublicationFanoutStatus | null;
+  providerOverrides?: PublicationProviderOverrides;
+  targetPlatform: PublicationFanoutTargetPlatform;
+  targetStatus: ContentPublicationFanoutTargetStatus | null;
+};
+
+export type PublicationFanoutChildRetryActionInput = {
+  belongsToFanout: boolean;
+  fanoutStatus: ContentPublicationFanoutStatus | null;
+  hasApprovedBundle: boolean;
+  hasPublishableAsset: boolean;
+  manualRetryPolicy: ContentPublicationManualActionPolicy;
+  publicationStatus: ContentPublicationStatus;
+  targetPlatform: PublicationFanoutTargetPlatform;
+};
+
+export type PublicationFanoutParentRefreshActionInput = {
+  fanoutStatus: ContentPublicationFanoutStatus | null;
 };
 
 export function buildPublicationFanoutRequestIntentHash({
@@ -964,6 +1037,246 @@ export function buildPublicationFanoutRequestIntentHash({
     targets: normalizedTargets,
     userId,
   });
+}
+
+export function buildPublicationFanoutTargetRecheckActionPolicy(
+  input: PublicationFanoutTargetRecheckActionInput,
+): ContentPublicationFanoutActionDecision {
+  if (input.targetStatus !== "blocked") {
+    return blockedFanoutActionDecision(
+      "recheck_target",
+      "target_not_blocked",
+      "Erneut prüfen",
+      "Only blocked targets can be rechecked.",
+      "The target is already available and does not need a blocked-target recheck.",
+      "preflight",
+    );
+  }
+
+  if (input.fanoutStatus === "canceled") {
+    return blockedFanoutActionDecision(
+      "recheck_target",
+      "fanout_already_final",
+      "Erneut prüfen",
+      "The parent fanout is final and cannot be changed anymore.",
+      "The parent fanout is already closed and cannot be rechecked.",
+      "preflight",
+    );
+  }
+
+  if (
+    !input.contentJob.result ||
+    !isApprovedRepurposingPlanResult(input.contentJob.result)
+  ) {
+    return blockedFanoutActionDecision(
+      "recheck_target",
+      "publishable_bundle_missing",
+      "Erneut prüfen",
+      "The approved repurposing bundle is missing or incomplete.",
+      "The blocked target cannot be rechecked until the frozen approved bundle is available.",
+      "preflight",
+    );
+  }
+
+  if (input.contentJob.reviewStatus !== "approved") {
+    return blockedFanoutActionDecision(
+      "recheck_target",
+      "repurposing_job_not_approved",
+      "Erneut prüfen",
+      "The parent repurposing job is no longer approved.",
+      "The blocked target cannot be rechecked until the parent repurposing job is approved again.",
+      "preflight",
+    );
+  }
+
+  if (
+    input.contentJob.status !== "done" &&
+    input.contentJob.status !== "completed"
+  ) {
+    return blockedFanoutActionDecision(
+      "recheck_target",
+      "repurposing_job_not_complete",
+      "Erneut prüfen",
+      "The parent repurposing job is not complete yet.",
+      "The blocked target cannot be rechecked until the approved repurposing job is complete.",
+      "preflight",
+    );
+  }
+
+  if (!input.connection) {
+    return blockedFanoutActionDecision(
+      "recheck_target",
+      "platform_connection_missing",
+      "Erneut prüfen",
+      "A tenant-scoped platform connection is required.",
+      "The blocked target cannot be rechecked without a tenant-scoped platform connection.",
+      "preflight",
+    );
+  }
+
+  if (input.connection.status !== "connected") {
+    return blockedFanoutActionDecision(
+      "recheck_target",
+      "platform_connection_not_connected",
+      "Erneut prüfen",
+      "The platform connection must be connected before a recheck can pass.",
+      "The blocked target cannot be rechecked until the platform connection is connected.",
+      "preflight",
+    );
+  }
+
+  if (input.connection.platform !== input.targetPlatform) {
+    return blockedFanoutActionDecision(
+      "recheck_target",
+      "platform_mismatch",
+      "Erneut prüfen",
+      "The platform connection does not match the selected target platform.",
+      "The blocked target cannot be rechecked until the target platform and connection match.",
+      "preflight",
+    );
+  }
+
+  const capabilityResolution = resolvePublicationCapabilities({
+    accountCapabilities: extractPublicationAccountCapabilityOverlay(
+      input.connection,
+    ),
+    canonicalDraft: buildCanonicalPublicationDraft({
+      approvedBundle: input.contentJob.result,
+      contentJob: {
+        id: input.contentJob.id,
+        queueJobId: input.contentJob.queueJobId,
+        streamId: input.contentJob.streamId,
+      },
+      targetPlatform: input.targetPlatform,
+    }),
+    providerOverrides: {
+      [input.targetPlatform]:
+        input.providerOverrides?.[input.targetPlatform] ?? {},
+    },
+    targetPlatform: input.targetPlatform,
+  });
+
+  if (capabilityResolution.blockingErrors.length > 0) {
+    const firstError = capabilityResolution.blockingErrors[0];
+    if (!firstError) {
+      return allowedFanoutActionDecision(
+        "recheck_target",
+        "Erneut prüfen",
+        "Revalidates one blocked target against the current connection, scopes, and approved repurposing bundle.",
+        "The target will be rechecked server-side and can materialize or refresh the child publication without creating duplicates.",
+        "preflight",
+      );
+    }
+
+    return blockedFanoutActionDecision(
+      "recheck_target",
+      firstError.code,
+      "Erneut prüfen",
+      firstError.message,
+      "The blocked target cannot be rechecked until the capability checks pass again.",
+      "preflight",
+    );
+  }
+
+  return allowedFanoutActionDecision(
+    "recheck_target",
+    "Erneut prüfen",
+    "Revalidates one blocked target against the current connection, scopes, and approved repurposing bundle.",
+    "The target will be rechecked server-side and can materialize or refresh the child publication without creating duplicates.",
+    "preflight",
+  );
+}
+
+export function buildPublicationFanoutChildRetryActionPolicy(
+  input: PublicationFanoutChildRetryActionInput,
+): ContentPublicationFanoutActionDecision {
+  if (!input.belongsToFanout) {
+    return blockedFanoutActionDecision(
+      "retry_child",
+      "child_not_part_of_parent",
+      "Erneut versuchen",
+      "The child publication does not belong to the selected parent fanout.",
+      "This retry is blocked because the child publication is not part of the selected parent fanout.",
+      "retry",
+    );
+  }
+
+  if (input.fanoutStatus === "canceled") {
+    return blockedFanoutActionDecision(
+      "retry_child",
+      "fanout_already_final",
+      "Erneut versuchen",
+      "The parent fanout is final and cannot be retried.",
+      "This retry is blocked because the parent fanout is already closed.",
+      "retry",
+    );
+  }
+
+  const retryDecision = input.manualRetryPolicy.actions.retry_publish;
+
+  if (!retryDecision.allowed) {
+    return blockedFanoutActionDecision(
+      "retry_child",
+      retryDecision.blockReason ?? "publication_not_retryable",
+      "Erneut versuchen",
+      retryDecision.explanation,
+      "The child publication cannot be retried until the publication guard allows it.",
+      "retry",
+    );
+  }
+
+  if (!input.hasApprovedBundle) {
+    return blockedFanoutActionDecision(
+      "retry_child",
+      "publishable_bundle_missing",
+      "Erneut versuchen",
+      "The approved repurposing bundle is missing or incomplete.",
+      "The child publication cannot be retried until the frozen approved bundle is available.",
+      "retry",
+    );
+  }
+
+  if (!input.hasPublishableAsset) {
+    return blockedFanoutActionDecision(
+      "retry_child",
+      "publishable_asset_missing",
+      "Erneut versuchen",
+      "A publishable asset is required before the child can be retried.",
+      "The child publication cannot be retried until a publishable asset is available.",
+      "retry",
+    );
+  }
+
+  return allowedFanoutActionDecision(
+    "retry_child",
+    "Erneut versuchen",
+    "Retries exactly one child publication through the existing safe retry guard.",
+    "The child publication will be re-enqueued through the existing publication execution path, and the parent aggregate can be refreshed afterward.",
+    "retry",
+  );
+}
+
+export function buildPublicationFanoutParentRefreshActionPolicy(
+  input: PublicationFanoutParentRefreshActionInput,
+): ContentPublicationFanoutActionDecision {
+  if (!input.fanoutStatus) {
+    return blockedFanoutActionDecision(
+      "refresh_parent_aggregate",
+      "fanout_not_found",
+      "Status aktualisieren",
+      "The parent fanout could not be loaded.",
+      "The parent aggregate cannot be refreshed until the parent fanout exists.",
+      "recompute",
+    );
+  }
+
+  return allowedFanoutActionDecision(
+    "refresh_parent_aggregate",
+    "Status aktualisieren",
+    "Recomputes the parent aggregate from the current child target states and stored publication rows.",
+    "The parent summary will be recalculated from the current database state without triggering any provider or queue work.",
+    "recompute",
+  );
 }
 
 export function isApprovedRepurposingPlanResult(
@@ -1282,6 +1595,47 @@ function blockedDecision(
     allowed: false,
     blockReason,
     explanation,
+  };
+}
+
+function allowedFanoutActionDecision(
+  actionKey: ContentPublicationFanoutActionKey,
+  safeLabel: string,
+  safeDescription: string,
+  expectedResult: string,
+  intent: ContentPublicationFanoutActionIntent,
+): ContentPublicationFanoutActionDecision {
+  return {
+    actionKey,
+    allowed: true,
+    blockReason: null,
+    expectedResult,
+    intent,
+    requiresConfirmation: actionKey === "retry_child",
+    safeDescription,
+    safeLabel,
+    severity: actionKey === "refresh_parent_aggregate" ? "low" : "medium",
+  };
+}
+
+function blockedFanoutActionDecision(
+  actionKey: ContentPublicationFanoutActionKey,
+  blockReason: string,
+  safeLabel: string,
+  safeDescription: string,
+  expectedResult: string,
+  intent: ContentPublicationFanoutActionIntent,
+): ContentPublicationFanoutActionDecision {
+  return {
+    actionKey,
+    allowed: false,
+    blockReason,
+    expectedResult,
+    intent,
+    requiresConfirmation: false,
+    safeDescription,
+    safeLabel,
+    severity: actionKey === "refresh_parent_aggregate" ? "low" : "medium",
   };
 }
 

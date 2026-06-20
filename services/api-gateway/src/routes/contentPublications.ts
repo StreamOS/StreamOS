@@ -5,6 +5,7 @@ import { z } from "zod";
 import { STREAM_PLATFORMS } from "@streamos/types";
 import type {
   ConnectionStatus,
+  ContentPublicationFanoutActionKey,
   ContentPublicationManualActionPolicy,
   ContentJobReviewStatus,
   ContentJobStatus,
@@ -18,6 +19,9 @@ import type {
 import {
   buildCanonicalPublicationDraft,
   buildPublicationFanoutRequestIntentHash,
+  buildPublicationFanoutChildRetryActionPolicy,
+  buildPublicationFanoutParentRefreshActionPolicy,
+  buildPublicationFanoutTargetRecheckActionPolicy,
   buildPublicationManualActionPolicy,
   extractPublicationAccountCapabilityOverlay,
   getPublicationCapabilityDefinition,
@@ -100,6 +104,10 @@ const publicationFanoutRequestSchema = z
   });
 
 const publicationExecutionRequestSchema = z.object({
+  user_id: z.string().uuid(),
+});
+
+const publicationFanoutActionRequestSchema = z.object({
   user_id: z.string().uuid(),
 });
 
@@ -260,6 +268,46 @@ type PublicationFanoutMutationResult = {
   user_id: string;
 };
 
+type PublicationFanoutTargetRecheckMutationResult = {
+  block_reason: string | null;
+  content_publication_fanout_id: string;
+  content_publication_fanout_target_id: string;
+  content_publication_id: string | null;
+  fanout_status: ContentPublicationFanoutStatus;
+  last_action_result: string | null;
+  status:
+    | "publication_fanout_target_recheck_blocked"
+    | "publication_fanout_target_rechecked";
+  target_status: ContentPublicationFanoutTargetStatus;
+  user_id: string;
+};
+
+type PublicationFanoutChildRetryMutationResult = {
+  block_reason: string | null;
+  content_publication_fanout_id: string;
+  content_publication_fanout_target_id: string | null;
+  content_publication_id: string;
+  fanout_status: ContentPublicationFanoutStatus;
+  queue_job_id: string | null;
+  message: string | null;
+  status:
+    | "publication_fanout_child_retry_blocked"
+    | "publication_fanout_child_retry_queued";
+  target_status: ContentPublicationFanoutTargetStatus | null;
+  user_id: string;
+};
+
+type PublicationFanoutRefreshMutationResult = {
+  blocked_target_count: number;
+  content_publication_fanout_id: string;
+  fanout_status: ContentPublicationFanoutStatus;
+  last_aggregate_refreshed_at: string | null;
+  status: "publication_fanout_refreshed";
+  target_count: number;
+  user_id: string;
+  validated_target_count: number;
+};
+
 type PublicationManualActionResponse = {
   content_job_id: string;
   content_publication_id: string;
@@ -341,6 +389,10 @@ type PublicationFanoutRow = {
   blocked_target_count: number;
   content_job_id: string;
   created_at: string;
+  last_action_at: string | null;
+  last_action_key: ContentPublicationFanoutActionKey | null;
+  last_action_result: string | null;
+  last_aggregate_refreshed_at: string | null;
   fanout_policy: PublicationFanoutPolicy;
   fanout_status: ContentPublicationFanoutStatus;
   id: string;
@@ -365,6 +417,11 @@ type PublicationFanoutTargetRow = {
   content_publication_fanout_id: string;
   content_publication_id: string | null;
   created_at: string;
+  last_action_at: string | null;
+  last_action_key: ContentPublicationFanoutActionKey | null;
+  last_action_result: string | null;
+  last_block_reason: string | null;
+  last_rechecked_at: string | null;
   id: string;
   platform_connection_id: string;
   provider_overrides: Record<string, unknown>;
@@ -374,6 +431,39 @@ type PublicationFanoutTargetRow = {
   updated_at: string;
   user_id: string;
   validated_at: string | null;
+};
+
+type PublicationFanoutEventRow = {
+  action_key: ContentPublicationFanoutActionKey | null;
+  action_result:
+    | "blocked"
+    | "partial"
+    | "queued"
+    | "rechecked"
+    | "refreshed"
+    | "validated";
+  actor_id: string;
+  content_publication_fanout_id: string;
+  content_publication_fanout_target_id: string | null;
+  content_publication_id: string | null;
+  created_at: string;
+  event_type:
+    | "child_retry_queued"
+    | "child_retry_requested"
+    | "fanout_blocked"
+    | "fanout_requested"
+    | "fanout_validated"
+    | "manual_action_blocked"
+    | "parent_aggregate_refreshed"
+    | "target_rechecked";
+  fanout_status: ContentPublicationFanoutStatus;
+  id: string;
+  metadata: Record<string, unknown>;
+  previous_fanout_status: ContentPublicationFanoutStatus | null;
+  previous_target_status: ContentPublicationFanoutTargetStatus | null;
+  source: string;
+  target_status: ContentPublicationFanoutTargetStatus | null;
+  user_id: string;
 };
 
 type PublicationReconciliationMutationResult = {
@@ -641,6 +731,212 @@ export function createContentPublicationsRouter({
           error instanceof Error
             ? error.message
             : "Publication fanout could not be validated.",
+      });
+    }
+  });
+
+  router.post(
+    "/fanouts/:fanout_id/targets/:target_id/recheck",
+    async (request, response) => {
+      const fanoutId = z.string().uuid().safeParse(request.params.fanout_id);
+      const targetId = z.string().uuid().safeParse(request.params.target_id);
+      const parsedPayload = publicationFanoutActionRequestSchema.safeParse(
+        request.body,
+      );
+
+      if (!fanoutId.success) {
+        response.status(400).json({
+          error: "invalid_publication_fanout_id",
+          issues: fanoutId.error.issues,
+        });
+        return;
+      }
+
+      if (!targetId.success) {
+        response.status(400).json({
+          error: "invalid_publication_fanout_target_id",
+          issues: targetId.error.issues,
+        });
+        return;
+      }
+
+      if (!parsedPayload.success) {
+        response.status(400).json({
+          error: "invalid_publication_fanout_action_request_payload",
+          issues: parsedPayload.error.issues,
+        });
+        return;
+      }
+
+      let supabase: SupabaseRestClient;
+
+      try {
+        supabase = createSupabaseRestClient({ fetchImpl });
+      } catch (error) {
+        response.status(503).json({
+          error: "supabase_not_configured",
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+
+      try {
+        const result = await recheckPublicationFanoutTarget({
+          fanoutId: fanoutId.data,
+          supabase,
+          targetId: targetId.data,
+          userId: parsedPayload.data.user_id,
+        });
+
+        response.status(result.statusCode).json(result.body);
+      } catch (error) {
+        response.status(502).json({
+          error: "publication_fanout_target_recheck_failed",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Publication fanout target recheck could not be completed.",
+        });
+      }
+    },
+  );
+
+  router.post(
+    "/fanouts/:fanout_id/children/:publication_id/retry",
+    async (request, response) => {
+      const fanoutId = z.string().uuid().safeParse(request.params.fanout_id);
+      const publicationId = z
+        .string()
+        .uuid()
+        .safeParse(request.params.publication_id);
+      const parsedPayload = publicationFanoutActionRequestSchema.safeParse(
+        request.body,
+      );
+
+      if (!fanoutId.success) {
+        response.status(400).json({
+          error: "invalid_publication_fanout_id",
+          issues: fanoutId.error.issues,
+        });
+        return;
+      }
+
+      if (!publicationId.success) {
+        response.status(400).json({
+          error: "invalid_publication_id",
+          issues: publicationId.error.issues,
+        });
+        return;
+      }
+
+      if (!parsedPayload.success) {
+        response.status(400).json({
+          error: "invalid_publication_fanout_action_request_payload",
+          issues: parsedPayload.error.issues,
+        });
+        return;
+      }
+
+      let supabase: SupabaseRestClient;
+
+      try {
+        supabase = createSupabaseRestClient({ fetchImpl });
+      } catch (error) {
+        response.status(503).json({
+          error: "supabase_not_configured",
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+
+      try {
+        const result = await retryPublicationFanoutChild({
+          fanoutId: fanoutId.data,
+          publicationId: publicationId.data,
+          publicationExecutionQueue,
+          supabase,
+          userId: parsedPayload.data.user_id,
+        });
+
+        response.status(result.statusCode).json(result.body);
+      } catch (error) {
+        response.status(502).json({
+          error: "publication_fanout_child_retry_failed",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Publication fanout child retry could not be completed.",
+        });
+      }
+    },
+  );
+
+  router.post("/fanouts/:fanout_id/refresh", async (request, response) => {
+    const fanoutId = z.string().uuid().safeParse(request.params.fanout_id);
+    const parsedPayload = publicationFanoutActionRequestSchema.safeParse(
+      request.body,
+    );
+
+    if (!fanoutId.success) {
+      response.status(400).json({
+        error: "invalid_publication_fanout_id",
+        issues: fanoutId.error.issues,
+      });
+      return;
+    }
+
+    if (!parsedPayload.success) {
+      response.status(400).json({
+        error: "invalid_publication_fanout_action_request_payload",
+        issues: parsedPayload.error.issues,
+      });
+      return;
+    }
+
+    let supabase: SupabaseRestClient;
+
+    try {
+      supabase = createSupabaseRestClient({ fetchImpl });
+    } catch (error) {
+      response.status(503).json({
+        error: "supabase_not_configured",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    try {
+      const result = await refreshPublicationFanoutAggregate({
+        fanoutId: fanoutId.data,
+        supabase,
+        userId: parsedPayload.data.user_id,
+      });
+
+      if (!result.fanout) {
+        response.status(404).json({
+          error: "content_publication_fanout_not_found",
+          message: "Approved fanout request could not be found.",
+        });
+        return;
+      }
+
+      response.status(200).json({
+        blocked_target_count: result.blockedTargetCount,
+        content_publication_fanout_id: result.fanout.id,
+        fanout_status: result.fanoutStatus,
+        last_aggregate_refreshed_at: result.lastAggregateRefreshedAt,
+        status: "publication_fanout_refreshed",
+        target_count: result.targetCount,
+        user_id: result.fanout.user_id,
+        validated_target_count: result.validatedTargetCount,
+      } satisfies PublicationFanoutRefreshMutationResult);
+    } catch (error) {
+      response.status(502).json({
+        error: "publication_fanout_refresh_failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Publication fanout aggregate could not be refreshed.",
       });
     }
   });
@@ -1790,6 +2086,40 @@ async function createPublicationFanoutRequest({
     });
   }
 
+  await writePublicationFanoutEvent({
+    actionKey: null,
+    actionResult:
+      fanoutStatus === "blocked"
+        ? "blocked"
+        : fanoutStatus === "validated"
+          ? "validated"
+          : "partial",
+    actorId: input.user_id,
+    contentPublicationFanoutId: fanout.id,
+    eventType:
+      fanoutStatus === "blocked"
+        ? "fanout_blocked"
+        : fanoutStatus === "validated"
+          ? "fanout_validated"
+          : "fanout_requested",
+    fanoutStatus,
+    metadata: {
+      blocked_target_count: blockedTargetCount,
+      capability_version: capabilityVersion,
+      content_job_id: contentJob.id,
+      fanout_policy: fanoutPolicy,
+      request_intent_hash: requestIntentHash,
+      snapshot_hash: snapshotHash,
+      target_count: requestedTargets.length,
+      validated_target_count: validatedTargetCount,
+    },
+    previousFanoutStatus: null,
+    source: "api-gateway",
+    supabase,
+    targetStatus: null,
+    userId: input.user_id,
+  });
+
   return {
     blocked_target_count: blockedTargetCount,
     content_job_id: contentJob.id,
@@ -2112,6 +2442,812 @@ async function writePublicationEvent({
       `Supabase content_publication_events write failed with status ${response.status}.`,
     );
   }
+}
+
+async function writePublicationFanoutEvent({
+  actionKey,
+  actionResult,
+  actorId,
+  contentPublicationFanoutId,
+  contentPublicationFanoutTargetId = null,
+  contentPublicationId = null,
+  eventType,
+  fanoutStatus,
+  metadata,
+  previousFanoutStatus = null,
+  previousTargetStatus = null,
+  source,
+  supabase,
+  targetStatus = null,
+  userId,
+}: {
+  actionKey: ContentPublicationFanoutActionKey | null;
+  actionResult: PublicationFanoutEventRow["action_result"];
+  actorId: string;
+  contentPublicationFanoutId: string;
+  contentPublicationFanoutTargetId?: string | null;
+  contentPublicationId?: string | null;
+  eventType: PublicationFanoutEventRow["event_type"];
+  fanoutStatus: ContentPublicationFanoutStatus;
+  metadata: Record<string, unknown>;
+  previousFanoutStatus?: ContentPublicationFanoutStatus | null;
+  previousTargetStatus?: ContentPublicationFanoutTargetStatus | null;
+  source: string;
+  supabase: SupabaseRestClient;
+  targetStatus?: ContentPublicationFanoutTargetStatus | null;
+  userId: string;
+}) {
+  const response = await supabase.fetchImpl(
+    new URL("/rest/v1/content_publication_fanout_events", supabase.supabaseUrl),
+    {
+      body: JSON.stringify({
+        action_key: actionKey,
+        action_result: actionResult,
+        actor_id: actorId,
+        content_publication_fanout_id: contentPublicationFanoutId,
+        content_publication_fanout_target_id: contentPublicationFanoutTargetId,
+        content_publication_id: contentPublicationId,
+        event_type: eventType,
+        fanout_status: fanoutStatus,
+        metadata,
+        previous_fanout_status: previousFanoutStatus,
+        previous_target_status: previousTargetStatus,
+        source,
+        target_status: targetStatus,
+        user_id: userId,
+      }),
+      headers: {
+        apikey: supabase.serviceRoleKey,
+        Authorization: `Bearer ${supabase.serviceRoleKey}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Supabase content_publication_fanout_events write failed with status ${response.status}.`,
+    );
+  }
+}
+
+async function loadPublicationFanoutById({
+  fanoutId,
+  supabase,
+  userId,
+}: {
+  fanoutId: string;
+  supabase: SupabaseRestClient;
+  userId: string;
+}): Promise<PublicationFanoutRow | null> {
+  const rows = await readSupabaseRows<PublicationFanoutRow>({
+    client: supabase,
+    params: {
+      id: `eq.${fanoutId}`,
+      select:
+        "blocked_target_count,content_job_id,created_at,fanout_policy,fanout_status,id,last_action_at,last_action_key,last_action_result,last_aggregate_refreshed_at,requested_at,requested_by,request_intent_hash,review_status_at_request,snapshot,snapshot_hash,target_count,updated_at,user_id,validated_at,validated_target_count",
+      user_id: `eq.${userId}`,
+    },
+    table: "content_publication_fanouts",
+  });
+
+  return rows[0] ?? null;
+}
+
+async function loadPublicationFanoutTargetById({
+  fanoutId,
+  targetId,
+  supabase,
+  userId,
+}: {
+  fanoutId: string;
+  supabase: SupabaseRestClient;
+  targetId: string;
+  userId: string;
+}): Promise<PublicationFanoutTargetRow | null> {
+  const rows = await readSupabaseRows<PublicationFanoutTargetRow>({
+    client: supabase,
+    params: {
+      content_publication_fanout_id: `eq.${fanoutId}`,
+      id: `eq.${targetId}`,
+      select:
+        "block_message,block_reason,capability_snapshot,capability_version,content_publication_fanout_id,content_publication_id,created_at,last_action_at,last_action_key,last_action_result,last_block_reason,last_rechecked_at,id,platform_connection_id,provider_overrides,request_intent_hash,target_platform,target_status,updated_at,user_id,validated_at",
+      user_id: `eq.${userId}`,
+    },
+    table: "content_publication_fanout_targets",
+  });
+
+  return rows[0] ?? null;
+}
+
+async function loadPublicationFanoutTargets({
+  fanoutId,
+  supabase,
+  userId,
+}: {
+  fanoutId: string;
+  supabase: SupabaseRestClient;
+  userId: string;
+}): Promise<PublicationFanoutTargetRow[]> {
+  return readSupabaseRows<PublicationFanoutTargetRow>({
+    client: supabase,
+    params: {
+      content_publication_fanout_id: `eq.${fanoutId}`,
+      order: "created_at.asc",
+      select:
+        "block_message,block_reason,capability_snapshot,capability_version,content_publication_fanout_id,content_publication_id,created_at,last_action_at,last_action_key,last_action_result,last_block_reason,last_rechecked_at,id,platform_connection_id,provider_overrides,request_intent_hash,target_platform,target_status,updated_at,user_id,validated_at",
+      user_id: `eq.${userId}`,
+    },
+    table: "content_publication_fanout_targets",
+  });
+}
+
+function summarizePublicationFanoutTargets(
+  targets: PublicationFanoutTargetRow[],
+): {
+  blockedTargetCount: number;
+  fanoutStatus: ContentPublicationFanoutStatus;
+  targetCount: number;
+  validatedTargetCount: number;
+} {
+  const validatedTargetCount = targets.filter(
+    (target) => target.target_status === "validated",
+  ).length;
+  const blockedTargetCount = targets.filter(
+    (target) => target.target_status === "blocked",
+  ).length;
+  const targetCount = targets.length;
+  const fanoutStatus: ContentPublicationFanoutStatus =
+    blockedTargetCount === 0
+      ? "validated"
+      : validatedTargetCount === 0
+        ? "blocked"
+        : "partially_validated";
+
+  return {
+    blockedTargetCount,
+    fanoutStatus,
+    targetCount,
+    validatedTargetCount,
+  };
+}
+
+async function refreshPublicationFanoutAggregate({
+  actionKey = "refresh_parent_aggregate",
+  actionResult = "refreshed",
+  actorId,
+  fanoutId,
+  metadata = {},
+  previousFanoutStatus,
+  supabase,
+  userId,
+}: {
+  actionKey?: ContentPublicationFanoutActionKey;
+  actionResult?: PublicationFanoutEventRow["action_result"];
+  actorId?: string;
+  fanoutId: string;
+  metadata?: Record<string, unknown>;
+  previousFanoutStatus?: ContentPublicationFanoutStatus;
+  supabase: SupabaseRestClient;
+  userId: string;
+}): Promise<{
+  fanout: PublicationFanoutRow | null;
+  fanoutStatus: ContentPublicationFanoutStatus;
+  targetCount: number;
+  validatedTargetCount: number;
+  blockedTargetCount: number;
+  lastAggregateRefreshedAt: string | null;
+}> {
+  const fanout = await loadPublicationFanoutById({
+    fanoutId,
+    supabase,
+    userId,
+  });
+
+  const resolvedActorId = actorId ?? userId;
+  const resolvedPreviousFanoutStatus =
+    previousFanoutStatus ?? fanout?.fanout_status ?? "blocked";
+
+  if (!fanout) {
+    return {
+      blockedTargetCount: 0,
+      fanout: null,
+      fanoutStatus: "blocked",
+      lastAggregateRefreshedAt: null,
+      targetCount: 0,
+      validatedTargetCount: 0,
+    };
+  }
+
+  const targets = await loadPublicationFanoutTargets({
+    fanoutId: fanout.id,
+    supabase,
+    userId,
+  });
+  const aggregate = summarizePublicationFanoutTargets(targets);
+  const now = new Date().toISOString();
+  const nextFanoutStatus =
+    fanout.fanout_status === "canceled" ? "canceled" : aggregate.fanoutStatus;
+
+  await patchSupabaseRows({
+    client: supabase,
+    params: {
+      id: `eq.${fanout.id}`,
+      user_id: `eq.${userId}`,
+    },
+    payload: {
+      blocked_target_count: aggregate.blockedTargetCount,
+      last_action_at: now,
+      last_action_key: actionKey,
+      last_action_result: actionResult,
+      last_aggregate_refreshed_at: now,
+      fanout_status: nextFanoutStatus,
+      target_count: aggregate.targetCount,
+      updated_at: now,
+      validated_at:
+        nextFanoutStatus === "validated" && !fanout.validated_at
+          ? now
+          : fanout.validated_at,
+      validated_target_count: aggregate.validatedTargetCount,
+    },
+    table: "content_publication_fanouts",
+  });
+
+  await writePublicationFanoutEvent({
+    actionKey,
+    actionResult,
+    actorId: resolvedActorId,
+    contentPublicationFanoutId: fanout.id,
+    eventType: "parent_aggregate_refreshed",
+    fanoutStatus: nextFanoutStatus,
+    metadata: {
+      ...metadata,
+      blocked_target_count: aggregate.blockedTargetCount,
+      fanout_status: nextFanoutStatus,
+      target_count: aggregate.targetCount,
+      validated_target_count: aggregate.validatedTargetCount,
+    },
+    previousFanoutStatus: resolvedPreviousFanoutStatus,
+    source: "api-gateway",
+    supabase,
+    userId,
+  });
+
+  return {
+    blockedTargetCount: aggregate.blockedTargetCount,
+    fanout,
+    fanoutStatus: nextFanoutStatus,
+    lastAggregateRefreshedAt: now,
+    targetCount: aggregate.targetCount,
+    validatedTargetCount: aggregate.validatedTargetCount,
+  };
+}
+
+async function recheckPublicationFanoutTarget({
+  fanoutId,
+  supabase,
+  targetId,
+  userId,
+}: {
+  fanoutId: string;
+  supabase: SupabaseRestClient;
+  targetId: string;
+  userId: string;
+}): Promise<{
+  body: PublicationFanoutTargetRecheckMutationResult | Record<string, unknown>;
+  statusCode: number;
+}> {
+  const fanout = await loadPublicationFanoutById({
+    fanoutId,
+    supabase,
+    userId,
+  });
+
+  if (!fanout) {
+    return {
+      body: {
+        error: "content_publication_fanout_not_found",
+        message: "Approved fanout request could not be found.",
+      },
+      statusCode: 404,
+    };
+  }
+
+  const target = await loadPublicationFanoutTargetById({
+    fanoutId: fanout.id,
+    supabase,
+    targetId,
+    userId,
+  });
+
+  if (!target) {
+    return {
+      body: {
+        error: "content_publication_fanout_target_not_found",
+        message: "Approved fanout target could not be found.",
+      },
+      statusCode: 404,
+    };
+  }
+
+  const contentJob = await loadRepurposingContentJob({
+    contentJobId: fanout.content_job_id,
+    supabase,
+    userId,
+  });
+
+  const connection = await loadPlatformConnection({
+    platformConnectionId: target.platform_connection_id,
+    supabase,
+    userId,
+  });
+
+  const recheckPolicy = buildPublicationFanoutTargetRecheckActionPolicy({
+    connection: connection
+      ? {
+          metadata: connection.metadata,
+          platform: connection.platform,
+          provider_profile: connection.provider_profile,
+          scopes: connection.scopes,
+          status: normalizeConnectionStatus(connection.status),
+        }
+      : null,
+    contentJob: {
+      id: contentJob?.id ?? fanout.content_job_id,
+      queueJobId: contentJob?.queue_job_id ?? null,
+      result: contentJob?.result ?? null,
+      reviewStatus: contentJob?.review_status ?? null,
+      status: contentJob?.status ?? null,
+      streamId: contentJob?.stream_id ?? null,
+    },
+    fanoutStatus: fanout.fanout_status,
+    providerOverrides: {
+      [target.target_platform]: target.provider_overrides,
+    },
+    targetPlatform: target.target_platform,
+    targetStatus: target.target_status,
+  });
+
+  const now = new Date().toISOString();
+
+  if (!recheckPolicy.allowed) {
+    const blockReason =
+      target.block_reason ??
+      target.last_block_reason ??
+      recheckPolicy.blockReason;
+
+    await patchSupabaseRows({
+      client: supabase,
+      params: {
+        content_publication_fanout_id: `eq.${fanout.id}`,
+        id: `eq.${target.id}`,
+        user_id: `eq.${userId}`,
+      },
+      payload: {
+        block_message: recheckPolicy.safeDescription,
+        block_reason: blockReason,
+        last_action_at: now,
+        last_action_key: "recheck_target",
+        last_action_result: "blocked",
+        last_block_reason: blockReason,
+        last_rechecked_at: now,
+        updated_at: now,
+      },
+      table: "content_publication_fanout_targets",
+    });
+
+    await writePublicationFanoutEvent({
+      actionKey: "recheck_target",
+      actionResult: "blocked",
+      actorId: userId,
+      contentPublicationFanoutId: fanout.id,
+      contentPublicationFanoutTargetId: target.id,
+      eventType: "manual_action_blocked",
+      fanoutStatus: fanout.fanout_status,
+      metadata: {
+        block_reason: blockReason,
+        block_message: recheckPolicy.safeDescription,
+        target_platform: target.target_platform,
+      },
+      previousFanoutStatus: fanout.fanout_status,
+      previousTargetStatus: target.target_status,
+      source: "api-gateway",
+      supabase,
+      targetStatus: target.target_status,
+      userId,
+    });
+
+    return {
+      body: {
+        block_reason: blockReason,
+        content_publication_fanout_id: fanout.id,
+        content_publication_fanout_target_id: target.id,
+        content_publication_id: target.content_publication_id,
+        fanout_status: fanout.fanout_status,
+        last_action_result: "blocked",
+        status: "publication_fanout_target_recheck_blocked",
+        target_status: target.target_status,
+        user_id: userId,
+      } satisfies PublicationFanoutTargetRecheckMutationResult,
+      statusCode: 409,
+    };
+  }
+
+  const publicationRequest = await createPublicationRequest({
+    input: {
+      capability_version: fanout.snapshot?.capabilityVersion as
+        | string
+        | undefined,
+      content_job_id: fanout.content_job_id,
+      platform_connection_id: target.platform_connection_id,
+      provider_overrides: {
+        [target.target_platform]: target.provider_overrides,
+      },
+      target_platform: target.target_platform,
+      user_id: userId,
+    },
+    supabase,
+  });
+
+  await patchSupabaseRows({
+    client: supabase,
+    params: {
+      content_publication_fanout_id: `eq.${fanout.id}`,
+      id: `eq.${target.id}`,
+      user_id: `eq.${userId}`,
+    },
+    payload: {
+      block_message: null,
+      block_reason: null,
+      content_publication_id: publicationRequest.publication.id,
+      last_action_at: now,
+      last_action_key: "recheck_target",
+      last_action_result: "validated",
+      last_block_reason: target.block_reason ?? target.last_block_reason,
+      last_rechecked_at: now,
+      target_status: "validated",
+      updated_at: now,
+      validated_at: publicationRequest.publication.validated_at ?? now,
+    },
+    table: "content_publication_fanout_targets",
+  });
+
+  await writePublicationFanoutEvent({
+    actionKey: "recheck_target",
+    actionResult: "validated",
+    actorId: userId,
+    contentPublicationFanoutId: fanout.id,
+    contentPublicationFanoutTargetId: target.id,
+    contentPublicationId: publicationRequest.publication.id,
+    eventType: "target_rechecked",
+    fanoutStatus: fanout.fanout_status,
+    metadata: {
+      content_publication_id: publicationRequest.publication.id,
+      target_platform: target.target_platform,
+      validated_at: publicationRequest.publication.validated_at,
+    },
+    previousFanoutStatus: fanout.fanout_status,
+    previousTargetStatus: target.target_status,
+    source: "api-gateway",
+    supabase,
+    targetStatus: "validated",
+    userId,
+  });
+
+  const refreshed = await refreshPublicationFanoutAggregate({
+    actionKey: "recheck_target",
+    actionResult: "validated",
+    actorId: userId,
+    fanoutId: fanout.id,
+    metadata: {
+      content_publication_id: publicationRequest.publication.id,
+      target_platform: target.target_platform,
+    },
+    previousFanoutStatus: fanout.fanout_status,
+    supabase,
+    userId,
+  });
+
+  return {
+    body: {
+      block_reason: null,
+      content_publication_fanout_id: fanout.id,
+      content_publication_fanout_target_id: target.id,
+      content_publication_id: publicationRequest.publication.id,
+      fanout_status: refreshed.fanoutStatus,
+      last_action_result: "validated",
+      status: "publication_fanout_target_rechecked",
+      target_status: "validated",
+      user_id: userId,
+    } satisfies PublicationFanoutTargetRecheckMutationResult,
+    statusCode: 200,
+  };
+}
+
+async function retryPublicationFanoutChild({
+  fanoutId,
+  publicationId,
+  publicationExecutionQueue,
+  supabase,
+  userId,
+}: {
+  fanoutId: string;
+  publicationId: string;
+  publicationExecutionQueue: PublicationExecutionQueue | undefined;
+  supabase: SupabaseRestClient;
+  userId: string;
+}): Promise<{
+  body: PublicationFanoutChildRetryMutationResult | Record<string, unknown>;
+  statusCode: number;
+}> {
+  const fanout = await loadPublicationFanoutById({
+    fanoutId,
+    supabase,
+    userId,
+  });
+
+  if (!fanout) {
+    return {
+      body: {
+        error: "content_publication_fanout_not_found",
+        message: "Approved fanout request could not be found.",
+      },
+      statusCode: 404,
+    };
+  }
+
+  const publication = await loadPublicationById({
+    publicationId,
+    supabase,
+    userId,
+  });
+
+  if (!publication) {
+    return {
+      body: {
+        error: "content_publication_not_found",
+        message: "Approved publication request could not be found.",
+      },
+      statusCode: 404,
+    };
+  }
+
+  const target = await loadPublicationFanoutTargetById({
+    fanoutId: fanout.id,
+    supabase,
+    targetId: publication.id,
+    userId,
+  });
+
+  if (!target || target.content_publication_id !== publication.id) {
+    return {
+      body: {
+        error: "content_publication_fanout_target_not_found",
+        message:
+          "The selected child publication does not belong to this fanout.",
+      },
+      statusCode: 409,
+    };
+  }
+
+  const contentJob = await loadRepurposingContentJob({
+    contentJobId: publication.content_job_id,
+    supabase,
+    userId,
+  });
+  const connection = await loadPlatformConnection({
+    platformConnectionId: publication.platform_connection_id,
+    supabase,
+    userId,
+  });
+  const vodAsset = await loadVodAsset({
+    supabase,
+    streamId: contentJob?.stream_id ?? null,
+    userId,
+  });
+  const manualActionPolicy = buildPublicationManualActionPolicy({
+    connectionScopes: connection?.scopes ?? [],
+    connectionStatus: normalizeConnectionStatus(connection?.status ?? null),
+    contentJobReviewStatus: contentJob?.review_status ?? null,
+    contentJobStatus: contentJob?.status ?? null,
+    externalPostId: publication.external_post_id,
+    hasApprovedBundle: isApprovedRepurposingPlanResult(contentJob?.result),
+    hasPublishableAsset: Boolean(vodAsset?.source_url),
+    maxRetries: publication.max_retries,
+    publicationStatus: publication.publication_status,
+    reconcileMaxRetries: publication.reconcile_max_retries,
+    reconcileRetryCount: publication.reconcile_retry_count,
+    reconciliationStatus: publication.reconciliation_status,
+    remotePublishId:
+      publication.external_post_id ??
+      getPublicationRemotePublishId(publication.remote_state),
+    retryCount: publication.retry_count,
+    targetPlatform: publication.target_platform,
+  });
+  const retryPolicy = buildPublicationFanoutChildRetryActionPolicy({
+    belongsToFanout: target.content_publication_fanout_id === fanout.id,
+    fanoutStatus: fanout.fanout_status,
+    hasApprovedBundle: isApprovedRepurposingPlanResult(contentJob?.result),
+    hasPublishableAsset: Boolean(vodAsset?.source_url),
+    manualRetryPolicy: manualActionPolicy,
+    publicationStatus: publication.publication_status,
+    targetPlatform: target.target_platform,
+  });
+
+  if (!retryPolicy.allowed) {
+    const now = new Date().toISOString();
+
+    await patchSupabaseRows({
+      client: supabase,
+      params: {
+        content_publication_fanout_id: `eq.${fanout.id}`,
+        id: `eq.${target.id}`,
+        user_id: `eq.${userId}`,
+      },
+      payload: {
+        last_action_at: now,
+        last_action_key: "retry_child",
+        last_action_result: "blocked",
+        updated_at: now,
+      },
+      table: "content_publication_fanout_targets",
+    });
+
+    await writePublicationFanoutEvent({
+      actionKey: "retry_child",
+      actionResult: "blocked",
+      actorId: userId,
+      contentPublicationFanoutId: fanout.id,
+      contentPublicationFanoutTargetId: target.id,
+      contentPublicationId: publication.id,
+      eventType: "manual_action_blocked",
+      fanoutStatus: fanout.fanout_status,
+      metadata: {
+        block_reason: retryPolicy.blockReason,
+        target_platform: target.target_platform,
+      },
+      previousFanoutStatus: fanout.fanout_status,
+      previousTargetStatus: target.target_status,
+      source: "api-gateway",
+      supabase,
+      targetStatus: target.target_status,
+      userId,
+    });
+
+    return {
+      body: {
+        block_reason: retryPolicy.blockReason,
+        content_publication_fanout_id: fanout.id,
+        content_publication_fanout_target_id: target.id,
+        content_publication_id: publication.id,
+        fanout_status: fanout.fanout_status,
+        queue_job_id: null,
+        message: retryPolicy.safeDescription,
+        status: "publication_fanout_child_retry_blocked",
+        target_status: target.target_status,
+        user_id: userId,
+      } satisfies PublicationFanoutChildRetryMutationResult,
+      statusCode: 409,
+    };
+  }
+
+  if (!publicationExecutionQueue) {
+    return {
+      body: {
+        error: "publication_execution_queue_unavailable",
+        message:
+          "REDIS_URL is required before publication fanout child retries can be queued.",
+      },
+      statusCode: 503,
+    };
+  }
+
+  const result = await executePublicationManualAction({
+    action: "retry",
+    publicationExecutionQueue,
+    publicationId: publication.id,
+    requestPayload: {
+      user_id: userId,
+    },
+    supabase,
+  });
+  const queuedPublicationActionResult =
+    result.body as PublicationManualActionResponse;
+
+  if (result.statusCode !== 200) {
+    return {
+      body: {
+        block_reason: null,
+        content_publication_fanout_id: fanout.id,
+        content_publication_fanout_target_id: target.id,
+        content_publication_id: publication.id,
+        fanout_status: fanout.fanout_status,
+        queue_job_id: null,
+        message:
+          result.body &&
+          typeof result.body === "object" &&
+          "message" in result.body
+            ? String((result.body as Record<string, unknown>).message ?? null)
+            : null,
+        status: "publication_fanout_child_retry_blocked",
+        target_status: target.target_status,
+        user_id: userId,
+      } satisfies PublicationFanoutChildRetryMutationResult,
+      statusCode: result.statusCode,
+    };
+  }
+
+  const now = new Date().toISOString();
+
+  await patchSupabaseRows({
+    client: supabase,
+    params: {
+      content_publication_fanout_id: `eq.${fanout.id}`,
+      id: `eq.${target.id}`,
+      user_id: `eq.${userId}`,
+    },
+    payload: {
+      last_action_at: now,
+      last_action_key: "retry_child",
+      last_action_result: "queued",
+      updated_at: now,
+    },
+    table: "content_publication_fanout_targets",
+  });
+
+  await patchSupabaseRows({
+    client: supabase,
+    params: {
+      id: `eq.${fanout.id}`,
+      user_id: `eq.${userId}`,
+    },
+    payload: {
+      last_action_at: now,
+      last_action_key: "retry_child",
+      last_action_result: "queued",
+      updated_at: now,
+    },
+    table: "content_publication_fanouts",
+  });
+
+  await writePublicationFanoutEvent({
+    actionKey: "retry_child",
+    actionResult: "queued",
+    actorId: userId,
+    contentPublicationFanoutId: fanout.id,
+    contentPublicationFanoutTargetId: target.id,
+    contentPublicationId: publication.id,
+    eventType: "child_retry_queued",
+    fanoutStatus: fanout.fanout_status,
+    metadata: {
+      queue_job_id: queuedPublicationActionResult.queue_job_id,
+      target_platform: target.target_platform,
+    },
+    previousFanoutStatus: fanout.fanout_status,
+    previousTargetStatus: target.target_status,
+    source: "api-gateway",
+    supabase,
+    targetStatus: target.target_status,
+    userId,
+  });
+
+  return {
+    body: {
+      block_reason: null,
+      content_publication_fanout_id: fanout.id,
+      content_publication_fanout_target_id: target.id,
+      content_publication_id: publication.id,
+      fanout_status: fanout.fanout_status,
+      queue_job_id: queuedPublicationActionResult.queue_job_id,
+      message: null,
+      status: "publication_fanout_child_retry_queued",
+      target_status: target.target_status,
+      user_id: userId,
+    } satisfies PublicationFanoutChildRetryMutationResult,
+    statusCode: 200,
+  };
 }
 
 async function executePublicationManualAction({

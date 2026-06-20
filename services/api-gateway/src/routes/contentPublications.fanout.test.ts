@@ -261,6 +261,23 @@ describe("content publications fanout route", () => {
             ]);
           }
 
+          if (
+            requestUrl.includes("/rest/v1/content_publication_fanout_events") &&
+            method === "POST"
+          ) {
+            const parsedBody = JSON.parse(body ?? "{}") as Record<
+              string,
+              unknown
+            >;
+
+            expect(parsedBody.user_id).toBe(USER_ID);
+            expect(["fanout_requested", "fanout_validated"]).toContain(
+              parsedBody.event_type,
+            );
+
+            return jsonResponse({});
+          }
+
           return new Response("not found", { status: 404 });
         },
       },
@@ -544,6 +561,24 @@ describe("content publications fanout route", () => {
                 updated_at: "2026-06-20T12:00:00.000Z",
               },
             ]);
+          }
+
+          if (
+            requestUrl.includes("/rest/v1/content_publication_fanout_events") &&
+            method === "POST"
+          ) {
+            const parsedBody = JSON.parse(body ?? "{}") as Record<
+              string,
+              unknown
+            >;
+
+            expect(parsedBody.user_id).toBe(USER_ID);
+            expect([
+              "fanout_requested",
+              "fanout_partially_validated",
+            ]).toContain(parsedBody.event_type);
+
+            return jsonResponse({});
           }
 
           return new Response("not found", { status: 404 });

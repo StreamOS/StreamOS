@@ -3,6 +3,11 @@ import Link from "next/link";
 import { ArrowUpRight, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import {
+  refreshFanoutAggregateAction,
+  recheckFanoutTargetAction,
+  retryFanoutChildPublicationAction,
+} from "@/app/dashboard/publications/fanouts/actions";
+import {
   formatPublicationTimestamp,
   type PublicationStatusTone,
 } from "./PublicationStatusConsole.utils";
@@ -178,6 +183,18 @@ function CrosspostingFanoutDetail({
             value={formatFanoutPolicyLabel(fanout.fanoutPolicy)}
           />
           <DetailStat
+            label="Last action"
+            value={
+              fanout.lastActionAt
+                ? `${fanout.lastActionResult ?? "updated"} · ${formatPublicationTimestamp(fanout.lastActionAt)}`
+                : "No fanout action yet"
+            }
+          />
+          <DetailStat
+            label="Last aggregate refresh"
+            value={formatPublicationTimestamp(fanout.lastAggregateRefreshedAt)}
+          />
+          <DetailStat
             label="Overall message"
             value={fanout.overallSafeMessage}
           />
@@ -214,6 +231,40 @@ function CrosspostingFanoutDetail({
             label="Requires action"
             value={String(fanout.requiresActionCount)}
           />
+        </div>
+
+        <div className="mt-6 rounded-lg border border-white/10 bg-white/5 p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
+                Fanout controls
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-400">
+                Refresh the aggregate from the current child states without
+                touching provider writes or queue execution.
+              </p>
+            </div>
+
+            <form action={refreshFanoutAggregateAction}>
+              <input name="fanoutId" type="hidden" value={fanout.id} />
+              <button
+                className={cn(
+                  "btn-primary inline-flex min-w-[220px] items-center justify-center gap-2",
+                  !fanout.actions.refreshParentAggregate.allowed &&
+                    "cursor-not-allowed opacity-60",
+                )}
+                disabled={!fanout.actions.refreshParentAggregate.allowed}
+                title={fanout.actions.refreshParentAggregate.safeDescription}
+                type="submit"
+              >
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                {fanout.actions.refreshParentAggregate.safeLabel}
+              </button>
+            </form>
+          </div>
+          <p className="mt-3 text-xs leading-6 text-slate-500">
+            {fanout.actions.refreshParentAggregate.expectedResult}
+          </p>
         </div>
 
         <div className="mt-6 rounded-lg border border-white/10 bg-white/5 p-4">
@@ -370,6 +421,18 @@ function FanoutTargetCard({
           label="Safe error hint"
           value={target.safeErrorHint ?? "None"}
         />
+        <InfoRow
+          label="Last action"
+          value={
+            target.lastActionAt
+              ? `${target.lastActionResult ?? "updated"} · ${formatPublicationTimestamp(target.lastActionAt)}`
+              : "No target action yet"
+          }
+        />
+        <InfoRow
+          label="Last recheck"
+          value={formatPublicationTimestamp(target.lastRecheckedAt)}
+        />
       </div>
 
       <div className="mt-4 rounded-lg border border-white/10 bg-surface-900/80 p-4">
@@ -379,14 +442,107 @@ function FanoutTargetCard({
         <p className="mt-2 text-sm leading-6 text-slate-300">
           {target.blockReason
             ? `Blocked target: ${target.blockReason}`
-            : target.manualInterventionRequired || target.reauthRequired
-              ? "A safe follow-up is available on the child publication detail view."
-              : fanout.status === "requires_action"
-                ? "This target needs safe reconnect or manual follow-up before it can continue."
-                : "No additional action is currently required for this target."}
+            : target.lastBlockReason
+              ? `Last block reason: ${target.lastBlockReason}`
+              : target.manualInterventionRequired || target.reauthRequired
+                ? "A safe follow-up is available on the child publication detail view."
+                : fanout.status === "requires_action"
+                  ? "This target needs safe reconnect or manual follow-up before it can continue."
+                  : "No additional action is currently required for this target."}
         </p>
       </div>
+
+      <div className="mt-4 grid gap-3 rounded-lg border border-white/10 bg-white/5 p-4 md:grid-cols-2">
+        <FanoutActionPanel
+          action={target.recheckAction}
+          description="Erneut prüfen"
+          fanoutId={fanout.id}
+          hint="Revalidates this blocked target against the approved bundle and current connection."
+          intent="recheck"
+          targetId={target.id}
+        />
+        {target.childRetryAction ? (
+          <FanoutActionPanel
+            action={target.childRetryAction}
+            description="Erneut versuchen"
+            fanoutId={fanout.id}
+            hint="Retries exactly this child publication through the existing safe retry path."
+            intent="retry"
+            publicationId={target.childPublicationId}
+          />
+        ) : (
+          <div className="rounded-lg border border-white/10 bg-surface-900/80 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+              Erneut versuchen
+            </p>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              No child publication exists for this target yet, so no retry
+              action is available.
+            </p>
+          </div>
+        )}
+      </div>
     </article>
+  );
+}
+
+function FanoutActionPanel({
+  action,
+  description,
+  fanoutId,
+  hint,
+  intent,
+  publicationId,
+  targetId,
+}: {
+  action: CrosspostingSummaryTargetItem["recheckAction"];
+  description: string;
+  fanoutId: string;
+  hint: string;
+  intent: "recheck" | "retry";
+  publicationId?: string | null;
+  targetId?: string | null;
+}) {
+  const actionLabel = action.safeLabel;
+  const disabled = !action.allowed;
+  const formAction =
+    intent === "recheck"
+      ? recheckFanoutTargetAction
+      : retryFanoutChildPublicationAction;
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-surface-900/80 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+        {description}
+      </p>
+      <p className="mt-2 text-sm leading-6 text-slate-400">{hint}</p>
+
+      <form action={formAction} className="mt-4">
+        <input name="fanoutId" type="hidden" value={fanoutId} />
+        {targetId ? (
+          <input name="targetId" type="hidden" value={targetId} />
+        ) : null}
+        {publicationId ? (
+          <input name="publicationId" type="hidden" value={publicationId} />
+        ) : null}
+        <button
+          className={cn(
+            "btn-ghost inline-flex w-full items-center justify-center gap-2",
+            disabled && "cursor-not-allowed opacity-60",
+          )}
+          disabled={disabled}
+          title={action.safeDescription}
+          type="submit"
+        >
+          <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+          {actionLabel}
+        </button>
+      </form>
+
+      <p className="mt-3 text-xs leading-6 text-slate-500">
+        {action.allowed ? action.expectedResult : action.safeDescription}
+      </p>
+    </div>
   );
 }
 

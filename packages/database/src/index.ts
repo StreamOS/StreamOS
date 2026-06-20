@@ -867,6 +867,10 @@ export type Database = {
           blocked_target_count: number;
           content_job_id: string;
           created_at: string;
+          last_action_at: string | null;
+          last_action_key: string | null;
+          last_action_result: string | null;
+          last_aggregate_refreshed_at: string | null;
           fanout_policy: PublicationFanoutPolicy;
           fanout_status: ContentPublicationFanoutStatus;
           id: string;
@@ -886,6 +890,10 @@ export type Database = {
           blocked_target_count?: number;
           content_job_id: string;
           created_at?: string;
+          last_action_at?: string | null;
+          last_action_key?: string | null;
+          last_action_result?: string | null;
+          last_aggregate_refreshed_at?: string | null;
           fanout_policy?: PublicationFanoutPolicy;
           fanout_status?: ContentPublicationFanoutStatus;
           id?: string;
@@ -905,6 +913,10 @@ export type Database = {
           blocked_target_count?: number;
           content_job_id?: string;
           created_at?: string;
+          last_action_at?: string | null;
+          last_action_key?: string | null;
+          last_action_result?: string | null;
+          last_aggregate_refreshed_at?: string | null;
           fanout_policy?: PublicationFanoutPolicy;
           fanout_status?: ContentPublicationFanoutStatus;
           id?: string;
@@ -944,6 +956,11 @@ export type Database = {
           content_publication_fanout_id: string;
           content_publication_id: string | null;
           created_at: string;
+          last_action_at: string | null;
+          last_action_key: string | null;
+          last_action_result: string | null;
+          last_block_reason: string | null;
+          last_rechecked_at: string | null;
           id: string;
           platform_connection_id: string;
           provider_overrides: Json;
@@ -962,6 +979,11 @@ export type Database = {
           content_publication_fanout_id: string;
           content_publication_id?: string | null;
           created_at?: string;
+          last_action_at?: string | null;
+          last_action_key?: string | null;
+          last_action_result?: string | null;
+          last_block_reason?: string | null;
+          last_rechecked_at?: string | null;
           id?: string;
           platform_connection_id: string;
           provider_overrides?: Json;
@@ -980,6 +1002,11 @@ export type Database = {
           content_publication_fanout_id?: string;
           content_publication_id?: string | null;
           created_at?: string;
+          last_action_at?: string | null;
+          last_action_key?: string | null;
+          last_action_result?: string | null;
+          last_block_reason?: string | null;
+          last_rechecked_at?: string | null;
           id?: string;
           platform_connection_id?: string;
           provider_overrides?: Json;
@@ -1008,6 +1035,88 @@ export type Database = {
             columns: ["platform_connection_id", "user_id"];
             referencedRelation: "platform_connections";
             referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
+      content_publication_fanout_events: {
+        Row: {
+          action_key: string | null;
+          action_result: string;
+          actor_id: string;
+          content_publication_fanout_id: string;
+          content_publication_fanout_target_id: string | null;
+          content_publication_id: string | null;
+          created_at: string;
+          event_type: string;
+          fanout_status: string;
+          id: string;
+          metadata: Json;
+          previous_fanout_status: string | null;
+          previous_target_status: string | null;
+          source: string;
+          target_status: string | null;
+          user_id: string;
+        };
+        Insert: {
+          action_key?: string | null;
+          action_result: string;
+          actor_id: string;
+          content_publication_fanout_id: string;
+          content_publication_fanout_target_id?: string | null;
+          content_publication_id?: string | null;
+          created_at?: string;
+          event_type: string;
+          fanout_status: string;
+          id?: string;
+          metadata?: Json;
+          previous_fanout_status?: string | null;
+          previous_target_status?: string | null;
+          source?: string;
+          target_status?: string | null;
+          user_id: string;
+        };
+        Update: {
+          action_key?: string | null;
+          action_result?: string;
+          actor_id?: string;
+          content_publication_fanout_id?: string;
+          content_publication_fanout_target_id?: string | null;
+          content_publication_id?: string | null;
+          created_at?: string;
+          event_type?: string;
+          fanout_status?: string;
+          id?: string;
+          metadata?: Json;
+          previous_fanout_status?: string | null;
+          previous_target_status?: string | null;
+          source?: string;
+          target_status?: string | null;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_publication_fanout_events_fanout_user_fkey";
+            columns: ["content_publication_fanout_id", "user_id"];
+            referencedRelation: "content_publication_fanouts";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_fanout_events_target_user_fkey";
+            columns: ["content_publication_fanout_target_id", "user_id"];
+            referencedRelation: "content_publication_fanout_targets";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_fanout_events_publication_user_fkey";
+            columns: ["content_publication_id", "user_id"];
+            referencedRelation: "content_publications";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_fanout_events_actor_id_fkey";
+            columns: ["actor_id"];
+            referencedRelation: "auth.users";
+            referencedColumns: ["id"];
           },
         ];
       };

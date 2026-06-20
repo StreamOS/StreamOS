@@ -1,9 +1,18 @@
 import type { Tables } from "@streamos/database";
 import type {
+  ConnectionStatus,
+  ContentJobReviewStatus,
+  ContentJobStatus,
+  ContentPublicationFanoutActionDecision,
   PublicationFanoutPolicy,
   PublicationFanoutTargetPlatform,
 } from "@streamos/types";
-import { isApprovedRepurposingPlanResult } from "@streamos/types";
+import {
+  buildPublicationFanoutChildRetryActionPolicy,
+  buildPublicationFanoutParentRefreshActionPolicy,
+  buildPublicationFanoutTargetRecheckActionPolicy,
+  isApprovedRepurposingPlanResult,
+} from "@streamos/types";
 import type {
   PublicationChannelRow,
   PublicationConnectionRow,
@@ -47,9 +56,13 @@ export type CrosspostingSummaryFanoutItem = {
   blockedCount: number;
   createdAt: string;
   failedCount: number;
+  lastActionAt: string | null;
+  lastActionResult: string | null;
+  lastAggregateRefreshedAt: string | null;
   fanoutPolicy: PublicationFanoutPolicy;
   id: string;
   latestActivityAt: string | null;
+  actions: CrosspostingSummaryFanoutActions;
   overallSafeMessage: string;
   processingCount: number;
   publishedCount: number;
@@ -72,6 +85,7 @@ export type CrosspostingSummaryFanoutItem = {
 export type CrosspostingSummaryTargetItem = {
   blockMessage: string | null;
   blockReason: string | null;
+  childRetryAction: ContentPublicationFanoutActionDecision | null;
   childHistoryHref: string | null;
   childPublicationId: string | null;
   childPublicationStatusLabel: string;
@@ -79,10 +93,16 @@ export type CrosspostingSummaryTargetItem = {
   connectionStatusLabel: string;
   connectionStatusTone: CrosspostingStatusTone;
   effectiveVisibilityLabel: string;
+  id: string;
   lastEventAt: string | null;
+  lastActionAt: string | null;
+  lastActionResult: string | null;
+  lastBlockReason: string | null;
+  lastRecheckedAt: string | null;
   lastReconciledAt: string | null;
   manualInterventionRequired: boolean;
   providerLabel: string;
+  recheckAction: ContentPublicationFanoutActionDecision;
   reauthRequired: boolean;
   remoteUrl: string | null;
   requestedVisibilityLabel: string;
@@ -92,6 +112,10 @@ export type CrosspostingSummaryTargetItem = {
   targetStatus: CrosspostingTargetStatus;
   targetStatusLabel: string;
   targetStatusTone: CrosspostingStatusTone;
+};
+
+export type CrosspostingSummaryFanoutActions = {
+  refreshParentAggregate: ContentPublicationFanoutActionDecision;
 };
 
 export type CrosspostingTargetStatus =
@@ -229,6 +253,10 @@ const TARGET_STATUS_META: Record<
 type FanoutSnapshot = {
   approvedBundle?: unknown;
   contentJob?: {
+    id?: string | null;
+    queueJobId?: string | null;
+    reviewStatus?: string | null;
+    status?: string | null;
     streamId?: string | null;
   } | null;
 };
@@ -348,6 +376,7 @@ function buildCrosspostingFanoutItem({
     buildCrosspostingTargetItem({
       channelById,
       connectionById,
+      fanout,
       publicationById,
       target,
     }),
@@ -382,7 +411,15 @@ function buildCrosspostingFanoutItem({
   return {
     blockedCount: counts.blockedCount,
     createdAt: fanout.created_at,
+    lastActionAt: fanout.last_action_at,
+    lastActionResult: fanout.last_action_result,
+    lastAggregateRefreshedAt: fanout.last_aggregate_refreshed_at,
     failedCount: counts.failedCount,
+    actions: {
+      refreshParentAggregate: buildPublicationFanoutParentRefreshActionPolicy({
+        fanoutStatus: fanout.fanout_status,
+      }),
+    },
     fanoutPolicy: fanout.fanout_policy,
     id: fanout.id,
     latestActivityAt: latestTimestamp([
@@ -414,11 +451,13 @@ function buildCrosspostingFanoutItem({
 function buildCrosspostingTargetItem({
   channelById,
   connectionById,
+  fanout,
   publicationById,
   target,
 }: {
   channelById: Map<string, PublicationChannelRow>;
   connectionById: Map<string, PublicationConnectionRow>;
+  fanout: PublicationFanoutRow;
   publicationById: Map<string, PublicationDashboardItem>;
   target: PublicationFanoutTargetRow;
 }): CrosspostingSummaryTargetItem {
@@ -426,6 +465,9 @@ function buildCrosspostingTargetItem({
     ? (publicationById.get(target.content_publication_id) ?? null)
     : null;
   const connection = connectionById.get(target.platform_connection_id) ?? null;
+  const normalizedConnectionStatus = normalizeConnectionStatus(
+    connection?.status ?? null,
+  );
   const channel =
     connection?.channel_id !== null && connection?.channel_id !== undefined
       ? (channelById.get(connection.channel_id) ?? null)
@@ -438,10 +480,10 @@ function buildCrosspostingTargetItem({
     publication?.connection.providerLabel ?? getTargetProviderLabel(target);
   const connectionStatusLabel =
     publication?.connection.statusLabel ??
-    getConnectionStatusLabel(connection?.status ?? null);
+    getConnectionStatusLabel(normalizedConnectionStatus);
   const connectionStatusTone =
     publication?.connection.statusTone ??
-    getConnectionStatusTone(connection?.status ?? null);
+    getConnectionStatusTone(normalizedConnectionStatus);
   const targetStatus = resolveCrosspostingTargetStatus(target, publication);
   const targetStatusMeta = getCrosspostingTargetStatusMeta(targetStatus);
   const safeErrorHint =
@@ -451,6 +493,58 @@ function buildCrosspostingTargetItem({
     publication?.manualActions.nextAction &&
     publication.deliveryStatus !== "published",
   );
+  const sourceSnapshot = readFanoutSnapshot(fanout.snapshot);
+  const approvedBundle = isApprovedRepurposingPlanResult(
+    sourceSnapshot.approvedBundle,
+  )
+    ? sourceSnapshot.approvedBundle
+    : null;
+  const sourceContentJob = sourceSnapshot.contentJob ?? null;
+  const safeTargetPlatform = normalizePublicationFanoutTargetPlatform(
+    target.target_platform,
+  );
+  const recheckAction = buildPublicationFanoutTargetRecheckActionPolicy({
+    connection: connection
+      ? {
+          metadata: connection.metadata,
+          platform: connection.platform,
+          provider_profile: connection.provider_profile,
+          scopes: connection.scopes,
+          status: normalizedConnectionStatus,
+        }
+      : null,
+    contentJob: {
+      id:
+        sourceContentJob?.id ??
+        target.content_publication_id ??
+        publication?.id ??
+        "unknown",
+      queueJobId: sourceContentJob?.queueJobId ?? null,
+      result: approvedBundle,
+      reviewStatus: normalizeContentJobReviewStatus(
+        sourceContentJob?.reviewStatus ?? null,
+      ),
+      status: normalizeContentJobStatus(sourceContentJob?.status ?? null),
+      streamId: sourceContentJob?.streamId ?? null,
+    },
+    fanoutStatus: fanout.fanout_status,
+    providerOverrides: {
+      [safeTargetPlatform]: normalizeObject(target.provider_overrides),
+    },
+    targetPlatform: safeTargetPlatform,
+    targetStatus: target.target_status,
+  });
+  const childRetryAction = publication
+    ? buildPublicationFanoutChildRetryActionPolicy({
+        belongsToFanout: target.content_publication_fanout_id === fanout.id,
+        fanoutStatus: fanout.fanout_status,
+        hasApprovedBundle: Boolean(approvedBundle),
+        hasPublishableAsset: Boolean(publication.externalUrl),
+        manualRetryPolicy: publication.manualActions,
+        publicationStatus: publication.publicationStatus,
+        targetPlatform: safeTargetPlatform,
+      })
+    : null;
   const reauthRequired =
     targetStatus === "re-auth required" ||
     connectionStatusLabel === "Expired" ||
@@ -464,6 +558,7 @@ function buildCrosspostingTargetItem({
       ? sanitizePublicationFreeformText(target.block_message)
       : null,
     blockReason: target.block_reason,
+    childRetryAction,
     childHistoryHref,
     childPublicationId: publication?.id ?? null,
     childPublicationStatusLabel:
@@ -474,11 +569,17 @@ function buildCrosspostingTargetItem({
     effectiveVisibilityLabel: publication
       ? formatCrosspostingSafeVisibility(publication.effectiveVisibility)
       : "Not available",
+    id: target.id,
     lastEventAt:
       publication?.history[0]?.createdAt ?? publication?.updatedAt ?? null,
+    lastActionAt: target.last_action_at,
+    lastActionResult: target.last_action_result,
+    lastBlockReason: target.last_block_reason,
+    lastRecheckedAt: target.last_rechecked_at,
     lastReconciledAt: publication?.lastReconciledAt ?? null,
     manualInterventionRequired,
     providerLabel,
+    recheckAction,
     reauthRequired,
     remoteUrl: formatCrosspostingSafeUrl(publication?.externalUrl ?? null),
     requestedVisibilityLabel: publication
@@ -861,6 +962,75 @@ function readFanoutSnapshot(value: unknown): FanoutSnapshot {
   }
 
   return value as FanoutSnapshot;
+}
+
+function normalizeObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function normalizeConnectionStatus(
+  status: PublicationConnectionRow["status"] | null,
+): ConnectionStatus {
+  if (status === "connected") {
+    return "connected";
+  }
+
+  if (status === "expired") {
+    return "expired";
+  }
+
+  if (
+    status === "revoked" ||
+    status === "disconnected" ||
+    status === "degraded"
+  ) {
+    return "revoked";
+  }
+
+  return "pending";
+}
+
+function normalizeContentJobReviewStatus(
+  status: string | null,
+): ContentJobReviewStatus | null {
+  if (
+    status === "needs_review" ||
+    status === "approved" ||
+    status === "rejected" ||
+    status === "needs_changes"
+  ) {
+    return status;
+  }
+
+  return null;
+}
+
+function normalizeContentJobStatus(
+  status: string | null,
+): ContentJobStatus | null {
+  if (
+    status === "pending" ||
+    status === "running" ||
+    status === "processing" ||
+    status === "done" ||
+    status === "completed" ||
+    status === "failed" ||
+    status === "cancelled"
+  ) {
+    return status;
+  }
+
+  return null;
+}
+
+function normalizePublicationFanoutTargetPlatform(
+  platform: PublicationFanoutTargetRow["target_platform"],
+): PublicationFanoutTargetPlatform {
+  return platform === "tiktok" ? "tiktok" : "youtube";
 }
 
 function formatCrosspostingBlockReason(
