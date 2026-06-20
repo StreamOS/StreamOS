@@ -648,6 +648,7 @@ the evidence is available. Never record secret values, tokens, or private URLs.
 - Date checked:
 - Operator / approver:
 - Relevant deployment IDs:
+- Freigabe ist ohne eindeutigen RC-SHA ungultig.
 
 **Audit Status**
 
@@ -705,6 +706,20 @@ Status und Gate-Status bestätigt sind und kein Blocker vorliegt. Wenn ein
 harter Blocker existiert, setze die Entscheidung auf `Blockiert`. Wenn die
 Nachweise unvollständig oder widersprüchlich sind, setze die Entscheidung auf
 `Zurückgestellt`.
+
+**Beispielausfüllung**
+
+```text
+RC SHA: 0123abcd4567efgh8901ijkl2345mnop6789qrst
+Branch / PR: fix/publishing-worker-production-rc / PR #1234
+Target environment: production
+Railway project / environment: terrific-reflection / production
+Date checked: 2026-06-20
+Operator / approver: operator-name
+Relevant deployment IDs: deploy_abc123
+Decision: Freigegeben
+Reason: Audit clean, worker private, required env present, production gate green.
+```
 
 For a deployed release candidate, run the production gate from the dedicated
 `release-gate-runner` runtime, or an equivalent Railway shell that contains the
