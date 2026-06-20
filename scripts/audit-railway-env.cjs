@@ -378,6 +378,30 @@ function runRailwayJsonCommand(railwayBin, args, description, options = {}) {
   return parseJsonOutput(result.stdout, description);
 }
 
+function buildServiceConfigIndex(environmentConfig) {
+  const index = new Map();
+
+  for (const [serviceId, serviceConfig] of Object.entries(
+    environmentConfig?.services ?? {},
+  )) {
+    const serviceName =
+      serviceConfig?.name ??
+      serviceConfig?.service?.name ??
+      serviceConfig?.serviceName ??
+      serviceId;
+
+    for (const key of new Set(
+      [serviceId, serviceName, serviceConfig?.service?.id]
+        .filter((value) => typeof value === "string" && value.trim().length > 0)
+        .map((value) => value.trim()),
+    )) {
+      index.set(key, serviceConfig);
+    }
+  }
+
+  return index;
+}
+
 function ensureRailwayCli(railwayBin) {
   try {
     runCommand(railwayBin, ["--version"]);
@@ -981,14 +1005,7 @@ function loadLiveEnvironment({
     typeof environmentConfig.variables === "object"
       ? environmentConfig.variables
       : {};
-  const serviceConfigByName = new Map(
-    Object.values(environmentConfig?.services ?? {}).map((serviceConfig) => [
-      serviceConfig?.name ??
-        serviceConfig?.service?.name ??
-        serviceConfig?.serviceName,
-      serviceConfig,
-    ]),
-  );
+  const serviceConfigIndex = buildServiceConfigIndex(environmentConfig);
   const serviceList = runRailwayJsonCommand(
     railwayBin,
     ["service", "list", "-p", projectId, "-e", environment],
@@ -998,10 +1015,12 @@ function loadLiveEnvironment({
   const serviceVariables = {};
 
   for (const serviceName of Object.keys(whitelist.services)) {
-    const serviceConfig = serviceConfigByName.get(serviceName);
     const listedService = parseServiceListPayload(serviceList).find(
       (entry) => entry.name === serviceName,
     );
+    const serviceConfig =
+      serviceConfigIndex.get(serviceName) ??
+      serviceConfigIndex.get(listedService?.id);
     const inventoryPresent = Boolean(serviceConfig && listedService);
 
     if (!inventoryPresent) {
@@ -1147,6 +1166,7 @@ if (require.main === module) {
 
 module.exports = {
   DEFAULT_TIMEOUT_MS,
+  buildServiceConfigIndex,
   buildRailwayCommandEnv,
   main,
   parseArgs,

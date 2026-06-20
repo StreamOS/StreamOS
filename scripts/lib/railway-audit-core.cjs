@@ -154,16 +154,30 @@ function parseServiceListPayload(payload) {
   return [];
 }
 
+function getServiceListEntry(serviceList, serviceName) {
+  const listedServices = parseServiceListPayload(serviceList);
+  return listedServices.find((entry) => entry.name === serviceName) ?? null;
+}
+
+function getConfiguredService(environmentConfig, serviceName, serviceId) {
+  return (
+    environmentConfig?.servicesByName?.[serviceName] ??
+    (serviceId ? environmentConfig?.servicesById?.[serviceId] : undefined) ??
+    null
+  );
+}
+
 function hasServiceInventoryEntry({
   environmentConfig,
   serviceList,
   serviceName,
 }) {
-  const listedServices = parseServiceListPayload(serviceList);
-  const listedService = listedServices.find(
-    (entry) => entry.name === serviceName,
+  const listedService = getServiceListEntry(serviceList, serviceName);
+  const configuredService = getConfiguredService(
+    environmentConfig,
+    serviceName,
+    listedService?.id,
   );
-  const configuredService = environmentConfig?.servicesByName?.[serviceName];
 
   return Boolean(listedService && configuredService);
 }
@@ -176,6 +190,7 @@ function getServicePublicUrl(serviceList, serviceName) {
 
 function parseEnvironmentConfigPayload(payload) {
   const servicesByName = {};
+  const servicesById = {};
   const services = payload?.services ?? {};
 
   for (const [serviceId, serviceConfig] of Object.entries(services)) {
@@ -191,12 +206,19 @@ function parseEnvironmentConfigPayload(payload) {
       networking: serviceConfig?.networking ?? {},
       variables: parseVariablePayload(serviceConfig?.variables ?? {}),
     };
+    servicesById[serviceId] = {
+      id: serviceId,
+      name: serviceName,
+      networking: serviceConfig?.networking ?? {},
+      variables: parseVariablePayload(serviceConfig?.variables ?? {}),
+    };
   }
 
   return {
     privateNetworkDisabled:
       payload?.privateNetworkDisabled === true ||
       payload?.private_network_disabled === true,
+    servicesById,
     servicesByName,
   };
 }
@@ -1117,8 +1139,15 @@ function auditEnvironment({
     const serviceVariables = parseVariablePayload(
       rawEnvironment.serviceVariables?.[serviceName],
     );
-    const environmentServiceConfig =
-      environmentConfig.servicesByName[serviceName];
+    const listedService = getServiceListEntry(
+      rawEnvironment.serviceList,
+      serviceName,
+    );
+    const environmentServiceConfig = getConfiguredService(
+      environmentConfig,
+      serviceName,
+      listedService?.id,
+    );
     const serviceInventoryRow = createInventoryRow({
       environment,
       environmentConfig,

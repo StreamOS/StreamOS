@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { buildServiceConfigIndex } = require("./audit-railway-env.cjs");
 
 function runAuditCli(args, rootName = "railway-audit") {
   const fixturesDir = join(__dirname, "__fixtures__", rootName);
@@ -125,6 +126,25 @@ test("audit CLI keeps publishing-worker happy-path output non-blocking in markdo
     ),
     false,
   );
+});
+
+test("buildServiceConfigIndex indexes Railway service configs by id and name", () => {
+  const serviceConfig = {
+    name: "publishing-worker",
+    networking: {
+      privateNetworkEndpoint: "publishing-worker-production",
+      serviceDomains: [],
+    },
+  };
+
+  const index = buildServiceConfigIndex({
+    services: {
+      "svc-publishing-production": serviceConfig,
+    },
+  });
+
+  assert.equal(index.get("svc-publishing-production"), serviceConfig);
+  assert.equal(index.get("publishing-worker"), serviceConfig);
 });
 
 test("audit CLI blocks strict pre-merge output when publishing-worker is missing in production", () => {

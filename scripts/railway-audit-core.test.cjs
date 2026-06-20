@@ -452,6 +452,40 @@ test("buildAuditReport flags a missing publishing-worker inventory entry as bloc
   );
 });
 
+test("buildAuditReport tolerates ID-keyed publishing-worker environment config entries", () => {
+  const production = cloneEnvironment(loadEnvironment("production"));
+  delete production.environmentConfig.services["svc-publishing-production"]
+    .name;
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const publishingRows =
+    report.environments.production.services["publishing-worker"].variables;
+  const inventoryRow = publishingRows.find(
+    (row) => row.variable === "SERVICE_INVENTORY",
+  );
+
+  assert.equal(inventoryRow.status, "✅");
+  assert.match(inventoryRow.summary, /present in the Railway inventory/);
+  assert.equal(
+    report.environments.production.services["publishing-worker"].networking
+      .privateNetworkEndpoint,
+    "publishing-worker-production",
+  );
+  assert.deepEqual(
+    report.environments.production.services["publishing-worker"].networking
+      .publicDomains,
+    [],
+  );
+});
+
 test("buildAuditReport flags publishing-worker public networking exposure", () => {
   const production = cloneEnvironment(loadEnvironment("production"));
   production.environmentConfig.services[
