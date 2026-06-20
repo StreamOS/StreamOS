@@ -778,6 +778,75 @@ eintragen._
 - [x] Decision: `Freigegeben`
 - [x] Reason: Audit clean, worker privat, Pflicht-Env vollständig, production gate grün.
 
+### Erster kontrollierter Production-Deploy-Proof fÃ¼r publishing-worker
+
+Use this proof for the first controlled production deploy. It proves service,
+audit, env, privacy, queue readiness, and gate context. It does not prove a
+provider publish.
+
+- No real YouTube publish.
+- No third-party write.
+- No crossposting.
+- No new publish execution.
+- No live Railway call is required in the proof text itself.
+
+**Proof Checks**
+
+- [ ] RC SHA is unique and recorded in the approval template
+- [ ] `publishing-worker`, `api-gateway`, and shared packages come from the same RC SHA
+- [ ] No deploy came from a local dirty state
+- [ ] `publishing-worker` exists in Railway `production`
+- [ ] Service type is Worker / Background Worker
+- [ ] Public Networking is disabled
+- [ ] No public domain is attached
+- [ ] No public healthcheck is required
+- [ ] Worker belongs to the correct Railway project
+- [ ] Worker belongs to the correct Railway environment
+- [ ] Worker runs from the expected RC SHA
+- [ ] Required env names are present
+- [ ] Env values are not written into the runbook, approval template, or reports
+- [ ] `REDIS_URL` is present when required
+- [ ] `SUPABASE_URL` is present
+- [ ] `SUPABASE_SERVICE_ROLE_KEY` is present
+- [ ] Publishing queue name is present when required by the worker contract
+- [ ] `APP_ENCRYPTION_KEY` is present when the worker needs token decryption
+- [ ] `AUTOMATION_SERVICE_URL` is not required for the current worker contract
+- [ ] Railway audit was checked for the target environment
+- [ ] Cross-environment audit was checked when part of the release process
+- [ ] `publishing-worker` is listed correctly in the audit report
+- [ ] No `MISSING` finding exists
+- [ ] No `DANGEROUS_EXPOSURE` finding exists
+- [ ] No real `publishing-worker` drift exists
+- [ ] No missing required env exists
+- [ ] No secret values appear in Markdown or JSON
+- [ ] Markdown and JSON support the same rollout decision
+- [ ] Production gate ran from a proof-capable Railway runtime
+- [ ] Runner is in the same Railway project
+- [ ] Runner is in the same Railway environment
+- [ ] Runner contains the same RC SHA
+- [ ] API Gateway runtime provenance matches the RC SHA
+- [ ] Gate is green
+- [ ] Gate contains no real YouTube publish
+- [ ] Gate contains no third-party write
+- [ ] Known non-blocking warnings are documented
+- [ ] Worker started without a crash loop
+- [ ] Logs show a successful start
+- [ ] Logs show no secrets
+- [ ] Worker points at the expected publishing queue
+- [ ] No public URL is present
+- [ ] No unexpected Automation Service dependency is present
+- [ ] No aggressive retries or provider calls appear while idle
+
+**Proof Result**
+
+- Decision: `Freigegeben` / `Blockiert` / `ZurÃ¼ckgestellt`
+- Reason:
+
+If any hard blocker is present, the proof is `Blockiert`. If the evidence is
+incomplete or inconsistent, the proof is `ZurÃ¼ckgestellt`. If the RC SHA, audit
+status, worker privacy, env status, gate status, and runtime sanity checks are
+all confirmed, the proof can be `Freigegeben`.
+
 For a deployed release candidate, run the production gate from the dedicated
 `release-gate-runner` runtime, or an equivalent Railway shell that contains the
 same gate-required release-candidate snapshot, in the same Railway project and
@@ -883,6 +952,8 @@ pnpm railway:audit --env staging --format markdown > audit-baseline-staging.md
 Merge expectations:
 
 - `CI / Validate monorepo` is green on the pull request
+- `publishing-worker Release Approval` is linked or referenced and is set to
+  `Freigegeben`
 - `audit-premerge-cross-env.md` has no `MISSING`, `DANGEROUS_EXPOSURE`, or
   real `STAGING_DRIFT` blockers
 - `audit-baseline-staging.md` is only committed when the staging-only run has
