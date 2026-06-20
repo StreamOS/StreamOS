@@ -320,18 +320,7 @@ jobs:
 
           service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
           service_exists="$(
-            # shellcheck disable=SC2016
-            node -e '
-              const fs = require("node:fs");
-              const payload = JSON.parse(fs.readFileSync(0, "utf8"));
-              const services = Array.isArray(payload)
-                ? payload
-                : Array.isArray(payload.services)
-                  ? payload.services
-                  : [];
-              const exists = services.some((service) => service?.name === "repurposing-worker");
-              process.stdout.write(exists ? "yes" : "no");
-            ' <<<"${service_list}"
+            SERVICE_LIST_JSON="${service_list}" node -e "const payload = JSON.parse(process.env.SERVICE_LIST_JSON ?? '[]'); const services = Array.isArray(payload) ? payload : Array.isArray(payload.services) ? payload.services : []; const exists = services.some((service) => service?.name === 'repurposing-worker'); process.stdout.write(exists ? 'yes' : 'no');"
           )"
 
           if [ "${service_exists}" = "yes" ]; then
@@ -423,18 +412,7 @@ jobs:
 
           service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
           service_exists="$(
-            # shellcheck disable=SC2016
-            node -e '
-              const fs = require("node:fs");
-              const payload = JSON.parse(fs.readFileSync(0, "utf8"));
-              const services = Array.isArray(payload)
-                ? payload
-                : Array.isArray(payload.services)
-                  ? payload.services
-                  : [];
-              const exists = services.some((service) => service?.name === "publishing-worker");
-              process.stdout.write(exists ? "yes" : "no");
-            ' <<<"${service_list}"
+            SERVICE_LIST_JSON="${service_list}" node -e "const payload = JSON.parse(process.env.SERVICE_LIST_JSON ?? '[]'); const services = Array.isArray(payload) ? payload : Array.isArray(payload.services) ? payload.services : []; const exists = services.some((service) => service?.name === 'publishing-worker'); process.stdout.write(exists ? 'yes' : 'no');"
           )"
 
           if [ "${service_exists}" = "yes" ]; then
