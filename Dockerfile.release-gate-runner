@@ -14,8 +14,36 @@ COPY services/api-gateway ./services/api-gateway
 COPY workers/stream-job-worker ./workers/stream-job-worker
 COPY workers/transcription-worker ./workers/transcription-worker
 
+ARG STREAMOS_RC_COMMIT_SHA
+ARG RAILWAY_GIT_COMMIT_SHA
+ARG RAILWAY_GIT_BRANCH
+ARG RAILWAY_ENVIRONMENT_NAME
+ARG RAILWAY_SERVICE_NAME
+ARG RAILWAY_DEPLOYMENT_ID
+ARG GITHUB_REPOSITORY
+ARG GITHUB_WORKFLOW
+ARG GITHUB_RUN_ID
+ARG GITHUB_RUN_ATTEMPT
+ARG GITHUB_REF
+
+RUN set -eu; \
+  commit_sha="${STREAMOS_RC_COMMIT_SHA:-${RAILWAY_GIT_COMMIT_SHA:-}}"; \
+  if [ -z "${commit_sha}" ]; then \
+    echo "release-gate-runner commit provenance missing from build environment" >&2; \
+    exit 1; \
+  fi; \
+  node scripts/write-release-gate-runner-provenance.cjs \
+    --git-sha "${commit_sha}" \
+    --git-ref "${GITHUB_REF:-refs/heads/${RAILWAY_GIT_BRANCH:-main}}" \
+    --environment "${RAILWAY_ENVIRONMENT_NAME:-production}" \
+    --service "${RAILWAY_SERVICE_NAME:-release-gate-runner}" \
+    --repository "${GITHUB_REPOSITORY:-}" \
+    --workflow "${GITHUB_WORKFLOW:-railway-build}" \
+    --run-id "${GITHUB_RUN_ID:-${RAILWAY_DEPLOYMENT_ID:-railway-build}}" \
+    --run-attempt "${GITHUB_RUN_ATTEMPT:-1}"
+
 RUN test -f scripts/.release-gate-runner-provenance.json || \
-  (echo "release-gate-runner provenance missing from build context" >&2 && exit 1)
+  (echo "release-gate-runner provenance generation failed" >&2 && exit 1)
 
 RUN pnpm install --frozen-lockfile
 

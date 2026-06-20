@@ -208,6 +208,16 @@ jobs:
           fi
 
           if [ "${{ matrix.service }}" = "release-gate-runner" ]; then
+            git_sha="$(git rev-parse HEAD)"
+
+            railway variable set \
+              --project "${RAILWAY_PROJECT_ID}" \
+              --service "${{ matrix.service }}" \
+              --environment "${TARGET_ENV}" \
+              --skip-deploys \
+              STREAMOS_RC_COMMIT_SHA="${git_sha}" \
+              --json >/tmp/railway-set-release-gate-runner-commit.json
+
             railway up --ci --no-gitignore \
               --project "${RAILWAY_PROJECT_ID}" \
               --environment "${TARGET_ENV}" \

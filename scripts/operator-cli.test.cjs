@@ -858,6 +858,46 @@ test("release-gate-runner provenance writer parses explicit args", () => {
   assert.equal(options.gitCommit, "195c6685282571d9d5017f3a0ec3b197b97cfa1d");
 });
 
+test("release-gate-runner provenance writer parses STREAMOS_RC_COMMIT_SHA fallback", () => {
+  const previousGitSha = process.env.GITHUB_SHA;
+  const previousRcSha = process.env.STREAMOS_RC_COMMIT_SHA;
+
+  delete process.env.GITHUB_SHA;
+  process.env.STREAMOS_RC_COMMIT_SHA =
+    "8d5bea297833579ef2782c3878d6fe39ad497fcc";
+
+  try {
+    const options = parseProvenanceWriterArgs([
+      "--environment",
+      "production",
+      "--git-ref",
+      "refs/heads/main",
+      "--repository",
+      "StreamOS/StreamOS",
+      "--workflow",
+      "CD - Production Deployment",
+      "--run-id",
+      "123456789",
+      "--run-attempt",
+      "1",
+    ]);
+
+    assert.equal(options.gitCommit, "8d5bea297833579ef2782c3878d6fe39ad497fcc");
+  } finally {
+    if (previousGitSha === undefined) {
+      delete process.env.GITHUB_SHA;
+    } else {
+      process.env.GITHUB_SHA = previousGitSha;
+    }
+
+    if (previousRcSha === undefined) {
+      delete process.env.STREAMOS_RC_COMMIT_SHA;
+    } else {
+      process.env.STREAMOS_RC_COMMIT_SHA = previousRcSha;
+    }
+  }
+});
+
 test("api-gateway runtime provenance payload stays non-secret and commit-bound", () => {
   const provenance = buildApiGatewayRuntimeProvenance({
     environment: "production",

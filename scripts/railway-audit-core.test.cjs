@@ -629,3 +629,30 @@ test("buildAuditReport includes release-gate-runner as a private service", () =>
   assert.equal(networkRow.status, "✅");
   assert.match(networkRow.summary, /Service remains private as expected/);
 });
+
+test("buildAuditReport accepts release-gate-runner commit provenance stamp", () => {
+  const production = cloneEnvironment(loadEnvironment("production"));
+  production.serviceVariables["release-gate-runner"] = {
+    ...production.serviceVariables["release-gate-runner"],
+    STREAMOS_RC_COMMIT_SHA: "8d5bea297833579ef2782c3878d6fe39ad497fcc",
+  };
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const runnerRows =
+    report.environments.production.services["release-gate-runner"].variables;
+  const commitRow = runnerRows.find(
+    (row) => row.variable === "STREAMOS_RC_COMMIT_SHA",
+  );
+
+  assert.ok(commitRow);
+  assert.equal(commitRow.status, "✅");
+  assert.match(commitRow.summary, /configured via service/);
+});

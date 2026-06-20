@@ -449,7 +449,10 @@ module.exports = {
       runtime: "node",
     },
     "release-gate-runner": {
-      optional: ["TRANSCRIPTION_E2E_FIXTURE_ASSET_URL"],
+      optional: [
+        "STREAMOS_RC_COMMIT_SHA",
+        "TRANSCRIPTION_E2E_FIXTURE_ASSET_URL",
+      ],
       publicNetworking: "disabled",
       required: RELEASE_GATE_RUNNER_REQUIRED,
       runtime: "node",
