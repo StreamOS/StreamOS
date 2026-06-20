@@ -319,9 +319,11 @@ jobs:
           npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
 
           service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
-          service_exists="$(
-            SERVICE_LIST_JSON="${service_list}" node -e "const payload = JSON.parse(process.env.SERVICE_LIST_JSON ?? '[]'); const services = Array.isArray(payload) ? payload : Array.isArray(payload.services) ? payload.services : []; const exists = services.some((service) => service?.name === 'repurposing-worker'); process.stdout.write(exists ? 'yes' : 'no');"
-          )"
+          if printf '%s' "${service_list}" | jq -e 'if type == "array" then . elif has("services") then .services else [] end | any(.name == "repurposing-worker")' >/dev/null; then
+            service_exists="yes"
+          else
+            service_exists="no"
+          fi
 
           if [ "${service_exists}" = "yes" ]; then
             echo "repurposing-worker already exists in Railway production." >> "${GITHUB_STEP_SUMMARY}"
@@ -411,9 +413,11 @@ jobs:
           set -euo pipefail
 
           service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
-          service_exists="$(
-            SERVICE_LIST_JSON="${service_list}" node -e "const payload = JSON.parse(process.env.SERVICE_LIST_JSON ?? '[]'); const services = Array.isArray(payload) ? payload : Array.isArray(payload.services) ? payload.services : []; const exists = services.some((service) => service?.name === 'publishing-worker'); process.stdout.write(exists ? 'yes' : 'no');"
-          )"
+          if printf '%s' "${service_list}" | jq -e 'if type == "array" then . elif has("services") then .services else [] end | any(.name == "publishing-worker")' >/dev/null; then
+            service_exists="yes"
+          else
+            service_exists="no"
+          fi
 
           if [ "${service_exists}" = "yes" ]; then
             echo "publishing-worker already exists in Railway production." >> "${GITHUB_STEP_SUMMARY}"
