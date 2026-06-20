@@ -9,7 +9,7 @@ begin
       target_platform public.stream_platform not null,
       publication_status text not null default 'requested',
       review_status_at_request text not null,
-      requested_by uuid not null references auth.users(id) on delete cascade,
+      requested_by uuid not null,
       requested_at timestamptz not null default now(),
       validated_at timestamptz,
       request_intent_hash text not null,
