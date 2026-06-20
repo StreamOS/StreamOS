@@ -316,6 +316,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
+
           service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
           service_exists="$(
             node -e '
