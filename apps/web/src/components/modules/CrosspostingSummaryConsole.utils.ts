@@ -3,6 +3,7 @@ import type {
   ConnectionStatus,
   ContentJobReviewStatus,
   ContentJobStatus,
+  ContentPublicationManualActionPolicy,
   ContentPublicationFanoutActionDecision,
   PublicationFanoutPolicy,
   PublicationFanoutTargetPlatform,
@@ -17,6 +18,7 @@ import type {
   PublicationChannelRow,
   PublicationConnectionRow,
   PublicationDashboardItem,
+  PublicationVodAssetRow,
 } from "./PublicationStatusConsole.utils";
 import { sanitizePublicationFreeformText } from "./PublicationStatusConsole.utils";
 
@@ -31,6 +33,7 @@ export type CrosspostingSummaryDashboardInputs = {
   fanouts: PublicationFanoutRow[];
   initialSelectedFanoutId?: string | null;
   publications: PublicationDashboardItem[];
+  vodAssets: PublicationVodAssetRow[];
 };
 
 export type CrosspostingSummaryDashboardModel = {
@@ -268,10 +271,19 @@ export function buildCrosspostingSummaryDashboardModel({
   fanouts,
   initialSelectedFanoutId = null,
   publications,
+  vodAssets,
 }: CrosspostingSummaryDashboardInputs): CrosspostingSummaryDashboardModel {
   const publicationById = new Map(publications.map((item) => [item.id, item]));
   const connectionById = new Map(connections.map((item) => [item.id, item]));
   const channelById = new Map(channels.map((item) => [item.id, item]));
+  const vodAssetsByStreamId = new Map<string, PublicationVodAssetRow>();
+  for (const asset of [...vodAssets].sort((left, right) =>
+    compareDescending(left.updated_at, right.updated_at),
+  )) {
+    if (!vodAssetsByStreamId.has(asset.stream_id)) {
+      vodAssetsByStreamId.set(asset.stream_id, asset);
+    }
+  }
   const targetsByFanoutId = groupTargetsByFanoutId(fanoutTargets);
 
   const items = [...fanouts]
@@ -282,6 +294,7 @@ export function buildCrosspostingSummaryDashboardModel({
         connectionById,
         fanout,
         publicationById,
+        vodAssetsByStreamId,
         targets: targetsByFanoutId.get(fanout.id) ?? [],
       }),
     );
@@ -363,12 +376,14 @@ function buildCrosspostingFanoutItem({
   connectionById,
   fanout,
   publicationById,
+  vodAssetsByStreamId,
   targets,
 }: {
   channelById: Map<string, PublicationChannelRow>;
   connectionById: Map<string, PublicationConnectionRow>;
   fanout: PublicationFanoutRow;
   publicationById: Map<string, PublicationDashboardItem>;
+  vodAssetsByStreamId: Map<string, PublicationVodAssetRow>;
   targets: PublicationFanoutTargetRow[];
 }): CrosspostingSummaryFanoutItem {
   const sortedTargets = [...targets].sort(compareTargets);
@@ -378,6 +393,7 @@ function buildCrosspostingFanoutItem({
       connectionById,
       fanout,
       publicationById,
+      vodAssetsByStreamId,
       target,
     }),
   );
@@ -453,12 +469,14 @@ function buildCrosspostingTargetItem({
   connectionById,
   fanout,
   publicationById,
+  vodAssetsByStreamId,
   target,
 }: {
   channelById: Map<string, PublicationChannelRow>;
   connectionById: Map<string, PublicationConnectionRow>;
   fanout: PublicationFanoutRow;
   publicationById: Map<string, PublicationDashboardItem>;
+  vodAssetsByStreamId: Map<string, PublicationVodAssetRow>;
   target: PublicationFanoutTargetRow;
 }): CrosspostingSummaryTargetItem {
   const publication = target.content_publication_id
@@ -535,14 +553,15 @@ function buildCrosspostingTargetItem({
     targetStatus: target.target_status,
   });
   const childRetryAction = publication
-    ? buildPublicationFanoutChildRetryActionPolicy({
-        belongsToFanout: target.content_publication_fanout_id === fanout.id,
+    ? buildCrosspostingChildRetryAction({
+        approvedBundle,
+        fanoutId: fanout.id,
         fanoutStatus: fanout.fanout_status,
-        hasApprovedBundle: Boolean(approvedBundle),
-        hasPublishableAsset: Boolean(publication.externalUrl),
         manualRetryPolicy: publication.manualActions,
         publicationStatus: publication.publicationStatus,
-        targetPlatform: safeTargetPlatform,
+        sourceStreamId: sourceSnapshot.contentJob?.streamId ?? null,
+        target,
+        vodAssetsByStreamId,
       })
     : null;
   const reauthRequired =
@@ -1031,6 +1050,40 @@ function normalizePublicationFanoutTargetPlatform(
   platform: PublicationFanoutTargetRow["target_platform"],
 ): PublicationFanoutTargetPlatform {
   return platform === "tiktok" ? "tiktok" : "youtube";
+}
+
+export function buildCrosspostingChildRetryAction({
+  approvedBundle,
+  fanoutId,
+  fanoutStatus,
+  manualRetryPolicy,
+  publicationStatus,
+  sourceStreamId,
+  target,
+  vodAssetsByStreamId,
+}: {
+  approvedBundle: unknown;
+  fanoutId: string;
+  fanoutStatus: PublicationFanoutRow["fanout_status"];
+  manualRetryPolicy: ContentPublicationManualActionPolicy;
+  publicationStatus: PublicationDashboardItem["publicationStatus"];
+  sourceStreamId: string | null;
+  target: PublicationFanoutTargetRow;
+  vodAssetsByStreamId: Map<string, PublicationVodAssetRow>;
+}): ContentPublicationFanoutActionDecision {
+  return buildPublicationFanoutChildRetryActionPolicy({
+    belongsToFanout: target.content_publication_fanout_id === fanoutId,
+    fanoutStatus,
+    hasApprovedBundle: isApprovedRepurposingPlanResult(approvedBundle),
+    hasPublishableAsset: Boolean(
+      sourceStreamId && vodAssetsByStreamId.get(sourceStreamId)?.source_url,
+    ),
+    manualRetryPolicy,
+    publicationStatus,
+    targetPlatform: normalizePublicationFanoutTargetPlatform(
+      target.target_platform,
+    ),
+  });
 }
 
 function formatCrosspostingBlockReason(

@@ -2,6 +2,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+import { buildPublicationManualActionPolicy } from "@streamos/types";
+
 vi.mock("server-only", () => ({}));
 
 import {
@@ -15,6 +17,7 @@ import {
 import { CrosspostingSummaryConsole } from "./CrosspostingSummaryConsole";
 import {
   buildCrosspostingSummaryDashboardModel,
+  buildCrosspostingChildRetryAction,
   type PublicationFanoutRow,
   type PublicationFanoutTargetRow,
 } from "./CrosspostingSummaryConsole.utils";
@@ -544,6 +547,20 @@ describe("CrosspostingSummaryConsole", () => {
       ],
       initialSelectedFanoutId: "fanout-partially-blocked",
       publications: publicationModel.items,
+      vodAssets: [
+        makeVodAsset({
+          source_url: "https://cdn.example.com/vods/live.mp4",
+          stream_id: "stream-live",
+        }),
+        makeVodAsset({
+          source_url: "https://cdn.example.com/vods/queued.mp4",
+          stream_id: "stream-queued",
+        }),
+        makeVodAsset({
+          source_url: "https://cdn.example.com/vods/failed.mp4",
+          stream_id: "stream-failed",
+        }),
+      ],
     });
 
     const html = renderToStaticMarkup(
@@ -877,6 +894,20 @@ describe("CrosspostingSummaryConsole", () => {
           ],
           initialSelectedFanoutId: "fanout-partially-blocked",
           publications: publicationModel.items,
+          vodAssets: [
+            makeVodAsset({
+              source_url: "https://cdn.example.com/vods/live.mp4",
+              stream_id: "stream-live",
+            }),
+            makeVodAsset({
+              source_url: "https://cdn.example.com/vods/queued.mp4",
+              stream_id: "stream-queued",
+            }),
+            makeVodAsset({
+              source_url: "https://cdn.example.com/vods/failed.mp4",
+              stream_id: "stream-failed",
+            }),
+          ],
         })}
       />,
     );
@@ -1071,6 +1102,12 @@ describe("CrosspostingSummaryConsole", () => {
       ],
       initialSelectedFanoutId: "fanout-retry",
       publications: publicationModel.items,
+      vodAssets: [
+        makeVodAsset({
+          source_url: "https://cdn.example.com/vods/retry.mp4",
+          stream_id: "stream-retryable",
+        }),
+      ],
     });
 
     const html = renderToStaticMarkup(
@@ -1085,6 +1122,175 @@ describe("CrosspostingSummaryConsole", () => {
     expect(html).not.toContain("automation-service.railway.internal");
   });
 
+  it("keeps child retry availability and disabled reasons aligned with the combined policy", () => {
+    const fanoutId = "fanout-1";
+    const target = makeFanoutTarget({
+      content_publication_fanout_id: fanoutId,
+      target_platform: "youtube",
+    });
+    const vodAssetsByStreamId = new Map<string, PublicationVodAssetRow>([
+      [
+        "stream-1",
+        makeVodAsset({
+          source_url: "https://cdn.example.com/vods/combined.mp4",
+          stream_id: "stream-1",
+        }),
+      ],
+    ]);
+
+    const sharedManualRetryPolicy = buildPublicationManualActionPolicy({
+      connectionScopes: ["https://www.googleapis.com/auth/youtube.upload"],
+      connectionStatus: "connected",
+      contentJobReviewStatus: "approved",
+      contentJobStatus: "done",
+      externalPostId: null,
+      hasApprovedBundle: true,
+      hasPublishableAsset: true,
+      maxRetries: 3,
+      publicationStatus: "failed_retryable",
+      reconcileMaxRetries: 3,
+      reconcileRetryCount: 0,
+      reconciliationStatus: "idle",
+      remotePublishId: "publish-1",
+      retryCount: 0,
+      targetPlatform: "youtube",
+    });
+
+    const blockedByChild = buildCrosspostingChildRetryAction({
+      approvedBundle: null,
+      fanoutId,
+      fanoutStatus: "validated",
+      manualRetryPolicy: sharedManualRetryPolicy,
+      publicationStatus: "failed_retryable",
+      sourceStreamId: "stream-1",
+      target,
+      vodAssetsByStreamId,
+    });
+
+    expect(blockedByChild.allowed).toBe(false);
+    expect(blockedByChild.blockReason).toBe("publishable_bundle_missing");
+    expect(blockedByChild.requiresConfirmation).toBe(false);
+
+    const blockedByWrongFanout = buildCrosspostingChildRetryAction({
+      approvedBundle: makeApprovedBundle({
+        content_job_id: "job-1",
+        queue_job_id: "queue-1",
+        short_form_plan: "Short form plan",
+        title_suggestions: ["Title"],
+      }),
+      fanoutId,
+      fanoutStatus: "validated",
+      manualRetryPolicy: sharedManualRetryPolicy,
+      publicationStatus: "failed_retryable",
+      sourceStreamId: "stream-1",
+      target: makeFanoutTarget({
+        content_publication_fanout_id: "fanout-2",
+        target_platform: "youtube",
+      }),
+      vodAssetsByStreamId,
+    });
+
+    expect(blockedByWrongFanout.allowed).toBe(false);
+    expect(blockedByWrongFanout.blockReason).toBe("child_not_part_of_parent");
+    expect(blockedByWrongFanout.requiresConfirmation).toBe(false);
+
+    const blockedByCanceledFanout = buildCrosspostingChildRetryAction({
+      approvedBundle: makeApprovedBundle({
+        content_job_id: "job-1",
+        queue_job_id: "queue-1",
+        short_form_plan: "Short form plan",
+        title_suggestions: ["Title"],
+      }),
+      fanoutId,
+      fanoutStatus: "canceled",
+      manualRetryPolicy: sharedManualRetryPolicy,
+      publicationStatus: "failed_retryable",
+      sourceStreamId: "stream-1",
+      target,
+      vodAssetsByStreamId,
+    });
+
+    expect(blockedByCanceledFanout.allowed).toBe(false);
+    expect(blockedByCanceledFanout.blockReason).toBe("fanout_already_final");
+    expect(blockedByCanceledFanout.requiresConfirmation).toBe(false);
+
+    const blockedByMissingAsset = buildCrosspostingChildRetryAction({
+      approvedBundle: makeApprovedBundle({
+        content_job_id: "job-1",
+        queue_job_id: "queue-1",
+        short_form_plan: "Short form plan",
+        title_suggestions: ["Title"],
+      }),
+      fanoutId,
+      fanoutStatus: "validated",
+      manualRetryPolicy: sharedManualRetryPolicy,
+      publicationStatus: "failed_retryable",
+      sourceStreamId: "stream-missing",
+      target,
+      vodAssetsByStreamId: new Map(),
+    });
+
+    expect(blockedByMissingAsset.allowed).toBe(false);
+    expect(blockedByMissingAsset.blockReason).toBe("publishable_asset_missing");
+    expect(blockedByMissingAsset.requiresConfirmation).toBe(false);
+
+    const blockedByServer = buildCrosspostingChildRetryAction({
+      approvedBundle: makeApprovedBundle({
+        content_job_id: "job-1",
+        queue_job_id: "queue-1",
+        short_form_plan: "Short form plan",
+        title_suggestions: ["Title"],
+      }),
+      fanoutId,
+      fanoutStatus: "validated",
+      manualRetryPolicy: buildPublicationManualActionPolicy({
+        connectionScopes: ["https://www.googleapis.com/auth/youtube.upload"],
+        connectionStatus: "connected",
+        contentJobReviewStatus: "approved",
+        contentJobStatus: "done",
+        externalPostId: null,
+        hasApprovedBundle: true,
+        hasPublishableAsset: true,
+        maxRetries: 3,
+        publicationStatus: "queued",
+        reconcileMaxRetries: 3,
+        reconcileRetryCount: 0,
+        reconciliationStatus: "idle",
+        remotePublishId: "publish-1",
+        retryCount: 0,
+        targetPlatform: "youtube",
+      }),
+      publicationStatus: "queued",
+      sourceStreamId: "stream-1",
+      target,
+      vodAssetsByStreamId,
+    });
+
+    expect(blockedByServer.allowed).toBe(false);
+    expect(blockedByServer.blockReason).toBe("publication_in_progress");
+    expect(blockedByServer.requiresConfirmation).toBe(false);
+
+    const allowed = buildCrosspostingChildRetryAction({
+      approvedBundle: makeApprovedBundle({
+        content_job_id: "job-1",
+        queue_job_id: "queue-1",
+        short_form_plan: "Short form plan",
+        title_suggestions: ["Title"],
+      }),
+      fanoutId,
+      fanoutStatus: "validated",
+      manualRetryPolicy: sharedManualRetryPolicy,
+      publicationStatus: "failed_retryable",
+      sourceStreamId: "stream-1",
+      target,
+      vodAssetsByStreamId,
+    });
+
+    expect(allowed.allowed).toBe(true);
+    expect(allowed.requiresConfirmation).toBe(true);
+    expect(allowed.actionKey).toBe("retry_child");
+  });
+
   it("renders a clear empty state when no fanouts exist", () => {
     const model = buildCrosspostingSummaryDashboardModel({
       channels: [],
@@ -1092,6 +1298,7 @@ describe("CrosspostingSummaryConsole", () => {
       fanoutTargets: [],
       fanouts: [],
       publications: [],
+      vodAssets: [],
     });
 
     const html = renderToStaticMarkup(

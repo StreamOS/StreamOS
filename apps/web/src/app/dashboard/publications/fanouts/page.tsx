@@ -48,6 +48,7 @@ export default async function CrosspostingSummaryPage({
     fanouts,
     initialSelectedFanoutId: params?.fanoutId ?? null,
     publications: publicationModel.items,
+    vodAssets: publications.vodAssets,
   });
 
   return <CrosspostingSummaryConsole model={model} />;
