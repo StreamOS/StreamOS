@@ -1,6 +1,7 @@
 import type { Tables } from "@streamos/database";
 import type {
   ContentPublicationScheduleBlockReason,
+  ContentPublicationScheduleActionPolicy,
   ContentPublicationScheduleStatus,
   PublicationScheduleStatusTone,
   RepurposingPlanResult,
@@ -8,6 +9,7 @@ import type {
 } from "@streamos/types";
 import {
   buildCanonicalPublicationDraft,
+  buildPublicationScheduleActionPolicy,
   isApprovedRepurposingPlanResult,
 } from "@streamos/types";
 
@@ -148,10 +150,12 @@ export type PublicationScheduleItem = {
   scheduleStatusDescription: string;
   scheduleStatusLabel: string;
   scheduleStatusTone: PublicationScheduleStatusTone;
+  scheduleActionPolicy: ContentPublicationScheduleActionPolicy;
   scheduledAtUtc: string | null;
   scheduledDateLabel: string;
   scheduledTimeLabel: string;
   scheduledTimezone: string;
+  scheduledTimezoneRaw: string | null;
   summaryHref: string;
   targetAccountLabel: string | null;
   targetPlatformLabel: string;
@@ -558,6 +562,30 @@ function buildPublicationScheduleItem({
   );
   const isExpired = scheduleStatus === "schedule_expired";
   const isBlocked = scheduleStatus === "schedule_blocked";
+  const isFinalized =
+    scheduleStatus === "schedule_canceled" ||
+    scheduleStatus === "schedule_replaced" ||
+    publication.publication_status === "published" ||
+    publication.publication_status === "failed_permanent" ||
+    publication.publication_status === "canceled" ||
+    publication.publication_status === "rejected" ||
+    publication.publication_status === "publishing";
+  const scheduleActions = buildPublicationScheduleActionPolicy({
+    finalBlockReason: isFinalized
+      ? publication.publication_status === "publishing"
+        ? "publication_processing"
+        : "publication_finalized"
+      : null,
+    isLocked: Boolean(
+      publication.schedule_execution_claimed_at ||
+      publication.schedule_execution_claimed_by ||
+      publication.schedule_execution_status === "claimed" ||
+      publication.schedule_execution_status === "queued",
+    ),
+    itemLabel: "publication schedule",
+    lockReason: "publication_processing",
+    replaceSupported: true,
+  });
   const approvedBundle = extractApprovedBundle(contentJob?.result ?? null);
   const safeSourceLabel = buildPublicationSafeSourceLabel(
     publication.target_platform,
@@ -613,6 +641,7 @@ function buildPublicationScheduleItem({
     scheduleStatusDescription: scheduleMeta.description,
     scheduleStatusLabel: scheduleMeta.label,
     scheduleStatusTone: scheduleMeta.tone,
+    scheduleActionPolicy: scheduleActions,
     scheduledAtUtc: publication.scheduled_at_utc,
     scheduledDateLabel: formatPublicationScheduleCreatorTime(
       publication.scheduled_at_utc,
@@ -625,6 +654,7 @@ function buildPublicationScheduleItem({
     scheduledTimezone: formatPublicationScheduleTimezone(
       publication.scheduled_timezone,
     ),
+    scheduledTimezoneRaw: publication.scheduled_timezone,
     summaryHref: `/dashboard/publications?publicationId=${publication.id}`,
     targetAccountLabel:
       channel?.display_name ??
@@ -684,6 +714,16 @@ function buildFanoutScheduleItem({
   const isReauthRequired = reauthRequiredTargetCount > 0;
   const isExpired = scheduleStatus === "schedule_expired";
   const isBlocked = scheduleStatus === "schedule_blocked";
+  const isFinalized =
+    scheduleStatus === "schedule_canceled" ||
+    scheduleStatus === "schedule_replaced" ||
+    fanout.fanout_status === "canceled";
+  const scheduleActions = buildPublicationScheduleActionPolicy({
+    finalBlockReason: isFinalized ? "fanout_finalized" : null,
+    isLocked: false,
+    itemLabel: "fanout schedule",
+    replaceSupported: false,
+  });
 
   return {
     blockedReasonLabel,
@@ -733,6 +773,7 @@ function buildFanoutScheduleItem({
     scheduleStatusDescription: scheduleMeta.description,
     scheduleStatusLabel: scheduleMeta.label,
     scheduleStatusTone: scheduleMeta.tone,
+    scheduleActionPolicy: scheduleActions,
     scheduledAtUtc: fanout.scheduled_at_utc,
     scheduledDateLabel: formatPublicationScheduleCreatorTime(
       fanout.scheduled_at_utc,
@@ -743,6 +784,7 @@ function buildFanoutScheduleItem({
       fanout.scheduled_timezone,
     ),
     scheduledTimezone,
+    scheduledTimezoneRaw: fanout.scheduled_timezone,
     summaryHref: `/dashboard/publications/fanouts?fanoutId=${fanout.id}`,
     targetAccountLabel: `${fanout.target_count} targets`,
     targetPlatformLabel: "Parent-Fanout",

@@ -14,6 +14,7 @@ import {
   resolvePublicationCapabilities,
 } from "../src/publications.js";
 import {
+  buildPublicationScheduleActionPolicy,
   buildPublicationScheduleSummary,
   evaluatePublicationFanoutScheduleIntent,
   evaluatePublicationScheduleIntent,
@@ -518,4 +519,54 @@ void test("publication scheduling helpers normalize timestamps and classify read
   assert.equal(scheduleBlocked.scheduleStatus, "schedule_blocked");
   assert.equal(scheduleBlocked.blockReason, "fanout_not_ready");
   assert.equal(scheduleBlocked.softBlocked, true);
+});
+
+void test("publication schedule action policy enables edit, replace, and cancel for mutable entries", () => {
+  const policy = buildPublicationScheduleActionPolicy({
+    finalBlockReason: null,
+    isLocked: false,
+    itemLabel: "publication schedule",
+    replaceSupported: true,
+  });
+
+  assert.equal(policy.canEdit, true);
+  assert.equal(policy.canReplace, true);
+  assert.equal(policy.canCancel, true);
+  assert.equal(policy.actions.edit_schedule.allowed, true);
+  assert.equal(policy.actions.replace_schedule.allowed, true);
+  assert.equal(policy.actions.cancel_schedule.allowed, true);
+  assert.equal(policy.nextAction, "edit_schedule");
+});
+
+void test("publication schedule action policy blocks mutations when the entry is locked", () => {
+  const policy = buildPublicationScheduleActionPolicy({
+    finalBlockReason: null,
+    isLocked: true,
+    itemLabel: "publication schedule",
+    lockReason: "publication_processing",
+    replaceSupported: true,
+  });
+
+  assert.equal(policy.canEdit, false);
+  assert.equal(policy.canReplace, false);
+  assert.equal(policy.canCancel, false);
+  assert.equal(policy.blockReason, "publication_processing");
+  assert.equal(policy.actions.cancel_schedule.allowed, false);
+  assert.equal(policy.actions.replace_schedule.allowed, false);
+});
+
+void test("publication fanout schedule action policy treats replaced fanouts as final", () => {
+  const policy = buildPublicationScheduleActionPolicy({
+    finalBlockReason: "fanout_finalized",
+    isLocked: false,
+    itemLabel: "fanout schedule",
+    replaceSupported: true,
+  });
+
+  assert.equal(policy.canEdit, false);
+  assert.equal(policy.canReplace, false);
+  assert.equal(policy.canCancel, false);
+  assert.equal(policy.blockReason, "fanout_finalized");
+  assert.equal(policy.actions.edit_schedule.allowed, false);
+  assert.equal(policy.actions.cancel_schedule.allowed, false);
 });

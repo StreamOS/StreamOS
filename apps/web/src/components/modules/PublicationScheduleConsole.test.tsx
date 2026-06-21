@@ -1,6 +1,10 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/app/dashboard/publications/schedule/actions", () => ({
+  mutatePublicationScheduleAction: vi.fn(),
+}));
 
 import {
   buildPublicationScheduleDashboardModel,
@@ -182,6 +186,9 @@ describe("PublicationScheduleConsole", () => {
     expect(fanoutItem).toBeDefined();
     expect(fanoutItem!.safeSourceLabel).toBe("Approved parent fanout");
     expect(fanoutItem!.scheduledTimezone).toBe("UTC (Fallback)");
+    expect(
+      fanoutItem!.scheduleActionPolicy.actions.replace_schedule.allowed,
+    ).toBe(false);
     expect(publicationItem!.targetPlatformSummary).toContain("YouTube");
     expect(fanoutItem!.fanoutTargetProviderSummary).toBe("Twitch · YouTube");
     expect(getPublicationScheduleFilterLabel("recent_7d")).toBe(
@@ -212,6 +219,14 @@ describe("PublicationScheduleConsole", () => {
     );
     expect(html).toContain("Publication history");
     expect(html).toContain("Fanout summary");
+    expect(html).toContain("Schedule controls");
+    expect(html).toContain("Update schedule");
+    expect(html).toContain("Replace schedule");
+    expect(html).toContain("Cancel schedule");
+    expect(html).toContain("Confirmation required");
+    expect(
+      fanoutItem!.scheduleActionPolicy.actions.replace_schedule.blockReason,
+    ).toBe("schedule_replace_not_supported");
     expect(html).toContain("Raw / Debug");
     expect(html).toContain("Schedule metadata");
     expect(html).toContain("UTC (Fallback)");
@@ -262,6 +277,61 @@ describe("PublicationScheduleConsole", () => {
     expect(html).toContain("No schedule entries match the current filters");
     expect(html).toContain("Reset");
     expect(html).not.toContain("OpenAI");
+  });
+
+  it("disables schedule mutations for finalized or locked entries", () => {
+    const model = buildPublicationScheduleDashboardModel({
+      channels: [],
+      connections: [],
+      contentJobs: [],
+      fanoutTargets: [],
+      fanouts: [],
+      publications: [
+        makePublication({
+          id: "publication-final",
+          platform_connection_id: "connection-final",
+          publication_status: "published",
+          review_status_at_request: "approved",
+          schedule_execution_claimed_at: "2026-06-21T12:00:00.000Z",
+          schedule_execution_claimed_by: "scheduler-worker",
+          schedule_execution_status: "claimed",
+          schedule_source: "dashboard",
+          schedule_status: "schedule_canceled",
+          schedule_canceled_at: "2026-06-21T10:30:00.000Z",
+          schedule_canceled_reason: "Canceled from dashboard.",
+          scheduled_at_utc: "2026-06-22T18:30:00.000Z",
+          scheduled_timezone: "Europe/Berlin",
+          target_platform: "youtube",
+        }),
+      ],
+    });
+
+    const item = model.items[0];
+    expect(item).toBeDefined();
+    expect(item!.scheduleActionPolicy.actions.edit_schedule.allowed).toBe(
+      false,
+    );
+    expect(item!.scheduleActionPolicy.actions.replace_schedule.allowed).toBe(
+      false,
+    );
+    expect(item!.scheduleActionPolicy.actions.cancel_schedule.allowed).toBe(
+      false,
+    );
+
+    const html = renderToStaticMarkup(
+      <PublicationScheduleConsole model={model} />,
+    );
+
+    expect(html).toContain("Blocked");
+    expect(html).toContain(
+      "publication schedule is already final and cannot be changed anymore.",
+    );
+    expect(html).toContain("Block reason: publication_finalized.");
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>Update schedule<\/button>/);
+    expect(html).toMatch(
+      /<button[^>]*disabled[^>]*>Replace schedule<\/button>/,
+    );
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>Cancel schedule<\/button>/);
   });
 });
 

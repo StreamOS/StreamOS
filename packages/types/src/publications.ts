@@ -1016,6 +1016,7 @@ export function buildPublicationFanoutRequestIntentHash({
   capabilityVersion,
   contentJobId,
   fanoutPolicy = "prepare_valid_targets",
+  requestIntentSalt = null,
   requestedBy,
   targets,
   userId,
@@ -1023,6 +1024,7 @@ export function buildPublicationFanoutRequestIntentHash({
   capabilityVersion?: string;
   contentJobId: string;
   fanoutPolicy?: PublicationFanoutPolicy;
+  requestIntentSalt?: string | null;
   requestedBy: string;
   targets: PublicationFanoutRequestTarget[];
   userId: string;
@@ -1054,6 +1056,7 @@ export function buildPublicationFanoutRequestIntentHash({
       capabilityVersion?.trim() || PUBLICATION_CAPABILITY_VERSION,
     contentJobId,
     fanoutPolicy,
+    requestIntentSalt: requestIntentSalt?.trim() || null,
     requestedBy,
     targets: normalizedTargets,
     userId,

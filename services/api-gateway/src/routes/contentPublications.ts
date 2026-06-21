@@ -6,6 +6,7 @@ import { STREAM_PLATFORMS } from "@streamos/types";
 import type {
   ConnectionStatus,
   ContentPublicationFanoutActionKey,
+  ContentPublicationScheduleActionKey,
   ContentPublicationManualActionPolicy,
   ContentJobReviewStatus,
   ContentJobStatus,
@@ -19,6 +20,7 @@ import type {
 import {
   buildCanonicalPublicationDraft,
   buildPublicationScheduleSummary,
+  buildPublicationScheduleActionPolicy,
   buildPublicationFanoutRequestIntentHash,
   buildPublicationFanoutChildRetryActionPolicy,
   buildPublicationFanoutTargetRecheckActionPolicy,
@@ -127,6 +129,14 @@ const publicationManualActionRequestSchema = z.object({
   user_id: z.string().uuid(),
 });
 
+const publicationScheduleMutationRequestSchema = z.object({
+  action: z.enum(["cancel", "edit", "replace"]),
+  reason: z.string().trim().min(1).max(4000).optional().nullable(),
+  scheduled_at_utc: z.string().trim().min(1).optional().nullable(),
+  scheduled_timezone: z.string().trim().min(1).optional().nullable(),
+  user_id: z.string().uuid(),
+});
+
 const publicationObservabilityQuerySchema = z.object({
   user_id: z.string().uuid(),
 });
@@ -202,6 +212,18 @@ type PublicationRow = {
   schedule_status: ContentPublicationScheduleStatus;
   schedule_updated_at: string | null;
   schedule_validation_metadata: Record<string, unknown>;
+  schedule_execution_attempt_count: number;
+  schedule_execution_claimed_at: string | null;
+  schedule_execution_claimed_by: string | null;
+  schedule_execution_completed_at: string | null;
+  schedule_execution_error_code: string | null;
+  schedule_execution_error_message: string | null;
+  schedule_execution_last_attempt_at: string | null;
+  schedule_execution_max_retries: number;
+  schedule_execution_metadata: Record<string, unknown>;
+  schedule_execution_next_attempt_at: string | null;
+  schedule_execution_queue_job_id: string | null;
+  schedule_execution_status: string;
   platform_connection_id: string;
   publication_status: ContentPublicationStatus;
   published_at: string | null;
@@ -247,6 +269,10 @@ type PublicationManualActionRequestPayload = z.infer<
   typeof publicationManualActionRequestSchema
 >;
 
+type PublicationScheduleMutationRequestPayload = z.infer<
+  typeof publicationScheduleMutationRequestSchema
+>;
+
 type PublicationExecutionMutationResult = {
   content_job_id: string;
   content_publication_id: string;
@@ -259,6 +285,19 @@ type PublicationExecutionMutationResult = {
   retry_count: number;
   status: "publication_queued";
   target_platform: StreamPlatform;
+};
+
+type PublicationScheduleMutationResult = {
+  action: "cancel" | "edit" | "replace";
+  content_publication_id: string;
+  replacement_content_publication_fanout_id?: string | null;
+  replacement_content_publication_id?: string | null;
+  schedule_status: ContentPublicationScheduleStatus;
+  status:
+    | "publication_schedule_canceled"
+    | "publication_schedule_replaced"
+    | "publication_schedule_updated";
+  user_id: string;
 };
 
 type PublicationFanoutTargetMutationResult = {
@@ -808,6 +847,207 @@ export function createContentPublicationsRouter({
           error instanceof Error
             ? error.message
             : "Publication fanout could not be validated.",
+      });
+    }
+  });
+
+  router.post("/:publication_id/schedule", async (request, response) => {
+    const publicationId = z
+      .string()
+      .uuid()
+      .safeParse(request.params.publication_id);
+    const parsedPayload = publicationScheduleMutationRequestSchema.safeParse(
+      request.body,
+    );
+
+    if (!publicationId.success) {
+      response.status(400).json({
+        error: "invalid_publication_id",
+        issues: publicationId.error.issues,
+      });
+      return;
+    }
+
+    if (!parsedPayload.success) {
+      response.status(400).json({
+        error: "invalid_publication_schedule_request_payload",
+        issues: parsedPayload.error.issues,
+      });
+      return;
+    }
+
+    let supabase: SupabaseRestClient;
+
+    try {
+      supabase = createSupabaseRestClient({ fetchImpl });
+    } catch (error) {
+      response.status(503).json({
+        error: "supabase_not_configured",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    try {
+      const result = await mutatePublicationSchedule({
+        input: parsedPayload.data,
+        publicationId: publicationId.data,
+        supabase,
+      });
+
+      response.status(200).json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (message === "publication_not_found") {
+        response.status(404).json({
+          error: "publication_not_found",
+          message: "Approved publication request could not be found.",
+        });
+        return;
+      }
+
+      if (message === "publication_schedule_not_mutable") {
+        response.status(409).json({
+          error: "publication_schedule_not_mutable",
+          message:
+            "The selected publication schedule is final or locked for execution.",
+        });
+        return;
+      }
+
+      if (message === "publication_schedule_action_invalid") {
+        response.status(400).json({
+          error: "publication_schedule_action_invalid",
+          message:
+            "The requested publication schedule action is invalid or missing its required fields.",
+        });
+        return;
+      }
+
+      if (message === "publication_schedule_validation_failed") {
+        response.status(400).json({
+          error: "publication_schedule_validation_failed",
+          message:
+            "The requested schedule time or timezone is invalid for this publication.",
+        });
+        return;
+      }
+
+      if (message === "publication_schedule_replace_failed") {
+        response.status(502).json({
+          error: "publication_schedule_replace_failed",
+          message:
+            "The replacement publication schedule could not be created safely.",
+        });
+        return;
+      }
+
+      response.status(502).json({
+        error: "publication_schedule_failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Publication schedule action could not be completed.",
+      });
+    }
+  });
+
+  router.post("/fanouts/:fanout_id/schedule", async (request, response) => {
+    const fanoutId = z.string().uuid().safeParse(request.params.fanout_id);
+    const parsedPayload = publicationScheduleMutationRequestSchema.safeParse(
+      request.body,
+    );
+
+    if (!fanoutId.success) {
+      response.status(400).json({
+        error: "invalid_publication_fanout_id",
+        issues: fanoutId.error.issues,
+      });
+      return;
+    }
+
+    if (!parsedPayload.success) {
+      response.status(400).json({
+        error: "invalid_publication_fanout_schedule_request_payload",
+        issues: parsedPayload.error.issues,
+      });
+      return;
+    }
+
+    let supabase: SupabaseRestClient;
+
+    try {
+      supabase = createSupabaseRestClient({ fetchImpl });
+    } catch (error) {
+      response.status(503).json({
+        error: "supabase_not_configured",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    try {
+      const result = await mutatePublicationFanoutSchedule({
+        fanoutId: fanoutId.data,
+        input: parsedPayload.data,
+        supabase,
+      });
+
+      response.status(200).json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (message === "publication_fanout_not_found") {
+        response.status(404).json({
+          error: "publication_fanout_not_found",
+          message: "Approved publication fanout request could not be found.",
+        });
+        return;
+      }
+
+      if (message === "publication_fanout_schedule_not_mutable") {
+        response.status(409).json({
+          error: "publication_fanout_schedule_not_mutable",
+          message:
+            "The selected publication fanout schedule is final or locked for execution.",
+        });
+        return;
+      }
+
+      if (message === "publication_fanout_schedule_action_invalid") {
+        response.status(400).json({
+          error: "publication_fanout_schedule_action_invalid",
+          message:
+            "The requested publication fanout schedule action is invalid or missing its required fields.",
+        });
+        return;
+      }
+
+      if (message === "publication_fanout_schedule_validation_failed") {
+        response.status(400).json({
+          error: "publication_fanout_schedule_validation_failed",
+          message:
+            "The requested schedule time or timezone is invalid for this fanout.",
+        });
+        return;
+      }
+
+      if (message === "publication_fanout_schedule_replace_failed") {
+        response.status(502).json({
+          error: "publication_fanout_schedule_replace_failed",
+          message:
+            "The replacement publication fanout schedule could not be created safely.",
+        });
+        return;
+      }
+
+      response.status(502).json({
+        error: "publication_fanout_schedule_failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Publication fanout schedule action could not be completed.",
       });
     }
   });
@@ -1773,9 +2013,13 @@ export function createContentPublicationsRouter({
 
 async function createPublicationRequest({
   input,
+  requestIntentSalt = null,
+  scheduleSource = "api-gateway",
   supabase,
 }: {
   input: PublicationRequestPayload;
+  requestIntentSalt?: string | null;
+  scheduleSource?: ContentPublicationScheduleSource;
   supabase: SupabaseRestClient;
 }): Promise<{
   capabilityResolution: PublicationCapabilityResolution;
@@ -1845,7 +2089,6 @@ async function createPublicationRequest({
   const scheduleRequested =
     input.scheduled_publish_at !== undefined ||
     input.scheduled_timezone !== undefined;
-  const scheduleSource: ContentPublicationScheduleSource = "api-gateway";
   const scheduledDraft = requestedScheduleAtUtc
     ? {
         ...canonicalDraft,
@@ -1975,6 +2218,7 @@ async function createPublicationRequest({
         connection.id,
         input.target_platform,
         snapshotHash,
+        ...(requestIntentSalt?.trim() ? [requestIntentSalt.trim()] : []),
       ].join("|"),
       "utf8",
     )
@@ -2066,9 +2310,13 @@ async function createPublicationRequest({
 
 async function createPublicationFanoutRequest({
   input,
+  requestIntentSalt = null,
+  scheduleSource = "api-gateway",
   supabase,
 }: {
   input: PublicationFanoutRequestPayload;
+  requestIntentSalt?: string | null;
+  scheduleSource?: ContentPublicationScheduleSource;
   supabase: SupabaseRestClient;
 }): Promise<PublicationFanoutMutationResult> {
   const contentJob = await loadRepurposingContentJob({
@@ -2110,6 +2358,7 @@ async function createPublicationFanoutRequest({
     contentJobId: contentJob.id,
     fanoutPolicy,
     requestedBy: input.user_id,
+    requestIntentSalt: requestIntentSalt?.trim() || null,
     targets: requestedTargets.map((target) => ({
       platformConnectionId: target.platform_connection_id,
       providerOverrides: target.provider_overrides,
@@ -2141,9 +2390,13 @@ async function createPublicationFanoutRequest({
           provider_overrides: {
             [target.target_platform]: target.provider_overrides,
           },
+          scheduled_publish_at: input.scheduled_publish_at,
+          scheduled_timezone: input.scheduled_timezone,
           target_platform: target.target_platform,
           user_id: input.user_id,
         },
+        requestIntentSalt,
+        scheduleSource,
         supabase,
       });
 
@@ -2205,7 +2458,6 @@ async function createPublicationFanoutRequest({
   const scheduleRequested =
     input.scheduled_publish_at !== undefined ||
     input.scheduled_timezone !== undefined;
-  const scheduleSource: ContentPublicationScheduleSource = "api-gateway";
   const publicationVodAsset = scheduleRequested
     ? await loadVodAsset({
         supabase,
@@ -2631,6 +2883,180 @@ async function loadPublicationById({
   return rows[0] ?? null;
 }
 
+async function loadPublicationScheduleMutationRow({
+  publicationId,
+  supabase,
+  userId,
+}: {
+  publicationId: string;
+  supabase: SupabaseRestClient;
+  userId: string;
+}): Promise<PublicationRow | null> {
+  const rows = await readSupabaseRows<PublicationRow>({
+    client: supabase,
+    params: {
+      id: `eq.${publicationId}`,
+      select:
+        "capability_snapshot,capability_version,content_job_id,id,max_retries,next_retry_at,platform_connection_id,publication_status,published_at,provider_failure_code,provider_failure_metadata,provider_failure_reason,provider_overrides,reconciliation_status,reconcile_max_retries,reconcile_next_retry_at,reconcile_retry_count,requested_by,request_intent_hash,requested_at,retry_count,review_status_at_request,schedule_block_message,schedule_block_reason,schedule_canceled_at,schedule_canceled_reason,schedule_capability_snapshot,schedule_created_at,schedule_expired_at,schedule_replaced_at,schedule_source,schedule_status,schedule_updated_at,schedule_validation_metadata,schedule_execution_attempt_count,schedule_execution_claimed_at,schedule_execution_claimed_by,schedule_execution_completed_at,schedule_execution_error_code,schedule_execution_error_message,schedule_execution_last_attempt_at,schedule_execution_max_retries,schedule_execution_metadata,schedule_execution_next_attempt_at,schedule_execution_queue_job_id,schedule_execution_status,scheduled_at_utc,scheduled_timezone,snapshot,snapshot_hash,target_platform,user_id,validated_at,validation_code,validation_message",
+      user_id: `eq.${userId}`,
+    },
+    table: "content_publications",
+  });
+
+  return rows[0] ?? null;
+}
+
+function isPublicationScheduleFinalized(publication: PublicationRow): boolean {
+  return (
+    publication.schedule_status === "schedule_canceled" ||
+    publication.schedule_status === "schedule_replaced" ||
+    publication.publication_status === "published" ||
+    publication.publication_status === "failed_permanent" ||
+    publication.publication_status === "canceled" ||
+    publication.publication_status === "rejected"
+  );
+}
+
+function isPublicationScheduleLocked(publication: PublicationRow): boolean {
+  return Boolean(
+    publication.schedule_execution_claimed_at ||
+    publication.schedule_execution_claimed_by ||
+    publication.schedule_execution_status === "claimed" ||
+    publication.schedule_execution_status === "queued",
+  );
+}
+
+function getPublicationScheduleMutationActionKey(
+  action: PublicationScheduleMutationRequestPayload["action"],
+): ContentPublicationScheduleActionKey {
+  switch (action) {
+    case "cancel":
+      return "cancel_schedule";
+    case "edit":
+      return "edit_schedule";
+    case "replace":
+      return "replace_schedule";
+  }
+}
+
+async function mutatePublicationSchedule({
+  input,
+  publicationId,
+  supabase,
+}: {
+  input: PublicationScheduleMutationRequestPayload;
+  publicationId: string;
+  supabase: SupabaseRestClient;
+}): Promise<PublicationScheduleMutationResult> {
+  const publication = await loadPublicationScheduleMutationRow({
+    publicationId,
+    supabase,
+    userId: input.user_id,
+  });
+
+  if (!publication) {
+    throw new Error("publication_not_found");
+  }
+
+  const actionPolicy = buildPublicationScheduleActionPolicy({
+    finalBlockReason: isPublicationScheduleFinalized(publication)
+      ? publication.publication_status === "publishing"
+        ? "publication_processing"
+        : "publication_finalized"
+      : null,
+    isLocked: isPublicationScheduleLocked(publication),
+    itemLabel: "publication schedule",
+    lockReason: "publication_processing",
+    replaceSupported: true,
+  });
+  const actionKey = getPublicationScheduleMutationActionKey(input.action);
+  const decision = actionPolicy.actions[actionKey];
+
+  if (!decision.allowed) {
+    throw new Error("publication_schedule_not_mutable");
+  }
+
+  switch (actionKey) {
+    case "cancel_schedule":
+      return cancelPublicationSchedule({
+        input,
+        publication,
+        supabase,
+      });
+    case "edit_schedule":
+      return updatePublicationSchedule({
+        input,
+        publication,
+        supabase,
+      });
+    case "replace_schedule":
+      return replacePublicationSchedule({
+        input,
+        publication,
+        supabase,
+      });
+  }
+}
+
+async function mutatePublicationFanoutSchedule({
+  fanoutId,
+  input,
+  supabase,
+}: {
+  fanoutId: string;
+  input: PublicationScheduleMutationRequestPayload;
+  supabase: SupabaseRestClient;
+}): Promise<PublicationScheduleMutationResult> {
+  const fanout = await loadPublicationFanoutById({
+    fanoutId,
+    supabase,
+    userId: input.user_id,
+  });
+
+  if (!fanout) {
+    throw new Error("publication_fanout_not_found");
+  }
+
+  const actionPolicy = buildPublicationScheduleActionPolicy({
+    finalBlockReason:
+      fanout.schedule_status === "schedule_canceled" ||
+      fanout.schedule_status === "schedule_replaced" ||
+      fanout.fanout_status === "canceled"
+        ? "fanout_finalized"
+        : null,
+    isLocked: false,
+    itemLabel: "fanout schedule",
+    replaceSupported: false,
+  });
+  const actionKey = getPublicationScheduleMutationActionKey(input.action);
+  const decision = actionPolicy.actions[actionKey];
+
+  if (!decision.allowed) {
+    throw new Error("publication_fanout_schedule_not_mutable");
+  }
+
+  switch (actionKey) {
+    case "cancel_schedule":
+      return cancelPublicationFanoutSchedule({
+        fanout,
+        input,
+        supabase,
+      });
+    case "edit_schedule":
+      return updatePublicationFanoutSchedule({
+        fanout,
+        input,
+        supabase,
+      });
+    case "replace_schedule":
+      return replacePublicationFanoutSchedule({
+        fanout,
+        input,
+        supabase,
+      });
+  }
+}
+
 async function loadPublicationForReconciliation({
   publicationId,
   supabase,
@@ -2944,6 +3370,816 @@ async function loadPublicationFanoutTargets({
     },
     table: "content_publication_fanout_targets",
   });
+}
+
+async function updatePublicationSchedule({
+  input,
+  publication,
+  supabase,
+}: {
+  input: PublicationScheduleMutationRequestPayload;
+  publication: PublicationRow;
+  supabase: SupabaseRestClient;
+}): Promise<PublicationScheduleMutationResult> {
+  const requestedScheduleAtUtc = normalizePublicationScheduleTimestamp(
+    input.scheduled_at_utc ?? publication.scheduled_at_utc,
+  );
+  const requestedScheduleTimezone = normalizePublicationScheduleTimezone(
+    input.scheduled_timezone ?? publication.scheduled_timezone,
+  );
+
+  if (!requestedScheduleAtUtc || !requestedScheduleTimezone) {
+    throw new Error("publication_schedule_action_invalid");
+  }
+
+  const contentJob = await loadRepurposingContentJob({
+    contentJobId: publication.content_job_id,
+    supabase,
+    userId: input.user_id,
+  });
+  const connection = await loadPlatformConnection({
+    platformConnectionId: publication.platform_connection_id,
+    supabase,
+    userId: input.user_id,
+  });
+
+  if (!contentJob || !connection) {
+    throw new Error("publication_schedule_validation_failed");
+  }
+
+  const approvedBundle = repurposingBundleSchema.safeParse(
+    contentJob.result ?? {},
+  );
+
+  if (
+    contentJob.job_type !== "repurposing" ||
+    contentJob.type !== "repurposing" ||
+    contentJob.review_status !== "approved" ||
+    !["done", "completed"].includes(contentJob.status) ||
+    !approvedBundle.success
+  ) {
+    throw new Error("publication_schedule_validation_failed");
+  }
+
+  if (approvedBundle.data.content_job_id !== contentJob.id) {
+    throw new Error("publication_schedule_validation_failed");
+  }
+
+  const publicationVodAsset = await loadVodAsset({
+    supabase,
+    streamId: contentJob.stream_id,
+    userId: input.user_id,
+  });
+  const capabilityResolution = resolvePublicationCapabilities({
+    accountCapabilities: extractPublicationAccountCapabilityOverlay(connection),
+    canonicalDraft: buildCanonicalPublicationDraft({
+      approvedBundle: approvedBundle.data,
+      contentJob: {
+        id: contentJob.id,
+        queueJobId: contentJob.queue_job_id,
+        streamId: contentJob.stream_id,
+      },
+      targetPlatform: publication.target_platform,
+    }),
+    providerOverrides: publication.provider_overrides,
+    targetPlatform: publication.target_platform,
+  });
+  const requiredScopes = getPublicationCapabilityDefinition(
+    publication.target_platform,
+  ).requiredScopes;
+  const scheduleEvaluation = evaluatePublicationScheduleIntent({
+    contentJobReviewStatus: contentJob.review_status,
+    contentJobStatus: contentJob.status,
+    currentPublicationStatus: publication.publication_status,
+    hasApprovedBundle: true,
+    hasPublishableAsset: Boolean(publicationVodAsset?.source_url),
+    hasRequiredScopes: requiredScopes.every((scope) =>
+      (connection.scopes ?? []).includes(scope),
+    ),
+    scheduleSource: "dashboard",
+    scheduledAtUtc: requestedScheduleAtUtc,
+    scheduledTimezone: requestedScheduleTimezone,
+    schedulingAllowed:
+      capabilityResolution.accountCapabilities.schedulingAllowed !== false,
+    targetPlatform: publication.target_platform,
+  });
+
+  if (!scheduleEvaluation.accepted) {
+    throw new Error("publication_schedule_validation_failed");
+  }
+
+  const now = new Date().toISOString();
+  const reason = input.reason?.trim() || null;
+
+  await patchSupabaseRows({
+    client: supabase,
+    params: {
+      id: `eq.${publication.id}`,
+      user_id: `eq.${publication.user_id}`,
+    },
+    payload: {
+      schedule_block_message: scheduleEvaluation.safeDescription,
+      schedule_block_reason: scheduleEvaluation.blockReason,
+      schedule_canceled_at: null,
+      schedule_canceled_reason: null,
+      schedule_expired_at: null,
+      schedule_replaced_at: null,
+      schedule_source: "dashboard",
+      schedule_status: scheduleEvaluation.scheduleStatus,
+      schedule_updated_at: now,
+      schedule_validation_metadata: {
+        action: "edit",
+        reason,
+        schedule_requested: true,
+        scheduled_at_utc: requestedScheduleAtUtc,
+        scheduled_timezone: requestedScheduleTimezone,
+        target_platform: publication.target_platform,
+      },
+      scheduled_at_utc: requestedScheduleAtUtc,
+      scheduled_timezone: requestedScheduleTimezone,
+    },
+    table: "content_publications",
+  });
+
+  await writePublicationEvent({
+    actorId: input.user_id,
+    eventType: "schedule_updated",
+    metadata: {
+      action: "edit",
+      content_job_id: publication.content_job_id,
+      reason,
+      schedule_status: scheduleEvaluation.scheduleStatus,
+      scheduled_at_utc: requestedScheduleAtUtc,
+      scheduled_timezone: requestedScheduleTimezone,
+      target_platform: publication.target_platform,
+    },
+    previousPublicationStatus: publication.publication_status,
+    publicationId: publication.id,
+    publicationStatus: publication.publication_status,
+    source: "dashboard",
+    supabase,
+    userId: publication.user_id,
+  });
+
+  return {
+    action: "edit",
+    content_publication_id: publication.id,
+    replacement_content_publication_id: null,
+    schedule_status: scheduleEvaluation.scheduleStatus,
+    status: "publication_schedule_updated",
+    user_id: publication.user_id,
+  };
+}
+
+async function cancelPublicationSchedule({
+  input,
+  publication,
+  supabase,
+}: {
+  input: PublicationScheduleMutationRequestPayload;
+  publication: PublicationRow;
+  supabase: SupabaseRestClient;
+}): Promise<PublicationScheduleMutationResult> {
+  const now = new Date().toISOString();
+  const reason = input.reason?.trim() || "Canceled from the dashboard.";
+
+  await patchSupabaseRows({
+    client: supabase,
+    params: {
+      id: `eq.${publication.id}`,
+      user_id: `eq.${publication.user_id}`,
+    },
+    payload: {
+      schedule_block_message: reason,
+      schedule_block_reason: null,
+      schedule_canceled_at: now,
+      schedule_canceled_reason: reason,
+      schedule_replaced_at: null,
+      schedule_source: "dashboard",
+      schedule_status: "schedule_canceled",
+      schedule_updated_at: now,
+      schedule_validation_metadata: {
+        action: "cancel",
+        reason,
+        scheduled_at_utc: publication.scheduled_at_utc,
+        scheduled_timezone: publication.scheduled_timezone,
+        target_platform: publication.target_platform,
+      },
+    },
+    table: "content_publications",
+  });
+
+  await writePublicationEvent({
+    actorId: input.user_id,
+    eventType: "schedule_canceled",
+    metadata: {
+      action: "cancel",
+      content_job_id: publication.content_job_id,
+      reason,
+      scheduled_at_utc: publication.scheduled_at_utc,
+      scheduled_timezone: publication.scheduled_timezone,
+      target_platform: publication.target_platform,
+    },
+    previousPublicationStatus: publication.publication_status,
+    publicationId: publication.id,
+    publicationStatus: publication.publication_status,
+    source: "dashboard",
+    supabase,
+    userId: publication.user_id,
+  });
+
+  return {
+    action: "cancel",
+    content_publication_id: publication.id,
+    replacement_content_publication_id: null,
+    schedule_status: "schedule_canceled",
+    status: "publication_schedule_canceled",
+    user_id: publication.user_id,
+  };
+}
+
+async function replacePublicationSchedule({
+  input,
+  publication,
+  supabase,
+}: {
+  input: PublicationScheduleMutationRequestPayload;
+  publication: PublicationRow;
+  supabase: SupabaseRestClient;
+}): Promise<PublicationScheduleMutationResult> {
+  const requestedScheduleAtUtc = normalizePublicationScheduleTimestamp(
+    input.scheduled_at_utc ?? publication.scheduled_at_utc,
+  );
+  const requestedScheduleTimezone = normalizePublicationScheduleTimezone(
+    input.scheduled_timezone ?? publication.scheduled_timezone,
+  );
+
+  if (!requestedScheduleAtUtc || !requestedScheduleTimezone) {
+    throw new Error("publication_schedule_action_invalid");
+  }
+
+  const contentJob = await loadRepurposingContentJob({
+    contentJobId: publication.content_job_id,
+    supabase,
+    userId: input.user_id,
+  });
+  const connection = await loadPlatformConnection({
+    platformConnectionId: publication.platform_connection_id,
+    supabase,
+    userId: input.user_id,
+  });
+
+  if (!contentJob || !connection) {
+    throw new Error("publication_schedule_replace_failed");
+  }
+
+  const approvedBundle = repurposingBundleSchema.safeParse(
+    contentJob.result ?? {},
+  );
+
+  if (
+    contentJob.job_type !== "repurposing" ||
+    contentJob.type !== "repurposing" ||
+    contentJob.review_status !== "approved" ||
+    !["done", "completed"].includes(contentJob.status) ||
+    !approvedBundle.success ||
+    approvedBundle.data.content_job_id !== contentJob.id
+  ) {
+    throw new Error("publication_schedule_replace_failed");
+  }
+
+  const publicationVodAsset = await loadVodAsset({
+    supabase,
+    streamId: contentJob.stream_id,
+    userId: input.user_id,
+  });
+  const capabilityResolution = resolvePublicationCapabilities({
+    accountCapabilities: extractPublicationAccountCapabilityOverlay(connection),
+    canonicalDraft: buildCanonicalPublicationDraft({
+      approvedBundle: approvedBundle.data,
+      contentJob: {
+        id: contentJob.id,
+        queueJobId: contentJob.queue_job_id,
+        streamId: contentJob.stream_id,
+      },
+      targetPlatform: publication.target_platform,
+    }),
+    providerOverrides: publication.provider_overrides,
+    targetPlatform: publication.target_platform,
+  });
+  const requiredScopes = getPublicationCapabilityDefinition(
+    publication.target_platform,
+  ).requiredScopes;
+  const scheduleEvaluation = evaluatePublicationScheduleIntent({
+    contentJobReviewStatus: contentJob.review_status,
+    contentJobStatus: contentJob.status,
+    currentPublicationStatus: publication.publication_status,
+    hasApprovedBundle: true,
+    hasPublishableAsset: Boolean(publicationVodAsset?.source_url),
+    hasRequiredScopes: requiredScopes.every((scope) =>
+      (connection.scopes ?? []).includes(scope),
+    ),
+    scheduleSource: "dashboard",
+    scheduledAtUtc: requestedScheduleAtUtc,
+    scheduledTimezone: requestedScheduleTimezone,
+    schedulingAllowed:
+      capabilityResolution.accountCapabilities.schedulingAllowed !== false,
+    targetPlatform: publication.target_platform,
+  });
+
+  if (!scheduleEvaluation.accepted) {
+    throw new Error("publication_schedule_validation_failed");
+  }
+
+  const now = new Date().toISOString();
+  const originalScheduleState = {
+    schedule_block_message: publication.schedule_block_message,
+    schedule_block_reason: publication.schedule_block_reason,
+    schedule_canceled_at: publication.schedule_canceled_at,
+    schedule_canceled_reason: publication.schedule_canceled_reason,
+    schedule_expired_at: publication.schedule_expired_at,
+    schedule_replaced_at: publication.schedule_replaced_at,
+    schedule_source: publication.schedule_source,
+    schedule_status: publication.schedule_status,
+    schedule_updated_at: publication.schedule_updated_at,
+    schedule_validation_metadata: publication.schedule_validation_metadata,
+    scheduled_at_utc: publication.scheduled_at_utc,
+    scheduled_timezone: publication.scheduled_timezone,
+  };
+
+  await patchSupabaseRows({
+    client: supabase,
+    params: {
+      id: `eq.${publication.id}`,
+      user_id: `eq.${publication.user_id}`,
+    },
+    payload: {
+      schedule_block_message: "Schedule replaced by a dashboard update.",
+      schedule_block_reason: null,
+      schedule_canceled_at: null,
+      schedule_canceled_reason: null,
+      schedule_expired_at: null,
+      schedule_replaced_at: now,
+      schedule_source: "dashboard",
+      schedule_status: "schedule_replaced",
+      schedule_updated_at: now,
+      schedule_validation_metadata: {
+        action: "replace",
+        reason: input.reason?.trim() || null,
+        schedule_requested: true,
+        scheduled_at_utc: requestedScheduleAtUtc,
+        scheduled_timezone: requestedScheduleTimezone,
+        target_platform: publication.target_platform,
+      },
+      scheduled_at_utc: requestedScheduleAtUtc,
+      scheduled_timezone: requestedScheduleTimezone,
+    },
+    table: "content_publications",
+  });
+
+  try {
+    const replacement = await createPublicationRequest({
+      input: {
+        capability_version: publication.capability_version,
+        content_job_id: publication.content_job_id,
+        platform_connection_id: publication.platform_connection_id,
+        provider_overrides: publication.provider_overrides,
+        scheduled_publish_at: requestedScheduleAtUtc,
+        scheduled_timezone: requestedScheduleTimezone,
+        target_platform: publication.target_platform,
+        user_id: input.user_id,
+      },
+      requestIntentSalt: `schedule-replace:${publication.id}:${now}`,
+      scheduleSource: "dashboard",
+      supabase,
+    });
+
+    await writePublicationEvent({
+      actorId: input.user_id,
+      eventType: "schedule_replaced",
+      metadata: {
+        action: "replace",
+        content_job_id: publication.content_job_id,
+        replacement_content_publication_id: replacement.publication.id,
+        reason: input.reason?.trim() || null,
+        schedule_status: replacement.publication.schedule_status,
+        scheduled_at_utc: requestedScheduleAtUtc,
+        scheduled_timezone: requestedScheduleTimezone,
+        target_platform: publication.target_platform,
+      },
+      previousPublicationStatus: publication.publication_status,
+      publicationId: publication.id,
+      publicationStatus: publication.publication_status,
+      source: "dashboard",
+      supabase,
+      userId: publication.user_id,
+    });
+
+    return {
+      action: "replace",
+      content_publication_id: publication.id,
+      replacement_content_publication_id: replacement.publication.id,
+      schedule_status: "schedule_replaced",
+      status: "publication_schedule_replaced",
+      user_id: publication.user_id,
+    };
+  } catch (error) {
+    await patchSupabaseRows({
+      client: supabase,
+      params: {
+        id: `eq.${publication.id}`,
+        user_id: `eq.${publication.user_id}`,
+      },
+      payload: {
+        ...originalScheduleState,
+      },
+      table: "content_publications",
+    });
+
+    throw error instanceof Error
+      ? new Error("publication_schedule_replace_failed")
+      : new Error("publication_schedule_replace_failed");
+  }
+}
+
+async function updatePublicationFanoutSchedule({
+  fanout,
+  input,
+  supabase,
+}: {
+  fanout: PublicationFanoutRow;
+  input: PublicationScheduleMutationRequestPayload;
+  supabase: SupabaseRestClient;
+}): Promise<PublicationScheduleMutationResult> {
+  const requestedScheduleAtUtc = normalizePublicationScheduleTimestamp(
+    input.scheduled_at_utc ?? fanout.scheduled_at_utc,
+  );
+  const requestedScheduleTimezone = normalizePublicationScheduleTimezone(
+    input.scheduled_timezone ?? fanout.scheduled_timezone,
+  );
+
+  if (!requestedScheduleAtUtc || !requestedScheduleTimezone) {
+    throw new Error("publication_fanout_schedule_action_invalid");
+  }
+
+  const contentJob = await loadRepurposingContentJob({
+    contentJobId: fanout.content_job_id,
+    supabase,
+    userId: input.user_id,
+  });
+
+  if (!contentJob) {
+    throw new Error("publication_fanout_schedule_validation_failed");
+  }
+
+  const approvedBundle = repurposingBundleSchema.safeParse(
+    contentJob.result ?? {},
+  );
+
+  if (
+    contentJob.job_type !== "repurposing" ||
+    contentJob.type !== "repurposing" ||
+    contentJob.review_status !== "approved" ||
+    !["done", "completed"].includes(contentJob.status) ||
+    !approvedBundle.success ||
+    approvedBundle.data.content_job_id !== contentJob.id
+  ) {
+    throw new Error("publication_fanout_schedule_validation_failed");
+  }
+
+  const publicationVodAsset = await loadVodAsset({
+    supabase,
+    streamId: contentJob.stream_id,
+    userId: input.user_id,
+  });
+  const scheduleEvaluation = evaluatePublicationFanoutScheduleIntent({
+    contentJobReviewStatus: contentJob.review_status,
+    contentJobStatus: contentJob.status,
+    currentFanoutStatus: fanout.fanout_status,
+    hasApprovedBundle: true,
+    hasPublishableAsset: Boolean(publicationVodAsset?.source_url),
+    hasRequiredScopes: fanout.blocked_target_count === 0,
+    hasRunnableTargets: fanout.validated_target_count > 0,
+    scheduleSource: "dashboard",
+    scheduledAtUtc: requestedScheduleAtUtc,
+    scheduledTimezone: requestedScheduleTimezone,
+    schedulingAllowed: fanout.fanout_status !== "blocked",
+    targetCount: fanout.target_count,
+  });
+
+  if (!scheduleEvaluation.accepted) {
+    throw new Error("publication_fanout_schedule_validation_failed");
+  }
+
+  const now = new Date().toISOString();
+  const reason = input.reason?.trim() || null;
+
+  await patchSupabaseRows({
+    client: supabase,
+    params: {
+      id: `eq.${fanout.id}`,
+      user_id: `eq.${fanout.user_id}`,
+    },
+    payload: {
+      schedule_block_message: scheduleEvaluation.safeDescription,
+      schedule_block_reason: scheduleEvaluation.blockReason,
+      schedule_canceled_at: null,
+      schedule_canceled_reason: null,
+      schedule_expired_at: null,
+      schedule_replaced_at: null,
+      schedule_source: "dashboard",
+      schedule_status: scheduleEvaluation.scheduleStatus,
+      schedule_updated_at: now,
+      schedule_validation_metadata: {
+        action: "edit",
+        reason,
+        schedule_requested: true,
+        scheduled_at_utc: requestedScheduleAtUtc,
+        scheduled_timezone: requestedScheduleTimezone,
+        target_count: fanout.target_count,
+      },
+      scheduled_at_utc: requestedScheduleAtUtc,
+      scheduled_timezone: requestedScheduleTimezone,
+    },
+    table: "content_publication_fanouts",
+  });
+
+  await writePublicationFanoutEvent({
+    actionKey: null,
+    actionResult: "validated",
+    actorId: input.user_id,
+    contentPublicationFanoutId: fanout.id,
+    eventType: "fanout_schedule_updated",
+    fanoutStatus:
+      scheduleEvaluation.scheduleStatus === "schedule_blocked"
+        ? "blocked"
+        : fanout.fanout_status,
+    metadata: {
+      action: "edit",
+      reason,
+      schedule_status: scheduleEvaluation.scheduleStatus,
+      scheduled_at_utc: requestedScheduleAtUtc,
+      scheduled_timezone: requestedScheduleTimezone,
+      target_count: fanout.target_count,
+    },
+    previousFanoutStatus: fanout.fanout_status,
+    source: "dashboard",
+    supabase,
+    targetStatus: null,
+    userId: fanout.user_id,
+  });
+
+  return {
+    action: "edit",
+    content_publication_id: fanout.id,
+    replacement_content_publication_id: null,
+    replacement_content_publication_fanout_id: null,
+    schedule_status: scheduleEvaluation.scheduleStatus,
+    status: "publication_schedule_updated",
+    user_id: fanout.user_id,
+  };
+}
+
+async function cancelPublicationFanoutSchedule({
+  fanout,
+  input,
+  supabase,
+}: {
+  fanout: PublicationFanoutRow;
+  input: PublicationScheduleMutationRequestPayload;
+  supabase: SupabaseRestClient;
+}): Promise<PublicationScheduleMutationResult> {
+  const now = new Date().toISOString();
+  const reason = input.reason?.trim() || "Canceled from the dashboard.";
+
+  await patchSupabaseRows({
+    client: supabase,
+    params: {
+      id: `eq.${fanout.id}`,
+      user_id: `eq.${fanout.user_id}`,
+    },
+    payload: {
+      schedule_block_message: reason,
+      schedule_block_reason: null,
+      schedule_canceled_at: now,
+      schedule_canceled_reason: reason,
+      schedule_replaced_at: null,
+      schedule_source: "dashboard",
+      schedule_status: "schedule_canceled",
+      schedule_updated_at: now,
+      schedule_validation_metadata: {
+        action: "cancel",
+        reason,
+        scheduled_at_utc: fanout.scheduled_at_utc,
+        scheduled_timezone: fanout.scheduled_timezone,
+        target_count: fanout.target_count,
+      },
+    },
+    table: "content_publication_fanouts",
+  });
+
+  await writePublicationFanoutEvent({
+    actionKey: null,
+    actionResult: "blocked",
+    actorId: input.user_id,
+    contentPublicationFanoutId: fanout.id,
+    eventType: "fanout_schedule_canceled",
+    fanoutStatus: "canceled",
+    metadata: {
+      action: "cancel",
+      reason,
+      scheduled_at_utc: fanout.scheduled_at_utc,
+      scheduled_timezone: fanout.scheduled_timezone,
+      target_count: fanout.target_count,
+    },
+    previousFanoutStatus: fanout.fanout_status,
+    source: "dashboard",
+    supabase,
+    targetStatus: null,
+    userId: fanout.user_id,
+  });
+
+  return {
+    action: "cancel",
+    content_publication_id: fanout.id,
+    replacement_content_publication_id: null,
+    replacement_content_publication_fanout_id: null,
+    schedule_status: "schedule_canceled",
+    status: "publication_schedule_canceled",
+    user_id: fanout.user_id,
+  };
+}
+
+async function replacePublicationFanoutSchedule({
+  fanout,
+  input,
+  supabase,
+}: {
+  fanout: PublicationFanoutRow;
+  input: PublicationScheduleMutationRequestPayload;
+  supabase: SupabaseRestClient;
+}): Promise<PublicationScheduleMutationResult> {
+  const requestedScheduleAtUtc = normalizePublicationScheduleTimestamp(
+    input.scheduled_at_utc ?? fanout.scheduled_at_utc,
+  );
+  const requestedScheduleTimezone = normalizePublicationScheduleTimezone(
+    input.scheduled_timezone ?? fanout.scheduled_timezone,
+  );
+
+  if (!requestedScheduleAtUtc || !requestedScheduleTimezone) {
+    throw new Error("publication_fanout_schedule_action_invalid");
+  }
+
+  const contentJob = await loadRepurposingContentJob({
+    contentJobId: fanout.content_job_id,
+    supabase,
+    userId: input.user_id,
+  });
+
+  if (!contentJob) {
+    throw new Error("publication_fanout_schedule_replace_failed");
+  }
+
+  const approvedBundle = repurposingBundleSchema.safeParse(
+    contentJob.result ?? {},
+  );
+
+  if (
+    contentJob.job_type !== "repurposing" ||
+    contentJob.type !== "repurposing" ||
+    contentJob.review_status !== "approved" ||
+    !["done", "completed"].includes(contentJob.status) ||
+    !approvedBundle.success ||
+    approvedBundle.data.content_job_id !== contentJob.id
+  ) {
+    throw new Error("publication_fanout_schedule_replace_failed");
+  }
+
+  const targets = await loadPublicationFanoutTargets({
+    fanoutId: fanout.id,
+    supabase,
+    userId: input.user_id,
+  });
+  const now = new Date().toISOString();
+  const originalScheduleState = {
+    schedule_block_message: fanout.schedule_block_message,
+    schedule_block_reason: fanout.schedule_block_reason,
+    schedule_canceled_at: fanout.schedule_canceled_at,
+    schedule_canceled_reason: fanout.schedule_canceled_reason,
+    schedule_expired_at: fanout.schedule_expired_at,
+    schedule_replaced_at: fanout.schedule_replaced_at,
+    schedule_source: fanout.schedule_source,
+    schedule_status: fanout.schedule_status,
+    schedule_updated_at: fanout.schedule_updated_at,
+    schedule_validation_metadata: fanout.schedule_validation_metadata,
+    scheduled_at_utc: fanout.scheduled_at_utc,
+    scheduled_timezone: fanout.scheduled_timezone,
+  };
+
+  await patchSupabaseRows({
+    client: supabase,
+    params: {
+      id: `eq.${fanout.id}`,
+      user_id: `eq.${fanout.user_id}`,
+    },
+    payload: {
+      schedule_block_message: "Fanout schedule replaced by a dashboard update.",
+      schedule_block_reason: null,
+      schedule_canceled_at: null,
+      schedule_canceled_reason: null,
+      schedule_expired_at: null,
+      schedule_replaced_at: now,
+      schedule_source: "dashboard",
+      schedule_status: "schedule_replaced",
+      schedule_updated_at: now,
+      schedule_validation_metadata: {
+        action: "replace",
+        reason: input.reason?.trim() || null,
+        schedule_requested: true,
+        scheduled_at_utc: requestedScheduleAtUtc,
+        scheduled_timezone: requestedScheduleTimezone,
+        target_count: fanout.target_count,
+      },
+      scheduled_at_utc: requestedScheduleAtUtc,
+      scheduled_timezone: requestedScheduleTimezone,
+    },
+    table: "content_publication_fanouts",
+  });
+
+  try {
+    const replacement = await createPublicationFanoutRequest({
+      input: {
+        capability_version:
+          typeof fanout.snapshot?.capabilityVersion === "string"
+            ? fanout.snapshot.capabilityVersion
+            : PUBLICATION_CAPABILITY_VERSION,
+        content_job_id: fanout.content_job_id,
+        fanout_policy: "prepare_valid_targets",
+        scheduled_publish_at: requestedScheduleAtUtc,
+        scheduled_timezone: requestedScheduleTimezone,
+        targets: targets.map((target) => ({
+          platform_connection_id: target.platform_connection_id,
+          provider_overrides: target.provider_overrides,
+          target_platform: target.target_platform,
+        })),
+        user_id: input.user_id,
+      },
+      requestIntentSalt: `schedule-replace:${fanout.id}:${now}`,
+      scheduleSource: "dashboard",
+      supabase,
+    });
+
+    await writePublicationFanoutEvent({
+      actionKey: null,
+      actionResult: "validated",
+      actorId: input.user_id,
+      contentPublicationFanoutId: fanout.id,
+      eventType: "fanout_schedule_replaced",
+      fanoutStatus: replacement.fanout_status,
+      metadata: {
+        action: "replace",
+        reason: input.reason?.trim() || null,
+        replacement_content_publication_fanout_id:
+          replacement.content_publication_fanout_id,
+        schedule_status: replacement.schedule_status,
+        scheduled_at_utc: requestedScheduleAtUtc,
+        scheduled_timezone: requestedScheduleTimezone,
+        target_count: replacement.target_count,
+      },
+      previousFanoutStatus: fanout.fanout_status,
+      source: "dashboard",
+      supabase,
+      targetStatus: null,
+      userId: fanout.user_id,
+    });
+
+    return {
+      action: "replace",
+      content_publication_id: fanout.id,
+      replacement_content_publication_fanout_id:
+        replacement.content_publication_fanout_id,
+      replacement_content_publication_id: null,
+      schedule_status: "schedule_replaced",
+      status: "publication_schedule_replaced",
+      user_id: fanout.user_id,
+    };
+  } catch (error) {
+    await patchSupabaseRows({
+      client: supabase,
+      params: {
+        id: `eq.${fanout.id}`,
+        user_id: `eq.${fanout.user_id}`,
+      },
+      payload: {
+        ...originalScheduleState,
+      },
+      table: "content_publication_fanouts",
+    });
+
+    throw error instanceof Error
+      ? new Error("publication_fanout_schedule_replace_failed")
+      : new Error("publication_fanout_schedule_replace_failed");
+  }
 }
 
 function summarizePublicationFanoutTargets(

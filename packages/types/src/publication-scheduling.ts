@@ -78,6 +78,50 @@ export type PublicationScheduleStatusTone =
   | "slate"
   | "violet";
 
+export const CONTENT_PUBLICATION_SCHEDULE_ACTION_KEYS = [
+  "edit_schedule",
+  "replace_schedule",
+  "cancel_schedule",
+] as const;
+
+export type ContentPublicationScheduleActionKey =
+  (typeof CONTENT_PUBLICATION_SCHEDULE_ACTION_KEYS)[number];
+
+export type ContentPublicationScheduleActionDecision = {
+  allowed: boolean;
+  blockReason: string | null;
+  explanation: string;
+  intent: ContentPublicationScheduleActionIntent;
+  requiresConfirmation: boolean;
+  safeLabel: string;
+};
+
+export type ContentPublicationScheduleActionIntent =
+  | "update"
+  | "replace"
+  | "cancel";
+
+export type ContentPublicationScheduleActionPolicy = {
+  actions: Record<
+    ContentPublicationScheduleActionKey,
+    ContentPublicationScheduleActionDecision
+  >;
+  blockReason: string | null;
+  canCancel: boolean;
+  canEdit: boolean;
+  canReplace: boolean;
+  explanation: string;
+  nextAction: ContentPublicationScheduleActionKey | null;
+};
+
+export type ContentPublicationScheduleActionPolicyInput = {
+  finalBlockReason: string | null;
+  isLocked: boolean;
+  itemLabel: string;
+  lockReason?: string | null;
+  replaceSupported?: boolean;
+};
+
 export type PublicationScheduleEvaluationResult = {
   accepted: boolean;
   blockReason: ContentPublicationScheduleBlockReason | null;
@@ -537,6 +581,101 @@ export function evaluatePublicationFanoutScheduleIntent({
     safeDescription: `Scheduling is ready for the parent fanout via ${scheduleSource ?? "api-gateway"} and will remain server-managed until execution is introduced.`,
     scheduleStatus: "schedule_ready",
     softBlocked: false,
+  };
+}
+
+export function buildPublicationScheduleActionPolicy({
+  finalBlockReason,
+  isLocked,
+  itemLabel,
+  lockReason = null,
+  replaceSupported = true,
+}: ContentPublicationScheduleActionPolicyInput): ContentPublicationScheduleActionPolicy {
+  const blockedReason = finalBlockReason ?? (isLocked ? lockReason : null);
+  const blockReason = blockedReason ?? null;
+  const blockedExplanation = finalBlockReason
+    ? `${itemLabel} is already final and cannot be changed anymore.`
+    : isLocked
+      ? `${itemLabel} is locked for execution and cannot be changed right now.`
+      : null;
+  const editAllowed = !blockReason;
+  const replaceAllowed = !blockReason && replaceSupported;
+  const cancelAllowed = !blockReason;
+
+  return {
+    actions: {
+      cancel_schedule: scheduleActionDecision({
+        allowed: cancelAllowed,
+        blockReason: blockReason,
+        explanation:
+          blockedExplanation ?? `Cancel ${itemLabel} to stop future execution.`,
+        intent: "cancel",
+        requiresConfirmation: true,
+        safeLabel: "Cancel schedule",
+      }),
+      edit_schedule: scheduleActionDecision({
+        allowed: editAllowed,
+        blockReason: blockReason,
+        explanation:
+          blockedExplanation ??
+          `Edit ${itemLabel} in place without creating a new schedule row.`,
+        intent: "update",
+        requiresConfirmation: false,
+        safeLabel: "Update schedule",
+      }),
+      replace_schedule: scheduleActionDecision({
+        allowed: replaceAllowed,
+        blockReason: replaceSupported
+          ? blockReason
+          : "schedule_replace_not_supported",
+        explanation: replaceSupported
+          ? (blockedExplanation ??
+            `Replace ${itemLabel} with a fresh schedule entry and preserve the current one as replaced.`)
+          : `${itemLabel} replacement is not available for this schedule kind.`,
+        intent: "replace",
+        requiresConfirmation: true,
+        safeLabel: "Replace schedule",
+      }),
+    },
+    blockReason,
+    canCancel: cancelAllowed,
+    canEdit: editAllowed,
+    canReplace: replaceAllowed,
+    explanation:
+      blockedExplanation ??
+      `Choose one action to mutate ${itemLabel} without starting provider execution.`,
+    nextAction: editAllowed
+      ? "edit_schedule"
+      : replaceAllowed
+        ? "replace_schedule"
+        : cancelAllowed
+          ? "cancel_schedule"
+          : null,
+  };
+}
+
+function scheduleActionDecision({
+  allowed,
+  blockReason,
+  explanation,
+  intent,
+  requiresConfirmation,
+  safeLabel,
+}: {
+  allowed: boolean;
+  blockReason: string | null;
+  explanation: string;
+  intent: ContentPublicationScheduleActionDecision["intent"];
+  requiresConfirmation: boolean;
+  safeLabel: string;
+}): ContentPublicationScheduleActionDecision {
+  return {
+    allowed,
+    blockReason: allowed ? null : blockReason,
+    explanation,
+    intent,
+    requiresConfirmation,
+    safeLabel,
   };
 }
 

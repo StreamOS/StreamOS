@@ -1,6 +1,7 @@
 import React from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
+import { mutatePublicationScheduleAction } from "@/app/dashboard/publications/schedule/actions";
 import { formatPublicationTimestamp } from "./PublicationStatusConsole.utils";
 import {
   getPublicationScheduleFilterLabel,
@@ -419,6 +420,165 @@ function ScheduleDetail({ item }: { item: PublicationScheduleItem }) {
         </div>
       </section>
 
+      <section className="card space-y-4">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
+            Schedule controls
+          </p>
+          <h3 className="mt-1 text-lg font-semibold text-white">
+            Update, replace, or cancel the stored schedule
+          </h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+            Die Aktionen bleiben serverseitig, tenant-sicher und ohne Provider-
+            oder Worker-Aufrufe. Edit und Replace nutzen dieselbe Zeitangabe;
+            Cancel ignoriert die Zeitfelder und verlangt eine Bestätigung.
+          </p>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <ActionAvailabilityTile
+            decision={item.scheduleActionPolicy.actions.edit_schedule}
+            descriptionId={`schedule-edit-description-${item.id}`}
+            kind={item.itemType}
+            itemId={item.id}
+            scheduleAction="edit"
+            submittedActionLabel="Update schedule"
+          />
+          <ActionAvailabilityTile
+            decision={item.scheduleActionPolicy.actions.replace_schedule}
+            descriptionId={`schedule-replace-description-${item.id}`}
+            kind={item.itemType}
+            itemId={item.id}
+            scheduleAction="replace"
+            submittedActionLabel="Replace schedule"
+          />
+          <ActionAvailabilityTile
+            decision={item.scheduleActionPolicy.actions.cancel_schedule}
+            descriptionId={`schedule-cancel-description-${item.id}`}
+            kind={item.itemType}
+            itemId={item.id}
+            scheduleAction="cancel"
+            submittedActionLabel="Cancel schedule"
+            requiresConfirmation
+          />
+        </div>
+
+        <form action={mutatePublicationScheduleAction} className="space-y-4">
+          <input name="kind" type="hidden" value={item.itemType} />
+          <input name="itemId" type="hidden" value={item.id} />
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Scheduled UTC">
+              <input
+                aria-label="Scheduled UTC timestamp"
+                className="w-full rounded-lg border border-white/10 bg-surface-900/80 px-3 py-2.5 text-sm text-white outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+                defaultValue={item.scheduledAtUtc ?? ""}
+                name="scheduledAtUtc"
+                placeholder="2026-06-22T18:30:00.000Z"
+                required
+                type="text"
+              />
+            </Field>
+
+            <Field label="Timezone">
+              <input
+                aria-label="Scheduled timezone"
+                className="w-full rounded-lg border border-white/10 bg-surface-900/80 px-3 py-2.5 text-sm text-white outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+                defaultValue={item.scheduledTimezoneRaw ?? ""}
+                name="scheduledTimezone"
+                placeholder="Europe/Berlin"
+                required
+                type="text"
+              />
+            </Field>
+          </div>
+
+          <Field label="Operator note">
+            <textarea
+              aria-label="Schedule mutation note"
+              className="min-h-28 w-full rounded-lg border border-white/10 bg-surface-900/80 px-3 py-2.5 text-sm text-white outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+              name="reason"
+              placeholder="Optional reason for the audit trail"
+            />
+          </Field>
+
+          <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-300">
+            <input
+              className="mt-1 h-4 w-4 rounded border-white/20 bg-surface-900 text-brand-500 focus:ring-brand-500"
+              name="confirmCancel"
+              type="checkbox"
+              value="true"
+            />
+            <span>
+              I confirm that canceling this schedule stops future execution and
+              keeps the audit trail server-side.
+            </span>
+          </label>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <button
+              className="btn-primary justify-center"
+              disabled={
+                !item.scheduleActionPolicy.actions.edit_schedule.allowed
+              }
+              aria-describedby={`schedule-edit-description-${item.id}`}
+              name="scheduleAction"
+              type="submit"
+              value="edit"
+            >
+              {item.scheduleActionPolicy.actions.edit_schedule.safeLabel}
+            </button>
+            <button
+              className="btn-ghost justify-center"
+              disabled={
+                !item.scheduleActionPolicy.actions.replace_schedule.allowed
+              }
+              aria-describedby={`schedule-replace-description-${item.id}`}
+              name="scheduleAction"
+              type="submit"
+              value="replace"
+            >
+              {item.scheduleActionPolicy.actions.replace_schedule.safeLabel}
+            </button>
+            <button
+              className="btn-ghost justify-center"
+              disabled={
+                !item.scheduleActionPolicy.actions.cancel_schedule.allowed
+              }
+              aria-describedby={`schedule-cancel-description-${item.id}`}
+              formNoValidate
+              name="scheduleAction"
+              type="submit"
+              value="cancel"
+            >
+              {item.scheduleActionPolicy.actions.cancel_schedule.safeLabel}
+            </button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <ActionNote
+              decision={item.scheduleActionPolicy.actions.edit_schedule}
+              descriptionId={`schedule-edit-description-${item.id}`}
+              label="Update schedule"
+            />
+            <ActionNote
+              decision={item.scheduleActionPolicy.actions.replace_schedule}
+              descriptionId={`schedule-replace-description-${item.id}`}
+              label="Replace schedule"
+            />
+            <ActionNote
+              decision={item.scheduleActionPolicy.actions.cancel_schedule}
+              descriptionId={`schedule-cancel-description-${item.id}`}
+              label="Cancel schedule"
+            />
+          </div>
+
+          <p className="text-sm leading-6 text-slate-400">
+            {item.scheduleActionPolicy.explanation}
+          </p>
+        </form>
+      </section>
+
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="card">
           <div>
@@ -606,6 +766,83 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function ActionAvailabilityTile({
+  decision,
+  descriptionId,
+  kind,
+  itemId,
+  requiresConfirmation = false,
+  scheduleAction,
+  submittedActionLabel,
+}: {
+  decision: PublicationScheduleItem["scheduleActionPolicy"]["actions"]["edit_schedule"];
+  descriptionId: string;
+  kind: "publication" | "fanout";
+  itemId: string;
+  requiresConfirmation?: boolean;
+  scheduleAction: "cancel" | "edit" | "replace";
+  submittedActionLabel: string;
+}) {
+  const isBlocked = !decision.allowed;
+
+  return (
+    <div
+      className="rounded-lg border border-white/10 bg-white/5 p-4"
+      data-schedule-action={scheduleAction}
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+        {submittedActionLabel}
+      </p>
+      <p className="mt-2 text-sm leading-6 text-slate-300">
+        {decision.explanation}
+      </p>
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <span
+          className={cn(
+            "rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.08em]",
+            isBlocked
+              ? "border-rose-500/30 bg-rose-500/10 text-rose-200"
+              : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
+          )}
+        >
+          {isBlocked ? "Blocked" : "Enabled"}
+        </span>
+        {requiresConfirmation ? (
+          <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
+            Confirmation required
+          </span>
+        ) : null}
+      </div>
+      <p id={descriptionId} className="mt-3 text-xs leading-5 text-slate-500">
+        {decision.blockReason
+          ? `Block reason: ${decision.blockReason}.`
+          : `This action stays server-side for the selected ${kind} (${itemId}).`}
+      </p>
+    </div>
+  );
+}
+
+function ActionNote({
+  decision,
+  descriptionId,
+  label,
+}: {
+  decision: PublicationScheduleItem["scheduleActionPolicy"]["actions"]["edit_schedule"];
+  descriptionId: string;
+  label: string;
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-surface-950/70 p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+        {label}
+      </p>
+      <p id={descriptionId} className="mt-2 text-sm leading-6 text-slate-300">
+        {decision.allowed ? decision.explanation : decision.explanation}
+      </p>
+    </div>
+  );
+}
+
 function DebugRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-white/10 bg-surface-950/70 p-3">
@@ -657,6 +894,23 @@ function FilterField({
 }) {
   return (
     <label className="block space-y-1.5" htmlFor={htmlFor}>
+      <span className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function Field({
+  children,
+  label,
+}: {
+  children: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <label className="block space-y-1.5">
       <span className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
         {label}
       </span>
