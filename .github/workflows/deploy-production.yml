@@ -235,6 +235,7 @@ jobs:
           - stream-job-worker
           - repurposing-worker
           - publishing-worker
+          - publishing-scheduler-worker
           - clip-worker
           - transcription-worker
           - content-job-retry-worker
@@ -394,6 +395,49 @@ jobs:
             --skip-deploys \
             RAILWAY_DOCKERFILE_PATH=Dockerfile.publishing-worker \
             --json >/tmp/railway-set-publishing-worker.json
+
+      - name: Provision publishing-scheduler-worker when missing
+        if: ${{ matrix.service == 'publishing-scheduler-worker' }}
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016
+
+          service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
+          if printf '%s' "${service_list}" | jq -e 'if type == "array" then . elif has("services") then .services else [] end | any(.name == "publishing-scheduler-worker")' >/dev/null; then
+            service_exists="yes"
+          else
+            service_exists="no"
+          fi
+
+          if [ "${service_exists}" = "yes" ]; then
+            echo "publishing-scheduler-worker already exists in Railway production." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            railway_service_response="$(
+              SERVICE_NAME=publishing-scheduler-worker node scripts/railway-service-create.cjs
+            )"
+            publishing_scheduler_worker_service_id="$(printf '%s' "${railway_service_response}" | jq -r '.id')"
+
+            {
+              echo "## publishing-scheduler-worker provisioning"
+              echo ""
+              echo "- Environment: ${RAILWAY_ENVIRONMENT}"
+              echo "- Service: publishing-scheduler-worker"
+              echo "- Source: empty service created in the existing project"
+              echo "- Service ID: \`${publishing_scheduler_worker_service_id}\`"
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+          railway variable set \
+            --project "${RAILWAY_PROJECT_ID}" \
+            --service publishing-scheduler-worker \
+            --environment "${RAILWAY_ENVIRONMENT}" \
+            --skip-deploys \
+            RAILWAY_DOCKERFILE_PATH=Dockerfile.publishing-scheduler-worker \
+            --json >/tmp/railway-set-publishing-scheduler-worker.json
 
       - name: Deploy Railway service
         env:

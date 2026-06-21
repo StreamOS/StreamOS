@@ -758,6 +758,18 @@ export type Database = {
           schedule_status: ContentPublicationScheduleStatus;
           schedule_updated_at: string | null;
           schedule_validation_metadata: Json;
+          schedule_execution_attempt_count: number;
+          schedule_execution_claimed_at: string | null;
+          schedule_execution_claimed_by: string | null;
+          schedule_execution_completed_at: string | null;
+          schedule_execution_error_code: string | null;
+          schedule_execution_error_message: string | null;
+          schedule_execution_last_attempt_at: string | null;
+          schedule_execution_max_retries: number;
+          schedule_execution_metadata: Json;
+          schedule_execution_next_attempt_at: string | null;
+          schedule_execution_queue_job_id: string | null;
+          schedule_execution_status: string;
           platform_connection_id: string;
           published_at: string | null;
           publication_status: ContentPublicationStatus;
@@ -815,6 +827,18 @@ export type Database = {
           schedule_status?: ContentPublicationScheduleStatus;
           schedule_updated_at?: string | null;
           schedule_validation_metadata?: Json;
+          schedule_execution_attempt_count?: number;
+          schedule_execution_claimed_at?: string | null;
+          schedule_execution_claimed_by?: string | null;
+          schedule_execution_completed_at?: string | null;
+          schedule_execution_error_code?: string | null;
+          schedule_execution_error_message?: string | null;
+          schedule_execution_last_attempt_at?: string | null;
+          schedule_execution_max_retries?: number;
+          schedule_execution_metadata?: Json;
+          schedule_execution_next_attempt_at?: string | null;
+          schedule_execution_queue_job_id?: string | null;
+          schedule_execution_status?: string;
           platform_connection_id: string;
           published_at?: string | null;
           publication_status?: ContentPublicationStatus;
@@ -872,6 +896,18 @@ export type Database = {
           schedule_status?: ContentPublicationScheduleStatus;
           schedule_updated_at?: string | null;
           schedule_validation_metadata?: Json;
+          schedule_execution_attempt_count?: number;
+          schedule_execution_claimed_at?: string | null;
+          schedule_execution_claimed_by?: string | null;
+          schedule_execution_completed_at?: string | null;
+          schedule_execution_error_code?: string | null;
+          schedule_execution_error_message?: string | null;
+          schedule_execution_last_attempt_at?: string | null;
+          schedule_execution_max_retries?: number;
+          schedule_execution_metadata?: Json;
+          schedule_execution_next_attempt_at?: string | null;
+          schedule_execution_queue_job_id?: string | null;
+          schedule_execution_status?: string;
           platform_connection_id?: string;
           published_at?: string | null;
           publication_status?: ContentPublicationStatus;
@@ -1839,6 +1875,14 @@ export type Database = {
           p_period: string;
         };
         Returns: Json;
+      };
+      claim_due_content_publication_executions: {
+        Args: {
+          p_claim_timeout_ms?: number;
+          p_limit?: number;
+          p_worker_id?: string;
+        };
+        Returns: Database["public"]["Tables"]["content_publications"]["Row"][];
       };
       record_content_publication_request: {
         Args: {

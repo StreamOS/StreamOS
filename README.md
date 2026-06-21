@@ -191,6 +191,7 @@ The production deployment topology is documented in
 - `workers/stream-job-worker` deploys to Railway as the canonical `streamos-media` consumer and materializes durable stream/content-job state.
 - `workers/repurposing-worker` deploys to Railway as the canonical `streamos-repurposing` consumer and calls `POST /repurposing/plan` for manual-review-only repurposing plans.
 - `workers/publishing-worker` deploys to Railway as the canonical `streamos-publishing` consumer and executes approved publication and reconciliation jobs for server-side provider writes.
+- `workers/publishing-scheduler-worker` deploys to Railway as a private polling worker that claims due scheduled publications and enqueues deterministic `publication.publish` jobs into `streamos-publishing`.
 - `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.
 - `workers/clip-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for clip scoring.
 - `workers/content-job-retry-worker` deploys to Railway as a Node.js BullMQ worker that requeues retryable failed `content_jobs`.

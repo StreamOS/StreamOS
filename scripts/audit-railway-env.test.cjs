@@ -92,6 +92,52 @@ test("audit CLI renders publishing-worker in JSON output for staging and product
   );
 });
 
+test("audit CLI renders publishing-scheduler-worker in markdown output for staging and production", () => {
+  const result = runAuditCli(["--format", "markdown"]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /### publishing-scheduler-worker/);
+
+  const sectionMatches =
+    result.stdout.match(/^### publishing-scheduler-worker$/gm) ?? [];
+  assert.equal(sectionMatches.length, 2);
+  assert.match(
+    result.stdout,
+    /### publishing-scheduler-worker[\s\S]*SERVICE_INVENTORY/,
+  );
+  assert.match(
+    result.stdout,
+    /### publishing-scheduler-worker[\s\S]*PUBLIC_NETWORKING/,
+  );
+});
+
+test("audit CLI renders publishing-scheduler-worker in JSON output for staging and production", () => {
+  const result = runAuditCli(["--format", "json"]);
+
+  assert.equal(result.status, 0, result.stderr);
+
+  const report = JSON.parse(result.stdout);
+
+  assert.ok(
+    report.environments.staging.services["publishing-scheduler-worker"],
+  );
+  assert.ok(
+    report.environments.production.services["publishing-scheduler-worker"],
+  );
+  assert.equal(
+    report.environments.staging.services[
+      "publishing-scheduler-worker"
+    ].variables.some((row) => row.variable === "AUTOMATION_SERVICE_URL"),
+    false,
+  );
+  assert.equal(
+    report.environments.production.services[
+      "publishing-scheduler-worker"
+    ].variables.some((row) => row.variable === "AUTOMATION_SERVICE_URL"),
+    false,
+  );
+});
+
 test("audit CLI renders every expected service in markdown output for staging and production", () => {
   const result = runAuditCli([
     "--environments",

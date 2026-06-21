@@ -56,6 +56,12 @@ const PUBLISHING_WORKER_REQUIRED = [
   "TIKTOK_CLIENT_SECRET",
 ];
 
+const PUBLISHING_SCHEDULER_WORKER_REQUIRED = [
+  "REDIS_URL",
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+];
+
 const CLIP_WORKER_REQUIRED = [
   "REDIS_URL",
   "AUTOMATION_SERVICE_URL",
@@ -440,6 +446,17 @@ module.exports = {
       optional: ["PUBLICATION_QUEUE_NAME", "PUBLISHING_WORKER_CONCURRENCY"],
       publicNetworking: "disabled",
       required: PUBLISHING_WORKER_REQUIRED,
+      runtime: "node",
+    },
+    "publishing-scheduler-worker": {
+      optional: [
+        "PUBLICATION_QUEUE_NAME",
+        "PUBLISHING_SCHEDULER_WORKER_BATCH_SIZE",
+        "PUBLISHING_SCHEDULER_WORKER_CLAIM_TIMEOUT_MS",
+        "PUBLISHING_SCHEDULER_WORKER_POLL_INTERVAL_MS",
+      ],
+      publicNetworking: "disabled",
+      required: PUBLISHING_SCHEDULER_WORKER_REQUIRED,
       runtime: "node",
     },
     "repurposing-worker": {

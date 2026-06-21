@@ -56,6 +56,13 @@
         "privateNetworkEndpoint": "release-gate-runner-production",
         "serviceDomains": []
       }
+    },
+    "svc-publishing-scheduler-production": {
+      "name": "publishing-scheduler-worker",
+      "networking": {
+        "privateNetworkEndpoint": "publishing-scheduler-worker-production",
+        "serviceDomains": []
+      }
     }
   }
 }

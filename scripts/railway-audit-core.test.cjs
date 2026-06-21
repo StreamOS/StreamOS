@@ -10,6 +10,9 @@ const {
 } = require("./lib/railway-audit-core.cjs");
 const { validateHealthPayload } = require("./check-deployment.cjs");
 
+const CHECK = "\u2705";
+const CROSS = "\u274c";
+
 const fixturesDir = join(__dirname, "__fixtures__", "railway-audit");
 const expectedServices = Object.keys(whitelist.services);
 const privateServices = expectedServices.filter(
@@ -156,12 +159,12 @@ test("buildAuditReport flags production private-network and health regressions",
     (row) => row.variable === "AUTOMATION_SERVICE_URL",
   );
 
-  assert.equal(productionNetworkRow.status, "❌");
+  assert.equal(productionNetworkRow.status, CROSS);
   assert.match(
     productionNetworkRow.summary,
     /Public networking must stay disabled/,
   );
-  assert.equal(workerAutomationRow.status, "❌");
+  assert.equal(workerAutomationRow.status, CROSS);
   assert.match(workerAutomationRow.summary, /private networking/);
   assert.ok(
     report.stagingDrift.some(
@@ -187,7 +190,7 @@ test("buildAuditReport allows stub mode in staging e2e", () => {
     "automation-service"
   ].variables.find((row) => row.variable === "TRANSCRIPTION_PROCESSOR_MODE");
 
-  assert.equal(stagingRow.status, "✅");
+  assert.equal(stagingRow.status, CHECK);
 });
 
 test("buildAuditReport falls back to service list URLs for required public networking", () => {
@@ -210,7 +213,7 @@ test("buildAuditReport falls back to service list URLs for required public netwo
     (row) => row.variable === "PUBLIC_NETWORKING",
   );
 
-  assert.equal(networkRow.status, "✅");
+  assert.equal(networkRow.status, CHECK);
   assert.match(networkRow.summary, /Public networking is enabled/);
 });
 
@@ -234,10 +237,10 @@ test("buildAuditReport includes publishing-worker as a private worker without au
   );
 
   assert.ok(inventoryRow);
-  assert.equal(inventoryRow.status, "✅");
+  assert.equal(inventoryRow.status, CHECK);
   assert.match(inventoryRow.summary, /present in the Railway inventory/);
   assert.ok(networkRow);
-  assert.equal(networkRow.status, "✅");
+  assert.equal(networkRow.status, CHECK);
   assert.match(networkRow.summary, /Service remains private as expected/);
   assert.equal(
     publishingRows.some((row) => row.variable === "AUTOMATION_SERVICE_URL"),
@@ -255,6 +258,47 @@ test("buildAuditReport includes publishing-worker as a private worker without au
   assert.ok(publishingRows.some((row) => row.variable === "TIKTOK_CLIENT_KEY"));
   assert.ok(
     publishingRows.some((row) => row.variable === "TIKTOK_CLIENT_SECRET"),
+  );
+});
+
+test("buildAuditReport includes publishing-scheduler-worker as a private worker with only execution storage env", () => {
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production: loadEnvironment("production"),
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const schedulerRows =
+    report.environments.production.services["publishing-scheduler-worker"]
+      .variables;
+  const inventoryRow = schedulerRows.find(
+    (row) => row.variable === "SERVICE_INVENTORY",
+  );
+  const networkRow = schedulerRows.find(
+    (row) => row.variable === "PUBLIC_NETWORKING",
+  );
+
+  assert.ok(inventoryRow);
+  assert.equal(inventoryRow.status, CHECK);
+  assert.match(inventoryRow.summary, /present in the Railway inventory/);
+  assert.ok(networkRow);
+  assert.equal(networkRow.status, CHECK);
+  assert.match(networkRow.summary, /Service remains private as expected/);
+  assert.equal(
+    schedulerRows.some((row) => row.variable === "AUTOMATION_SERVICE_URL"),
+    false,
+  );
+  assert.equal(
+    schedulerRows.some((row) => row.variable === "APP_ENCRYPTION_KEY"),
+    false,
+  );
+  assert.ok(schedulerRows.some((row) => row.variable === "REDIS_URL"));
+  assert.ok(schedulerRows.some((row) => row.variable === "SUPABASE_URL"));
+  assert.ok(
+    schedulerRows.some((row) => row.variable === "SUPABASE_SERVICE_ROLE_KEY"),
   );
 });
 
@@ -900,6 +944,14 @@ test("buildAuditReport keeps worker-owned secrets and provider secrets scoped to
       "YOUTUBE_CLIENT_SECRET",
     ],
     "publishing-worker": ["AUTOMATION_SERVICE_URL"],
+    "publishing-scheduler-worker": [
+      "APP_ENCRYPTION_KEY",
+      "AUTOMATION_SERVICE_URL",
+      "TIKTOK_CLIENT_SECRET",
+      "TWITCH_CLIENT_SECRET",
+      "YOUTUBE_CLIENT_ID",
+      "YOUTUBE_CLIENT_SECRET",
+    ],
     "release-gate-runner": [
       "APP_ENCRYPTION_KEY",
       "AUTOMATION_SERVICE_URL",

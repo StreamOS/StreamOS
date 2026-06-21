@@ -157,6 +157,10 @@ Use realtime channels or server-sent events for live viewer counts, stream statu
   consumer. It receives `publication.publish` and `publication.reconcile`
   jobs, executes server-side provider write APIs, and persists publication
   state transitions plus audit events.
+- `workers/publishing-scheduler-worker` is the private scheduler for
+  publication timing. It claims due scheduled `content_publications` rows and
+  enqueues deterministic `publication.publish` jobs into `streamos-publishing`
+  without calling provider APIs or automation-service directly.
 - `workers/transcription-worker` consumes only `streamos-transcription`, calls
   `services/automation-service`, and persists `vod_assets`,
   `stream_transcripts`, clip follow-up jobs, and transcription job status.

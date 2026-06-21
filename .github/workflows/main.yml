@@ -145,6 +145,8 @@ jobs:
           - transcription-worker
           - content-job-retry-worker
           - release-gate-runner
+          - publishing-worker
+          - publishing-scheduler-worker
 
     steps:
       - name: Checkout rollback target

@@ -4,17 +4,18 @@ This document defines the production deployment topology for the StreamOS monore
 
 ## Target Topology
 
-| Path                               | Runtime                | Platform                                                       | Purpose                                                                                                   |
-| ---------------------------------- | ---------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `apps/web`                         | Next.js App Router     | Vercel                                                         | Dashboard, Supabase SSR Auth, app-facing BFF routes                                                       |
-| `services/api-gateway`             | Node.js                | Railway                                                        | Public API gateway, platform OAuth, server-only mutations, webhook ingress, BullMQ job producers          |
-| `services/automation-service`      | FastAPI                | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                                                                   |
-| `workers/stream-job-worker`        | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-media` consumer for stream materialization and transcription fan-out                  |
-| `workers/repurposing-worker`       | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-repurposing` consumer for manual-review-only repurposing plans                        |
-| `workers/publishing-worker`        | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-publishing` consumer for approved publication execution and reconciliation            |
-| `workers/transcription-worker`     | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI                                                    |
-| `workers/content-job-retry-worker` | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into transcription, clip, and repurposing queues                 |
-| `release-gate-runner`              | Node.js operator shell | Railway private worker/service                                 | Proof-only runtime for `pnpm rollout:check:production` using the gate-required release-candidate snapshot |
+| Path                                  | Runtime                | Platform                                                       | Purpose                                                                                                   |
+| ------------------------------------- | ---------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `apps/web`                            | Next.js App Router     | Vercel                                                         | Dashboard, Supabase SSR Auth, app-facing BFF routes                                                       |
+| `services/api-gateway`                | Node.js                | Railway                                                        | Public API gateway, platform OAuth, server-only mutations, webhook ingress, BullMQ job producers          |
+| `services/automation-service`         | FastAPI                | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                                                                   |
+| `workers/stream-job-worker`           | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-media` consumer for stream materialization and transcription fan-out                  |
+| `workers/repurposing-worker`          | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-repurposing` consumer for manual-review-only repurposing plans                        |
+| `workers/publishing-worker`           | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-publishing` consumer for approved publication execution and reconciliation            |
+| `workers/publishing-scheduler-worker` | Node.js polling worker | Railway Worker Dyno                                            | Private scheduler that claims due publications and enqueues deterministic `publication.publish` jobs      |
+| `workers/transcription-worker`        | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI                                                    |
+| `workers/content-job-retry-worker`    | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into transcription, clip, and repurposing queues                 |
+| `release-gate-runner`                 | Node.js operator shell | Railway private worker/service                                 | Proof-only runtime for `pnpm rollout:check:production` using the gate-required release-candidate snapshot |
 
 ## Service Boundaries
 
@@ -25,6 +26,7 @@ This document defines the production deployment topology for the StreamOS monore
 - `workers/stream-job-worker` is the only canonical `streamos-media` consumer. It materializes `streams`, creates durable `content_jobs`, and enqueues canonical `transcription.trigger` jobs when a media event already includes, or the API Gateway can resolve, enough transcription input such as `vodAssetUrl`.
 - `workers/repurposing-worker` is the only canonical `streamos-repurposing` consumer. It consumes durable `repurposing.plan` jobs, calls `services/automation-service` at `POST /repurposing/plan`, and persists a manual-review-only result to `content_jobs.result`.
 - `workers/publishing-worker` is the only canonical `streamos-publishing` consumer. It executes approved publication jobs against server-owned provider write APIs, performs publication reconciliation, and persists publication status plus audit events in Supabase.
+- `workers/publishing-scheduler-worker` is the private scheduler for `streamos-publishing`. It polls due scheduled publications, claims work in Supabase, and enqueues deterministic `publication.publish` jobs for the publishing worker. It does not call provider APIs or `services/automation-service` directly.
 - `workers/transcription-worker` consumes only `streamos-transcription`, calls `services/automation-service`, and writes transcription job status plus derived transcript state to Supabase.
 - `workers/content-job-retry-worker` owns retry orchestration for failed `content_jobs`; it uses the Supabase service-role key server-side and requeues only supported job payloads. Row-level `content_jobs.max_retries` is the source of truth for retry budget, including manual retries from the dashboard.
 - `release-gate-runner` is not a product service. It exists only to provide a Railway-internal shell/runtime that contains the same gate-required release-candidate snapshot as the services under test, so `pnpm rollout:check:production` can run with private Automation Service reachability and the required monorepo sources.
@@ -516,6 +518,61 @@ pnpm --filter @streamos/publishing-worker test
 pnpm --filter @streamos/publishing-worker build
 ```
 
+## Railway Worker Dyno: `workers/publishing-scheduler-worker`
+
+The publishing scheduler worker is a private polling service that claims due
+scheduled publications in Supabase and enqueues deterministic
+`publication.publish` jobs into `streamos-publishing`. It does not execute
+provider writes itself and it does not call `services/automation-service`.
+
+Recommended Docker configuration:
+
+| Setting           | Value                                    |
+| ----------------- | ---------------------------------------- |
+| Dockerfile Path   | `Dockerfile.publishing-scheduler-worker` |
+| Service Type      | Worker                                   |
+| Public Networking | Disabled                                 |
+
+Required variables:
+
+```bash
+REDIS_URL=rediss://default:password@host:6379
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+```
+
+Optional variables:
+
+```bash
+PUBLICATION_QUEUE_NAME=streamos-publishing
+PUBLISHING_SCHEDULER_WORKER_BATCH_SIZE=25
+PUBLISHING_SCHEDULER_WORKER_CLAIM_TIMEOUT_MS=300000
+PUBLISHING_SCHEDULER_WORKER_POLL_INTERVAL_MS=30000
+```
+
+Operator rollout checklist:
+
+1. Confirm the Railway project contains a `publishing-scheduler-worker`
+   service in the target environment.
+2. Confirm the service is deployed from the intended release-candidate commit
+   and uses `Dockerfile.publishing-scheduler-worker` from the repository root
+   build context.
+3. Verify the worker remains private with no public domain attached.
+4. Confirm `REDIS_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` are
+   present and no provider write secrets or `AUTOMATION_SERVICE_URL` are
+   configured on the scheduler.
+5. Confirm the scheduler enqueues deterministic `publication.publish` jobs
+   into `streamos-publishing` and leaves provider writes to
+   `workers/publishing-worker`.
+
+Validation:
+
+```bash
+pnpm --filter @streamos/publishing-scheduler-worker lint
+pnpm --filter @streamos/publishing-scheduler-worker test
+pnpm --filter @streamos/publishing-scheduler-worker build
+```
+
 ## Railway Private Service: `release-gate-runner`
 
 Use a dedicated Railway worker or private service for production-gate proofs
@@ -590,8 +647,9 @@ pnpm railway:audit --env production --format markdown > audit-production.md
 values in repo files or generated reports. If `RAILWAY_TOKEN` is explicitly set
 in the current shell, that shared token overrides the env-specific Railway
 tokens for the audit run. The audit inventory now includes
-`release-gate-runner` and `publishing-worker`; if either service is missing in
-the audited environment, the environment is not proof-ready.
+`release-gate-runner`, `publishing-worker`, and
+`publishing-scheduler-worker`; if any of those services is missing in the
+audited environment, the environment is not proof-ready.
 
 For `publishing-worker`, the audit expects:
 
@@ -600,6 +658,15 @@ For `publishing-worker`, the audit expects:
 - no public domain to be attached
 - the worker-specific required env contract to be populated, without requiring
   `AUTOMATION_SERVICE_URL`
+
+For `publishing-scheduler-worker`, the audit expects:
+
+- the service to be present in the Railway inventory
+- public networking to stay disabled
+- no public domain to be attached
+- the worker-specific required env contract to be populated
+- `AUTOMATION_SERVICE_URL`, provider secrets, and browser-facing secrets to stay
+  off the scheduler service
 
 ### Publishing-worker Audit Interpretation
 
