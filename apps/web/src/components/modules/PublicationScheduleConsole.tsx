@@ -4,7 +4,11 @@ import { cn } from "@/lib/utils/cn";
 import { mutatePublicationScheduleAction } from "@/app/dashboard/publications/schedule/actions";
 import { formatPublicationTimestamp } from "./PublicationStatusConsole.utils";
 import {
+  getPublicationProviderNativeSchedulingAvailabilityLabel,
+  getPublicationProviderNativeSchedulingExecutionStatusLabel,
+  getPublicationProviderNativeSchedulingPolicyLabel,
   getPublicationScheduleFilterLabel,
+  getPublicationSchedulingSourceOfTruthLabel,
   type PublicationScheduleStatusTone,
   type PublicationScheduleDashboardModel,
   type PublicationScheduleItem,
@@ -628,12 +632,13 @@ function ScheduleDetail({ item }: { item: PublicationScheduleItem }) {
               Schedule policy
             </p>
             <h3 className="mt-1 text-lg font-semibold text-white">
-              Lead time, horizon, execution lock, and provider hints
+              Lead time, horizon, execution lock, and scheduling ownership
             </h3>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
               Die zentrale Policy ist serverseitig berechnet und bleibt
-              read-only. Sie beschreibt nur sichere Planungsregeln, ohne
-              Provider-Execution, Worker-Starts oder Browser-Secrets.
+              read-only. StreamOS bleibt die primäre Scheduling-Schicht;
+              Provider-native Hinweise bleiben sekundär, lösen keine Execution
+              aus und offenbaren keine Browser-Secrets.
             </p>
           </div>
 
@@ -651,8 +656,39 @@ function ScheduleDetail({ item }: { item: PublicationScheduleItem }) {
               value={item.schedulePolicy.execution.isLocked ? "Locked" : "Open"}
             />
             <DetailStat
-              label="Provider hint"
-              value={item.schedulePolicy.providerHint.safeLabel}
+              label="Source of truth"
+              value={getPublicationSchedulingSourceOfTruthLabel(
+                item.schedulePolicy.schedulingDecision.schedulerSourceOfTruth,
+              )}
+            />
+            <DetailStat
+              label="Provider-native availability"
+              value={getPublicationProviderNativeSchedulingAvailabilityLabel(
+                item.schedulePolicy.schedulingDecision
+                  .providerNativeSchedulingAvailability,
+              )}
+            />
+            <DetailStat
+              label="Provider-native policy"
+              value={getPublicationProviderNativeSchedulingPolicyLabel(
+                item.schedulePolicy.schedulingDecision
+                  .providerNativeSchedulingPolicy,
+              )}
+            />
+            <DetailStat
+              label="Provider-native execution"
+              value={getPublicationProviderNativeSchedulingExecutionStatusLabel(
+                item.schedulePolicy.schedulingDecision
+                  .providerNativeSchedulingExecutionStatus,
+              )}
+            />
+            <DetailStat
+              label="Provider-native revalidation"
+              value={
+                item.schedulePolicy.schedulingDecision.requiresRevalidation
+                  ? "Required"
+                  : "Not required"
+              }
             />
             <DetailStat
               label="Lead time"

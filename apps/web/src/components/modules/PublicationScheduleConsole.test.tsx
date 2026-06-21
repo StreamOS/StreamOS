@@ -192,6 +192,17 @@ describe("PublicationScheduleConsole", () => {
     expect(publicationItem!.schedulePolicy.policyStatus).toBe("blocked");
     expect(fanoutItem!.schedulePolicy.policyStatus).toBe("blocked");
     expect(
+      publicationItem!.schedulePolicy.schedulingDecision.schedulerSourceOfTruth,
+    ).toBe("streamos_managed_primary");
+    expect(
+      publicationItem!.schedulePolicy.schedulingDecision
+        .providerNativeSchedulingPolicy,
+    ).toBe("provider_native_available_but_not_primary");
+    expect(
+      fanoutItem!.schedulePolicy.schedulingDecision
+        .providerNativeSchedulingPolicy,
+    ).toBe("provider_native_unsupported");
+    expect(
       fanoutItem!.scheduleActionPolicy.actions.replace_schedule.allowed,
     ).toBe(false);
     expect(publicationItem!.targetPlatformSummary).toContain("YouTube");
@@ -227,7 +238,11 @@ describe("PublicationScheduleConsole", () => {
     expect(html).toContain("Schedule controls");
     expect(html).toContain("Schedule policy");
     expect(html).toContain("Policy status");
-    expect(html).toContain("Provider hint");
+    expect(html).toContain("Source of truth");
+    expect(html).toContain("Provider-native availability");
+    expect(html).toContain("Provider-native policy");
+    expect(html).toContain("Provider-native execution");
+    expect(html).toContain("Provider-native revalidation");
     expect(html).toContain("Update schedule");
     expect(html).toContain("Replace schedule");
     expect(html).toContain("Cancel schedule");

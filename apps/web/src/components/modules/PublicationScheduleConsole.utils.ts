@@ -5,7 +5,11 @@ import type {
   ContentPublicationScheduleActionPolicy,
   ContentPublicationScheduleStatus,
   PublicationSchedulePolicy,
+  PublicationProviderNativeSchedulingAvailability,
+  PublicationProviderNativeSchedulingExecutionStatus,
+  PublicationProviderNativeSchedulingPolicy,
   PublicationScheduleStatusTone,
+  PublicationSchedulerSourceOfTruth,
   RepurposingPlanResult,
   StreamPlatform,
 } from "@streamos/types";
@@ -315,6 +319,41 @@ const SOURCE_LABELS: Record<
   system: "System",
 };
 
+const SCHEDULING_SOURCE_OF_TRUTH_LABELS: Record<
+  PublicationSchedulerSourceOfTruth,
+  string
+> = {
+  streamos_managed_primary: "StreamOS-managed primary",
+};
+
+const PROVIDER_NATIVE_SCHEDULING_AVAILABILITY_LABELS: Record<
+  PublicationProviderNativeSchedulingAvailability,
+  string
+> = {
+  available: "Available",
+  conditional: "Conditional",
+  unsupported: "Unsupported",
+  unknown: "Unknown",
+};
+
+const PROVIDER_NATIVE_SCHEDULING_POLICY_LABELS: Record<
+  PublicationProviderNativeSchedulingPolicy,
+  string
+> = {
+  provider_native_available_but_not_primary: "Available but not primary",
+  provider_native_disabled_by_policy: "Disabled by policy",
+  provider_native_future_optional: "Future optional",
+  provider_native_unsupported: "Unsupported",
+  provider_native_unknown: "Unknown",
+};
+
+const PROVIDER_NATIVE_SCHEDULING_EXECUTION_STATUS_LABELS: Record<
+  PublicationProviderNativeSchedulingExecutionStatus,
+  string
+> = {
+  not_used: "Not used",
+};
+
 export function buildPublicationScheduleDashboardModel({
   channels,
   connections,
@@ -437,6 +476,30 @@ export function getPublicationScheduleSourceLabel(
   }
 
   return SOURCE_LABELS[value];
+}
+
+export function getPublicationSchedulingSourceOfTruthLabel(
+  value: PublicationSchedulerSourceOfTruth,
+): string {
+  return SCHEDULING_SOURCE_OF_TRUTH_LABELS[value];
+}
+
+export function getPublicationProviderNativeSchedulingAvailabilityLabel(
+  value: PublicationProviderNativeSchedulingAvailability,
+): string {
+  return PROVIDER_NATIVE_SCHEDULING_AVAILABILITY_LABELS[value];
+}
+
+export function getPublicationProviderNativeSchedulingPolicyLabel(
+  value: PublicationProviderNativeSchedulingPolicy,
+): string {
+  return PROVIDER_NATIVE_SCHEDULING_POLICY_LABELS[value];
+}
+
+export function getPublicationProviderNativeSchedulingExecutionStatusLabel(
+  value: PublicationProviderNativeSchedulingExecutionStatus,
+): string {
+  return PROVIDER_NATIVE_SCHEDULING_EXECUTION_STATUS_LABELS[value];
 }
 
 export function formatPublicationScheduleTimezone(
