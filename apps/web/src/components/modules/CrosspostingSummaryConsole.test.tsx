@@ -953,6 +953,7 @@ describe("CrosspostingSummaryConsole", () => {
     expect(html).toContain("Parent fanouts");
     expect(html).toContain("Selected parent fanout");
     expect(html).toContain("Target publications");
+    expect(html).toContain("Publishing analytics");
     expect(html).toContain("Historie ansehen");
     expect(html).toContain("Open remote post");
     expect(html).toContain("Fanout controls");
