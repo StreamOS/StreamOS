@@ -672,26 +672,6 @@ function scheduleActionDecision({
   };
 }
 
-function blockedScheduleDecision(
-  blockReason: ContentPublicationScheduleBlockReason,
-  safeDescription: string,
-  nextRecommendedAction: string,
-): PublicationScheduleEvaluationResult {
-  return {
-    accepted: false,
-    blockReason,
-    nextRecommendedAction,
-    safeDescription,
-    scheduleStatus: "schedule_blocked",
-    softBlocked: false,
-    policy: buildFallbackPublicationSchedulePolicy({
-      blockReason,
-      nextRecommendedAction,
-      safeDescription,
-    }),
-  };
-}
-
 function buildPublicationSchedulePolicy(
   input: PublicationSchedulePolicyInput,
 ): PublicationSchedulePolicy {
@@ -1296,69 +1276,6 @@ function buildPublicationScheduleTargetPolicy({
     reauthRequiredTargetCount,
     runnableTargetCount: hasRunnableTargets ? readyTargetCount : 0,
     targetCount: fanoutTargetCount,
-  };
-}
-
-function buildFallbackPublicationSchedulePolicy({
-  blockReason,
-  nextRecommendedAction,
-  safeDescription,
-}: {
-  blockReason: ContentPublicationScheduleBlockReason | null;
-  nextRecommendedAction: string;
-  safeDescription: string;
-}): PublicationSchedulePolicy {
-  return {
-    accepted: false,
-    actionPolicy: buildPublicationScheduleActionPolicy({
-      finalBlockReason: blockReason,
-      isLocked: false,
-      itemLabel: "publication schedule",
-      replaceSupported: true,
-    }),
-    blockReason,
-    execution: {
-      claimedAt: null,
-      claimedBy: null,
-      isLocked: false,
-      queueJobId: null,
-      status: "unknown",
-    },
-    info: [],
-    mode: "create",
-    nextRecommendedAction,
-    policyStatus: "blocked",
-    policyVersion: PUBLICATION_SCHEDULE_POLICY_VERSION,
-    providerHint: {
-      description: safeDescription,
-      nativeSchedulingSupported: false,
-      nativeSchedulingUsed: false,
-      provider: "fanout",
-      requiredScopes: [],
-      requiresReauth: false,
-      requiresScopes: false,
-      schedulingAllowed: false,
-      safeLabel: "Schedule policy",
-      supportStatus: "unsupported",
-    },
-    requiresRevalidation: true,
-    safeDescription,
-    scheduleStatus: "schedule_blocked",
-    softBlocked: false,
-    targetPolicy: null,
-    timing: {
-      expiresAt: null,
-      isExpired: false,
-      isNearDue: false,
-      isStale: false,
-      maxHorizonDays: 30,
-      minLeadTimeMinutes: 15,
-      nearDueEditWindowMinutes: 30,
-      scheduledAtUtc: null,
-      scheduledTimezone: null,
-      staleAt: null,
-    },
-    warnings: [],
   };
 }
 
