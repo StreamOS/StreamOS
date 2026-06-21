@@ -49,6 +49,9 @@ export function CrosspostingSummaryConsole({
             <Link href="/dashboard/publications" className="btn-primary">
               Publication history
             </Link>
+            <Link href="/dashboard/publications/schedule" className="btn-ghost">
+              Schedule view
+            </Link>
             <Link
               href="/dashboard/publications/analytics"
               className="btn-ghost"

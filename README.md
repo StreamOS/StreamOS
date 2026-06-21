@@ -303,6 +303,11 @@ one request. It validates the repurposing snapshot once, validates each target
 server-side, and writes durable fanout audit rows before any publication worker
 path is used. The browser still does not call provider write APIs directly.
 
+`GET /dashboard/publications/schedule` is the read-only schedule overview for
+approved publications and parent fanouts. It groups planned items by day,
+shows export eligibility and history links, and stays tenant-scoped without
+starting any worker, publish, or provider-write flow from the browser.
+
 `GET /api/observability` is a protected server-to-server snapshot route for
 operator use. It requires `API_GATEWAY_SECRET`, returns the current
 observability backend (`redis` in production, `memory` only for local/test

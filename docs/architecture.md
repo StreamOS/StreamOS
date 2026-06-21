@@ -65,6 +65,11 @@ apps/web/src/
   `POST /api/content-publications/fanout`; the gateway validates the approved
   snapshot once, evaluates each requested target server-side, and persists
   fanout audit rows before any publication worker path is used.
+- `GET /dashboard/publications/schedule` is the read-only calendar-light
+  schedule surface for approved publications and parent fanouts. It groups
+  planned items by day, links back to publication history and fanout summary
+  views, and does not schedule, publish, or call provider APIs from the
+  browser.
 - Rate limiting, retry handling, and audit logging for external API calls.
 - `GET /api/observability` is a protected server-to-server snapshot route for
   operator use. In production it must be backed by Redis so rate limiting,

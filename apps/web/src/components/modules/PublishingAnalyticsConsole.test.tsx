@@ -372,6 +372,7 @@ describe("PublishingAnalyticsConsole", () => {
     expect(html).toContain("provider_policy");
     expect(html).toContain("Read-only summary");
     expect(html).toContain("Publication history");
+    expect(html).toContain("Schedule view");
     expect(html).toContain("Crossposting summary");
     expect(html).toContain("Repurposing review");
     expect(html).not.toContain("super-secret");
