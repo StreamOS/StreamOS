@@ -179,11 +179,14 @@ describe("PublicationScheduleConsole", () => {
     expect(model.summary.attentionCount).toBe(2);
     expect(model.selectedItemId).toBe("publication-1");
     expect(model.selectedItem?.safeSourceLabel).toBe("Morning Highlights");
-    const publicationItem = model.items[0];
-    const fanoutItem = model.items[1];
+    const publicationItem = model.items.find(
+      (item) => item.id === "publication-1",
+    );
+    const fanoutItem = model.items.find((item) => item.id === "fanout-1");
 
     expect(publicationItem).toBeDefined();
     expect(fanoutItem).toBeDefined();
+    expect(publicationItem!.safeSourceLabel).toBe("Morning Highlights");
     expect(fanoutItem!.safeSourceLabel).toBe("Approved parent fanout");
     expect(fanoutItem!.scheduledTimezone).toBe("UTC (Fallback)");
     expect(
