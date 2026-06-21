@@ -213,9 +213,13 @@ describe("PublicationScheduleConsole", () => {
     expect(html).toContain("Publication history");
     expect(html).toContain("Fanout summary");
     expect(html).toContain("Raw / Debug");
+    expect(html).toContain("Schedule metadata");
     expect(html).toContain("UTC (Fallback)");
     expect(html).toContain("Needs re-auth");
     expect(html).toContain("Open publication history");
+    expect(html).toContain("Open schedule permalink");
+    expect(html).toContain("Review: Approved");
+    expect(html).toContain("Manual review: Ja");
     expect(html).not.toContain("automation-service.railway.internal");
     expect(html).not.toContain("provider_secret");
   });

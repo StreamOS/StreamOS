@@ -337,6 +337,21 @@ function ScheduleDetail({ item }: { item: PublicationScheduleItem }) {
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
               {item.safeMessage}
             </p>
+            <div className="mt-4 flex flex-wrap gap-2 text-xs font-medium text-slate-400">
+              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                Review: {item.reviewStatusAtRequestLabel}
+              </span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                Manual review:{" "}
+                {item.manualReviewRequiredLabel ?? "Not available"}
+              </span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                {item.targetPlatformLabel}
+              </span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                {item.scheduleSourceLabel}
+              </span>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <StatusPill
@@ -408,7 +423,7 @@ function ScheduleDetail({ item }: { item: PublicationScheduleItem }) {
         <div className="card">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
-              Schedule context
+              Schedule metadata
             </p>
             <h3 className="mt-1 text-lg font-semibold text-white">
               Safe history links and schedule metadata
@@ -442,7 +457,7 @@ function ScheduleDetail({ item }: { item: PublicationScheduleItem }) {
                 : "Open publication history"}
             </Link>
             <Link href={item.detailHref} className="btn-ghost">
-              Copy schedule permalink
+              Open schedule permalink
             </Link>
           </div>
         </div>
@@ -485,7 +500,7 @@ function EmptyScheduleState({
     <section className="card">
       <div className="max-w-3xl">
         <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
-          Empty state
+          Empty schedule
         </p>
         <h2 className="mt-2 text-2xl font-semibold text-white">
           {sourceCount === 0
@@ -506,7 +521,7 @@ function EmptyDetailState() {
   return (
     <section className="card">
       <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
-        Empty detail
+        No selection
       </p>
       <h2 className="mt-2 text-2xl font-semibold text-white">
         Select a schedule entry
