@@ -875,7 +875,7 @@ eintragen._
 - [x] Decision: `Freigegeben`
 - [x] Reason: Audit clean, worker privat, Pflicht-Env vollständig, production gate grün.
 
-### Erster kontrollierter Production-Deploy-Proof fÃ¼r publishing-worker
+### Erster kontrollierter Production-Deploy-Proof für publishing-worker
 
 Use this proof for the first controlled production deploy. It proves service,
 audit, env, privacy, queue readiness, and gate context. It does not prove a
@@ -936,11 +936,11 @@ provider publish.
 
 **Proof Result**
 
-- Decision: `Freigegeben` / `Blockiert` / `ZurÃ¼ckgestellt`
+- Decision: `Freigegeben` / `Blockiert` / `Zurückgestellt`
 - Reason:
 
 If any hard blocker is present, the proof is `Blockiert`. If the evidence is
-incomplete or inconsistent, the proof is `ZurÃ¼ckgestellt`. If the RC SHA, audit
+incomplete or inconsistent, the proof is `Zurückgestellt`. If the RC SHA, audit
 status, worker privacy, env status, gate status, and runtime sanity checks are
 all confirmed, the proof can be `Freigegeben`.
 
