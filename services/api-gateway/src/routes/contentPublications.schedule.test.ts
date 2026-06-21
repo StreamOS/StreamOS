@@ -149,7 +149,12 @@ describe("content publications schedule routes", () => {
               action: "edit",
               schedule_policy: expect.objectContaining({
                 policyStatus: "ready",
-                policyVersion: "2026.06.p3.18.v1",
+                policyVersion: "2026.06.p3.19.v1",
+                schedulingDecision: expect.objectContaining({
+                  schedulerSourceOfTruth: "streamos_managed_primary",
+                  providerNativeSchedulingPolicy:
+                    "provider_native_available_but_not_primary",
+                }),
               }),
               target_platform: "youtube",
             });

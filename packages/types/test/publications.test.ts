@@ -196,6 +196,22 @@ void test("resolvePublicationCapabilities accepts YouTube overrides and resolves
   });
 
   assert.equal(resolution.providerSupportStatus, "supported");
+  assert.equal(
+    resolution.schedulingDecision.schedulerSourceOfTruth,
+    "streamos_managed_primary",
+  );
+  assert.equal(
+    resolution.schedulingDecision.providerNativeSchedulingAvailability,
+    "available",
+  );
+  assert.equal(
+    resolution.schedulingDecision.providerNativeSchedulingPolicy,
+    "provider_native_available_but_not_primary",
+  );
+  assert.equal(
+    resolution.schedulingDecision.providerNativeSchedulingExecutionStatus,
+    "not_used",
+  );
   assert.deepEqual(resolution.blockingErrors, []);
   assert.equal(resolution.providerPayloadPreview.privacy_status, "public");
   assert.equal(resolution.providerPayloadPreview.category_id, "22");
@@ -309,6 +325,14 @@ void test("resolvePublicationCapabilities marks unsupported providers explicitly
   });
 
   assert.equal(resolution.providerSupportStatus, "unsupported");
+  assert.equal(
+    resolution.schedulingDecision.providerNativeSchedulingAvailability,
+    "unsupported",
+  );
+  assert.equal(
+    resolution.schedulingDecision.providerNativeSchedulingPolicy,
+    "provider_native_unsupported",
+  );
   assert.ok(
     resolution.blockingErrors.some(
       (issue) => issue.code === "unsupported_target_platform",
@@ -500,6 +524,14 @@ void test("publication scheduling helpers normalize timestamps and classify read
   assert.equal(scheduleReady.accepted, true);
   assert.equal(scheduleReady.scheduleStatus, "schedule_ready");
   assert.equal(scheduleReady.blockReason, null);
+  assert.equal(
+    scheduleReady.policy.schedulingDecision.schedulerSourceOfTruth,
+    "streamos_managed_primary",
+  );
+  assert.equal(
+    scheduleReady.policy.schedulingDecision.providerNativeSchedulingPolicy,
+    "provider_native_available_but_not_primary",
+  );
 
   const scheduleBlocked = evaluatePublicationFanoutScheduleIntent({
     contentJobReviewStatus: "approved",
@@ -520,6 +552,14 @@ void test("publication scheduling helpers normalize timestamps and classify read
   assert.equal(scheduleBlocked.scheduleStatus, "schedule_blocked");
   assert.equal(scheduleBlocked.blockReason, "fanout_not_ready");
   assert.equal(scheduleBlocked.softBlocked, true);
+  assert.equal(
+    scheduleBlocked.policy.schedulingDecision.schedulerSourceOfTruth,
+    "streamos_managed_primary",
+  );
+  assert.equal(
+    scheduleBlocked.policy.schedulingDecision.providerNativeSchedulingPolicy,
+    "provider_native_unsupported",
+  );
 });
 
 void test("publication schedule policy centralizes timing, provider hints, and execution locks", () => {
@@ -540,12 +580,59 @@ void test("publication schedule policy centralizes timing, provider hints, and e
   });
 
   assert.equal(policy.accepted, true);
-  assert.equal(policy.policyVersion, "2026.06.p3.18.v1");
+  assert.equal(policy.policyVersion, "2026.06.p3.19.v1");
   assert.equal(policy.policyStatus, "ready");
   assert.equal(policy.providerHint.safeLabel, "YouTube scheduling");
+  assert.equal(
+    policy.schedulingDecision.schedulerSourceOfTruth,
+    "streamos_managed_primary",
+  );
+  assert.equal(
+    policy.schedulingDecision.providerNativeSchedulingAvailability,
+    "available",
+  );
+  assert.equal(
+    policy.schedulingDecision.providerNativeSchedulingPolicy,
+    "provider_native_available_but_not_primary",
+  );
+  assert.equal(
+    policy.schedulingDecision.providerNativeSchedulingExecutionStatus,
+    "not_used",
+  );
   assert.equal(policy.execution.status, "idle");
   assert.equal(policy.actionPolicy.canEdit, true);
   assert.equal(policy.timing.isExpired, false);
+});
+
+void test("publication schedule policy marks provider-native scheduling as policy-disabled when StreamOS readiness is disabled", () => {
+  const policy = evaluatePublicationSchedulePolicy({
+    contentJobReviewStatus: "approved",
+    contentJobStatus: "done",
+    currentPublicationStatus: null,
+    hasApprovedBundle: true,
+    hasPublishableAsset: true,
+    hasRequiredScopes: true,
+    scheduleSource: "api-gateway",
+    scheduledAtUtc: "2026-06-30T12:00:00.000Z",
+    scheduledTimezone: "Europe/Berlin",
+    schedulingAllowed: false,
+    targetPlatform: "youtube",
+  });
+
+  assert.equal(
+    policy.schedulingDecision.schedulerSourceOfTruth,
+    "streamos_managed_primary",
+  );
+  assert.equal(
+    policy.schedulingDecision.providerNativeSchedulingAvailability,
+    "available",
+  );
+  assert.equal(
+    policy.schedulingDecision.providerNativeSchedulingPolicy,
+    "provider_native_disabled_by_policy",
+  );
+  assert.equal(policy.schedulingDecision.requiresRevalidation, true);
+  assert.equal(policy.providerHint.nativeSchedulingSupported, true);
 });
 
 void test("publication schedule action policy enables edit, replace, and cancel for mutable entries", () => {

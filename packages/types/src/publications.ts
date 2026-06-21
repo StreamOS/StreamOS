@@ -12,7 +12,9 @@ import type {
   ContentPublicationScheduleSource,
   ContentPublicationScheduleStatus,
   ContentPublicationScheduleSummary,
+  PublicationSchedulingDecision,
 } from "./publication-scheduling.js";
+import { buildPublicationSchedulingDecision } from "./publication-scheduling.js";
 
 export const PUBLICATION_CAPABILITY_VERSION = "2026.06.p3.2.v1" as const;
 
@@ -159,6 +161,7 @@ export type PublicationCapabilityResolution = {
   providerSpecificFields: PublicationCapabilityFieldRule[];
   providerSupportStatus: PublicationCapabilitySupportStatus;
   resolvedDefaults: Record<string, unknown>;
+  schedulingDecision: PublicationSchedulingDecision;
   targetPlatform: StreamPlatform;
   unsupportedFields: string[];
   warnings: PublicationCapabilityIssue[];
@@ -329,6 +332,7 @@ const YOUTUBE_SUPPORT: PublicationCapabilityDefinition = {
   notes: [
     "YouTube publishing stays on the canonical YouTube video contract.",
     "Provider-specific fields are namespaced and stay separate from the canonical core.",
+    "StreamOS-managed scheduling remains the primary source of truth; provider-native scheduling is informational only and does not become the primary execution path.",
   ],
   providerMappedFields: [
     field({
@@ -499,6 +503,7 @@ const TIKTOK_SUPPORT: PublicationCapabilityDefinition = {
   notes: [
     "TikTok remains supported, but target-account capabilities can narrow the usable publish surface.",
     "Dynamic account capabilities are read from the linked platform connection when available.",
+    "StreamOS-managed scheduling remains the primary source of truth; provider-native scheduling can only surface as a secondary policy hint.",
   ],
   providerMappedFields: [
     field({
@@ -1977,6 +1982,13 @@ export function resolvePublicationCapabilities({
     }
   }
 
+  const schedulingDecision = buildPublicationSchedulingDecision({
+    providerSupportStatus: definition.providerSupportStatus,
+    schedulingAllowed:
+      normalizedAccountCapabilities.schedulingAllowed !== false,
+    targetPlatform,
+  });
+
   return {
     accountCapabilities: normalizedAccountCapabilities,
     blockingErrors,
@@ -1991,6 +2003,7 @@ export function resolvePublicationCapabilities({
     providerSpecificFields: providerSpecificFieldRules,
     providerSupportStatus: definition.providerSupportStatus,
     resolvedDefaults,
+    schedulingDecision,
     targetPlatform,
     unsupportedFields,
     warnings,

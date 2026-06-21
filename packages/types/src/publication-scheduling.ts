@@ -158,7 +158,7 @@ export const PUBLICATION_SCHEDULE_POLICY_STATUSES = [
 export type PublicationSchedulePolicyStatus =
   (typeof PUBLICATION_SCHEDULE_POLICY_STATUSES)[number];
 
-export const PUBLICATION_SCHEDULE_POLICY_VERSION = "2026.06.p3.18.v1" as const;
+export const PUBLICATION_SCHEDULE_POLICY_VERSION = "2026.06.p3.19.v1" as const;
 
 export type PublicationSchedulePolicyNotice = {
   code: string;
@@ -176,6 +176,49 @@ export type PublicationScheduleProviderHint = {
   schedulingAllowed: boolean;
   safeLabel: string;
   supportStatus: "conditional" | "experimental" | "supported" | "unsupported";
+};
+
+export const PUBLICATION_SCHEDULER_SOURCE_OF_TRUTH_VALUES = [
+  "streamos_managed_primary",
+] as const;
+
+export type PublicationSchedulerSourceOfTruth =
+  (typeof PUBLICATION_SCHEDULER_SOURCE_OF_TRUTH_VALUES)[number];
+
+export const PUBLICATION_PROVIDER_NATIVE_SCHEDULING_AVAILABILITY_VALUES = [
+  "available",
+  "conditional",
+  "unsupported",
+  "unknown",
+] as const;
+
+export type PublicationProviderNativeSchedulingAvailability =
+  (typeof PUBLICATION_PROVIDER_NATIVE_SCHEDULING_AVAILABILITY_VALUES)[number];
+
+export const PUBLICATION_PROVIDER_NATIVE_SCHEDULING_POLICIES = [
+  "provider_native_available_but_not_primary",
+  "provider_native_disabled_by_policy",
+  "provider_native_future_optional",
+  "provider_native_unsupported",
+  "provider_native_unknown",
+] as const;
+
+export type PublicationProviderNativeSchedulingPolicy =
+  (typeof PUBLICATION_PROVIDER_NATIVE_SCHEDULING_POLICIES)[number];
+
+export const PUBLICATION_PROVIDER_NATIVE_SCHEDULING_EXECUTION_STATUSES = [
+  "not_used",
+] as const;
+
+export type PublicationProviderNativeSchedulingExecutionStatus =
+  (typeof PUBLICATION_PROVIDER_NATIVE_SCHEDULING_EXECUTION_STATUSES)[number];
+
+export type PublicationSchedulingDecision = {
+  providerNativeSchedulingAvailability: PublicationProviderNativeSchedulingAvailability;
+  providerNativeSchedulingExecutionStatus: PublicationProviderNativeSchedulingExecutionStatus;
+  providerNativeSchedulingPolicy: PublicationProviderNativeSchedulingPolicy;
+  requiresRevalidation: boolean;
+  schedulerSourceOfTruth: PublicationSchedulerSourceOfTruth;
 };
 
 export type PublicationScheduleExecutionPolicyStatus =
@@ -228,6 +271,7 @@ export type PublicationSchedulePolicy = {
   policyStatus: PublicationSchedulePolicyStatus;
   policyVersion: string;
   providerHint: PublicationScheduleProviderHint;
+  schedulingDecision: PublicationSchedulingDecision;
   requiresRevalidation: boolean;
   safeDescription: string;
   scheduleStatus: ContentPublicationScheduleStatus;
@@ -672,6 +716,146 @@ function scheduleActionDecision({
   };
 }
 
+export function buildPublicationSchedulingDecision({
+  providerSupportStatus,
+  schedulingAllowed,
+  targetPlatform,
+}: {
+  providerSupportStatus:
+    | "conditional"
+    | "experimental"
+    | "supported"
+    | "unsupported";
+  schedulingAllowed: boolean;
+  targetPlatform: StreamPlatform | "fanout";
+}): PublicationSchedulingDecision {
+  if (targetPlatform === "fanout") {
+    return {
+      providerNativeSchedulingAvailability: "unsupported",
+      providerNativeSchedulingExecutionStatus: "not_used",
+      providerNativeSchedulingPolicy: "provider_native_unsupported",
+      requiresRevalidation: true,
+      schedulerSourceOfTruth: "streamos_managed_primary",
+    };
+  }
+
+  if (providerSupportStatus === "unsupported") {
+    return {
+      providerNativeSchedulingAvailability: "unsupported",
+      providerNativeSchedulingExecutionStatus: "not_used",
+      providerNativeSchedulingPolicy: "provider_native_unsupported",
+      requiresRevalidation: true,
+      schedulerSourceOfTruth: "streamos_managed_primary",
+    };
+  }
+
+  if (!schedulingAllowed) {
+    return {
+      providerNativeSchedulingAvailability:
+        providerSupportStatus === "supported" ? "available" : "conditional",
+      providerNativeSchedulingExecutionStatus: "not_used",
+      providerNativeSchedulingPolicy: "provider_native_disabled_by_policy",
+      requiresRevalidation: true,
+      schedulerSourceOfTruth: "streamos_managed_primary",
+    };
+  }
+
+  if (
+    providerSupportStatus === "conditional" ||
+    providerSupportStatus === "experimental"
+  ) {
+    return {
+      providerNativeSchedulingAvailability: "conditional",
+      providerNativeSchedulingExecutionStatus: "not_used",
+      providerNativeSchedulingPolicy: "provider_native_future_optional",
+      requiresRevalidation: true,
+      schedulerSourceOfTruth: "streamos_managed_primary",
+    };
+  }
+
+  return {
+    providerNativeSchedulingAvailability: "available",
+    providerNativeSchedulingExecutionStatus: "not_used",
+    providerNativeSchedulingPolicy: "provider_native_available_but_not_primary",
+    requiresRevalidation: false,
+    schedulerSourceOfTruth: "streamos_managed_primary",
+  };
+}
+
+function buildPublicationSchedulingDecisionInfo({
+  mode,
+  schedulingDecision,
+}: {
+  mode: PublicationSchedulePolicyMode;
+  schedulingDecision: PublicationSchedulingDecision;
+}): PublicationSchedulePolicyNotice {
+  if (mode === "fanout_create" || mode === "fanout_edit") {
+    return {
+      code: "streamos_managed_primary",
+      message:
+        "Fanout scheduling remains StreamOS-managed as the primary source of truth; provider-native hints stay secondary and never replace the parent aggregate.",
+    };
+  }
+
+  switch (schedulingDecision.providerNativeSchedulingPolicy) {
+    case "provider_native_available_but_not_primary":
+      return {
+        code: "streamos_managed_primary",
+        message:
+          "StreamOS keeps scheduling as the primary source of truth; provider-native scheduling is available only as a secondary hint.",
+      };
+    case "provider_native_disabled_by_policy":
+      return {
+        code: "streamos_managed_primary",
+        message:
+          "StreamOS keeps scheduling as the primary source of truth; provider-native scheduling is disabled by policy.",
+      };
+    case "provider_native_future_optional":
+      return {
+        code: "streamos_managed_primary",
+        message:
+          "StreamOS keeps scheduling as the primary source of truth; provider-native scheduling remains a future optional hint.",
+      };
+    case "provider_native_unsupported":
+      return {
+        code: "streamos_managed_primary",
+        message:
+          "StreamOS keeps scheduling as the primary source of truth; provider-native scheduling is unsupported for this target.",
+      };
+    default:
+      return {
+        code: "streamos_managed_primary",
+        message:
+          "StreamOS keeps scheduling as the primary source of truth; provider-native scheduling state is unknown and stays non-primary.",
+      };
+  }
+}
+
+function describePublicationSchedulingDecision({
+  mode,
+  schedulingDecision,
+}: {
+  mode: PublicationSchedulePolicyMode;
+  schedulingDecision: PublicationSchedulingDecision;
+}): string {
+  if (mode === "fanout_create" || mode === "fanout_edit") {
+    return "Provider-native hints stay secondary and never replace the parent fanout aggregate.";
+  }
+
+  switch (schedulingDecision.providerNativeSchedulingPolicy) {
+    case "provider_native_available_but_not_primary":
+      return "Provider-native scheduling is available only as a secondary hint.";
+    case "provider_native_disabled_by_policy":
+      return "Provider-native scheduling is disabled by policy.";
+    case "provider_native_future_optional":
+      return "Provider-native scheduling remains a future optional hint.";
+    case "provider_native_unsupported":
+      return "Provider-native scheduling is unsupported for this target.";
+    default:
+      return "Provider-native scheduling state is unknown and stays non-primary.";
+  }
+}
+
 function buildPublicationSchedulePolicy(
   input: PublicationSchedulePolicyInput,
 ): PublicationSchedulePolicy {
@@ -697,6 +881,11 @@ function buildPublicationSchedulePolicy(
   });
   const isViewMode =
     mode === "calendar" || mode === "observability" || mode === "revalidate";
+  const schedulingDecision = buildPublicationSchedulingDecision({
+    providerSupportStatus: input.targetSupportStatus ?? "supported",
+    schedulingAllowed: input.schedulingAllowed,
+    targetPlatform: input.targetPlatform,
+  });
   const providerHint = buildPublicationScheduleProviderHint({
     availableScopes: input.availableScopes ?? [],
     connectionStatus: input.connectionStatus ?? null,
@@ -704,6 +893,7 @@ function buildPublicationSchedulePolicy(
     mode,
     providerSupportStatus: input.targetSupportStatus ?? "supported",
     schedulingAllowed: input.schedulingAllowed,
+    schedulingDecision,
     targetPlatform: input.targetPlatform,
   });
   const execution = buildPublicationScheduleExecutionPolicy({
@@ -854,16 +1044,14 @@ function buildPublicationSchedulePolicy(
 
   if (input.mode === "fanout_create" || input.mode === "fanout_edit") {
     info.push({
-      code: "fanout_target_policy",
+      code: "streamos_managed_primary",
       message:
-        "Fanout scheduling remains server-managed; each target stays auditable through the shared policy layer.",
+        "Fanout scheduling remains StreamOS-managed as the primary source of truth; provider-native hints stay secondary and never replace the parent aggregate.",
     });
   } else {
-    info.push({
-      code: "streamos_managed",
-      message:
-        "Provider-native scheduling is not used; StreamOS stores the UTC plan and keeps execution server-side.",
-    });
+    info.push(
+      buildPublicationSchedulingDecisionInfo({ mode, schedulingDecision }),
+    );
   }
 
   const scheduleStatus = determinePolicyScheduleStatus({
@@ -915,6 +1103,7 @@ function buildPublicationSchedulePolicy(
     policyStatus,
     policyVersion,
     providerHint,
+    schedulingDecision,
     requiresRevalidation:
       timing.isNearDue ||
       timing.isStale ||
@@ -926,6 +1115,7 @@ function buildPublicationSchedulePolicy(
       mode,
       providerHint,
       softBlockReason,
+      schedulingDecision,
       timing,
       targetPolicy,
     }),
@@ -942,6 +1132,7 @@ function buildPublicationScheduleSafeDescription({
   mode,
   providerHint,
   softBlockReason,
+  schedulingDecision,
   timing,
   targetPolicy,
 }: {
@@ -949,6 +1140,7 @@ function buildPublicationScheduleSafeDescription({
   mode: PublicationSchedulePolicyMode;
   providerHint: PublicationScheduleProviderHint;
   softBlockReason: ContentPublicationScheduleBlockReason | null;
+  schedulingDecision: PublicationSchedulingDecision;
   timing: PublicationScheduleTimingPolicy;
   targetPolicy: PublicationScheduleTargetPolicy | null;
 }): string {
@@ -1015,10 +1207,10 @@ function buildPublicationScheduleSafeDescription({
   }
 
   if (targetPolicy) {
-    return `Scheduling is ready for ${providerHint.safeLabel.toLowerCase()} and stays streamos-managed until execution is introduced.`;
+    return `Scheduling is ready for ${providerHint.safeLabel.toLowerCase()} and stays StreamOS-managed as the primary source of truth; provider-native hints stay secondary.`;
   }
 
-  return `${providerHint.safeLabel} stays streamos-managed until execution is introduced.`;
+  return `${providerHint.safeLabel} stays StreamOS-managed as the primary source of truth; ${describePublicationSchedulingDecision({ mode, schedulingDecision })}`;
 }
 
 function buildPublicationScheduleNextAction({
@@ -1189,6 +1381,7 @@ function buildPublicationScheduleProviderHint({
   mode,
   providerSupportStatus,
   schedulingAllowed,
+  schedulingDecision,
   targetPlatform,
 }: {
   availableScopes: string[];
@@ -1201,6 +1394,7 @@ function buildPublicationScheduleProviderHint({
     | "supported"
     | "unsupported";
   schedulingAllowed: boolean;
+  schedulingDecision: PublicationSchedulingDecision;
   targetPlatform: StreamPlatform | "fanout";
 }): PublicationScheduleProviderHint {
   const requiredScopes =
@@ -1220,19 +1414,26 @@ function buildPublicationScheduleProviderHint({
       ? "Fanout scheduling"
       : `${getPublicationScheduleProviderHintLabel(targetPlatform)} scheduling`;
 
+  const providerNativeDescription = describePublicationSchedulingDecision({
+    mode,
+    schedulingDecision,
+  });
+
   let description =
-    "Provider-native scheduling is not used; StreamOS stores the UTC schedule and keeps execution server-side.";
+    "StreamOS keeps scheduling as the primary source of truth and executes it server-side.";
 
   if (targetPlatform === "fanout") {
     description =
-      "Parent fanout scheduling is server-managed; each target remains auditable and execution stays inside StreamOS.";
+      "Parent fanout scheduling stays StreamOS-managed as the primary source of truth; each target remains auditable inside StreamOS.";
   } else if (targetPlatform === "tiktok") {
     description =
-      "TikTok scheduling stays server-managed and depends on the connected account scopes and capability state.";
+      "TikTok scheduling stays StreamOS-managed as the primary source of truth and depends on the connected account scopes and capability state.";
   } else if (targetPlatform === "youtube") {
     description =
-      "YouTube scheduling stays server-managed; provider-native publishAt execution is not used by StreamOS.";
+      "YouTube scheduling stays StreamOS-managed as the primary source of truth; provider-native publishAt execution is not used by StreamOS.";
   }
+
+  description = `${description} ${providerNativeDescription}`;
 
   if (mode === "observability" || mode === "calendar") {
     description = `${description} The current read model should be treated as a safe schedule snapshot.`;
