@@ -191,7 +191,7 @@ The production deployment topology is documented in
 - `workers/stream-job-worker` deploys to Railway as the canonical `streamos-media` consumer and materializes durable stream/content-job state.
 - `workers/repurposing-worker` deploys to Railway as the canonical `streamos-repurposing` consumer and calls `POST /repurposing/plan` for manual-review-only repurposing plans.
 - `workers/publishing-worker` deploys to Railway as the canonical `streamos-publishing` consumer and executes approved publication and reconciliation jobs for server-side provider writes.
-- `workers/publishing-scheduler-worker` deploys to Railway as a private polling worker that claims due scheduled publications and enqueues deterministic `publication.publish` jobs into `streamos-publishing`.
+- `workers/publishing-scheduler-worker` deploys to Railway as a private polling worker that claims due scheduled publications and enqueues deterministic `publication.publish` jobs into `streamos-publishing`. The StreamOS scheduler remains the primary source of truth; provider-native scheduling is treated only as a secondary policy hint, not as the primary execution path.
 - `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.
 - `workers/clip-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for clip scoring.
 - `workers/content-job-retry-worker` deploys to Railway as a Node.js BullMQ worker that requeues retryable failed `content_jobs`.
@@ -307,7 +307,10 @@ path is used. The browser still does not call provider write APIs directly.
 `GET /dashboard/publications/schedule` is the read-only schedule overview for
 approved publications and parent fanouts. It groups planned items by day,
 shows export eligibility and history links, and stays tenant-scoped without
-starting any worker, publish, or provider-write flow from the browser.
+starting any worker, publish, or provider-write flow from the browser. The
+schedule timeline is always StreamOS-managed first; provider-native hints can
+inform policy, but they do not replace the canonical schedule state or fanout
+parent ownership.
 
 `GET /api/observability/scheduler` is a protected server-to-server snapshot
 route for operator use. It requires `API_GATEWAY_SECRET`, returns persisted

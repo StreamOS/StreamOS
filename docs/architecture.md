@@ -69,7 +69,8 @@ apps/web/src/
   schedule surface for approved publications and parent fanouts. It groups
   planned items by day, links back to publication history and fanout summary
   views, and does not schedule, publish, or call provider APIs from the
-  browser.
+  browser. StreamOS remains the primary source of truth for the schedule,
+  while provider-native scheduling can only appear as a secondary policy hint.
 - Rate limiting, retry handling, and audit logging for external API calls.
 - `GET /api/observability/scheduler` is a protected server-to-server snapshot
   route for operator use. It reads persisted scheduler run history and safe
@@ -160,8 +161,10 @@ Use realtime channels or server-sent events for live viewer counts, stream statu
 - `workers/publishing-scheduler-worker` is the private scheduler for
   publication timing. It claims due scheduled `content_publications` rows and
   enqueues deterministic `publication.publish` jobs into `streamos-publishing`
-  without calling provider APIs or automation-service directly. Its protected
-  operator read model lives at `GET /api/observability/scheduler`.
+  without calling provider APIs or automation-service directly. The scheduler
+  stays StreamOS-managed as the primary source of truth; provider-native
+  scheduling is not used as the primary execution path. Its protected operator
+  read model lives at `GET /api/observability/scheduler`.
 - `workers/transcription-worker` consumes only `streamos-transcription`, calls
   `services/automation-service`, and persists `vod_assets`,
   `stream_transcripts`, clip follow-up jobs, and transcription job status.
