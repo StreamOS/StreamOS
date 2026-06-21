@@ -586,6 +586,13 @@ export const CONTENT_PUBLICATION_EVENT_TYPES = [
   "validated",
   "rejected",
   "canceled",
+  "schedule_blocked",
+  "schedule_canceled",
+  "schedule_created",
+  "schedule_expired",
+  "schedule_replaced",
+  "schedule_updated",
+  "schedule_validation_failed",
   "queued",
   "publishing",
   "published",
@@ -600,6 +607,29 @@ export const CONTENT_PUBLICATION_EVENT_TYPES = [
 
 export type ContentPublicationEventType =
   (typeof CONTENT_PUBLICATION_EVENT_TYPES)[number];
+
+export const CONTENT_PUBLICATION_FANOUT_EVENT_TYPES = [
+  "child_retry_queued",
+  "child_retry_requested",
+  "fanout_blocked",
+  "fanout_requested",
+  "fanout_schedule_blocked",
+  "fanout_schedule_canceled",
+  "fanout_schedule_created",
+  "fanout_schedule_expired",
+  "fanout_schedule_replaced",
+  "fanout_schedule_updated",
+  "fanout_schedule_validation_failed",
+  "fanout_target_schedule_blocked",
+  "fanout_target_schedule_inherited",
+  "fanout_validated",
+  "manual_action_blocked",
+  "parent_aggregate_refreshed",
+  "target_rechecked",
+] as const;
+
+export type ContentPublicationFanoutEventType =
+  (typeof CONTENT_PUBLICATION_FANOUT_EVENT_TYPES)[number];
 
 export const CONTENT_PUBLICATION_VALIDATION_CODES = [
   "account_capability_missing",
@@ -637,6 +667,7 @@ export type ContentPublicationSnapshot = {
     scopes: string[];
   };
   providerOverrides: Record<string, Record<string, unknown>>;
+  schedule: ContentPublicationScheduleSummary;
   targetPlatform: StreamPlatform;
 };
 
@@ -673,6 +704,20 @@ export type ContentPublication = {
   retryCount: number;
   maxRetries: number;
   nextRetryAt: string | null;
+  scheduledAtUtc: string | null;
+  scheduledTimezone: string | null;
+  scheduleBlockMessage: string | null;
+  scheduleBlockReason: ContentPublicationScheduleBlockReason | null;
+  scheduleCanceledAt: string | null;
+  scheduleCanceledReason: string | null;
+  scheduleCapabilitySnapshot: Record<string, unknown>;
+  scheduleCreatedAt: string | null;
+  scheduleExpiredAt: string | null;
+  scheduleReplacedAt: string | null;
+  scheduleSource: ContentPublicationScheduleSource | null;
+  scheduleStatus: ContentPublicationScheduleStatus;
+  scheduleUpdatedAt: string | null;
+  scheduleValidationMetadata: Record<string, unknown>;
   externalPostId: string | null;
   externalUrl: string | null;
   publishedAt: string | null;
@@ -698,9 +743,16 @@ export type ContentPublicationEvent = {
 };
 
 export * from "./publications.js";
+export * from "./publication-scheduling.js";
 import type {
   PublicationCanonicalDraft,
   PublicationProviderFailureCode,
   PublicationReconciliationStatus,
   PublicationRemoteStatus,
 } from "./publications.js";
+import type {
+  ContentPublicationScheduleBlockReason,
+  ContentPublicationScheduleSource,
+  ContentPublicationScheduleStatus,
+  ContentPublicationScheduleSummary,
+} from "./publication-scheduling.js";

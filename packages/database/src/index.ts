@@ -39,6 +39,13 @@ export type ContentPublicationEventType =
   | "validated"
   | "rejected"
   | "canceled"
+  | "schedule_blocked"
+  | "schedule_canceled"
+  | "schedule_created"
+  | "schedule_expired"
+  | "schedule_replaced"
+  | "schedule_updated"
+  | "schedule_validation_failed"
   | "queued"
   | "publishing"
   | "published"
@@ -56,6 +63,58 @@ export type ContentPublicationFanoutStatus =
   | "requested"
   | "validated";
 export type ContentPublicationFanoutTargetStatus = "blocked" | "validated";
+export type ContentPublicationFanoutEventType =
+  | "child_retry_queued"
+  | "child_retry_requested"
+  | "fanout_blocked"
+  | "fanout_requested"
+  | "fanout_schedule_blocked"
+  | "fanout_schedule_canceled"
+  | "fanout_schedule_created"
+  | "fanout_schedule_expired"
+  | "fanout_schedule_replaced"
+  | "fanout_schedule_updated"
+  | "fanout_schedule_validation_failed"
+  | "fanout_target_schedule_blocked"
+  | "fanout_target_schedule_inherited"
+  | "fanout_validated"
+  | "manual_action_blocked"
+  | "parent_aggregate_refreshed"
+  | "target_rechecked";
+export type ContentPublicationScheduleStatus =
+  | "not_scheduled"
+  | "scheduled"
+  | "schedule_blocked"
+  | "schedule_expired"
+  | "schedule_canceled"
+  | "schedule_replaced"
+  | "schedule_ready"
+  | "schedule_unknown";
+export type ContentPublicationScheduleSource =
+  | "api-gateway"
+  | "dashboard"
+  | "manual"
+  | "system";
+export type ContentPublicationScheduleBlockReason =
+  | "child_not_part_of_parent"
+  | "content_job_not_approved"
+  | "content_job_not_complete"
+  | "fanout_finalized"
+  | "fanout_not_ready"
+  | "missing_publish_scopes"
+  | "platform_connection_missing"
+  | "platform_connection_not_connected"
+  | "publication_finalized"
+  | "publication_processing"
+  | "publication_reauth_required"
+  | "publication_status_not_schedulable"
+  | "publishable_asset_missing"
+  | "publishable_bundle_missing"
+  | "schedule_time_invalid"
+  | "schedule_timezone_invalid"
+  | "scheduling_not_allowed"
+  | "target_unsupported"
+  | "tenant_mismatch";
 export type PublicationFanoutPolicy =
   | "all_or_nothing_preflight"
   | "prepare_valid_targets";
@@ -685,6 +744,20 @@ export type Database = {
           last_reconciled_at: string | null;
           max_retries: number;
           next_retry_at: string | null;
+          scheduled_at_utc: string | null;
+          scheduled_timezone: string | null;
+          schedule_block_message: string | null;
+          schedule_block_reason: ContentPublicationScheduleBlockReason | null;
+          schedule_canceled_at: string | null;
+          schedule_canceled_reason: string | null;
+          schedule_capability_snapshot: Json;
+          schedule_created_at: string | null;
+          schedule_expired_at: string | null;
+          schedule_replaced_at: string | null;
+          schedule_source: ContentPublicationScheduleSource | null;
+          schedule_status: ContentPublicationScheduleStatus;
+          schedule_updated_at: string | null;
+          schedule_validation_metadata: Json;
           platform_connection_id: string;
           published_at: string | null;
           publication_status: ContentPublicationStatus;
@@ -728,6 +801,20 @@ export type Database = {
           last_reconciled_at?: string | null;
           max_retries?: number;
           next_retry_at?: string | null;
+          scheduled_at_utc?: string | null;
+          scheduled_timezone?: string | null;
+          schedule_block_message?: string | null;
+          schedule_block_reason?: ContentPublicationScheduleBlockReason | null;
+          schedule_canceled_at?: string | null;
+          schedule_canceled_reason?: string | null;
+          schedule_capability_snapshot?: Json;
+          schedule_created_at?: string | null;
+          schedule_expired_at?: string | null;
+          schedule_replaced_at?: string | null;
+          schedule_source?: ContentPublicationScheduleSource | null;
+          schedule_status?: ContentPublicationScheduleStatus;
+          schedule_updated_at?: string | null;
+          schedule_validation_metadata?: Json;
           platform_connection_id: string;
           published_at?: string | null;
           publication_status?: ContentPublicationStatus;
@@ -771,6 +858,20 @@ export type Database = {
           last_reconciled_at?: string | null;
           max_retries?: number;
           next_retry_at?: string | null;
+          scheduled_at_utc?: string | null;
+          scheduled_timezone?: string | null;
+          schedule_block_message?: string | null;
+          schedule_block_reason?: ContentPublicationScheduleBlockReason | null;
+          schedule_canceled_at?: string | null;
+          schedule_canceled_reason?: string | null;
+          schedule_capability_snapshot?: Json;
+          schedule_created_at?: string | null;
+          schedule_expired_at?: string | null;
+          schedule_replaced_at?: string | null;
+          schedule_source?: ContentPublicationScheduleSource | null;
+          schedule_status?: ContentPublicationScheduleStatus;
+          schedule_updated_at?: string | null;
+          schedule_validation_metadata?: Json;
           platform_connection_id?: string;
           published_at?: string | null;
           publication_status?: ContentPublicationStatus;
@@ -874,6 +975,20 @@ export type Database = {
           fanout_policy: PublicationFanoutPolicy;
           fanout_status: ContentPublicationFanoutStatus;
           id: string;
+          scheduled_at_utc: string | null;
+          scheduled_timezone: string | null;
+          schedule_block_message: string | null;
+          schedule_block_reason: ContentPublicationScheduleBlockReason | null;
+          schedule_canceled_at: string | null;
+          schedule_canceled_reason: string | null;
+          schedule_capability_snapshot: Json;
+          schedule_created_at: string | null;
+          schedule_expired_at: string | null;
+          schedule_replaced_at: string | null;
+          schedule_source: ContentPublicationScheduleSource | null;
+          schedule_status: ContentPublicationScheduleStatus;
+          schedule_updated_at: string | null;
+          schedule_validation_metadata: Json;
           requested_at: string;
           requested_by: string;
           request_intent_hash: string;
@@ -897,6 +1012,20 @@ export type Database = {
           fanout_policy?: PublicationFanoutPolicy;
           fanout_status?: ContentPublicationFanoutStatus;
           id?: string;
+          scheduled_at_utc?: string | null;
+          scheduled_timezone?: string | null;
+          schedule_block_message?: string | null;
+          schedule_block_reason?: ContentPublicationScheduleBlockReason | null;
+          schedule_canceled_at?: string | null;
+          schedule_canceled_reason?: string | null;
+          schedule_capability_snapshot?: Json;
+          schedule_created_at?: string | null;
+          schedule_expired_at?: string | null;
+          schedule_replaced_at?: string | null;
+          schedule_source?: ContentPublicationScheduleSource | null;
+          schedule_status?: ContentPublicationScheduleStatus;
+          schedule_updated_at?: string | null;
+          schedule_validation_metadata?: Json;
           requested_at?: string;
           requested_by: string;
           request_intent_hash: string;
@@ -920,6 +1049,20 @@ export type Database = {
           fanout_policy?: PublicationFanoutPolicy;
           fanout_status?: ContentPublicationFanoutStatus;
           id?: string;
+          scheduled_at_utc?: string | null;
+          scheduled_timezone?: string | null;
+          schedule_block_message?: string | null;
+          schedule_block_reason?: ContentPublicationScheduleBlockReason | null;
+          schedule_canceled_at?: string | null;
+          schedule_canceled_reason?: string | null;
+          schedule_capability_snapshot?: Json;
+          schedule_created_at?: string | null;
+          schedule_expired_at?: string | null;
+          schedule_replaced_at?: string | null;
+          schedule_source?: ContentPublicationScheduleSource | null;
+          schedule_status?: ContentPublicationScheduleStatus;
+          schedule_updated_at?: string | null;
+          schedule_validation_metadata?: Json;
           requested_at?: string;
           requested_by?: string;
           request_intent_hash?: string;
@@ -1047,7 +1190,7 @@ export type Database = {
           content_publication_fanout_target_id: string | null;
           content_publication_id: string | null;
           created_at: string;
-          event_type: string;
+          event_type: ContentPublicationFanoutEventType;
           fanout_status: string;
           id: string;
           metadata: Json;
@@ -1065,7 +1208,7 @@ export type Database = {
           content_publication_fanout_target_id?: string | null;
           content_publication_id?: string | null;
           created_at?: string;
-          event_type: string;
+          event_type: ContentPublicationFanoutEventType;
           fanout_status: string;
           id?: string;
           metadata?: Json;
@@ -1083,7 +1226,7 @@ export type Database = {
           content_publication_fanout_target_id?: string | null;
           content_publication_id?: string | null;
           created_at?: string;
-          event_type?: string;
+          event_type?: ContentPublicationFanoutEventType;
           fanout_status?: string;
           id?: string;
           metadata?: Json;
@@ -1702,18 +1845,32 @@ export type Database = {
           p_capability_snapshot?: Json;
           p_capability_version?: string;
           p_content_job_id: string;
+          p_scheduled_at_utc?: string | null;
+          p_scheduled_timezone?: string | null;
+          p_schedule_block_message?: string | null;
+          p_schedule_block_reason?: ContentPublicationScheduleBlockReason | null;
+          p_schedule_canceled_at?: string | null;
+          p_schedule_canceled_reason?: string | null;
+          p_schedule_capability_snapshot?: Json;
+          p_schedule_created_at?: string | null;
+          p_schedule_expired_at?: string | null;
+          p_schedule_replaced_at?: string | null;
+          p_schedule_source?: ContentPublicationScheduleSource | null;
+          p_schedule_status?: ContentPublicationScheduleStatus;
+          p_schedule_updated_at?: string | null;
+          p_schedule_validation_metadata?: Json;
           p_platform_connection_id: string;
           p_provider_overrides?: Json;
           p_target_platform: Database["public"]["Enums"]["stream_platform"];
-          p_user_id: string;
           p_requested_by: string;
-          p_snapshot: Json;
+          p_requested_at?: string;
           p_request_intent_hash: string;
+          p_snapshot: Json;
           p_snapshot_hash: string;
+          p_user_id: string;
           p_validation_code?: string;
           p_validation_message?: string | null;
           p_validation_metadata?: Json;
-          p_requested_at?: string;
         };
         Returns: Database["public"]["Tables"]["content_publications"]["Row"];
       };

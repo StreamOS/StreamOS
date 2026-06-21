@@ -7,6 +7,12 @@ import type {
   RepurposingPlanResult,
   StreamPlatform,
 } from "./index.js";
+import type {
+  ContentPublicationScheduleBlockReason,
+  ContentPublicationScheduleSource,
+  ContentPublicationScheduleStatus,
+  ContentPublicationScheduleSummary,
+} from "./publication-scheduling.js";
 
 export const PUBLICATION_CAPABILITY_VERSION = "2026.06.p3.2.v1" as const;
 
@@ -851,6 +857,7 @@ export type ContentPublicationFanoutSnapshot = {
   };
   capabilityVersion: string;
   fanoutPolicy: PublicationFanoutPolicy;
+  schedule: ContentPublicationScheduleSummary;
   requestedTargets: PublicationFanoutRequestTarget[];
 };
 
@@ -887,6 +894,20 @@ export type ContentPublicationFanout = {
   fanoutPolicy: PublicationFanoutPolicy;
   fanoutStatus: ContentPublicationFanoutStatus;
   id: string;
+  scheduledAtUtc: string | null;
+  scheduledTimezone: string | null;
+  scheduleBlockMessage: string | null;
+  scheduleBlockReason: ContentPublicationScheduleBlockReason | null;
+  scheduleCanceledAt: string | null;
+  scheduleCanceledReason: string | null;
+  scheduleCapabilitySnapshot: Record<string, unknown>;
+  scheduleCreatedAt: string | null;
+  scheduleExpiredAt: string | null;
+  scheduleReplacedAt: string | null;
+  scheduleSource: ContentPublicationScheduleSource | null;
+  scheduleStatus: ContentPublicationScheduleStatus;
+  scheduleUpdatedAt: string | null;
+  scheduleValidationMetadata: Record<string, unknown>;
   requestedAt: string;
   requestedBy: string;
   requestIntentHash: string;

@@ -13,6 +13,11 @@ import {
   PUBLICATION_CAPABILITY_VERSION,
   resolvePublicationCapabilities,
 } from "../src/publications.js";
+import {
+  buildPublicationScheduleSummary,
+  evaluatePublicationFanoutScheduleIntent,
+  evaluatePublicationScheduleIntent,
+} from "../src/publication-scheduling.js";
 
 const APPROVED_BUNDLE = {
   captions: ["Clip caption one"],
@@ -459,4 +464,58 @@ void test("publication fanout parent refresh policy is available whenever the fa
   assert.equal(policy.actionKey, "refresh_parent_aggregate");
   assert.equal(policy.intent, "recompute");
   assert.equal(policy.severity, "low");
+});
+
+void test("publication scheduling helpers normalize timestamps and classify readiness", () => {
+  const summary = buildPublicationScheduleSummary({
+    capabilitySnapshot: { schedulingAllowed: true },
+    createdAt: "2099-06-21T10:00:00.000Z",
+    scheduleStatus: "scheduled",
+    scheduledAtUtc: "2099-06-21T12:00:00.000Z",
+    scheduledTimezone: "Europe/Berlin",
+    updatedAt: "2099-06-21T10:05:00.000Z",
+  });
+
+  assert.equal(summary.scheduleStatus, "scheduled");
+  assert.equal(summary.scheduledAtUtc, "2099-06-21T12:00:00.000Z");
+  assert.equal(summary.scheduledTimezone, "Europe/Berlin");
+  assert.deepEqual(summary.capabilitySnapshot, { schedulingAllowed: true });
+
+  const scheduleReady = evaluatePublicationScheduleIntent({
+    contentJobReviewStatus: "approved",
+    contentJobStatus: "done",
+    currentPublicationStatus: null,
+    hasApprovedBundle: true,
+    hasPublishableAsset: true,
+    hasRequiredScopes: true,
+    scheduleSource: "api-gateway",
+    scheduledAtUtc: "2099-06-21T12:00:00.000Z",
+    scheduledTimezone: "Europe/Berlin",
+    schedulingAllowed: true,
+    targetPlatform: "youtube",
+  });
+
+  assert.equal(scheduleReady.accepted, true);
+  assert.equal(scheduleReady.scheduleStatus, "schedule_ready");
+  assert.equal(scheduleReady.blockReason, null);
+
+  const scheduleBlocked = evaluatePublicationFanoutScheduleIntent({
+    contentJobReviewStatus: "approved",
+    contentJobStatus: "done",
+    currentFanoutStatus: "validated",
+    hasApprovedBundle: true,
+    hasPublishableAsset: true,
+    hasRequiredScopes: true,
+    hasRunnableTargets: false,
+    scheduleSource: "dashboard",
+    scheduledAtUtc: "2099-06-21T12:00:00.000Z",
+    scheduledTimezone: "Europe/Berlin",
+    schedulingAllowed: true,
+    targetCount: 2,
+  });
+
+  assert.equal(scheduleBlocked.accepted, true);
+  assert.equal(scheduleBlocked.scheduleStatus, "schedule_blocked");
+  assert.equal(scheduleBlocked.blockReason, "fanout_not_ready");
+  assert.equal(scheduleBlocked.softBlocked, true);
 });

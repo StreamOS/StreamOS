@@ -18,17 +18,24 @@ import type {
 } from "@streamos/types";
 import {
   buildCanonicalPublicationDraft,
+  buildPublicationScheduleSummary,
   buildPublicationFanoutRequestIntentHash,
   buildPublicationFanoutChildRetryActionPolicy,
-  buildPublicationFanoutParentRefreshActionPolicy,
   buildPublicationFanoutTargetRecheckActionPolicy,
   buildPublicationManualActionPolicy,
   extractPublicationAccountCapabilityOverlay,
+  evaluatePublicationFanoutScheduleIntent,
+  evaluatePublicationScheduleIntent,
   getPublicationCapabilityDefinition,
   PUBLICATION_CAPABILITY_VERSION,
   isApprovedRepurposingPlanResult,
+  normalizePublicationScheduleTimestamp,
+  normalizePublicationScheduleTimezone,
   type ContentPublicationFanoutBlockReason,
   CONTENT_PUBLICATION_FANOUT_BLOCK_REASONS,
+  type ContentPublicationScheduleBlockReason,
+  type ContentPublicationScheduleSource,
+  type ContentPublicationScheduleStatus,
   type ContentPublicationFanoutSnapshot,
   type ContentPublicationFanoutTargetStatus,
   type ContentPublicationFanoutStatus,
@@ -61,6 +68,8 @@ const publicationRequestSchema = z.object({
   provider_overrides: z
     .record(z.string(), z.record(z.string(), z.unknown()))
     .default({}),
+  scheduled_publish_at: z.string().trim().min(1).optional().nullable(),
+  scheduled_timezone: z.string().trim().min(1).optional().nullable(),
   target_platform: z.enum(STREAM_PLATFORMS),
   user_id: z.string().uuid(),
 });
@@ -78,6 +87,8 @@ const publicationFanoutRequestSchema = z
     fanout_policy: z
       .literal("prepare_valid_targets")
       .default("prepare_valid_targets"),
+    scheduled_publish_at: z.string().trim().min(1).optional().nullable(),
+    scheduled_timezone: z.string().trim().min(1).optional().nullable(),
     targets: z
       .array(publicationFanoutTargetRequestSchema)
       .min(1)
@@ -177,6 +188,20 @@ type PublicationRow = {
   external_url: string | null;
   max_retries: number;
   next_retry_at: string | null;
+  scheduled_at_utc: string | null;
+  scheduled_timezone: string | null;
+  schedule_block_message: string | null;
+  schedule_block_reason: ContentPublicationScheduleBlockReason | null;
+  schedule_canceled_at: string | null;
+  schedule_canceled_reason: string | null;
+  schedule_capability_snapshot: Record<string, unknown>;
+  schedule_created_at: string | null;
+  schedule_expired_at: string | null;
+  schedule_replaced_at: string | null;
+  schedule_source: ContentPublicationScheduleSource | null;
+  schedule_status: ContentPublicationScheduleStatus;
+  schedule_updated_at: string | null;
+  schedule_validation_metadata: Record<string, unknown>;
   platform_connection_id: string;
   publication_status: ContentPublicationStatus;
   published_at: string | null;
@@ -208,6 +233,8 @@ type PublicationMutationResult = {
   content_publication_id: string;
   platform_connection_id: string;
   publication_status: ContentPublicationStatus;
+  schedule_block_reason: ContentPublicationScheduleBlockReason | null;
+  schedule_status: ContentPublicationScheduleStatus;
   request_intent_hash: string;
   provider_overrides: PublicationProviderOverrides;
   snapshot_hash: string;
@@ -255,6 +282,8 @@ type PublicationFanoutMutationResult = {
   content_publication_fanout_id: string;
   fanout_policy: PublicationFanoutPolicy;
   fanout_status: ContentPublicationFanoutStatus;
+  schedule_block_reason: ContentPublicationScheduleBlockReason | null;
+  schedule_status: ContentPublicationScheduleStatus;
   requested_by: string;
   request_intent_hash: string;
   snapshot_hash: string;
@@ -396,6 +425,20 @@ type PublicationFanoutRow = {
   fanout_policy: PublicationFanoutPolicy;
   fanout_status: ContentPublicationFanoutStatus;
   id: string;
+  scheduled_at_utc: string | null;
+  scheduled_timezone: string | null;
+  schedule_block_message: string | null;
+  schedule_block_reason: ContentPublicationScheduleBlockReason | null;
+  schedule_canceled_at: string | null;
+  schedule_canceled_reason: string | null;
+  schedule_capability_snapshot: Record<string, unknown>;
+  schedule_created_at: string | null;
+  schedule_expired_at: string | null;
+  schedule_replaced_at: string | null;
+  schedule_source: ContentPublicationScheduleSource | null;
+  schedule_status: ContentPublicationScheduleStatus;
+  schedule_updated_at: string | null;
+  schedule_validation_metadata: Record<string, unknown>;
   requested_at: string;
   requested_by: string;
   request_intent_hash: string;
@@ -452,6 +495,15 @@ type PublicationFanoutEventRow = {
     | "child_retry_requested"
     | "fanout_blocked"
     | "fanout_requested"
+    | "fanout_schedule_blocked"
+    | "fanout_schedule_canceled"
+    | "fanout_schedule_created"
+    | "fanout_schedule_expired"
+    | "fanout_schedule_replaced"
+    | "fanout_schedule_updated"
+    | "fanout_schedule_validation_failed"
+    | "fanout_target_schedule_blocked"
+    | "fanout_target_schedule_inherited"
     | "fanout_validated"
     | "manual_action_blocked"
     | "parent_aggregate_refreshed"
@@ -537,6 +589,9 @@ export function createContentPublicationsRouter({
         platform_connection_id:
           publicationRequest.publication.platform_connection_id,
         publication_status: publicationRequest.publication.publication_status,
+        schedule_block_reason:
+          publicationRequest.publication.schedule_block_reason,
+        schedule_status: publicationRequest.publication.schedule_status,
         provider_overrides: publicationRequest.publication.provider_overrides,
         request_intent_hash: publicationRequest.publication.request_intent_hash,
         snapshot_hash: publicationRequest.publication.snapshot_hash,
@@ -546,6 +601,15 @@ export function createContentPublicationsRouter({
       } satisfies PublicationMutationResult);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+
+      if (message === "publication_schedule_validation_failed") {
+        response.status(400).json({
+          error: "publication_schedule_validation_failed",
+          message:
+            "The requested schedule time or timezone is invalid for this publication request.",
+        });
+        return;
+      }
 
       if (error instanceof PublicationCapabilityValidationError) {
         const statusCode = getPublicationCapabilityValidationStatus(error.code);
@@ -695,9 +759,22 @@ export function createContentPublicationsRouter({
         .status(
           publicationFanout.status === "publication_fanout_blocked" ? 409 : 200,
         )
-        .json(publicationFanout satisfies PublicationFanoutMutationResult);
+        .json({
+          ...publicationFanout,
+          schedule_block_reason: publicationFanout.schedule_block_reason,
+          schedule_status: publicationFanout.schedule_status,
+        } satisfies PublicationFanoutMutationResult);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+
+      if (message === "publication_fanout_schedule_validation_failed") {
+        response.status(400).json({
+          error: "publication_fanout_schedule_validation_failed",
+          message:
+            "The requested schedule time or timezone is invalid for this publication fanout.",
+        });
+        return;
+      }
 
       if (message === "content_job_not_found") {
         response.status(404).json({
@@ -1759,13 +1836,29 @@ async function createPublicationRequest({
     },
     targetPlatform: input.target_platform,
   });
+  const requestedScheduleAtUtc = normalizePublicationScheduleTimestamp(
+    input.scheduled_publish_at,
+  );
+  const requestedScheduleTimezone = normalizePublicationScheduleTimezone(
+    input.scheduled_timezone,
+  );
+  const scheduleRequested =
+    input.scheduled_publish_at !== undefined ||
+    input.scheduled_timezone !== undefined;
+  const scheduleSource: ContentPublicationScheduleSource = "api-gateway";
+  const scheduledDraft = requestedScheduleAtUtc
+    ? {
+        ...canonicalDraft,
+        scheduledPublishAt: requestedScheduleAtUtc,
+      }
+    : canonicalDraft;
   const capabilityVersion =
     input.capability_version?.trim() || PUBLICATION_CAPABILITY_VERSION;
   const providerOverrides = input.provider_overrides;
   const capabilityResolution = resolvePublicationCapabilities({
     accountCapabilities: extractPublicationAccountCapabilityOverlay(connection),
     capabilityVersion,
-    canonicalDraft,
+    canonicalDraft: scheduledDraft,
     policy: {
       allowedTargets: ["youtube", "tiktok"],
       forbidAutoPublish: true,
@@ -1774,6 +1867,35 @@ async function createPublicationRequest({
     providerOverrides,
     targetPlatform: input.target_platform,
   });
+  const connectionScopes = connection.scopes ?? [];
+  const requiredScopes = getPublicationCapabilityDefinition(
+    input.target_platform,
+  ).requiredScopes;
+  const publicationVodAsset = scheduleRequested
+    ? await loadVodAsset({
+        supabase,
+        streamId: contentJob.stream_id,
+        userId: input.user_id,
+      })
+    : null;
+  const scheduleEvaluation = scheduleRequested
+    ? evaluatePublicationScheduleIntent({
+        contentJobReviewStatus: contentJob.review_status,
+        contentJobStatus: contentJob.status,
+        currentPublicationStatus: null,
+        hasApprovedBundle: true,
+        hasPublishableAsset: Boolean(publicationVodAsset?.source_url),
+        hasRequiredScopes: requiredScopes.every((scope) =>
+          connectionScopes.includes(scope),
+        ),
+        scheduleSource,
+        scheduledAtUtc: requestedScheduleAtUtc,
+        scheduledTimezone: requestedScheduleTimezone,
+        schedulingAllowed:
+          capabilityResolution.accountCapabilities.schedulingAllowed !== false,
+        targetPlatform: input.target_platform,
+      })
+    : null;
 
   if (capabilityResolution.providerSupportStatus === "unsupported") {
     throw new PublicationCapabilityValidationError(
@@ -1797,10 +1919,9 @@ async function createPublicationRequest({
     );
   }
 
-  const connectionScopes = connection.scopes ?? [];
-  const requiredScopes = getPublicationCapabilityDefinition(
-    input.target_platform,
-  ).requiredScopes;
+  if (scheduleEvaluation && !scheduleEvaluation.accepted) {
+    throw new Error("publication_schedule_validation_failed");
+  }
 
   if (
     requiredScopes.length > 0 &&
@@ -1816,6 +1937,31 @@ async function createPublicationRequest({
     capabilityResolution,
     capabilityVersion: capabilityResolution.capabilityVersion,
     providerOverrides,
+    schedule: scheduleRequested
+      ? buildPublicationScheduleSummary({
+          actorId: input.user_id,
+          blockReason: scheduleEvaluation?.blockReason ?? null,
+          capabilitySnapshot: {
+            accountCapabilities: capabilityResolution.accountCapabilities ?? {},
+            capabilityVersion: capabilityResolution.capabilityVersion,
+            scheduleRequested: true,
+            targetPlatform: input.target_platform,
+          },
+          canceledAt: null,
+          canceledReason: null,
+          createdAt: new Date().toISOString(),
+          expiredAt: null,
+          replacedAt: null,
+          scheduleSource,
+          scheduleStatus:
+            scheduleEvaluation?.scheduleStatus ?? "schedule_unknown",
+          scheduledAtUtc: requestedScheduleAtUtc,
+          scheduledTimezone: requestedScheduleTimezone,
+          updatedAt: new Date().toISOString(),
+        })
+      : buildPublicationScheduleSummary({
+          scheduleStatus: "not_scheduled",
+        }),
     targetPlatform: input.target_platform,
   });
   const snapshotHash = createHash("sha256")
@@ -1859,6 +2005,43 @@ async function createPublicationRequest({
       p_provider_overrides: providerOverrides,
       p_snapshot: snapshot,
       p_snapshot_hash: snapshotHash,
+      p_scheduled_at_utc: requestedScheduleAtUtc,
+      p_scheduled_timezone: requestedScheduleTimezone,
+      p_schedule_block_message: scheduleEvaluation?.safeDescription ?? null,
+      p_schedule_block_reason: scheduleEvaluation?.blockReason ?? null,
+      p_schedule_capability_snapshot: scheduleRequested
+        ? {
+            accountCapabilities: capabilityResolution.accountCapabilities ?? {},
+            capabilityVersion: capabilityResolution.capabilityVersion,
+            scheduleRequested: true,
+            targetPlatform: input.target_platform,
+          }
+        : {},
+      p_schedule_canceled_at: null,
+      p_schedule_canceled_reason: null,
+      p_schedule_created_at: scheduleRequested
+        ? new Date().toISOString()
+        : null,
+      p_schedule_expired_at: null,
+      p_schedule_replaced_at: null,
+      p_schedule_source: scheduleRequested ? scheduleSource : undefined,
+      p_schedule_status: scheduleRequested
+        ? (scheduleEvaluation?.scheduleStatus ?? "schedule_unknown")
+        : "not_scheduled",
+      p_schedule_updated_at: scheduleRequested
+        ? new Date().toISOString()
+        : null,
+      p_schedule_validation_metadata: scheduleRequested
+        ? {
+            has_approved_bundle: true,
+            has_publishable_asset: Boolean(publicationVodAsset?.source_url),
+            has_required_scopes: requiredScopes.every((scope) =>
+              connectionScopes.includes(scope),
+            ),
+            schedule_requested: true,
+            target_platform: input.target_platform,
+          }
+        : {},
       p_target_platform: input.target_platform,
       p_user_id: input.user_id,
       p_validation_code: "validated",
@@ -2013,6 +2196,47 @@ async function createPublicationFanoutRequest({
       : validatedTargetCount === 0
         ? "blocked"
         : "partially_validated";
+  const requestedScheduleAtUtc = normalizePublicationScheduleTimestamp(
+    input.scheduled_publish_at,
+  );
+  const requestedScheduleTimezone = normalizePublicationScheduleTimezone(
+    input.scheduled_timezone,
+  );
+  const scheduleRequested =
+    input.scheduled_publish_at !== undefined ||
+    input.scheduled_timezone !== undefined;
+  const scheduleSource: ContentPublicationScheduleSource = "api-gateway";
+  const publicationVodAsset = scheduleRequested
+    ? await loadVodAsset({
+        supabase,
+        streamId: contentJob.stream_id,
+        userId: input.user_id,
+      })
+    : null;
+  const scheduleEvaluation = scheduleRequested
+    ? evaluatePublicationFanoutScheduleIntent({
+        contentJobReviewStatus: contentJob.review_status,
+        contentJobStatus: contentJob.status,
+        currentFanoutStatus: fanoutStatus,
+        hasApprovedBundle: true,
+        hasPublishableAsset: Boolean(publicationVodAsset?.source_url),
+        hasRequiredScopes: blockedTargetCount === 0,
+        hasRunnableTargets: validatedTargetCount > 0,
+        now: Date.now(),
+        scheduleSource,
+        scheduledAtUtc: requestedScheduleAtUtc,
+        scheduledTimezone: requestedScheduleTimezone,
+        schedulingAllowed: fanoutStatus !== "blocked",
+        targetCount: requestedTargets.length,
+      })
+    : null;
+
+  if (scheduleEvaluation && !scheduleEvaluation.accepted) {
+    throw new Error("publication_fanout_schedule_validation_failed");
+  }
+
+  const requestedAt = new Date().toISOString();
+
   const fanoutSnapshot: ContentPublicationFanoutSnapshot = {
     approvedBundle: approvedBundle.data,
     contentJob: {
@@ -2029,11 +2253,34 @@ async function createPublicationFanoutRequest({
       providerOverrides: target.provider_overrides,
       targetPlatform: target.target_platform,
     })),
+    schedule: scheduleRequested
+      ? buildPublicationScheduleSummary({
+          actorId: input.user_id,
+          blockReason: scheduleEvaluation?.blockReason ?? null,
+          capabilitySnapshot: {
+            fanoutPolicy,
+            scheduleRequested: true,
+            targetCount: requestedTargets.length,
+          },
+          canceledAt: null,
+          canceledReason: null,
+          createdAt: requestedAt,
+          expiredAt: null,
+          replacedAt: null,
+          scheduleSource,
+          scheduleStatus:
+            scheduleEvaluation?.scheduleStatus ?? "schedule_unknown",
+          scheduledAtUtc: requestedScheduleAtUtc,
+          scheduledTimezone: requestedScheduleTimezone,
+          updatedAt: requestedAt,
+        })
+      : buildPublicationScheduleSummary({
+          scheduleStatus: "not_scheduled",
+        }),
   };
   const snapshotHash = createHash("sha256")
     .update(JSON.stringify(fanoutSnapshot), "utf8")
     .digest("hex");
-  const requestedAt = new Date().toISOString();
 
   const fanout = await upsertSupabaseRow<PublicationFanoutRow>({
     client: supabase,
@@ -2043,6 +2290,35 @@ async function createPublicationFanoutRequest({
       content_job_id: contentJob.id,
       fanout_policy: fanoutPolicy,
       fanout_status: fanoutStatus,
+      schedule_block_message: scheduleEvaluation?.safeDescription ?? null,
+      schedule_block_reason: scheduleEvaluation?.blockReason ?? null,
+      schedule_canceled_at: null,
+      schedule_canceled_reason: null,
+      schedule_capability_snapshot: scheduleRequested
+        ? {
+            fanoutPolicy,
+            scheduleRequested: true,
+            targetCount: requestedTargets.length,
+          }
+        : {},
+      schedule_created_at: scheduleRequested ? requestedAt : null,
+      schedule_expired_at: null,
+      schedule_replaced_at: null,
+      schedule_source: scheduleRequested ? scheduleSource : undefined,
+      schedule_status: scheduleRequested
+        ? (scheduleEvaluation?.scheduleStatus ?? "schedule_unknown")
+        : "not_scheduled",
+      schedule_updated_at: scheduleRequested ? requestedAt : null,
+      schedule_validation_metadata: scheduleRequested
+        ? {
+            has_approved_bundle: true,
+            has_publishable_asset: Boolean(publicationVodAsset?.source_url),
+            has_required_scopes: blockedTargetCount === 0,
+            has_runnable_targets: validatedTargetCount > 0,
+            schedule_requested: true,
+            target_count: requestedTargets.length,
+          }
+        : {},
       requested_at: requestedAt,
       requested_by: input.user_id,
       request_intent_hash: requestIntentHash,
@@ -2086,6 +2362,64 @@ async function createPublicationFanoutRequest({
     });
   }
 
+  if (scheduleRequested) {
+    await writePublicationFanoutEvent({
+      actionKey: null,
+      actionResult:
+        scheduleEvaluation?.scheduleStatus === "schedule_blocked"
+          ? "blocked"
+          : "validated",
+      actorId: input.user_id,
+      contentPublicationFanoutId: fanout.id,
+      eventType:
+        scheduleEvaluation?.scheduleStatus === "schedule_blocked"
+          ? "fanout_schedule_blocked"
+          : "fanout_schedule_created",
+      fanoutStatus,
+      metadata: {
+        block_reason: scheduleEvaluation?.blockReason,
+        schedule_source: scheduleSource,
+        schedule_status:
+          scheduleEvaluation?.scheduleStatus ?? fanout.schedule_status,
+        scheduled_at_utc: requestedScheduleAtUtc,
+        scheduled_timezone: requestedScheduleTimezone,
+        target_count: requestedTargets.length,
+      },
+      previousFanoutStatus: null,
+      source: "api-gateway",
+      supabase,
+      targetStatus: null,
+      userId: input.user_id,
+    });
+
+    for (const target of targetResults) {
+      await writePublicationFanoutEvent({
+        actionKey: null,
+        actionResult:
+          target.target_status === "validated" ? "validated" : "blocked",
+        actorId: input.user_id,
+        contentPublicationFanoutId: fanout.id,
+        contentPublicationId: target.content_publication_id,
+        eventType:
+          target.target_status === "validated"
+            ? "fanout_target_schedule_inherited"
+            : "fanout_target_schedule_blocked",
+        fanoutStatus,
+        metadata: {
+          schedule_source: scheduleSource,
+          schedule_status:
+            scheduleEvaluation?.scheduleStatus ?? fanout.schedule_status,
+          target_platform: target.target_platform,
+        },
+        previousFanoutStatus: null,
+        source: "api-gateway",
+        supabase,
+        targetStatus: target.target_status,
+        userId: input.user_id,
+      });
+    }
+  }
+
   await writePublicationFanoutEvent({
     actionKey: null,
     actionResult:
@@ -2126,6 +2460,8 @@ async function createPublicationFanoutRequest({
     content_publication_fanout_id: fanout.id,
     fanout_policy: fanout.fanout_policy,
     fanout_status: fanoutStatus,
+    schedule_block_reason: fanout.schedule_block_reason,
+    schedule_status: fanout.schedule_status,
     requested_by: input.user_id,
     request_intent_hash: requestIntentHash,
     snapshot_hash: snapshotHash,
@@ -2263,7 +2599,7 @@ async function loadExistingPublication({
     params: {
       request_intent_hash: `eq.${requestIntentHash}`,
       select:
-        "capability_snapshot,capability_version,content_job_id,id,platform_connection_id,publication_status,provider_overrides,request_intent_hash,requested_at,snapshot,snapshot_hash,target_platform,user_id,validated_at,validation_code,validation_message",
+        "capability_snapshot,capability_version,content_job_id,id,platform_connection_id,publication_status,provider_overrides,request_intent_hash,requested_at,schedule_block_message,schedule_block_reason,schedule_canceled_at,schedule_canceled_reason,schedule_capability_snapshot,schedule_created_at,schedule_expired_at,schedule_replaced_at,schedule_source,schedule_status,schedule_updated_at,schedule_validation_metadata,scheduled_at_utc,scheduled_timezone,snapshot,snapshot_hash,target_platform,user_id,validated_at,validation_code,validation_message",
       user_id: `eq.${userId}`,
     },
     table: "content_publications",
@@ -2286,7 +2622,7 @@ async function loadPublicationById({
     params: {
       id: `eq.${publicationId}`,
       select:
-        "capability_snapshot,capability_version,content_job_id,external_post_id,external_url,id,last_reconciled_at,max_retries,next_retry_at,platform_connection_id,publication_status,published_at,provider_failure_code,provider_failure_metadata,provider_failure_reason,provider_overrides,reconciliation_status,reconcile_max_retries,reconcile_next_retry_at,reconcile_retry_count,requested_by,request_intent_hash,requested_at,retry_count,remote_processing_status,remote_state,remote_status,remote_upload_status,snapshot,snapshot_hash,target_platform,user_id,validated_at,validation_code,validation_message",
+        "capability_snapshot,capability_version,content_job_id,external_post_id,external_url,id,last_reconciled_at,max_retries,next_retry_at,platform_connection_id,publication_status,published_at,provider_failure_code,provider_failure_metadata,provider_failure_reason,provider_overrides,reconciliation_status,reconcile_max_retries,reconcile_next_retry_at,reconcile_retry_count,requested_by,request_intent_hash,requested_at,retry_count,remote_processing_status,remote_state,remote_status,remote_upload_status,schedule_block_message,schedule_block_reason,schedule_canceled_at,schedule_canceled_reason,schedule_capability_snapshot,schedule_created_at,schedule_expired_at,schedule_replaced_at,schedule_source,schedule_status,schedule_updated_at,schedule_validation_metadata,scheduled_at_utc,scheduled_timezone,snapshot,snapshot_hash,target_platform,user_id,validated_at,validation_code,validation_message",
       user_id: `eq.${userId}`,
     },
     table: "content_publications",
@@ -3632,6 +3968,7 @@ function buildPublicationSnapshot({
   contentJob,
   connection,
   providerOverrides,
+  schedule,
   targetPlatform,
 }: {
   approvedBundle: z.infer<typeof repurposingBundleSchema>;
@@ -3640,6 +3977,7 @@ function buildPublicationSnapshot({
   contentJob: PublicationContentJobRow;
   connection: PublicationConnectionRow;
   providerOverrides: PublicationProviderOverrides;
+  schedule: ReturnType<typeof buildPublicationScheduleSummary>;
   targetPlatform: StreamPlatform;
 }): Record<string, unknown> {
   return {
@@ -3670,6 +4008,7 @@ function buildPublicationSnapshot({
       scopes: connection.scopes ?? [],
     },
     providerOverrides,
+    schedule,
     targetPlatform,
   };
 }
