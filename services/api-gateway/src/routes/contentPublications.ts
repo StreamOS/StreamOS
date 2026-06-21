@@ -2958,6 +2958,30 @@ async function mutatePublicationSchedule({
     throw new Error("publication_not_found");
   }
 
+  const reason = input.reason?.trim() || null;
+  const requestedScheduleAtUtc = normalizePublicationScheduleTimestamp(
+    input.scheduled_at_utc ?? publication.scheduled_at_utc,
+  );
+  const requestedScheduleTimezone = normalizePublicationScheduleTimezone(
+    input.scheduled_timezone ?? publication.scheduled_timezone,
+  );
+  const isReplaceReplay =
+    input.action === "replace" &&
+    isPublicationScheduleReplaceReplay({
+      publication,
+      reason,
+      requestedScheduleAtUtc: requestedScheduleAtUtc as string,
+      requestedScheduleTimezone: requestedScheduleTimezone as string,
+    });
+
+  if (isReplaceReplay) {
+    return replacePublicationSchedule({
+      input,
+      publication,
+      supabase,
+    });
+  }
+
   const actionPolicy = buildPublicationScheduleActionPolicy({
     finalBlockReason: isPublicationScheduleFinalized(publication)
       ? publication.publication_status === "publishing"
@@ -3017,6 +3041,30 @@ async function mutatePublicationFanoutSchedule({
     throw new Error("publication_fanout_not_found");
   }
 
+  const reason = input.reason?.trim() || null;
+  const requestedScheduleAtUtc = normalizePublicationScheduleTimestamp(
+    input.scheduled_at_utc ?? fanout.scheduled_at_utc,
+  );
+  const requestedScheduleTimezone = normalizePublicationScheduleTimezone(
+    input.scheduled_timezone ?? fanout.scheduled_timezone,
+  );
+  const isReplaceReplay =
+    input.action === "replace" &&
+    isPublicationFanoutScheduleReplaceReplay({
+      fanout,
+      reason,
+      requestedScheduleAtUtc: requestedScheduleAtUtc as string,
+      requestedScheduleTimezone: requestedScheduleTimezone as string,
+    });
+
+  if (isReplaceReplay) {
+    return replacePublicationFanoutSchedule({
+      fanout,
+      input,
+      supabase,
+    });
+  }
+
   const actionPolicy = buildPublicationScheduleActionPolicy({
     finalBlockReason:
       fanout.schedule_status === "schedule_canceled" ||
@@ -3026,7 +3074,7 @@ async function mutatePublicationFanoutSchedule({
         : null,
     isLocked: false,
     itemLabel: "fanout schedule",
-    replaceSupported: false,
+    replaceSupported: true,
   });
   const actionKey = getPublicationScheduleMutationActionKey(input.action);
   const decision = actionPolicy.actions[actionKey];
@@ -3273,6 +3321,171 @@ async function writePublicationFanoutEvent({
       `Supabase content_publication_fanout_events write failed with status ${response.status}.`,
     );
   }
+}
+
+function buildScheduleReplaceIntentSalt({
+  itemId,
+  itemType,
+  reason,
+  scheduledAtUtc,
+  scheduledTimezone,
+  userId,
+}: {
+  itemId: string;
+  itemType: "fanout" | "publication";
+  reason: string | null;
+  scheduledAtUtc: string;
+  scheduledTimezone: string;
+  userId: string;
+}) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        action: "replace",
+        itemId,
+        itemType,
+        reason: reason?.trim() || null,
+        scheduledAtUtc,
+        scheduledTimezone,
+        userId,
+      }),
+      "utf8",
+    )
+    .digest("hex");
+}
+
+function isPublicationScheduleReplaceReplay({
+  publication,
+  reason,
+  requestedScheduleAtUtc,
+  requestedScheduleTimezone,
+}: {
+  publication: PublicationRow;
+  reason: string | null;
+  requestedScheduleAtUtc: string;
+  requestedScheduleTimezone: string;
+}): boolean {
+  const scheduleValidationMetadata = publication.schedule_validation_metadata;
+
+  return (
+    publication.schedule_status === "schedule_replaced" &&
+    publication.schedule_replaced_at !== null &&
+    publication.schedule_source === "dashboard" &&
+    publication.scheduled_at_utc === requestedScheduleAtUtc &&
+    publication.scheduled_timezone === requestedScheduleTimezone &&
+    scheduleValidationMetadata.action === "replace" &&
+    scheduleValidationMetadata.schedule_requested === true &&
+    scheduleValidationMetadata.scheduled_at_utc === requestedScheduleAtUtc &&
+    scheduleValidationMetadata.scheduled_timezone ===
+      requestedScheduleTimezone &&
+    scheduleValidationMetadata.target_platform ===
+      publication.target_platform &&
+    (scheduleValidationMetadata.reason ?? null) === reason
+  );
+}
+
+function isPublicationFanoutScheduleReplaceReplay({
+  fanout,
+  reason,
+  requestedScheduleAtUtc,
+  requestedScheduleTimezone,
+}: {
+  fanout: PublicationFanoutRow;
+  reason: string | null;
+  requestedScheduleAtUtc: string;
+  requestedScheduleTimezone: string;
+}): boolean {
+  const scheduleValidationMetadata = fanout.schedule_validation_metadata;
+
+  return (
+    fanout.schedule_status === "schedule_replaced" &&
+    fanout.schedule_replaced_at !== null &&
+    fanout.schedule_source === "dashboard" &&
+    fanout.scheduled_at_utc === requestedScheduleAtUtc &&
+    fanout.scheduled_timezone === requestedScheduleTimezone &&
+    scheduleValidationMetadata.action === "replace" &&
+    scheduleValidationMetadata.schedule_requested === true &&
+    scheduleValidationMetadata.scheduled_at_utc === requestedScheduleAtUtc &&
+    scheduleValidationMetadata.scheduled_timezone ===
+      requestedScheduleTimezone &&
+    scheduleValidationMetadata.target_count === fanout.target_count &&
+    (scheduleValidationMetadata.reason ?? null) === reason
+  );
+}
+
+async function hasPublicationScheduleReplaceEvent({
+  eventType,
+  intentHash,
+  publicationId,
+  supabase,
+}: {
+  eventType: "schedule_replaced";
+  intentHash: string;
+  publicationId: string;
+  supabase: SupabaseRestClient;
+}): Promise<boolean> {
+  const rows = await readSupabaseRows<{ id: string }>({
+    client: supabase,
+    params: {
+      content_publication_id: `eq.${publicationId}`,
+      "metadata->>schedule_replace_intent_hash": `eq.${intentHash}`,
+      event_type: `eq.${eventType}`,
+      limit: "1",
+      select: "id",
+    },
+    table: "content_publication_events",
+  });
+
+  return rows.length > 0;
+}
+
+async function hasPublicationFanoutScheduleReplaceEvent({
+  eventType,
+  fanoutId,
+  intentHash,
+  supabase,
+}: {
+  eventType: "fanout_schedule_replaced";
+  fanoutId: string;
+  intentHash: string;
+  supabase: SupabaseRestClient;
+}): Promise<boolean> {
+  const rows = await readSupabaseRows<{ id: string }>({
+    client: supabase,
+    params: {
+      content_publication_fanout_id: `eq.${fanoutId}`,
+      "metadata->>schedule_replace_intent_hash": `eq.${intentHash}`,
+      event_type: `eq.${eventType}`,
+      limit: "1",
+      select: "id",
+    },
+    table: "content_publication_fanout_events",
+  });
+
+  return rows.length > 0;
+}
+
+async function loadExistingPublicationFanoutByRequestIntentHash({
+  requestIntentHash,
+  supabase,
+  userId,
+}: {
+  requestIntentHash: string;
+  supabase: SupabaseRestClient;
+  userId: string;
+}): Promise<PublicationFanoutRow | null> {
+  const rows = await readSupabaseRows<PublicationFanoutRow>({
+    client: supabase,
+    params: {
+      request_intent_hash: `eq.${requestIntentHash}`,
+      select:
+        "blocked_target_count,content_job_id,created_at,fanout_policy,fanout_status,id,last_action_at,last_action_key,last_action_result,last_aggregate_refreshed_at,requested_at,requested_by,request_intent_hash,review_status_at_request,snapshot,snapshot_hash,target_count,updated_at,user_id,validated_at,validated_target_count",
+      user_id: `eq.${userId}`,
+    },
+    table: "content_publication_fanouts",
+  });
+
+  return rows[0] ?? null;
 }
 
 async function loadPublicationFanoutById({
@@ -3692,6 +3905,15 @@ async function replacePublicationSchedule({
   }
 
   const now = new Date().toISOString();
+  const reason = input.reason?.trim() || null;
+  const replaceIntentSalt = buildScheduleReplaceIntentSalt({
+    itemId: publication.id,
+    itemType: "publication",
+    reason,
+    scheduledAtUtc: requestedScheduleAtUtc,
+    scheduledTimezone: requestedScheduleTimezone,
+    userId: input.user_id,
+  });
   const originalScheduleState = {
     schedule_block_message: publication.schedule_block_message,
     schedule_block_reason: publication.schedule_block_reason,
@@ -3706,6 +3928,79 @@ async function replacePublicationSchedule({
     scheduled_at_utc: publication.scheduled_at_utc,
     scheduled_timezone: publication.scheduled_timezone,
   };
+  const returnReplacementResponse = async ({
+    replacement,
+  }: {
+    replacement: PublicationRow;
+  }): Promise<PublicationScheduleMutationResult> => {
+    const replaceEventAlreadyRecorded =
+      await hasPublicationScheduleReplaceEvent({
+        eventType: "schedule_replaced",
+        intentHash: replaceIntentSalt,
+        publicationId: publication.id,
+        supabase,
+      });
+
+    if (!replaceEventAlreadyRecorded) {
+      await writePublicationEvent({
+        actorId: input.user_id,
+        eventType: "schedule_replaced",
+        metadata: {
+          action: "replace",
+          content_job_id: publication.content_job_id,
+          reason,
+          replacement_content_publication_id: replacement.id,
+          schedule_replace_intent_hash: replaceIntentSalt,
+          schedule_status: replacement.schedule_status,
+          scheduled_at_utc: requestedScheduleAtUtc,
+          scheduled_timezone: requestedScheduleTimezone,
+          target_platform: publication.target_platform,
+        },
+        previousPublicationStatus: publication.publication_status,
+        publicationId: publication.id,
+        publicationStatus: replacement.publication_status,
+        source: "dashboard",
+        supabase,
+        userId: publication.user_id,
+      });
+    }
+
+    return {
+      action: "replace",
+      content_publication_id: publication.id,
+      replacement_content_publication_id: replacement.id,
+      schedule_status: "schedule_replaced",
+      status: "publication_schedule_replaced",
+      user_id: publication.user_id,
+    };
+  };
+
+  if (
+    isPublicationScheduleReplaceReplay({
+      publication,
+      reason,
+      requestedScheduleAtUtc,
+      requestedScheduleTimezone,
+    })
+  ) {
+    const replacement = await createPublicationRequest({
+      input: {
+        capability_version: publication.capability_version,
+        content_job_id: publication.content_job_id,
+        platform_connection_id: publication.platform_connection_id,
+        provider_overrides: publication.provider_overrides,
+        scheduled_publish_at: requestedScheduleAtUtc,
+        scheduled_timezone: requestedScheduleTimezone,
+        target_platform: publication.target_platform,
+        user_id: input.user_id,
+      },
+      requestIntentSalt: replaceIntentSalt,
+      scheduleSource: "dashboard",
+      supabase,
+    });
+
+    return returnReplacementResponse({ replacement: replacement.publication });
+  }
 
   await patchSupabaseRows({
     client: supabase,
@@ -3725,7 +4020,7 @@ async function replacePublicationSchedule({
       schedule_updated_at: now,
       schedule_validation_metadata: {
         action: "replace",
-        reason: input.reason?.trim() || null,
+        reason,
         schedule_requested: true,
         scheduled_at_utc: requestedScheduleAtUtc,
         scheduled_timezone: requestedScheduleTimezone,
@@ -3749,40 +4044,14 @@ async function replacePublicationSchedule({
         target_platform: publication.target_platform,
         user_id: input.user_id,
       },
-      requestIntentSalt: `schedule-replace:${publication.id}:${now}`,
+      requestIntentSalt: replaceIntentSalt,
       scheduleSource: "dashboard",
       supabase,
     });
 
-    await writePublicationEvent({
-      actorId: input.user_id,
-      eventType: "schedule_replaced",
-      metadata: {
-        action: "replace",
-        content_job_id: publication.content_job_id,
-        replacement_content_publication_id: replacement.publication.id,
-        reason: input.reason?.trim() || null,
-        schedule_status: replacement.publication.schedule_status,
-        scheduled_at_utc: requestedScheduleAtUtc,
-        scheduled_timezone: requestedScheduleTimezone,
-        target_platform: publication.target_platform,
-      },
-      previousPublicationStatus: publication.publication_status,
-      publicationId: publication.id,
-      publicationStatus: publication.publication_status,
-      source: "dashboard",
-      supabase,
-      userId: publication.user_id,
+    return await returnReplacementResponse({
+      replacement: replacement.publication,
     });
-
-    return {
-      action: "replace",
-      content_publication_id: publication.id,
-      replacement_content_publication_id: replacement.publication.id,
-      schedule_status: "schedule_replaced",
-      status: "publication_schedule_replaced",
-      user_id: publication.user_id,
-    };
   } catch (error) {
     await patchSupabaseRows({
       client: supabase,
@@ -4061,6 +4330,38 @@ async function replacePublicationFanoutSchedule({
     userId: input.user_id,
   });
   const now = new Date().toISOString();
+  const reason = input.reason?.trim() || null;
+  const replaceIntentSalt = buildScheduleReplaceIntentSalt({
+    itemId: fanout.id,
+    itemType: "fanout",
+    reason,
+    scheduledAtUtc: requestedScheduleAtUtc,
+    scheduledTimezone: requestedScheduleTimezone,
+    userId: input.user_id,
+  });
+  const capabilityVersion =
+    typeof fanout.snapshot?.capabilityVersion === "string"
+      ? fanout.snapshot.capabilityVersion
+      : PUBLICATION_CAPABILITY_VERSION;
+  const requestIntentHash = buildPublicationFanoutRequestIntentHash({
+    capabilityVersion,
+    contentJobId: fanout.content_job_id,
+    fanoutPolicy: "prepare_valid_targets",
+    requestedBy: input.user_id,
+    requestIntentSalt: replaceIntentSalt,
+    targets: targets.map((target) => ({
+      platformConnectionId: target.platform_connection_id,
+      providerOverrides: target.provider_overrides,
+      targetPlatform: target.target_platform,
+    })),
+    userId: input.user_id,
+  });
+  const existingReplacement =
+    await loadExistingPublicationFanoutByRequestIntentHash({
+      requestIntentHash,
+      supabase,
+      userId: input.user_id,
+    });
   const originalScheduleState = {
     schedule_block_message: fanout.schedule_block_message,
     schedule_block_reason: fanout.schedule_block_reason,
@@ -4075,6 +4376,94 @@ async function replacePublicationFanoutSchedule({
     scheduled_at_utc: fanout.scheduled_at_utc,
     scheduled_timezone: fanout.scheduled_timezone,
   };
+  const returnReplacementResponse = async ({
+    replacement,
+  }: {
+    replacement: PublicationFanoutRow;
+  }): Promise<PublicationScheduleMutationResult> => {
+    const replaceEventAlreadyRecorded =
+      await hasPublicationFanoutScheduleReplaceEvent({
+        eventType: "fanout_schedule_replaced",
+        fanoutId: fanout.id,
+        intentHash: replaceIntentSalt,
+        supabase,
+      });
+
+    if (!replaceEventAlreadyRecorded) {
+      await writePublicationFanoutEvent({
+        actionKey: null,
+        actionResult: "validated",
+        actorId: input.user_id,
+        contentPublicationFanoutId: fanout.id,
+        eventType: "fanout_schedule_replaced",
+        fanoutStatus: replacement.fanout_status,
+        metadata: {
+          action: "replace",
+          reason: input.reason?.trim() || null,
+          replacement_content_publication_fanout_id: replacement.id,
+          schedule_replace_intent_hash: replaceIntentSalt,
+          schedule_status: replacement.schedule_status,
+          scheduled_at_utc: requestedScheduleAtUtc,
+          scheduled_timezone: requestedScheduleTimezone,
+          target_count: replacement.target_count,
+        },
+        previousFanoutStatus: fanout.fanout_status,
+        source: "dashboard",
+        supabase,
+        targetStatus: null,
+        userId: fanout.user_id,
+      });
+    }
+
+    return {
+      action: "replace",
+      content_publication_id: fanout.id,
+      replacement_content_publication_fanout_id: replacement.id,
+      replacement_content_publication_id: null,
+      schedule_status: "schedule_replaced",
+      status: "publication_schedule_replaced",
+      user_id: fanout.user_id,
+    };
+  };
+
+  if (
+    isPublicationFanoutScheduleReplaceReplay({
+      fanout,
+      reason,
+      requestedScheduleAtUtc,
+      requestedScheduleTimezone,
+    })
+  ) {
+    if (existingReplacement) {
+      return returnReplacementResponse({ replacement: existingReplacement });
+    }
+
+    const replacement = await createPublicationFanoutRequest({
+      input: {
+        capability_version: capabilityVersion,
+        content_job_id: fanout.content_job_id,
+        fanout_policy: "prepare_valid_targets",
+        scheduled_publish_at: requestedScheduleAtUtc,
+        scheduled_timezone: requestedScheduleTimezone,
+        targets: targets.map((target) => ({
+          platform_connection_id: target.platform_connection_id,
+          provider_overrides: target.provider_overrides,
+          target_platform: target.target_platform,
+        })),
+        user_id: input.user_id,
+      },
+      requestIntentSalt: replaceIntentSalt,
+      scheduleSource: "dashboard",
+      supabase,
+    });
+
+    return await returnReplacementResponse({
+      replacement: {
+        ...replacement,
+        id: replacement.content_publication_fanout_id,
+      } as unknown as PublicationFanoutRow,
+    });
+  }
 
   await patchSupabaseRows({
     client: supabase,
@@ -4109,10 +4498,7 @@ async function replacePublicationFanoutSchedule({
   try {
     const replacement = await createPublicationFanoutRequest({
       input: {
-        capability_version:
-          typeof fanout.snapshot?.capabilityVersion === "string"
-            ? fanout.snapshot.capabilityVersion
-            : PUBLICATION_CAPABILITY_VERSION,
+        capability_version: capabilityVersion,
         content_job_id: fanout.content_job_id,
         fanout_policy: "prepare_valid_targets",
         scheduled_publish_at: requestedScheduleAtUtc,
@@ -4124,45 +4510,17 @@ async function replacePublicationFanoutSchedule({
         })),
         user_id: input.user_id,
       },
-      requestIntentSalt: `schedule-replace:${fanout.id}:${now}`,
+      requestIntentSalt: replaceIntentSalt,
       scheduleSource: "dashboard",
       supabase,
     });
 
-    await writePublicationFanoutEvent({
-      actionKey: null,
-      actionResult: "validated",
-      actorId: input.user_id,
-      contentPublicationFanoutId: fanout.id,
-      eventType: "fanout_schedule_replaced",
-      fanoutStatus: replacement.fanout_status,
-      metadata: {
-        action: "replace",
-        reason: input.reason?.trim() || null,
-        replacement_content_publication_fanout_id:
-          replacement.content_publication_fanout_id,
-        schedule_status: replacement.schedule_status,
-        scheduled_at_utc: requestedScheduleAtUtc,
-        scheduled_timezone: requestedScheduleTimezone,
-        target_count: replacement.target_count,
-      },
-      previousFanoutStatus: fanout.fanout_status,
-      source: "dashboard",
-      supabase,
-      targetStatus: null,
-      userId: fanout.user_id,
+    return await returnReplacementResponse({
+      replacement: {
+        ...replacement,
+        id: replacement.content_publication_fanout_id,
+      } as unknown as PublicationFanoutRow,
     });
-
-    return {
-      action: "replace",
-      content_publication_id: fanout.id,
-      replacement_content_publication_fanout_id:
-        replacement.content_publication_fanout_id,
-      replacement_content_publication_id: null,
-      schedule_status: "schedule_replaced",
-      status: "publication_schedule_replaced",
-      user_id: fanout.user_id,
-    };
   } catch (error) {
     await patchSupabaseRows({
       client: supabase,

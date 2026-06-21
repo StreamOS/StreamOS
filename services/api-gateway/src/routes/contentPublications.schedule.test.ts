@@ -12,6 +12,7 @@ const PLATFORM_CONNECTION_ID = "33333333-3333-4333-8333-333333333333";
 const PUBLICATION_ID = "44444444-4444-4444-8444-444444444444";
 const REPLACEMENT_PUBLICATION_ID = "55555555-5555-4555-8555-555555555555";
 const FANOUT_ID = "66666666-6666-4666-8666-666666666666";
+const FANOUT_REPLACEMENT_ID = "77777777-7777-4777-8777-777777777777";
 const ORIGINAL_ENV = {
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   SUPABASE_URL: process.env.SUPABASE_URL,
@@ -226,7 +227,7 @@ describe("content publications schedule routes", () => {
     }
   });
 
-  it("replaces a publication schedule with a new schedule entry and preserves the original row as replaced", async () => {
+  it("retries an identical publication replace without creating a second replacement row or audit event", async () => {
     useSupabaseTestEnv();
     const requests: Array<{
       body: string | null;
@@ -234,6 +235,17 @@ describe("content publications schedule routes", () => {
       url: string;
     }> = [];
     const schedulePatchStatuses: string[] = [];
+    const replaceEventIntents = new Set<string>();
+    let replaceEventPosts = 0;
+    let replacementPublication: Record<string, unknown> | null = null;
+    let rpcCalls = 0;
+    let publicationRow: Record<string, unknown> = makePublicationRow({
+      schedule_replaced_at: null,
+      schedule_source: "dashboard",
+      schedule_status: "scheduled",
+      schedule_updated_at: "2026-06-21T10:00:00.000Z",
+      schedule_validation_metadata: {},
+    });
     const app = createApp({
       apiGatewaySecret: API_SECRET,
       nodeEnv: "test",
@@ -254,14 +266,7 @@ describe("content publications schedule routes", () => {
             method === "GET" &&
             requestUrl.includes(`id=eq.${PUBLICATION_ID}`)
           ) {
-            return jsonResponse([
-              makePublicationRow({
-                schedule_status: "scheduled",
-                schedule_source: "dashboard",
-                scheduled_at_utc: "2026-06-22T18:30:00.000Z",
-                scheduled_timezone: "Europe/Berlin",
-              }),
-            ]);
+            return jsonResponse([publicationRow]);
           }
 
           if (
@@ -269,7 +274,27 @@ describe("content publications schedule routes", () => {
             method === "GET" &&
             requestUrl.includes("request_intent_hash=")
           ) {
-            return jsonResponse([]);
+            return jsonResponse(
+              replacementPublication ? [replacementPublication] : [],
+            );
+          }
+
+          if (
+            requestUrl.includes("/rest/v1/content_publication_events") &&
+            method === "GET" &&
+            requestUrl.includes("schedule_replace_intent_hash")
+          ) {
+            const intentHash = new URL(requestUrl).searchParams.get(
+              "metadata->>schedule_replace_intent_hash",
+            );
+            const normalizedIntentHash = intentHash?.replace(/^eq\./, "");
+
+            return jsonResponse(
+              normalizedIntentHash &&
+                replaceEventIntents.has(normalizedIntentHash)
+                ? [{ id: "event-replace-1" }]
+                : [],
+            );
           }
 
           if (
@@ -324,6 +349,10 @@ describe("content publications schedule routes", () => {
                 ? parsedBody.schedule_status
                 : "unknown",
             );
+            publicationRow = {
+              ...publicationRow,
+              ...parsedBody,
+            };
             return jsonResponse([]);
           }
 
@@ -332,6 +361,7 @@ describe("content publications schedule routes", () => {
               "/rest/v1/rpc/record_content_publication_request",
             )
           ) {
+            rpcCalls += 1;
             const parsedBody = JSON.parse(body ?? "{}") as Record<
               string,
               unknown
@@ -343,7 +373,7 @@ describe("content publications schedule routes", () => {
             );
             expect(parsedBody.p_scheduled_timezone).toBe("Europe/Berlin");
 
-            return jsonResponse({
+            replacementPublication = {
               capability_snapshot: parsedBody.p_capability_snapshot,
               capability_version: "1.0.0",
               content_job_id: CONTENT_JOB_ID,
@@ -359,13 +389,16 @@ describe("content publications schedule routes", () => {
               validated_at: "2026-06-21T12:00:00.000Z",
               validation_code: "validated",
               validation_message: "Publish request validated by the gateway.",
-            });
+            };
+
+            return jsonResponse(replacementPublication);
           }
 
           if (
             requestUrl.includes("/rest/v1/content_publication_events") &&
             method === "POST"
           ) {
+            replaceEventPosts += 1;
             const parsedBody = JSON.parse(body ?? "{}") as Record<
               string,
               unknown
@@ -377,8 +410,12 @@ describe("content publications schedule routes", () => {
               action: "replace",
               content_job_id: CONTENT_JOB_ID,
               replacement_content_publication_id: REPLACEMENT_PUBLICATION_ID,
+              schedule_replace_intent_hash: expect.any(String),
               target_platform: "youtube",
             });
+            replaceEventIntents.add(
+              String(parsedBody.metadata.schedule_replace_intent_hash),
+            );
 
             return jsonResponse({});
           }
@@ -395,26 +432,27 @@ describe("content publications schedule routes", () => {
         throw new Error("Expected TCP server address.");
       }
 
-      const response = await fetch(
-        `http://127.0.0.1:${address.port}/api/content-publications/${PUBLICATION_ID}/schedule`,
-        {
-          body: JSON.stringify({
-            action: "replace",
-            reason: "Fresh schedule with same publication",
-            scheduled_at_utc: "2026-06-23T19:30:00.000Z",
-            scheduled_timezone: "Europe/Berlin",
-            user_id: USER_ID,
-          }),
-          headers: {
-            Authorization: `Bearer ${API_SECRET}`,
-            "content-type": "application/json",
+      const makeReplaceRequest = () =>
+        fetch(
+          `http://127.0.0.1:${address.port}/api/content-publications/${PUBLICATION_ID}/schedule`,
+          {
+            body: JSON.stringify({
+              action: "replace",
+              reason: "Fresh schedule with same publication",
+              scheduled_at_utc: "2026-06-23T19:30:00.000Z",
+              scheduled_timezone: "Europe/Berlin",
+              user_id: USER_ID,
+            }),
+            headers: {
+              Authorization: `Bearer ${API_SECRET}`,
+              "content-type": "application/json",
+            },
+            method: "POST",
           },
-          method: "POST",
-        },
-      );
+        );
 
+      const response = await makeReplaceRequest();
       const responseText = await response.text();
-
       expect(response.status).toBe(200);
       const payload = JSON.parse(responseText) as Record<string, unknown>;
 
@@ -426,7 +464,400 @@ describe("content publications schedule routes", () => {
         status: "publication_schedule_replaced",
         user_id: USER_ID,
       });
+
+      const updatedAtAfterFirstReplace = publicationRow.schedule_updated_at;
+      const replacedAtAfterFirstReplace = publicationRow.schedule_replaced_at;
+
+      const repeatedResponse = await makeReplaceRequest();
+      const repeatedResponseText = await repeatedResponse.text();
+      expect(repeatedResponse.status).toBe(200);
+      expect(JSON.parse(repeatedResponseText)).toMatchObject({
+        action: "replace",
+        content_publication_id: PUBLICATION_ID,
+        replacement_content_publication_id: REPLACEMENT_PUBLICATION_ID,
+        schedule_status: "schedule_replaced",
+        status: "publication_schedule_replaced",
+        user_id: USER_ID,
+      });
       expect(schedulePatchStatuses).toEqual(["schedule_replaced"]);
+      expect(publicationRow.schedule_updated_at).toBe(
+        updatedAtAfterFirstReplace,
+      );
+      expect(publicationRow.schedule_replaced_at).toBe(
+        replacedAtAfterFirstReplace,
+      );
+      expect(rpcCalls).toBe(1);
+      expect(replaceEventPosts).toBe(1);
+      expect(
+        requests.some((request) => request.url.includes("automation-service")),
+      ).toBe(false);
+      expect(requests.some((request) => request.url.includes("worker"))).toBe(
+        false,
+      );
+    } finally {
+      server.close();
+    }
+  });
+
+  it("retries an identical fanout replace without creating a second replacement row or audit event", async () => {
+    useSupabaseTestEnv();
+    const requests: Array<{
+      body: string | null;
+      method: string;
+      url: string;
+    }> = [];
+    const schedulePatchStatuses: string[] = [];
+    const replaceEventIntents = new Set<string>();
+    let replaceEventPosts = 0;
+    let publicationRequestCalls = 0;
+    let publicationRequest: Record<string, unknown> | null = null;
+    let replacementFanout: Record<string, unknown> | null = null;
+    let fanoutRow: Record<string, unknown> = makeFanoutRow({
+      schedule_replaced_at: null,
+      schedule_source: "dashboard",
+      schedule_status: "scheduled",
+      schedule_updated_at: "2026-06-21T10:00:00.000Z",
+      schedule_validation_metadata: {},
+    });
+    const fanoutTargets = [
+      makeFanoutTargetRow({
+        id: "fanout-target-1",
+        request_intent_hash:
+          "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      }),
+      makeFanoutTargetRow({
+        id: "fanout-target-2",
+        platform_connection_id: `${PLATFORM_CONNECTION_ID}-2`,
+        request_intent_hash:
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      }),
+    ];
+    const app = createApp({
+      apiGatewaySecret: API_SECRET,
+      nodeEnv: "test",
+      oauth: {
+        fetchImpl: async (input, init) => {
+          const requestUrl =
+            typeof input === "string"
+              ? input
+              : input instanceof URL
+                ? input.toString()
+                : input.url;
+          const method = init?.method ?? "GET";
+          const body = typeof init?.body === "string" ? init.body : null;
+          requests.push({ body, method, url: requestUrl });
+
+          if (
+            requestUrl.includes("/rest/v1/content_publication_fanouts") &&
+            method === "GET" &&
+            requestUrl.includes(`id=eq.${FANOUT_ID}`)
+          ) {
+            return jsonResponse([fanoutRow]);
+          }
+
+          if (
+            requestUrl.includes("/rest/v1/content_publication_fanouts") &&
+            method === "GET" &&
+            requestUrl.includes("request_intent_hash=")
+          ) {
+            return jsonResponse(replacementFanout ? [replacementFanout] : []);
+          }
+
+          if (
+            requestUrl.includes(
+              "/rest/v1/content_publication_fanout_targets",
+            ) &&
+            method === "GET"
+          ) {
+            return jsonResponse(fanoutTargets);
+          }
+
+          if (
+            requestUrl.includes("/rest/v1/content_publications") &&
+            method === "GET" &&
+            requestUrl.includes("request_intent_hash=")
+          ) {
+            return jsonResponse(publicationRequest ? [publicationRequest] : []);
+          }
+
+          if (
+            requestUrl.includes(
+              "/rest/v1/rpc/record_content_publication_request",
+            )
+          ) {
+            publicationRequestCalls += 1;
+            const parsedBody = JSON.parse(body ?? "{}") as Record<
+              string,
+              unknown
+            >;
+
+            expect(parsedBody.p_schedule_source).toBe("dashboard");
+            expect(parsedBody.p_scheduled_at_utc).toBe(
+              "2026-06-23T19:30:00.000Z",
+            );
+            expect(parsedBody.p_scheduled_timezone).toBe("Europe/Berlin");
+
+            publicationRequest = {
+              capability_snapshot: parsedBody.p_capability_snapshot,
+              capability_version: parsedBody.p_capability_version,
+              content_job_id: CONTENT_JOB_ID,
+              id: `${FANOUT_REPLACEMENT_ID}-publication-${publicationRequestCalls}`,
+              platform_connection_id: parsedBody.p_platform_connection_id,
+              publication_status: "validated",
+              provider_overrides: parsedBody.p_provider_overrides,
+              request_intent_hash: String(parsedBody.p_request_intent_hash),
+              requested_at: String(parsedBody.p_requested_at),
+              snapshot_hash: String(parsedBody.p_snapshot_hash),
+              target_platform: parsedBody.p_target_platform,
+              user_id: USER_ID,
+              validated_at: String(parsedBody.p_requested_at),
+              validation_code: "validated",
+              validation_message: "Publish request validated by the gateway.",
+            };
+
+            return jsonResponse(publicationRequest);
+          }
+
+          if (
+            requestUrl.includes("/rest/v1/content_publication_fanouts") &&
+            method === "PATCH"
+          ) {
+            const parsedBody = JSON.parse(body ?? "{}") as Record<
+              string,
+              unknown
+            >;
+
+            schedulePatchStatuses.push(
+              typeof parsedBody.schedule_status === "string"
+                ? parsedBody.schedule_status
+                : "unknown",
+            );
+            fanoutRow = {
+              ...fanoutRow,
+              ...parsedBody,
+            };
+            return jsonResponse([]);
+          }
+
+          if (
+            requestUrl.includes("/rest/v1/content_publication_fanouts") &&
+            method === "POST"
+          ) {
+            const parsedBody = JSON.parse(body ?? "{}") as Record<
+              string,
+              unknown
+            >;
+
+            replacementFanout = {
+              blocked_target_count:
+                typeof parsedBody.blocked_target_count === "number"
+                  ? parsedBody.blocked_target_count
+                  : 0,
+              content_job_id: CONTENT_JOB_ID,
+              created_at: "2026-06-21T12:00:00.000Z",
+              fanout_policy: "prepare_valid_targets",
+              fanout_status: "validated",
+              id: FANOUT_REPLACEMENT_ID,
+              last_action_at: null,
+              last_action_key: null,
+              last_action_result: null,
+              last_aggregate_refreshed_at: null,
+              requested_at: String(parsedBody.requested_at ?? ""),
+              requested_by: USER_ID,
+              request_intent_hash: String(parsedBody.request_intent_hash),
+              review_status_at_request: "approved",
+              schedule_block_message: null,
+              schedule_block_reason: null,
+              schedule_canceled_at: null,
+              schedule_canceled_reason: null,
+              schedule_capability_snapshot:
+                parsedBody.schedule_capability_snapshot ?? {},
+              schedule_created_at:
+                typeof parsedBody.schedule_created_at === "string"
+                  ? parsedBody.schedule_created_at
+                  : null,
+              schedule_expired_at: null,
+              schedule_replaced_at: null,
+              schedule_source: "dashboard",
+              schedule_status: "schedule_ready",
+              schedule_updated_at:
+                typeof parsedBody.schedule_updated_at === "string"
+                  ? parsedBody.schedule_updated_at
+                  : null,
+              schedule_validation_metadata:
+                parsedBody.schedule_validation_metadata ?? {},
+              snapshot: parsedBody.snapshot ?? {},
+              snapshot_hash: String(parsedBody.snapshot_hash),
+              target_count: 2,
+              updated_at: "2026-06-21T12:00:00.000Z",
+              user_id: USER_ID,
+              validated_at: "2026-06-21T12:00:00.000Z",
+              validated_target_count: 2,
+            };
+
+            return jsonResponse([replacementFanout]);
+          }
+
+          if (
+            requestUrl.includes(
+              "/rest/v1/content_publication_fanout_targets",
+            ) &&
+            method === "POST"
+          ) {
+            return jsonResponse([{}]);
+          }
+
+          if (
+            requestUrl.includes("/rest/v1/content_publication_fanout_events") &&
+            method === "GET" &&
+            requestUrl.includes("schedule_replace_intent_hash")
+          ) {
+            const intentHash = new URL(requestUrl).searchParams.get(
+              "metadata->>schedule_replace_intent_hash",
+            );
+            const normalizedIntentHash = intentHash?.replace(/^eq\./, "");
+
+            return jsonResponse(
+              normalizedIntentHash &&
+                replaceEventIntents.has(normalizedIntentHash)
+                ? [{ id: "event-fanout-replace-1" }]
+                : [],
+            );
+          }
+
+          if (
+            requestUrl.includes("/rest/v1/content_publication_fanout_events") &&
+            method === "POST"
+          ) {
+            const parsedBody = JSON.parse(body ?? "{}") as Record<
+              string,
+              unknown
+            >;
+
+            if (parsedBody.event_type === "fanout_schedule_replaced") {
+              replaceEventPosts += 1;
+              expect(parsedBody.source).toBe("dashboard");
+              expect(parsedBody.content_publication_fanout_id).toBe(FANOUT_ID);
+              expect(parsedBody.metadata).toMatchObject({
+                action: "replace",
+                replacement_content_publication_fanout_id:
+                  FANOUT_REPLACEMENT_ID,
+                schedule_replace_intent_hash: expect.any(String),
+              });
+              replaceEventIntents.add(
+                String(parsedBody.metadata.schedule_replace_intent_hash),
+              );
+            }
+
+            return jsonResponse({});
+          }
+
+          if (
+            requestUrl.includes("/rest/v1/content_jobs") &&
+            method === "GET"
+          ) {
+            return jsonResponse([
+              makeApprovedContentJobRow({
+                stream_id: "stream-1",
+              }),
+            ]);
+          }
+
+          if (
+            requestUrl.includes("/rest/v1/platform_connections") &&
+            method === "GET"
+          ) {
+            return jsonResponse([
+              makeConnectionRow({
+                metadata: {
+                  publish_capabilities: {
+                    youtube: {
+                      scheduling_allowed: true,
+                      support_status: "supported",
+                    },
+                  },
+                },
+              }),
+            ]);
+          }
+
+          if (requestUrl.includes("/rest/v1/vod_assets") && method === "GET") {
+            return jsonResponse([
+              {
+                id: "vod-asset-1",
+                source_url: "https://cdn.example.com/vods/stream-1.mp4",
+              },
+            ]);
+          }
+
+          return new Response("not found", { status: 404 });
+        },
+      },
+    });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const makeReplaceRequest = () =>
+        fetch(
+          `http://127.0.0.1:${address.port}/api/content-publications/fanouts/${FANOUT_ID}/schedule`,
+          {
+            body: JSON.stringify({
+              action: "replace",
+              reason: "Replace the fanout with the same slot",
+              scheduled_at_utc: "2026-06-23T19:30:00.000Z",
+              scheduled_timezone: "Europe/Berlin",
+              user_id: USER_ID,
+            }),
+            headers: {
+              Authorization: `Bearer ${API_SECRET}`,
+              "content-type": "application/json",
+            },
+            method: "POST",
+          },
+        );
+
+      const response = await makeReplaceRequest();
+      const responseText = await response.text();
+      if (response.status !== 200) {
+        throw new Error(responseText);
+      }
+      expect(JSON.parse(responseText)).toMatchObject({
+        action: "replace",
+        content_publication_id: FANOUT_ID,
+        replacement_content_publication_fanout_id: FANOUT_REPLACEMENT_ID,
+        schedule_status: "schedule_replaced",
+        status: "publication_schedule_replaced",
+        user_id: USER_ID,
+      });
+
+      const scheduleUpdatedAtAfterFirstReplace = fanoutRow.schedule_updated_at;
+      const scheduleReplacedAtAfterFirstReplace =
+        fanoutRow.schedule_replaced_at;
+
+      const repeatedResponse = await makeReplaceRequest();
+      const repeatedResponseText = await repeatedResponse.text();
+      expect(repeatedResponse.status).toBe(200);
+      expect(JSON.parse(repeatedResponseText)).toMatchObject({
+        action: "replace",
+        content_publication_id: FANOUT_ID,
+        replacement_content_publication_fanout_id: FANOUT_REPLACEMENT_ID,
+        schedule_status: "schedule_replaced",
+        status: "publication_schedule_replaced",
+        user_id: USER_ID,
+      });
+      expect(schedulePatchStatuses).toEqual(["schedule_replaced"]);
+      expect(fanoutRow.schedule_updated_at).toBe(
+        scheduleUpdatedAtAfterFirstReplace,
+      );
+      expect(fanoutRow.schedule_replaced_at).toBe(
+        scheduleReplacedAtAfterFirstReplace,
+      );
+      expect(replaceEventPosts).toBe(1);
       expect(
         requests.some((request) => request.url.includes("automation-service")),
       ).toBe(false);
@@ -542,10 +973,6 @@ describe("content publications schedule routes", () => {
       );
 
       const responseText = await response.text();
-      if (response.status !== 200) {
-        // Temporary diagnostic for the failing schedule route path.
-        console.error(responseText);
-      }
 
       expect(response.status).toBe(200);
       const payload = JSON.parse(responseText) as Record<string, unknown>;
@@ -707,7 +1134,7 @@ function makeFanoutRow(overrides: Record<string, unknown> = {}) {
     schedule_updated_at: "2026-06-21T10:00:00.000Z",
     schedule_validation_metadata: {},
     snapshot: {
-      capabilityVersion: "1.0.0",
+      capabilityVersion: PUBLICATION_CAPABILITY_VERSION,
     },
     snapshot_hash:
       "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -716,6 +1143,34 @@ function makeFanoutRow(overrides: Record<string, unknown> = {}) {
     user_id: USER_ID,
     validated_at: "2026-06-21T10:00:00.000Z",
     validated_target_count: 2,
+    ...overrides,
+  };
+}
+
+function makeFanoutTargetRow(overrides: Record<string, unknown> = {}) {
+  return {
+    block_message: null,
+    block_reason: null,
+    capability_snapshot: {},
+    capability_version: PUBLICATION_CAPABILITY_VERSION,
+    content_publication_fanout_id: FANOUT_ID,
+    content_publication_id: null,
+    created_at: "2026-06-21T10:00:00.000Z",
+    last_action_at: null,
+    last_action_key: null,
+    last_action_result: null,
+    last_block_reason: null,
+    last_rechecked_at: null,
+    id: "fanout-target-1",
+    platform_connection_id: PLATFORM_CONNECTION_ID,
+    provider_overrides: {},
+    request_intent_hash:
+      "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    target_platform: "youtube",
+    target_status: "validated",
+    updated_at: "2026-06-21T10:00:00.000Z",
+    user_id: USER_ID,
+    validated_at: "2026-06-21T10:00:00.000Z",
     ...overrides,
   };
 }
