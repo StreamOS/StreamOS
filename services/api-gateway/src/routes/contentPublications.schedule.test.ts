@@ -147,6 +147,10 @@ describe("content publications schedule routes", () => {
             expect(parsedBody.scheduled_timezone).toBe("Europe/Berlin");
             expect(parsedBody.schedule_validation_metadata).toMatchObject({
               action: "edit",
+              schedule_policy: expect.objectContaining({
+                policyStatus: "ready",
+                policyVersion: "2026.06.p3.18.v1",
+              }),
               target_platform: "youtube",
             });
 

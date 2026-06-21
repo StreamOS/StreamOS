@@ -1,8 +1,10 @@
 import type { Tables } from "@streamos/database";
 import type {
+  ConnectionStatus,
   ContentPublicationScheduleBlockReason,
   ContentPublicationScheduleActionPolicy,
   ContentPublicationScheduleStatus,
+  PublicationSchedulePolicy,
   PublicationScheduleStatusTone,
   RepurposingPlanResult,
   StreamPlatform,
@@ -10,6 +12,8 @@ import type {
 import {
   buildCanonicalPublicationDraft,
   buildPublicationScheduleActionPolicy,
+  evaluatePublicationFanoutScheduleIntent,
+  evaluatePublicationScheduleIntent,
   isApprovedRepurposingPlanResult,
 } from "@streamos/types";
 
@@ -24,6 +28,28 @@ export const PUBLICATION_SCHEDULE_PERIODS = [
 
 export type PublicationSchedulePeriod =
   (typeof PUBLICATION_SCHEDULE_PERIODS)[number];
+
+function normalizeScheduleConnectionStatus(
+  status: PublicationConnectionRow["status"] | null,
+): ConnectionStatus | null {
+  if (status === "connected") {
+    return "connected";
+  }
+
+  if (status === "expired") {
+    return "expired";
+  }
+
+  if (
+    status === "revoked" ||
+    status === "disconnected" ||
+    status === "degraded"
+  ) {
+    return "revoked";
+  }
+
+  return "pending";
+}
 
 export const PUBLICATION_SCHEDULE_TYPES = [
   "all",
@@ -145,6 +171,7 @@ export type PublicationScheduleItem = {
   reviewStatusAtRequestLabel: string;
   safeMessage: string;
   safeSourceLabel: string;
+  schedulePolicy: PublicationSchedulePolicy;
   scheduleSourceLabel: string;
   scheduleStatus: ContentPublicationScheduleStatus;
   scheduleStatusDescription: string;
@@ -527,6 +554,82 @@ export function isPublicationScheduleDateKey(value: string): boolean {
   return value !== "unscheduled";
 }
 
+function deriveVisibleScheduleStatus(
+  row: Pick<
+    PublicationRow | PublicationFanoutRow,
+    | "schedule_status"
+    | "scheduled_at_utc"
+    | "schedule_canceled_at"
+    | "schedule_expired_at"
+    | "schedule_replaced_at"
+  >,
+  now: number,
+): ContentPublicationScheduleStatus {
+  if (row.schedule_canceled_at) {
+    return "schedule_canceled";
+  }
+
+  if (row.schedule_replaced_at) {
+    return "schedule_replaced";
+  }
+
+  if (row.schedule_expired_at) {
+    return "schedule_expired";
+  }
+
+  if (
+    (row.schedule_status === "scheduled" ||
+      row.schedule_status === "schedule_ready") &&
+    row.scheduled_at_utc &&
+    new Date(row.scheduled_at_utc).getTime() < now
+  ) {
+    return "schedule_expired";
+  }
+
+  return row.schedule_status;
+}
+
+function extractSchedulePolicySnapshot(
+  value: unknown,
+): PublicationSchedulePolicy | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const schedulePolicy = (value as { schedule_policy?: unknown })
+    .schedule_policy;
+
+  if (!schedulePolicy || typeof schedulePolicy !== "object") {
+    return null;
+  }
+
+  const candidate = schedulePolicy as Partial<PublicationSchedulePolicy>;
+
+  if (
+    typeof candidate.policyVersion !== "string" ||
+    typeof candidate.policyStatus !== "string" ||
+    typeof candidate.scheduleStatus !== "string"
+  ) {
+    return null;
+  }
+
+  return candidate as PublicationSchedulePolicy;
+}
+
+function readScheduleValidationBoolean(
+  value: unknown,
+  key: string,
+  fallback: boolean,
+): boolean {
+  if (!value || typeof value !== "object") {
+    return fallback;
+  }
+
+  const candidate = (value as Record<string, unknown>)[key];
+
+  return typeof candidate === "boolean" ? candidate : fallback;
+}
+
 function buildPublicationScheduleItem({
   channelsById,
   connectionsById,
@@ -542,8 +645,6 @@ function buildPublicationScheduleItem({
   now: number;
   publication: PublicationRow;
 }): PublicationScheduleItem | null {
-  const scheduleStatus = deriveVisibleScheduleStatus(publication, now);
-  const scheduleMeta = SCHEDULE_STATUS_META[scheduleStatus];
   const connection =
     connectionsById.get(publication.platform_connection_id) ?? null;
   const channel =
@@ -551,16 +652,61 @@ function buildPublicationScheduleItem({
       ? (channelsById.get(connection.channel_id) ?? null)
       : null;
   const providerLabel = getPlatformLabel(publication.target_platform);
+  const scheduleValidationMetadata =
+    publication.schedule_validation_metadata ?? null;
+  const connectionScopes = connection?.scopes ?? [];
+  const approvedBundle = extractApprovedBundle(contentJob?.result ?? null);
+  const schedulePolicy =
+    extractSchedulePolicySnapshot(scheduleValidationMetadata) ??
+    evaluatePublicationScheduleIntent({
+      availableScopes: connectionScopes,
+      connectionStatus: normalizeScheduleConnectionStatus(
+        connection?.status ?? null,
+      ),
+      contentJobReviewStatus: contentJob?.review_status ?? null,
+      contentJobStatus: contentJob?.status ?? null,
+      currentPublicationStatus: publication.publication_status,
+      hasApprovedBundle: readScheduleValidationBoolean(
+        scheduleValidationMetadata,
+        "has_approved_bundle",
+        Boolean(approvedBundle),
+      ),
+      hasPublishableAsset: readScheduleValidationBoolean(
+        scheduleValidationMetadata,
+        "has_publishable_asset",
+        publication.schedule_block_reason !== "publishable_asset_missing",
+      ),
+      hasRequiredScopes: readScheduleValidationBoolean(
+        scheduleValidationMetadata,
+        "has_required_scopes",
+        publication.schedule_block_reason !== "missing_publish_scopes",
+      ),
+      scheduleSource: publication.schedule_source,
+      scheduledAtUtc: publication.scheduled_at_utc,
+      scheduledTimezone: publication.scheduled_timezone,
+      schedulingAllowed: readScheduleValidationBoolean(
+        scheduleValidationMetadata,
+        "scheduling_allowed",
+        publication.schedule_block_reason !== "scheduling_not_allowed",
+      ),
+      targetPlatform: publication.target_platform,
+      now,
+    }).policy;
+  const scheduleStatus = deriveVisibleScheduleStatus(publication, now);
+  const scheduleMeta = SCHEDULE_STATUS_META[scheduleStatus];
   const blockedReasonLabel = getPublicationScheduleBlockReasonLabel(
-    publication.schedule_block_reason,
+    schedulePolicy.blockReason ?? publication.schedule_block_reason,
   );
   const connectionStatusLabel = connection
     ? getPublicationStatusLabel(connection.status)
     : null;
   const isReauthRequired = Boolean(
-    connectionStatusLabel && connectionStatusLabel !== "Connected",
+    schedulePolicy.providerHint.requiresReauth ||
+    (connectionStatusLabel && connectionStatusLabel !== "Connected"),
   );
-  const isExpired = scheduleStatus === "schedule_expired";
+  const isExpired =
+    scheduleStatus === "schedule_expired" ||
+    schedulePolicy.policyStatus === "expired";
   const isBlocked = scheduleStatus === "schedule_blocked";
   const isFinalized =
     scheduleStatus === "schedule_canceled" ||
@@ -586,7 +732,6 @@ function buildPublicationScheduleItem({
     lockReason: "publication_processing",
     replaceSupported: true,
   });
-  const approvedBundle = extractApprovedBundle(contentJob?.result ?? null);
   const safeSourceLabel = buildPublicationSafeSourceLabel(
     publication.target_platform,
     approvedBundle,
@@ -634,6 +779,7 @@ function buildPublicationScheduleItem({
       scheduleMeta,
     }),
     safeSourceLabel,
+    schedulePolicy,
     scheduleSourceLabel: getPublicationScheduleSourceLabel(
       publication.schedule_source,
     ),
@@ -688,16 +834,53 @@ function buildFanoutScheduleItem({
   fanoutTargets: PublicationFanoutTargetRow[];
   now: number;
 }): PublicationScheduleItem {
-  const scheduleStatus = deriveVisibleScheduleStatus(fanout, now);
-  const scheduleMeta = SCHEDULE_STATUS_META[scheduleStatus];
+  const scheduleValidationMetadata =
+    fanout.schedule_validation_metadata ?? null;
   const scheduledTimezone = formatPublicationScheduleTimezone(
     fanout.scheduled_timezone,
   );
   const providerLabels = uniqueValues(
     fanoutTargets.map((target) => getPlatformLabel(target.target_platform)),
   );
+  const schedulePolicy =
+    extractSchedulePolicySnapshot(scheduleValidationMetadata) ??
+    evaluatePublicationFanoutScheduleIntent({
+      availableScopes: [],
+      connectionStatus: null,
+      contentJobReviewStatus: contentJob?.review_status ?? null,
+      contentJobStatus: contentJob?.status ?? null,
+      currentFanoutStatus: fanout.fanout_status,
+      hasApprovedBundle: Boolean(extractFanoutApprovedBundle(fanout.snapshot)),
+      hasPublishableAsset: readScheduleValidationBoolean(
+        scheduleValidationMetadata,
+        "has_publishable_asset",
+        fanout.schedule_block_reason !== "publishable_asset_missing",
+      ),
+      hasRequiredScopes: readScheduleValidationBoolean(
+        scheduleValidationMetadata,
+        "has_required_scopes",
+        fanout.schedule_block_reason !== "missing_publish_scopes",
+      ),
+      hasRunnableTargets: readScheduleValidationBoolean(
+        scheduleValidationMetadata,
+        "has_runnable_targets",
+        fanout.validated_target_count > 0,
+      ),
+      scheduleSource: fanout.schedule_source,
+      scheduledAtUtc: fanout.scheduled_at_utc,
+      scheduledTimezone: fanout.scheduled_timezone,
+      schedulingAllowed: readScheduleValidationBoolean(
+        scheduleValidationMetadata,
+        "scheduling_allowed",
+        fanout.schedule_block_reason !== "scheduling_not_allowed",
+      ),
+      targetCount: fanout.target_count,
+      now,
+    }).policy;
+  const scheduleStatus = deriveVisibleScheduleStatus(fanout, now);
+  const scheduleMeta = SCHEDULE_STATUS_META[scheduleStatus];
   const blockedReasonLabel = getPublicationScheduleBlockReasonLabel(
-    fanout.schedule_block_reason,
+    schedulePolicy.blockReason ?? fanout.schedule_block_reason,
   );
   const reauthRequiredTargetCount = countReauthRequiredTargets(
     fanoutTargets,
@@ -711,8 +894,11 @@ function buildFanoutScheduleItem({
   );
   const approvedBundle = extractFanoutApprovedBundle(fanout.snapshot);
   const providerSummary = providerLabels.join(" · ") || "Unbekannter Provider";
-  const isReauthRequired = reauthRequiredTargetCount > 0;
-  const isExpired = scheduleStatus === "schedule_expired";
+  const isReauthRequired =
+    reauthRequiredTargetCount > 0 || schedulePolicy.providerHint.requiresReauth;
+  const isExpired =
+    scheduleStatus === "schedule_expired" ||
+    schedulePolicy.policyStatus === "expired";
   const isBlocked = scheduleStatus === "schedule_blocked";
   const isFinalized =
     scheduleStatus === "schedule_canceled" ||
@@ -766,6 +952,7 @@ function buildFanoutScheduleItem({
       targetCount: fanout.target_count,
     }),
     safeSourceLabel: getSafeFanoutTitle(fanout),
+    schedulePolicy,
     scheduleSourceLabel: getPublicationScheduleSourceLabel(
       fanout.schedule_source,
     ),
@@ -1203,41 +1390,6 @@ function resolveSelectedItem(
   }
 
   return items[0] ?? null;
-}
-
-function deriveVisibleScheduleStatus(
-  row: Pick<
-    PublicationRow | PublicationFanoutRow,
-    | "schedule_status"
-    | "scheduled_at_utc"
-    | "schedule_canceled_at"
-    | "schedule_expired_at"
-    | "schedule_replaced_at"
-  >,
-  now: number,
-): ContentPublicationScheduleStatus {
-  if (row.schedule_canceled_at) {
-    return "schedule_canceled";
-  }
-
-  if (row.schedule_replaced_at) {
-    return "schedule_replaced";
-  }
-
-  if (row.schedule_expired_at) {
-    return "schedule_expired";
-  }
-
-  if (
-    (row.schedule_status === "scheduled" ||
-      row.schedule_status === "schedule_ready") &&
-    row.scheduled_at_utc &&
-    new Date(row.scheduled_at_utc).getTime() < now
-  ) {
-    return "schedule_expired";
-  }
-
-  return row.schedule_status;
 }
 
 function extractApprovedBundle(

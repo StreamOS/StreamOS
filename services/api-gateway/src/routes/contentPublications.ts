@@ -2283,6 +2283,7 @@ async function createPublicationRequest({
               connectionScopes.includes(scope),
             ),
             schedule_requested: true,
+            schedule_policy: scheduleEvaluation?.policy ?? null,
             target_platform: input.target_platform,
           }
         : {},
@@ -3704,6 +3705,7 @@ async function updatePublicationSchedule({
         action: "edit",
         reason,
         schedule_requested: true,
+        schedule_policy: scheduleEvaluation.policy,
         scheduled_at_utc: requestedScheduleAtUtc,
         scheduled_timezone: requestedScheduleTimezone,
         target_platform: publication.target_platform,
@@ -4022,6 +4024,7 @@ async function replacePublicationSchedule({
         action: "replace",
         reason,
         schedule_requested: true,
+        schedule_policy: scheduleEvaluation.policy,
         scheduled_at_utc: requestedScheduleAtUtc,
         scheduled_timezone: requestedScheduleTimezone,
         target_platform: publication.target_platform,
@@ -4163,6 +4166,7 @@ async function updatePublicationFanoutSchedule({
         action: "edit",
         reason,
         schedule_requested: true,
+        schedule_policy: scheduleEvaluation.policy,
         scheduled_at_utc: requestedScheduleAtUtc,
         scheduled_timezone: requestedScheduleTimezone,
         target_count: fanout.target_count,
@@ -4324,6 +4328,11 @@ async function replacePublicationFanoutSchedule({
     throw new Error("publication_fanout_schedule_replace_failed");
   }
 
+  const publicationVodAsset = await loadVodAsset({
+    supabase,
+    streamId: contentJob.stream_id,
+    userId: input.user_id,
+  });
   const targets = await loadPublicationFanoutTargets({
     fanoutId: fanout.id,
     supabase,
@@ -4343,6 +4352,25 @@ async function replacePublicationFanoutSchedule({
     typeof fanout.snapshot?.capabilityVersion === "string"
       ? fanout.snapshot.capabilityVersion
       : PUBLICATION_CAPABILITY_VERSION;
+  const scheduleEvaluation = evaluatePublicationFanoutScheduleIntent({
+    contentJobReviewStatus: contentJob.review_status,
+    contentJobStatus: contentJob.status,
+    currentFanoutStatus: fanout.fanout_status,
+    hasApprovedBundle: true,
+    hasPublishableAsset: Boolean(publicationVodAsset?.source_url),
+    hasRequiredScopes: fanout.blocked_target_count === 0,
+    hasRunnableTargets: fanout.validated_target_count > 0,
+    scheduleSource: "dashboard",
+    scheduledAtUtc: requestedScheduleAtUtc,
+    scheduledTimezone: requestedScheduleTimezone,
+    schedulingAllowed: fanout.fanout_status !== "blocked",
+    targetCount: fanout.target_count,
+  });
+
+  if (!scheduleEvaluation.accepted) {
+    throw new Error("publication_fanout_schedule_validation_failed");
+  }
+
   const requestIntentHash = buildPublicationFanoutRequestIntentHash({
     capabilityVersion,
     contentJobId: fanout.content_job_id,
@@ -4485,6 +4513,7 @@ async function replacePublicationFanoutSchedule({
         action: "replace",
         reason: input.reason?.trim() || null,
         schedule_requested: true,
+        schedule_policy: scheduleEvaluation.policy,
         scheduled_at_utc: requestedScheduleAtUtc,
         scheduled_timezone: requestedScheduleTimezone,
         target_count: fanout.target_count,

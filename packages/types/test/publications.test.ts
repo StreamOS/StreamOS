@@ -18,6 +18,7 @@ import {
   buildPublicationScheduleSummary,
   evaluatePublicationFanoutScheduleIntent,
   evaluatePublicationScheduleIntent,
+  evaluatePublicationSchedulePolicy,
 } from "../src/publication-scheduling.js";
 
 const APPROVED_BUNDLE = {
@@ -519,6 +520,32 @@ void test("publication scheduling helpers normalize timestamps and classify read
   assert.equal(scheduleBlocked.scheduleStatus, "schedule_blocked");
   assert.equal(scheduleBlocked.blockReason, "fanout_not_ready");
   assert.equal(scheduleBlocked.softBlocked, true);
+});
+
+void test("publication schedule policy centralizes timing, provider hints, and execution locks", () => {
+  const policy = evaluatePublicationSchedulePolicy({
+    availableScopes: ["https://www.googleapis.com/auth/youtube.upload"],
+    connectionStatus: "connected",
+    contentJobReviewStatus: "approved",
+    contentJobStatus: "done",
+    currentPublicationStatus: null,
+    hasApprovedBundle: true,
+    hasPublishableAsset: true,
+    hasRequiredScopes: true,
+    scheduleSource: "api-gateway",
+    scheduledAtUtc: "2026-06-30T12:00:00.000Z",
+    scheduledTimezone: "Europe/Berlin",
+    schedulingAllowed: true,
+    targetPlatform: "youtube",
+  });
+
+  assert.equal(policy.accepted, true);
+  assert.equal(policy.policyVersion, "2026.06.p3.18.v1");
+  assert.equal(policy.policyStatus, "ready");
+  assert.equal(policy.providerHint.safeLabel, "YouTube scheduling");
+  assert.equal(policy.execution.status, "idle");
+  assert.equal(policy.actionPolicy.canEdit, true);
+  assert.equal(policy.timing.isExpired, false);
 });
 
 void test("publication schedule action policy enables edit, replace, and cancel for mutable entries", () => {

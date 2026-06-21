@@ -189,6 +189,8 @@ describe("PublicationScheduleConsole", () => {
     expect(publicationItem!.safeSourceLabel).toBe("Morning Highlights");
     expect(fanoutItem!.safeSourceLabel).toBe("Approved parent fanout");
     expect(fanoutItem!.scheduledTimezone).toBe("UTC (Fallback)");
+    expect(publicationItem!.schedulePolicy.policyStatus).toBe("blocked");
+    expect(fanoutItem!.schedulePolicy.policyStatus).toBe("blocked");
     expect(
       fanoutItem!.scheduleActionPolicy.actions.replace_schedule.allowed,
     ).toBe(false);
@@ -223,6 +225,9 @@ describe("PublicationScheduleConsole", () => {
     expect(html).toContain("Publication history");
     expect(html).toContain("Fanout summary");
     expect(html).toContain("Schedule controls");
+    expect(html).toContain("Schedule policy");
+    expect(html).toContain("Policy status");
+    expect(html).toContain("Provider hint");
     expect(html).toContain("Update schedule");
     expect(html).toContain("Replace schedule");
     expect(html).toContain("Cancel schedule");

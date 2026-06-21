@@ -622,6 +622,99 @@ function ScheduleDetail({ item }: { item: PublicationScheduleItem }) {
           </div>
         </div>
 
+        <div className="card space-y-4">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
+              Schedule policy
+            </p>
+            <h3 className="mt-1 text-lg font-semibold text-white">
+              Lead time, horizon, execution lock, and provider hints
+            </h3>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+              Die zentrale Policy ist serverseitig berechnet und bleibt
+              read-only. Sie beschreibt nur sichere Planungsregeln, ohne
+              Provider-Execution, Worker-Starts oder Browser-Secrets.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <DetailStat
+              label="Policy status"
+              value={item.schedulePolicy.policyStatus}
+            />
+            <DetailStat
+              label="Policy version"
+              value={item.schedulePolicy.policyVersion}
+            />
+            <DetailStat
+              label="Execution lock"
+              value={item.schedulePolicy.execution.isLocked ? "Locked" : "Open"}
+            />
+            <DetailStat
+              label="Provider hint"
+              value={item.schedulePolicy.providerHint.safeLabel}
+            />
+            <DetailStat
+              label="Lead time"
+              value={`${item.schedulePolicy.timing.minLeadTimeMinutes} min minimum`}
+            />
+            <DetailStat
+              label="Edit window"
+              value={`${item.schedulePolicy.timing.nearDueEditWindowMinutes} min near-due`}
+            />
+            <DetailStat
+              label="Horizon"
+              value={`${item.schedulePolicy.timing.maxHorizonDays} days max`}
+            />
+            <DetailStat
+              label="Revalidation"
+              value={
+                item.schedulePolicy.requiresRevalidation
+                  ? "Required"
+                  : "Not required"
+              }
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <InfoRow
+              label="Provider hint"
+              value={item.schedulePolicy.providerHint.description}
+            />
+            <InfoRow
+              label="Next recommended action"
+              value={item.schedulePolicy.nextRecommendedAction ?? "None"}
+            />
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+              Warnings
+            </p>
+            {item.schedulePolicy.warnings.length > 0 ? (
+              <ul className="space-y-2 text-sm leading-6 text-slate-300">
+                {item.schedulePolicy.warnings.map((warning) => (
+                  <li
+                    key={`${item.id}-${warning.code}`}
+                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                  >
+                    <span className="font-semibold text-white">
+                      {warning.code}
+                    </span>
+                    <span className="ml-2 text-slate-400">
+                      {warning.message}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm leading-6 text-slate-400">
+                No schedule warnings are currently stored for this entry.
+              </p>
+            )}
+          </div>
+        </div>
+
         <details className="card">
           <summary className="cursor-pointer list-none text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
             Raw / Debug

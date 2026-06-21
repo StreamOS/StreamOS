@@ -1,4 +1,5 @@
 import type {
+  ConnectionStatus,
   ContentJobReviewStatus,
   ContentJobStatus,
   ContentPublicationStatus,
@@ -129,11 +130,152 @@ export type PublicationScheduleEvaluationResult = {
   safeDescription: string;
   scheduleStatus: ContentPublicationScheduleStatus;
   softBlocked: boolean;
+  policy: PublicationSchedulePolicy;
+};
+
+export const PUBLICATION_SCHEDULE_POLICY_MODES = [
+  "calendar",
+  "create",
+  "edit",
+  "fanout_create",
+  "fanout_edit",
+  "observability",
+  "revalidate",
+  "replace",
+] as const;
+
+export type PublicationSchedulePolicyMode =
+  (typeof PUBLICATION_SCHEDULE_POLICY_MODES)[number];
+
+export const PUBLICATION_SCHEDULE_POLICY_STATUSES = [
+  "blocked",
+  "expired",
+  "ready",
+  "stale",
+  "unknown",
+] as const;
+
+export type PublicationSchedulePolicyStatus =
+  (typeof PUBLICATION_SCHEDULE_POLICY_STATUSES)[number];
+
+export const PUBLICATION_SCHEDULE_POLICY_VERSION = "2026.06.p3.18.v1" as const;
+
+export type PublicationSchedulePolicyNotice = {
+  code: string;
+  message: string;
+};
+
+export type PublicationScheduleProviderHint = {
+  description: string;
+  nativeSchedulingSupported: boolean;
+  nativeSchedulingUsed: false;
+  provider: StreamPlatform | "fanout";
+  requiredScopes: string[];
+  requiresReauth: boolean;
+  requiresScopes: boolean;
+  schedulingAllowed: boolean;
+  safeLabel: string;
+  supportStatus: "conditional" | "experimental" | "supported" | "unsupported";
+};
+
+export type PublicationScheduleExecutionPolicyStatus =
+  | "canceled"
+  | "claimed"
+  | "completed"
+  | "expired"
+  | "executing"
+  | "idle"
+  | "queued"
+  | "unknown";
+
+export type PublicationScheduleExecutionPolicy = {
+  claimedAt: string | null;
+  claimedBy: string | null;
+  isLocked: boolean;
+  queueJobId: string | null;
+  status: PublicationScheduleExecutionPolicyStatus;
+};
+
+export type PublicationScheduleTimingPolicy = {
+  expiresAt: string | null;
+  isExpired: boolean;
+  isNearDue: boolean;
+  isStale: boolean;
+  minLeadTimeMinutes: number;
+  maxHorizonDays: number;
+  nearDueEditWindowMinutes: number;
+  scheduledAtUtc: string | null;
+  scheduledTimezone: string | null;
+  staleAt: string | null;
+};
+
+export type PublicationScheduleTargetPolicy = {
+  blockedTargetCount: number;
+  readyTargetCount: number;
+  reauthRequiredTargetCount: number;
+  runnableTargetCount: number;
+  targetCount: number;
+};
+
+export type PublicationSchedulePolicy = {
+  accepted: boolean;
+  actionPolicy: ContentPublicationScheduleActionPolicy;
+  blockReason: ContentPublicationScheduleBlockReason | null;
+  execution: PublicationScheduleExecutionPolicy;
+  info: PublicationSchedulePolicyNotice[];
+  mode: PublicationSchedulePolicyMode;
+  nextRecommendedAction: string | null;
+  policyStatus: PublicationSchedulePolicyStatus;
+  policyVersion: string;
+  providerHint: PublicationScheduleProviderHint;
+  requiresRevalidation: boolean;
+  safeDescription: string;
+  scheduleStatus: ContentPublicationScheduleStatus;
+  softBlocked: boolean;
+  targetPolicy: PublicationScheduleTargetPolicy | null;
+  timing: PublicationScheduleTimingPolicy;
+  warnings: PublicationSchedulePolicyNotice[];
+};
+
+export type PublicationSchedulePolicyInput = {
+  availableScopes?: string[];
+  contentJobReviewStatus: ContentJobReviewStatus | null;
+  contentJobStatus: ContentJobStatus | null;
+  currentFanoutStatus?: ContentPublicationFanoutStatus | null;
+  currentPublicationStatus?: ContentPublicationStatus | null;
+  connectionStatus?: ConnectionStatus | null;
+  executionClaimedAt?: string | null;
+  executionClaimedBy?: string | null;
+  executionQueueJobId?: string | null;
+  executionStatus?: PublicationScheduleExecutionPolicyStatus | null;
+  hasApprovedBundle: boolean;
+  hasPublishableAsset: boolean;
+  hasRequiredScopes: boolean;
+  hasRunnableTargets?: boolean;
+  fanoutBlockedTargetCount?: number;
+  fanoutReauthRequiredTargetCount?: number;
+  fanoutReadyTargetCount?: number;
+  fanoutTargetCount?: number;
+  mode?: PublicationSchedulePolicyMode;
+  now?: number;
+  scheduleSource?: ContentPublicationScheduleSource | null;
+  scheduledAtUtc: string | Date | null | undefined;
+  scheduledTimezone: string | null | undefined;
+  schedulingAllowed: boolean;
+  targetCount?: number;
+  targetPlatform: StreamPlatform | "fanout";
+  targetSupportStatus?:
+    | "conditional"
+    | "experimental"
+    | "supported"
+    | "unsupported";
 };
 
 export type PublicationScheduleEvaluationInput = {
+  availableScopes?: string[];
   contentJobReviewStatus: ContentJobReviewStatus | null;
   contentJobStatus: ContentJobStatus | null;
+  connectionStatus?: ConnectionStatus | null;
   currentPublicationStatus: ContentPublicationStatus | null;
   hasApprovedBundle: boolean;
   hasPublishableAsset: boolean;
@@ -147,8 +289,10 @@ export type PublicationScheduleEvaluationInput = {
 };
 
 export type PublicationFanoutScheduleEvaluationInput = {
+  availableScopes?: string[];
   contentJobReviewStatus: ContentJobReviewStatus | null;
   contentJobStatus: ContentJobStatus | null;
+  connectionStatus?: ConnectionStatus | null;
   currentFanoutStatus: ContentPublicationFanoutStatus | null;
   hasApprovedBundle: boolean;
   hasPublishableAsset: boolean;
@@ -322,8 +466,10 @@ export function derivePublicationScheduleStatus({
 }
 
 export function evaluatePublicationScheduleIntent({
+  availableScopes = [],
   contentJobReviewStatus,
   contentJobStatus,
+  connectionStatus = null,
   currentPublicationStatus,
   hasApprovedBundle,
   hasPublishableAsset,
@@ -335,120 +481,39 @@ export function evaluatePublicationScheduleIntent({
   targetPlatform,
   now = Date.now(),
 }: PublicationScheduleEvaluationInput): PublicationScheduleEvaluationResult {
-  const normalizedScheduledAtUtc =
-    normalizePublicationScheduleTimestamp(scheduledAtUtc);
-  const normalizedTimezone =
-    normalizePublicationScheduleTimezone(scheduledTimezone);
-
-  if (!normalizedScheduledAtUtc) {
-    return blockedScheduleDecision(
-      "schedule_time_invalid",
-      "The requested schedule time is missing or invalid.",
-      "Provide a future UTC timestamp before scheduling.",
-    );
-  }
-
-  if (!normalizedTimezone) {
-    return blockedScheduleDecision(
-      "schedule_timezone_invalid",
-      "The requested schedule timezone is missing or invalid.",
-      "Provide a valid IANA timezone for the creator context.",
-    );
-  }
-
-  if (!isPublicationScheduleTimestampFuture(normalizedScheduledAtUtc, now)) {
-    return blockedScheduleDecision(
-      "schedule_time_invalid",
-      "The requested schedule time must be in the future.",
-      "Choose a future time before creating the schedule.",
-    );
-  }
-
-  if (!hasApprovedBundle || contentJobReviewStatus !== "approved") {
-    return blockedScheduleDecision(
-      "content_job_not_approved",
-      "The repurposing job is not approved yet.",
-      "Approve the repurposing job before scheduling publishing.",
-    );
-  }
-
-  if (contentJobStatus !== "done" && contentJobStatus !== "completed") {
-    return blockedScheduleDecision(
-      "content_job_not_complete",
-      "The repurposing job is not complete yet.",
-      "Wait for the repurposing job to finish before scheduling publishing.",
-    );
-  }
-
-  if (
-    currentPublicationStatus === "published" ||
-    currentPublicationStatus === "failed_permanent" ||
-    currentPublicationStatus === "failed_retryable" ||
-    currentPublicationStatus === "canceled" ||
-    currentPublicationStatus === "rejected" ||
-    currentPublicationStatus === "publishing"
-  ) {
-    return blockedScheduleDecision(
-      currentPublicationStatus === "publishing"
-        ? "publication_processing"
-        : "publication_finalized",
-      "The publication is already final or currently processing.",
-      "Create a new publication request instead of scheduling this one.",
-    );
-  }
-
-  if (!schedulingAllowed) {
-    return {
-      accepted: true,
-      blockReason: "scheduling_not_allowed",
-      nextRecommendedAction:
-        "Wait until the selected target account supports scheduling.",
-      safeDescription:
-        "Scheduling is stored, but the selected target account does not currently allow StreamOS scheduling readiness.",
-      scheduleStatus: "schedule_blocked",
-      softBlocked: true,
-    };
-  }
-
-  if (!hasRequiredScopes) {
-    return {
-      accepted: true,
-      blockReason: "missing_publish_scopes",
-      nextRecommendedAction:
-        "Reconnect the provider account with the required publish scopes.",
-      safeDescription:
-        "Scheduling is stored, but the provider connection is missing publish scopes for future execution.",
-      scheduleStatus: "schedule_blocked",
-      softBlocked: true,
-    };
-  }
-
-  if (!hasPublishableAsset) {
-    return {
-      accepted: true,
-      blockReason: "publishable_asset_missing",
-      nextRecommendedAction:
-        "Attach a publishable asset before the scheduled execution window.",
-      safeDescription:
-        "Scheduling is stored, but the publishable asset is still missing.",
-      scheduleStatus: "schedule_blocked",
-      softBlocked: true,
-    };
-  }
+  const policy = evaluatePublicationSchedulePolicy({
+    availableScopes,
+    connectionStatus,
+    contentJobReviewStatus,
+    contentJobStatus,
+    currentPublicationStatus,
+    hasApprovedBundle,
+    hasPublishableAsset,
+    hasRequiredScopes,
+    mode: "create",
+    now,
+    scheduleSource,
+    scheduledAtUtc,
+    scheduledTimezone,
+    schedulingAllowed,
+    targetPlatform,
+  });
 
   return {
-    accepted: true,
-    blockReason: null,
-    nextRecommendedAction: null,
-    safeDescription: `Scheduling is ready for ${targetPlatform} via ${scheduleSource ?? "api-gateway"} and will remain server-managed until execution is introduced.`,
-    scheduleStatus: "schedule_ready",
-    softBlocked: false,
+    accepted: policy.accepted,
+    blockReason: policy.blockReason,
+    nextRecommendedAction: policy.nextRecommendedAction,
+    safeDescription: policy.safeDescription,
+    scheduleStatus: policy.scheduleStatus,
+    softBlocked: policy.softBlocked,
+    policy,
   };
 }
-
 export function evaluatePublicationFanoutScheduleIntent({
+  availableScopes = [],
   contentJobReviewStatus,
   contentJobStatus,
+  connectionStatus = null,
   currentFanoutStatus,
   hasApprovedBundle,
   hasPublishableAsset,
@@ -461,129 +526,36 @@ export function evaluatePublicationFanoutScheduleIntent({
   targetCount,
   now = Date.now(),
 }: PublicationFanoutScheduleEvaluationInput): PublicationScheduleEvaluationResult {
-  const normalizedScheduledAtUtc =
-    normalizePublicationScheduleTimestamp(scheduledAtUtc);
-  const normalizedTimezone =
-    normalizePublicationScheduleTimezone(scheduledTimezone);
-
-  if (targetCount <= 0) {
-    return blockedScheduleDecision(
-      "fanout_not_ready",
-      "The parent fanout has no prepared child targets yet.",
-      "Prepare at least one target before scheduling the fanout.",
-    );
-  }
-
-  if (!normalizedScheduledAtUtc) {
-    return blockedScheduleDecision(
-      "schedule_time_invalid",
-      "The requested schedule time is missing or invalid.",
-      "Provide a future UTC timestamp before scheduling the fanout.",
-    );
-  }
-
-  if (!normalizedTimezone) {
-    return blockedScheduleDecision(
-      "schedule_timezone_invalid",
-      "The requested schedule timezone is missing or invalid.",
-      "Provide a valid IANA timezone for the creator context.",
-    );
-  }
-
-  if (!isPublicationScheduleTimestampFuture(normalizedScheduledAtUtc, now)) {
-    return blockedScheduleDecision(
-      "schedule_time_invalid",
-      "The requested schedule time must be in the future.",
-      "Choose a future time before creating the fanout schedule.",
-    );
-  }
-
-  if (!hasApprovedBundle || contentJobReviewStatus !== "approved") {
-    return blockedScheduleDecision(
-      "content_job_not_approved",
-      "The parent repurposing job is not approved yet.",
-      "Approve the repurposing job before scheduling the fanout.",
-    );
-  }
-
-  if (contentJobStatus !== "done" && contentJobStatus !== "completed") {
-    return blockedScheduleDecision(
-      "content_job_not_complete",
-      "The parent repurposing job is not complete yet.",
-      "Wait for the repurposing job to finish before scheduling the fanout.",
-    );
-  }
-
-  if (currentFanoutStatus === "blocked" || currentFanoutStatus === "canceled") {
-    return blockedScheduleDecision(
-      "fanout_finalized",
-      "The parent fanout is already final.",
-      "Create a new fanout request instead of scheduling this one.",
-    );
-  }
-
-  if (!schedulingAllowed) {
-    return {
-      accepted: true,
-      blockReason: "scheduling_not_allowed",
-      nextRecommendedAction:
-        "Wait until the selected targets support scheduling readiness.",
-      safeDescription:
-        "Scheduling is stored, but the parent fanout is not ready for execution yet.",
-      scheduleStatus: "schedule_blocked",
-      softBlocked: true,
-    };
-  }
-
-  if (!hasRequiredScopes) {
-    return {
-      accepted: true,
-      blockReason: "missing_publish_scopes",
-      nextRecommendedAction:
-        "Reconnect the target provider accounts with the required publish scopes.",
-      safeDescription:
-        "Scheduling is stored, but one or more targets are missing publish scopes.",
-      scheduleStatus: "schedule_blocked",
-      softBlocked: true,
-    };
-  }
-
-  if (!hasRunnableTargets) {
-    return {
-      accepted: true,
-      blockReason: "fanout_not_ready",
-      nextRecommendedAction:
-        "Validate at least one runnable target before the scheduled fanout executes.",
-      safeDescription:
-        "Scheduling is stored, but no runnable targets are available yet.",
-      scheduleStatus: "schedule_blocked",
-      softBlocked: true,
-    };
-  }
-
-  if (!hasPublishableAsset) {
-    return {
-      accepted: true,
-      blockReason: "publishable_asset_missing",
-      nextRecommendedAction:
-        "Attach a publishable asset before the scheduled execution window.",
-      safeDescription:
-        "Scheduling is stored, but the publishable asset is still missing.",
-      scheduleStatus: "schedule_blocked",
-      softBlocked: true,
-    };
-  }
+  const policy = evaluatePublicationFanoutSchedulePolicy({
+    availableScopes,
+    connectionStatus,
+    contentJobReviewStatus,
+    contentJobStatus,
+    currentFanoutStatus,
+    hasApprovedBundle,
+    hasPublishableAsset,
+    hasRequiredScopes,
+    hasRunnableTargets,
+    mode: "fanout_create",
+    now,
+    scheduleSource,
+    scheduledAtUtc,
+    scheduledTimezone,
+    schedulingAllowed,
+    targetCount,
+    targetPlatform: "fanout",
+  });
 
   return {
-    accepted: true,
-    blockReason: null,
-    nextRecommendedAction: null,
-    safeDescription: `Scheduling is ready for the parent fanout via ${scheduleSource ?? "api-gateway"} and will remain server-managed until execution is introduced.`,
-    scheduleStatus: "schedule_ready",
-    softBlocked: false,
+    accepted: policy.accepted,
+    blockReason: policy.blockReason,
+    nextRecommendedAction: policy.nextRecommendedAction,
+    safeDescription: policy.safeDescription,
+    scheduleStatus: policy.scheduleStatus,
+    softBlocked: policy.softBlocked,
+    policy,
   };
 }
-
 export function buildPublicationScheduleActionPolicy({
   finalBlockReason,
   isLocked,
@@ -654,6 +626,27 @@ export function buildPublicationScheduleActionPolicy({
   };
 }
 
+export function evaluatePublicationSchedulePolicy(
+  input: PublicationSchedulePolicyInput,
+): PublicationSchedulePolicy {
+  return buildPublicationSchedulePolicy({
+    ...input,
+    mode: input.mode ?? "create",
+  });
+}
+
+export function evaluatePublicationFanoutSchedulePolicy(
+  input: PublicationSchedulePolicyInput,
+): PublicationSchedulePolicy {
+  return buildPublicationSchedulePolicy({
+    ...input,
+    hasRunnableTargets: input.hasRunnableTargets ?? false,
+    mode: input.mode ?? "fanout_create",
+    targetPlatform: "fanout",
+    targetCount: input.targetCount ?? 0,
+  });
+}
+
 function scheduleActionDecision({
   allowed,
   blockReason,
@@ -691,7 +684,889 @@ function blockedScheduleDecision(
     safeDescription,
     scheduleStatus: "schedule_blocked",
     softBlocked: false,
+    policy: buildFallbackPublicationSchedulePolicy({
+      blockReason,
+      nextRecommendedAction,
+      safeDescription,
+    }),
   };
+}
+
+function buildPublicationSchedulePolicy(
+  input: PublicationSchedulePolicyInput,
+): PublicationSchedulePolicy {
+  const mode = input.mode ?? "create";
+  const policyVersion = PUBLICATION_SCHEDULE_POLICY_VERSION;
+  const now = input.now ?? Date.now();
+  const minLeadTimeMinutes = 15;
+  const nearDueEditWindowMinutes = 30;
+  const maxHorizonDays = 30;
+  const normalizedScheduledAtUtc = normalizePublicationScheduleTimestamp(
+    input.scheduledAtUtc,
+  );
+  const normalizedTimezone = normalizePublicationScheduleTimezone(
+    input.scheduledTimezone,
+  );
+  const timing = buildPublicationScheduleTimingPolicy({
+    maxHorizonDays,
+    minLeadTimeMinutes,
+    nearDueEditWindowMinutes,
+    now,
+    normalizedScheduledAtUtc,
+    normalizedTimezone,
+  });
+  const isViewMode =
+    mode === "calendar" || mode === "observability" || mode === "revalidate";
+  const providerHint = buildPublicationScheduleProviderHint({
+    availableScopes: input.availableScopes ?? [],
+    connectionStatus: input.connectionStatus ?? null,
+    hasRequiredScopes: input.hasRequiredScopes,
+    mode,
+    providerSupportStatus: input.targetSupportStatus ?? "supported",
+    schedulingAllowed: input.schedulingAllowed,
+    targetPlatform: input.targetPlatform,
+  });
+  const execution = buildPublicationScheduleExecutionPolicy({
+    claimedAt: input.executionClaimedAt ?? null,
+    claimedBy: input.executionClaimedBy ?? null,
+    mode,
+    queueJobId: input.executionQueueJobId ?? null,
+    status: normalizeExecutionStatus(
+      input.executionStatus ?? null,
+      input.currentPublicationStatus ?? null,
+    ),
+    timing,
+  });
+  const targetPolicy =
+    typeof input.fanoutTargetCount === "number"
+      ? buildPublicationScheduleTargetPolicy({
+          blockedTargetCount: input.fanoutBlockedTargetCount ?? 0,
+          fanoutTargetCount: input.fanoutTargetCount,
+          hasRunnableTargets: input.hasRunnableTargets ?? false,
+          reauthRequiredTargetCount: input.fanoutReauthRequiredTargetCount ?? 0,
+        })
+      : null;
+  const finalBlockReason = (() => {
+    if (!normalizedScheduledAtUtc) {
+      return "schedule_time_invalid";
+    }
+
+    if (!normalizedTimezone) {
+      return "schedule_timezone_invalid";
+    }
+
+    if (
+      !isViewMode &&
+      !isPublicationScheduleTimestampFuture(normalizedScheduledAtUtc, now)
+    ) {
+      return "schedule_time_invalid";
+    }
+
+    if (
+      !input.hasApprovedBundle ||
+      input.contentJobReviewStatus !== "approved"
+    ) {
+      return "content_job_not_approved";
+    }
+
+    if (
+      input.contentJobStatus !== "done" &&
+      input.contentJobStatus !== "completed"
+    ) {
+      return "content_job_not_complete";
+    }
+
+    if (
+      (mode === "fanout_create" || mode === "fanout_edit") &&
+      (input.targetCount ?? 0) <= 0
+    ) {
+      return "fanout_not_ready";
+    }
+
+    if (input.targetSupportStatus === "unsupported") {
+      return "target_unsupported";
+    }
+
+    return resolvePublicationScheduleFinalBlockReason({
+      currentFanoutStatus: input.currentFanoutStatus ?? null,
+      currentPublicationStatus: input.currentPublicationStatus ?? null,
+      execution,
+      mode,
+      timing,
+    });
+  })();
+  const softBlockReason = finalBlockReason
+    ? null
+    : resolvePublicationScheduleSoftBlockReason({
+        connectionStatus: input.connectionStatus ?? null,
+        hasPublishableAsset: input.hasPublishableAsset,
+        hasRequiredScopes: input.hasRequiredScopes,
+        hasRunnableTargets: input.hasRunnableTargets ?? true,
+        mode,
+        schedulingAllowed: input.schedulingAllowed,
+        targetCount: input.targetCount ?? 0,
+      });
+  const warningCodes = new Set<string>();
+  const warnings: PublicationSchedulePolicyNotice[] = [];
+  const info: PublicationSchedulePolicyNotice[] = [];
+
+  if (timing.isNearDue) {
+    warningCodes.add("near_due");
+    warnings.push({
+      code: "near_due",
+      message:
+        "The requested schedule is close to execution and should be treated as near-due.",
+    });
+  }
+
+  if (timing.isStale) {
+    warningCodes.add("stale");
+    warnings.push({
+      code: "stale",
+      message:
+        "The schedule or execution claim is stale and should be revalidated server-side.",
+    });
+  }
+
+  if (timing.isExpired) {
+    warningCodes.add("expired");
+    warnings.push({
+      code: "expired",
+      message:
+        "The stored schedule time has already passed and should be revalidated.",
+    });
+  }
+
+  if (!input.schedulingAllowed) {
+    warningCodes.add("scheduling_not_allowed");
+    warnings.push({
+      code: "scheduling_not_allowed",
+      message:
+        "The selected target account does not currently allow StreamOS scheduling readiness.",
+    });
+  }
+
+  if (!input.hasRequiredScopes) {
+    warningCodes.add("missing_publish_scopes");
+    warnings.push({
+      code: "missing_publish_scopes",
+      message: "The connected account is missing publish scopes for execution.",
+    });
+  }
+
+  if (!input.hasPublishableAsset) {
+    warningCodes.add("publishable_asset_missing");
+    warnings.push({
+      code: "publishable_asset_missing",
+      message:
+        "The publishable asset is still missing for the selected schedule.",
+    });
+  }
+
+  if (providerHint.requiresReauth) {
+    warningCodes.add("publication_reauth_required");
+    warnings.push({
+      code: "publication_reauth_required",
+      message:
+        "The connected account needs re-authentication before execution can proceed.",
+    });
+  }
+
+  if (input.mode === "fanout_create" || input.mode === "fanout_edit") {
+    info.push({
+      code: "fanout_target_policy",
+      message:
+        "Fanout scheduling remains server-managed; each target stays auditable through the shared policy layer.",
+    });
+  } else {
+    info.push({
+      code: "streamos_managed",
+      message:
+        "Provider-native scheduling is not used; StreamOS stores the UTC plan and keeps execution server-side.",
+    });
+  }
+
+  const scheduleStatus = determinePolicyScheduleStatus({
+    finalBlockReason,
+    mode,
+    softBlockReason,
+    timing,
+  });
+  const policyStatus = determinePolicyStatus({
+    finalBlockReason,
+    mode,
+    softBlockReason,
+    timing,
+  });
+  const accepted = finalBlockReason === null;
+  const softBlocked = softBlockReason !== null;
+  const actionPolicy = buildPublicationScheduleActionPolicy({
+    finalBlockReason,
+    isLocked:
+      execution.isLocked ||
+      ((mode === "edit" || mode === "replace" || mode === "fanout_edit") &&
+        timing.isNearDue),
+    itemLabel:
+      mode === "fanout_create" || mode === "fanout_edit"
+        ? "fanout schedule"
+        : "publication schedule",
+    lockReason: execution.isLocked
+      ? "publication_processing"
+      : timing.isNearDue &&
+          (mode === "edit" || mode === "replace" || mode === "fanout_edit")
+        ? "publication_status_not_schedulable"
+        : null,
+    replaceSupported: mode !== "fanout_create" && mode !== "fanout_edit",
+  });
+
+  return {
+    accepted,
+    actionPolicy,
+    blockReason: finalBlockReason ?? softBlockReason,
+    execution,
+    info,
+    mode,
+    nextRecommendedAction: buildPublicationScheduleNextAction({
+      finalBlockReason,
+      policyStatus,
+      softBlockReason,
+      timing,
+    }),
+    policyStatus,
+    policyVersion,
+    providerHint,
+    requiresRevalidation:
+      timing.isNearDue ||
+      timing.isStale ||
+      timing.isExpired ||
+      execution.isLocked ||
+      softBlocked,
+    safeDescription: buildPublicationScheduleSafeDescription({
+      finalBlockReason,
+      mode,
+      providerHint,
+      softBlockReason,
+      timing,
+      targetPolicy,
+    }),
+    scheduleStatus,
+    softBlocked,
+    targetPolicy,
+    timing,
+    warnings,
+  };
+}
+
+function buildPublicationScheduleSafeDescription({
+  finalBlockReason,
+  mode,
+  providerHint,
+  softBlockReason,
+  timing,
+  targetPolicy,
+}: {
+  finalBlockReason: ContentPublicationScheduleBlockReason | null;
+  mode: PublicationSchedulePolicyMode;
+  providerHint: PublicationScheduleProviderHint;
+  softBlockReason: ContentPublicationScheduleBlockReason | null;
+  timing: PublicationScheduleTimingPolicy;
+  targetPolicy: PublicationScheduleTargetPolicy | null;
+}): string {
+  if (finalBlockReason) {
+    switch (finalBlockReason) {
+      case "content_job_not_approved":
+        return "The repurposing job is not approved yet.";
+      case "content_job_not_complete":
+        return "The repurposing job is not complete yet.";
+      case "fanout_finalized":
+        return "The parent fanout is already final.";
+      case "publication_finalized":
+        return "The publication is already final or currently processing.";
+      case "publication_processing":
+        return "The publication is already locked for execution.";
+      case "publication_status_not_schedulable":
+        return "The requested schedule is too close to execution to edit safely.";
+      case "schedule_time_invalid":
+        return "Choose a future schedule time within the allowed horizon.";
+      case "schedule_timezone_invalid":
+        return "Provide a valid IANA timezone for the schedule.";
+      case "target_unsupported":
+        return "The selected target platform does not support scheduling in StreamOS.";
+      default:
+        return "The requested schedule is not ready yet.";
+    }
+  }
+
+  if (softBlockReason) {
+    switch (softBlockReason) {
+      case "missing_publish_scopes":
+        return "Scheduling is stored, but the connected account is missing publish scopes.";
+      case "platform_connection_missing":
+        return "Scheduling is stored, but the platform connection is missing.";
+      case "platform_connection_not_connected":
+        return "Scheduling is stored, but the platform connection needs re-authentication.";
+      case "publishable_asset_missing":
+        return "Scheduling is stored, but the publishable asset is still missing.";
+      case "scheduling_not_allowed":
+        return "Scheduling is stored, but the selected account does not currently allow execution readiness.";
+      case "fanout_not_ready":
+        return "Scheduling is stored, but the parent fanout is not ready for execution yet.";
+      default:
+        return "Scheduling is stored, but it still needs server-side attention.";
+    }
+  }
+
+  if (
+    timing.isExpired &&
+    (mode === "calendar" || mode === "observability" || mode === "revalidate")
+  ) {
+    return "The stored schedule has expired and should be revalidated server-side.";
+  }
+
+  if (
+    timing.isNearDue &&
+    (mode === "edit" || mode === "replace" || mode === "fanout_edit")
+  ) {
+    return "The requested schedule is near execution and can no longer be edited safely.";
+  }
+
+  if (timing.isNearDue) {
+    return "The requested schedule is near execution and will be handled by the server-side scheduler.";
+  }
+
+  if (targetPolicy) {
+    return `Scheduling is ready for ${providerHint.safeLabel.toLowerCase()} and stays streamos-managed until execution is introduced.`;
+  }
+
+  return `${providerHint.safeLabel} stays streamos-managed until execution is introduced.`;
+}
+
+function buildPublicationScheduleNextAction({
+  finalBlockReason,
+  policyStatus,
+  softBlockReason,
+  timing,
+}: {
+  finalBlockReason: ContentPublicationScheduleBlockReason | null;
+  policyStatus: PublicationSchedulePolicyStatus;
+  softBlockReason: ContentPublicationScheduleBlockReason | null;
+  timing: PublicationScheduleTimingPolicy;
+}): string | null {
+  if (finalBlockReason) {
+    if (finalBlockReason === "schedule_timezone_invalid") {
+      return "Provide a valid IANA timezone before scheduling again.";
+    }
+
+    if (finalBlockReason === "schedule_time_invalid") {
+      return "Choose a future UTC time inside the allowed scheduling window.";
+    }
+
+    if (
+      finalBlockReason === "content_job_not_approved" ||
+      finalBlockReason === "content_job_not_complete"
+    ) {
+      return "Approve and finish the repurposing job before retrying.";
+    }
+
+    if (
+      finalBlockReason === "publication_finalized" ||
+      finalBlockReason === "fanout_finalized"
+    ) {
+      return "Create a fresh publication or fanout request instead of reusing this one.";
+    }
+
+    if (finalBlockReason === "publication_processing") {
+      return "Wait for the current execution lock to clear before editing.";
+    }
+
+    return "Review the current schedule policy before retrying.";
+  }
+
+  if (softBlockReason) {
+    switch (softBlockReason) {
+      case "missing_publish_scopes":
+        return "Reconnect the provider account with the required publish scopes.";
+      case "platform_connection_missing":
+      case "platform_connection_not_connected":
+        return "Reconnect the provider account before execution can proceed.";
+      case "publishable_asset_missing":
+        return "Attach a publishable asset before the schedule can run.";
+      case "scheduling_not_allowed":
+        return "Wait until the target account supports scheduling readiness.";
+      case "fanout_not_ready":
+        return "Prepare runnable fanout targets before scheduling.";
+      default:
+        return "Review the schedule policy and revalidate the request.";
+    }
+  }
+
+  if (policyStatus === "expired") {
+    return "Revalidate the schedule before execution.";
+  }
+
+  if (timing.isNearDue) {
+    return "Keep the schedule unchanged until the near-due window passes.";
+  }
+
+  if (policyStatus === "stale") {
+    return "Revalidate the schedule before execution.";
+  }
+
+  return null;
+}
+
+function buildPublicationScheduleExecutionPolicy({
+  claimedAt,
+  claimedBy,
+  mode,
+  queueJobId,
+  status,
+  timing,
+}: {
+  claimedAt: string | null;
+  claimedBy: string | null;
+  mode: PublicationSchedulePolicyMode;
+  queueJobId: string | null;
+  status: PublicationScheduleExecutionPolicyStatus;
+  timing: PublicationScheduleTimingPolicy;
+}): PublicationScheduleExecutionPolicy {
+  const isLocked =
+    status === "claimed" ||
+    status === "queued" ||
+    status === "executing" ||
+    (mode === "edit" || mode === "replace" || mode === "fanout_edit"
+      ? timing.isNearDue
+      : false);
+
+  return {
+    claimedAt,
+    claimedBy,
+    isLocked,
+    queueJobId,
+    status,
+  };
+}
+
+function buildPublicationScheduleTimingPolicy({
+  maxHorizonDays,
+  minLeadTimeMinutes,
+  nearDueEditWindowMinutes,
+  now,
+  normalizedScheduledAtUtc,
+  normalizedTimezone,
+}: {
+  maxHorizonDays: number;
+  minLeadTimeMinutes: number;
+  nearDueEditWindowMinutes: number;
+  now: number;
+  normalizedScheduledAtUtc: string | null;
+  normalizedTimezone: string | null;
+}): PublicationScheduleTimingPolicy {
+  if (!normalizedScheduledAtUtc) {
+    return {
+      expiresAt: null,
+      isExpired: false,
+      isNearDue: false,
+      isStale: false,
+      minLeadTimeMinutes,
+      maxHorizonDays,
+      nearDueEditWindowMinutes,
+      scheduledAtUtc: null,
+      scheduledTimezone: normalizedTimezone,
+      staleAt: null,
+    };
+  }
+
+  const scheduledAt = new Date(normalizedScheduledAtUtc).getTime();
+  const leadTimeMinutes = (scheduledAt - now) / 60_000;
+  const horizonMinutes = maxHorizonDays * 24 * 60;
+  const isExpired = leadTimeMinutes < 0;
+  const staleAt = new Date(
+    scheduledAt + nearDueEditWindowMinutes * 60_000,
+  ).toISOString();
+
+  return {
+    expiresAt: new Date(scheduledAt).toISOString(),
+    isExpired,
+    isNearDue:
+      leadTimeMinutes >= 0 && leadTimeMinutes < nearDueEditWindowMinutes,
+    isStale:
+      leadTimeMinutes > horizonMinutes ||
+      (!isExpired && leadTimeMinutes < minLeadTimeMinutes),
+    minLeadTimeMinutes,
+    maxHorizonDays,
+    nearDueEditWindowMinutes,
+    scheduledAtUtc: normalizedScheduledAtUtc,
+    scheduledTimezone: normalizedTimezone,
+    staleAt,
+  };
+}
+
+function buildPublicationScheduleProviderHint({
+  availableScopes,
+  connectionStatus,
+  hasRequiredScopes,
+  mode,
+  providerSupportStatus,
+  schedulingAllowed,
+  targetPlatform,
+}: {
+  availableScopes: string[];
+  connectionStatus: ConnectionStatus | null;
+  hasRequiredScopes: boolean;
+  mode: PublicationSchedulePolicyMode;
+  providerSupportStatus:
+    | "conditional"
+    | "experimental"
+    | "supported"
+    | "unsupported";
+  schedulingAllowed: boolean;
+  targetPlatform: StreamPlatform | "fanout";
+}): PublicationScheduleProviderHint {
+  const requiredScopes =
+    targetPlatform === "youtube"
+      ? ["https://www.googleapis.com/auth/youtube.upload"]
+      : targetPlatform === "tiktok"
+        ? ["video.publish"]
+        : [];
+  const requiresReauth =
+    connectionStatus === "expired" ||
+    connectionStatus === "pending" ||
+    connectionStatus === "revoked";
+  const nativeSchedulingSupported =
+    targetPlatform === "youtube" || targetPlatform === "tiktok";
+  const safeLabel =
+    targetPlatform === "fanout"
+      ? "Fanout scheduling"
+      : `${getPublicationScheduleProviderHintLabel(targetPlatform)} scheduling`;
+
+  let description =
+    "Provider-native scheduling is not used; StreamOS stores the UTC schedule and keeps execution server-side.";
+
+  if (targetPlatform === "fanout") {
+    description =
+      "Parent fanout scheduling is server-managed; each target remains auditable and execution stays inside StreamOS.";
+  } else if (targetPlatform === "tiktok") {
+    description =
+      "TikTok scheduling stays server-managed and depends on the connected account scopes and capability state.";
+  } else if (targetPlatform === "youtube") {
+    description =
+      "YouTube scheduling stays server-managed; provider-native publishAt execution is not used by StreamOS.";
+  }
+
+  if (mode === "observability" || mode === "calendar") {
+    description = `${description} The current read model should be treated as a safe schedule snapshot.`;
+  }
+
+  return {
+    description,
+    nativeSchedulingSupported,
+    nativeSchedulingUsed: false,
+    provider: targetPlatform,
+    requiredScopes,
+    requiresReauth,
+    requiresScopes:
+      !hasRequiredScopes ||
+      requiredScopes.some((scope) => !availableScopes.includes(scope)),
+    schedulingAllowed,
+    safeLabel,
+    supportStatus: providerSupportStatus,
+  };
+}
+
+function buildPublicationScheduleTargetPolicy({
+  blockedTargetCount,
+  fanoutTargetCount,
+  hasRunnableTargets,
+  reauthRequiredTargetCount,
+}: {
+  blockedTargetCount: number;
+  fanoutTargetCount: number;
+  hasRunnableTargets: boolean;
+  reauthRequiredTargetCount: number;
+}): PublicationScheduleTargetPolicy {
+  const readyTargetCount = Math.max(
+    0,
+    fanoutTargetCount - blockedTargetCount - reauthRequiredTargetCount,
+  );
+
+  return {
+    blockedTargetCount,
+    readyTargetCount,
+    reauthRequiredTargetCount,
+    runnableTargetCount: hasRunnableTargets ? readyTargetCount : 0,
+    targetCount: fanoutTargetCount,
+  };
+}
+
+function buildFallbackPublicationSchedulePolicy({
+  blockReason,
+  nextRecommendedAction,
+  safeDescription,
+}: {
+  blockReason: ContentPublicationScheduleBlockReason | null;
+  nextRecommendedAction: string;
+  safeDescription: string;
+}): PublicationSchedulePolicy {
+  return {
+    accepted: false,
+    actionPolicy: buildPublicationScheduleActionPolicy({
+      finalBlockReason: blockReason,
+      isLocked: false,
+      itemLabel: "publication schedule",
+      replaceSupported: true,
+    }),
+    blockReason,
+    execution: {
+      claimedAt: null,
+      claimedBy: null,
+      isLocked: false,
+      queueJobId: null,
+      status: "unknown",
+    },
+    info: [],
+    mode: "create",
+    nextRecommendedAction,
+    policyStatus: "blocked",
+    policyVersion: PUBLICATION_SCHEDULE_POLICY_VERSION,
+    providerHint: {
+      description: safeDescription,
+      nativeSchedulingSupported: false,
+      nativeSchedulingUsed: false,
+      provider: "fanout",
+      requiredScopes: [],
+      requiresReauth: false,
+      requiresScopes: false,
+      schedulingAllowed: false,
+      safeLabel: "Schedule policy",
+      supportStatus: "unsupported",
+    },
+    requiresRevalidation: true,
+    safeDescription,
+    scheduleStatus: "schedule_blocked",
+    softBlocked: false,
+    targetPolicy: null,
+    timing: {
+      expiresAt: null,
+      isExpired: false,
+      isNearDue: false,
+      isStale: false,
+      maxHorizonDays: 30,
+      minLeadTimeMinutes: 15,
+      nearDueEditWindowMinutes: 30,
+      scheduledAtUtc: null,
+      scheduledTimezone: null,
+      staleAt: null,
+    },
+    warnings: [],
+  };
+}
+
+function determinePolicyScheduleStatus({
+  finalBlockReason,
+  softBlockReason,
+  mode,
+  timing,
+}: {
+  finalBlockReason: ContentPublicationScheduleBlockReason | null;
+  softBlockReason: ContentPublicationScheduleBlockReason | null;
+  mode: PublicationSchedulePolicyMode;
+  timing: PublicationScheduleTimingPolicy;
+}): ContentPublicationScheduleStatus {
+  if (finalBlockReason || softBlockReason) {
+    return "schedule_blocked";
+  }
+
+  if (
+    timing.isExpired &&
+    (mode === "calendar" || mode === "observability" || mode === "revalidate")
+  ) {
+    return "schedule_expired";
+  }
+
+  return "schedule_ready";
+}
+
+function determinePolicyStatus({
+  finalBlockReason,
+  softBlockReason,
+  mode,
+  timing,
+}: {
+  finalBlockReason: ContentPublicationScheduleBlockReason | null;
+  softBlockReason: ContentPublicationScheduleBlockReason | null;
+  mode: PublicationSchedulePolicyMode;
+  timing: PublicationScheduleTimingPolicy;
+}): PublicationSchedulePolicyStatus {
+  if (finalBlockReason || softBlockReason) {
+    return "blocked";
+  }
+
+  if (
+    timing.isExpired &&
+    (mode === "calendar" || mode === "observability" || mode === "revalidate")
+  ) {
+    return "expired";
+  }
+
+  if (timing.isStale) {
+    return "stale";
+  }
+
+  return "ready";
+}
+
+function normalizeExecutionStatus(
+  executionStatus: PublicationScheduleExecutionPolicyStatus | null,
+  currentPublicationStatus: ContentPublicationStatus | null,
+): PublicationScheduleExecutionPolicyStatus {
+  if (executionStatus) {
+    return executionStatus;
+  }
+
+  if (currentPublicationStatus === "publishing") {
+    return "executing";
+  }
+
+  if (currentPublicationStatus === "queued") {
+    return "queued";
+  }
+
+  if (currentPublicationStatus === "published") {
+    return "completed";
+  }
+
+  if (
+    currentPublicationStatus === "canceled" ||
+    currentPublicationStatus === "rejected"
+  ) {
+    return "canceled";
+  }
+
+  if (currentPublicationStatus === "failed_permanent") {
+    return "expired";
+  }
+
+  if (currentPublicationStatus === "failed_retryable") {
+    return "claimed";
+  }
+
+  return "idle";
+}
+
+function resolvePublicationScheduleFinalBlockReason({
+  currentFanoutStatus,
+  currentPublicationStatus,
+  execution,
+  mode,
+  timing,
+}: {
+  currentFanoutStatus: ContentPublicationFanoutStatus | null;
+  currentPublicationStatus: ContentPublicationStatus | null;
+  execution: PublicationScheduleExecutionPolicy;
+  mode: PublicationSchedulePolicyMode;
+  timing: PublicationScheduleTimingPolicy;
+}): ContentPublicationScheduleBlockReason | null {
+  if (
+    currentPublicationStatus === "published" ||
+    currentPublicationStatus === "failed_permanent" ||
+    currentPublicationStatus === "failed_retryable" ||
+    currentPublicationStatus === "canceled" ||
+    currentPublicationStatus === "rejected"
+  ) {
+    return "publication_finalized";
+  }
+
+  if (
+    currentPublicationStatus === "publishing" ||
+    execution.status === "executing" ||
+    execution.status === "claimed" ||
+    execution.status === "queued" ||
+    execution.isLocked
+  ) {
+    return "publication_processing";
+  }
+
+  if (
+    (mode === "edit" || mode === "replace" || mode === "fanout_edit") &&
+    timing.isNearDue
+  ) {
+    return "publication_status_not_schedulable";
+  }
+
+  if (
+    mode === "fanout_edit" &&
+    (currentFanoutStatus === "canceled" || currentFanoutStatus === "blocked")
+  ) {
+    return "fanout_finalized";
+  }
+
+  return null;
+}
+
+function resolvePublicationScheduleSoftBlockReason({
+  connectionStatus,
+  hasPublishableAsset,
+  hasRequiredScopes,
+  hasRunnableTargets,
+  mode,
+  schedulingAllowed,
+  targetCount,
+}: {
+  connectionStatus: ConnectionStatus | null;
+  hasPublishableAsset: boolean;
+  hasRequiredScopes: boolean;
+  hasRunnableTargets: boolean;
+  mode: PublicationSchedulePolicyMode;
+  schedulingAllowed: boolean;
+  targetCount: number;
+}): ContentPublicationScheduleBlockReason | null {
+  if (
+    connectionStatus === "expired" ||
+    connectionStatus === "pending" ||
+    connectionStatus === "revoked"
+  ) {
+    return "publication_reauth_required";
+  }
+
+  if (!schedulingAllowed) {
+    return "scheduling_not_allowed";
+  }
+
+  if (!hasRequiredScopes) {
+    return "missing_publish_scopes";
+  }
+
+  if (!hasPublishableAsset) {
+    return "publishable_asset_missing";
+  }
+
+  if (
+    (mode === "fanout_create" || mode === "fanout_edit") &&
+    targetCount > 0 &&
+    !hasRunnableTargets
+  ) {
+    return "fanout_not_ready";
+  }
+
+  return null;
+}
+
+function getPublicationScheduleProviderHintLabel(
+  targetPlatform: StreamPlatform | "fanout",
+): string {
+  switch (targetPlatform) {
+    case "fanout":
+      return "Fanout";
+    case "kick":
+      return "Kick";
+    case "tiktok":
+      return "TikTok";
+    case "twitch":
+      return "Twitch";
+    case "youtube":
+      return "YouTube";
+  }
 }
 
 export function getPublicationScheduleStatusLabel(
