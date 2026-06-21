@@ -28,6 +28,7 @@ async function tick(): Promise<void> {
     const result = await runPublishingSchedulerTick({
       batchSize: config.batchSize,
       claimTimeoutMs: config.claimTimeoutMs,
+      pollIntervalMs: config.pollIntervalMs,
       queue: publicationQueue,
       store,
       workerId: "publishing-scheduler-worker",
@@ -37,7 +38,9 @@ async function tick(): Promise<void> {
       console.log("publishing-scheduler-worker tick", result);
     }
   } catch (error) {
-    console.error("publishing-scheduler-worker tick failed", error);
+    console.error("publishing-scheduler-worker tick failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   } finally {
     isRunning = false;
   }

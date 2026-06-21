@@ -38,6 +38,9 @@ void test("publishing-scheduler-worker tick queues due publications and records 
   const queuedJobs: Array<{ id: string; name: string }> = [];
   const appendEvents: Array<Record<string, unknown>> = [];
   const patchPayloads: Array<Record<string, unknown>> = [];
+  const schedulerRuns: Array<Record<string, unknown>> = [];
+  const schedulerAttempts: Array<Record<string, unknown>> = [];
+  const finalizedRuns: Array<Record<string, unknown>> = [];
   const store = {
     async appendEvent(input: Record<string, unknown>) {
       appendEvents.push(input);
@@ -54,6 +57,15 @@ void test("publishing-scheduler-worker tick queues due publications and records 
       payload: Record<string, unknown>;
     }) {
       patchPayloads.push(payload);
+    },
+    async startSchedulerRun(input: Record<string, unknown>) {
+      schedulerRuns.push(input);
+    },
+    async recordSchedulerRunAttempt(input: Record<string, unknown>) {
+      schedulerAttempts.push(input);
+    },
+    async finalizeSchedulerRun(input: Record<string, unknown>) {
+      finalizedRuns.push(input);
     },
   };
   const queue = {
@@ -75,6 +87,7 @@ void test("publishing-scheduler-worker tick queues due publications and records 
     claimTimeoutMs: 300000,
     now,
     queue,
+    pollIntervalMs: 30000,
     store,
     workerId: "publishing-scheduler-worker",
   });
@@ -89,6 +102,32 @@ void test("publishing-scheduler-worker tick queues due publications and records 
     /"publication_status":"queued"/,
   );
   assert.equal(appendEvents[0]?.eventType, "queued");
+  const schedulerRun = schedulerRuns[0] as
+    | { metadata?: Record<string, unknown>; runId?: unknown }
+    | undefined;
+  const schedulerAttempt = schedulerAttempts[0] as
+    | {
+        attemptKind?: unknown;
+        attemptStatus?: unknown;
+        retryable?: unknown;
+        stuckClaim?: unknown;
+      }
+    | undefined;
+  const finalizedRun = finalizedRuns[0] as
+    | { queuedCount?: unknown; stuckClaimCount?: unknown }
+    | undefined;
+
+  assert.equal(schedulerRuns.length, 1);
+  assert.equal(schedulerAttempts.length, 1);
+  assert.equal(finalizedRuns.length, 1);
+  assert.equal(schedulerRun?.runId, schedulerRun?.metadata?.run_id);
+  assert.equal(schedulerRun?.metadata?.poll_interval_ms, 30000);
+  assert.equal(schedulerAttempt?.attemptKind, "due_claim");
+  assert.equal(schedulerAttempt?.attemptStatus, "queued");
+  assert.equal(schedulerAttempt?.retryable, false);
+  assert.equal(schedulerAttempt?.stuckClaim, false);
+  assert.equal(finalizedRun?.queuedCount, 1);
+  assert.equal(finalizedRun?.stuckClaimCount, 0);
 });
 
 void test("publishing-scheduler-worker tick marks stale claimed publications retryable when the queue job is missing", async () => {
@@ -124,6 +163,9 @@ void test("publishing-scheduler-worker tick marks stale claimed publications ret
 
   const appendEvents: Array<Record<string, unknown>> = [];
   const patchPayloads: Array<Record<string, unknown>> = [];
+  const schedulerRuns: Array<Record<string, unknown>> = [];
+  const schedulerAttempts: Array<Record<string, unknown>> = [];
+  const finalizedRuns: Array<Record<string, unknown>> = [];
   const store = {
     async appendEvent(input: Record<string, unknown>) {
       appendEvents.push(input);
@@ -141,6 +183,15 @@ void test("publishing-scheduler-worker tick marks stale claimed publications ret
     }) {
       patchPayloads.push(payload);
     },
+    async startSchedulerRun(input: Record<string, unknown>) {
+      schedulerRuns.push(input);
+    },
+    async recordSchedulerRunAttempt(input: Record<string, unknown>) {
+      schedulerAttempts.push(input);
+    },
+    async finalizeSchedulerRun(input: Record<string, unknown>) {
+      finalizedRuns.push(input);
+    },
   };
   const queue = {
     async add() {
@@ -156,6 +207,7 @@ void test("publishing-scheduler-worker tick marks stale claimed publications ret
     claimTimeoutMs: 300000,
     now,
     queue,
+    pollIntervalMs: 30000,
     store,
     workerId: "publishing-scheduler-worker",
   });
@@ -168,4 +220,24 @@ void test("publishing-scheduler-worker tick marks stale claimed publications ret
     /"publication_status":"failed_retryable"/,
   );
   assert.equal(appendEvents[0]?.eventType, "failed_retryable");
+  const staleAttempt = schedulerAttempts[0] as
+    | {
+        attemptKind?: unknown;
+        attemptStatus?: unknown;
+        retryable?: unknown;
+        stuckClaim?: unknown;
+      }
+    | undefined;
+  const finalizedRun = finalizedRuns[0] as
+    | { runStatus?: unknown; stuckClaimCount?: unknown }
+    | undefined;
+  assert.equal(schedulerRuns.length, 1);
+  assert.equal(schedulerAttempts.length, 1);
+  assert.equal(finalizedRuns.length, 1);
+  assert.equal(staleAttempt?.attemptKind, "stale_claim");
+  assert.equal(staleAttempt?.attemptStatus, "stuck_claim");
+  assert.equal(staleAttempt?.retryable, true);
+  assert.equal(staleAttempt?.stuckClaim, true);
+  assert.equal(finalizedRun?.runStatus, "failed");
+  assert.equal(finalizedRun?.stuckClaimCount, 1);
 });

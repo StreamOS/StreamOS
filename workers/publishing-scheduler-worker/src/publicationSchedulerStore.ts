@@ -12,6 +12,24 @@ export type PublicationSchedulerExecutionStatus =
   | "expired"
   | "unknown";
 
+export type PublicationSchedulerRunStatus =
+  | "running"
+  | "completed"
+  | "completed_with_warnings"
+  | "failed"
+  | "canceled"
+  | "unknown";
+
+export type PublicationSchedulerRunAttemptKind = "stale_claim" | "due_claim";
+
+export type PublicationSchedulerRunAttemptStatus =
+  | "recovered"
+  | "queued"
+  | "retryable_failed"
+  | "permanent_failed"
+  | "skipped"
+  | "stuck_claim";
+
 const publicationRowSchema = z.object({
   content_job_id: z.string().uuid(),
   id: z.string().uuid(),
@@ -93,11 +111,58 @@ export type PublicationSchedulerStore = {
     now: Date;
     workerId: string;
   }): Promise<PublicationSchedulerExecutionRow[]>;
+  finalizeSchedulerRun(input: {
+    completedAt: string;
+    lastAttemptAt: string | null;
+    lastErrorCode: string | null;
+    lastErrorMessage: string | null;
+    metadata: Record<string, unknown>;
+    runId: string;
+    runStatus: PublicationSchedulerRunStatus;
+    scannedCount: number;
+    staleClaimCount: number;
+    dueClaimCount: number;
+    queuedCount: number;
+    recoveredCount: number;
+    retryableFailedCount: number;
+    permanentFailedCount: number;
+    skippedCount: number;
+    stuckClaimCount: number;
+  }): Promise<void>;
+  recordSchedulerRunAttempt(input: {
+    attemptCount: number;
+    attemptKind: PublicationSchedulerRunAttemptKind;
+    attemptStatus: PublicationSchedulerRunAttemptStatus;
+    claimedAt: string | null;
+    claimedBy: string | null;
+    contentPublicationId: string;
+    errorCode: string | null;
+    errorMessage: string | null;
+    metadata: Record<string, unknown>;
+    nextAttemptAt: string | null;
+    queueJobId: string | null;
+    retryable: boolean;
+    scheduledAtUtc: string | null;
+    runId: string;
+    source?: string;
+    stuckClaim: boolean;
+    userId: string;
+  }): Promise<void>;
   listStaleClaimedPublications(input: {
     batchSize: number;
     claimTimeoutMs: number;
     now: Date;
   }): Promise<PublicationSchedulerExecutionRow[]>;
+  startSchedulerRun(input: {
+    batchSize: number;
+    claimTimeoutMs: number;
+    metadata: Record<string, unknown>;
+    pollIntervalMs: number;
+    runId: string;
+    schedulerName?: string;
+    startedAt: string;
+    workerId: string;
+  }): Promise<void>;
   patchPublicationById(input: {
     payload: Record<string, unknown>;
     publicationId: string;
@@ -174,6 +239,51 @@ export function createSupabasePublishingSchedulerStore({
 
       return parsedRows.data;
     },
+    async finalizeSchedulerRun({
+      completedAt,
+      dueClaimCount,
+      lastAttemptAt,
+      lastErrorCode,
+      lastErrorMessage,
+      metadata,
+      permanentFailedCount,
+      queuedCount,
+      recoveredCount,
+      retryableFailedCount,
+      runId,
+      runStatus,
+      scannedCount,
+      skippedCount,
+      staleClaimCount,
+      stuckClaimCount,
+    }) {
+      await patchRows(
+        fetchFn,
+        new URL("/rest/v1/content_publication_scheduler_runs", baseUrl),
+        {
+          id: `eq.${runId}`,
+        },
+        {
+          completed_at: completedAt,
+          due_claim_count: dueClaimCount,
+          last_attempt_at: lastAttemptAt,
+          last_error_code: lastErrorCode,
+          last_error_message: lastErrorMessage,
+          metadata,
+          permanent_failed_count: permanentFailedCount,
+          queued_count: queuedCount,
+          recovered_count: recoveredCount,
+          retryable_failed_count: retryableFailedCount,
+          run_status: runStatus,
+          scanned_count: scannedCount,
+          skipped_count: skippedCount,
+          stale_claim_count: staleClaimCount,
+          stuck_claim_count: stuckClaimCount,
+          updated_at: completedAt,
+        },
+        minimalHeaders,
+      );
+    },
     async listStaleClaimedPublications({ batchSize, claimTimeoutMs, now }) {
       const threshold = new Date(now.getTime() - claimTimeoutMs).toISOString();
       const rows = await readRows(
@@ -204,6 +314,97 @@ export function createSupabasePublishingSchedulerStore({
       }
 
       return parsedRows.data;
+    },
+    async recordSchedulerRunAttempt({
+      attemptCount,
+      attemptKind,
+      attemptStatus,
+      claimedAt,
+      claimedBy,
+      contentPublicationId,
+      errorCode,
+      errorMessage,
+      metadata,
+      nextAttemptAt,
+      queueJobId,
+      retryable,
+      runId,
+      scheduledAtUtc,
+      source = "publishing-scheduler-worker",
+      stuckClaim,
+      userId,
+    }) {
+      await writeJson(
+        fetchFn,
+        new URL("/rest/v1/content_publication_scheduler_run_attempts", baseUrl),
+        {
+          body: JSON.stringify({
+            attempt_count: attemptCount,
+            attempt_kind: attemptKind,
+            attempt_status: attemptStatus,
+            claimed_at: claimedAt,
+            claimed_by: claimedBy,
+            content_publication_id: contentPublicationId,
+            error_code: errorCode,
+            error_message: errorMessage,
+            metadata,
+            next_attempt_at: nextAttemptAt,
+            queue_job_id: queueJobId,
+            retryable,
+            scheduled_at_utc: scheduledAtUtc,
+            scheduler_run_id: runId,
+            source,
+            stuck_claim: stuckClaim,
+            user_id: userId,
+          }),
+          headers: minimalHeaders,
+          method: "POST",
+        },
+      );
+    },
+    async startSchedulerRun({
+      batchSize,
+      claimTimeoutMs,
+      metadata,
+      pollIntervalMs,
+      runId,
+      schedulerName = "publishing-scheduler-worker",
+      startedAt,
+      workerId,
+    }) {
+      await writeJson(
+        fetchFn,
+        new URL("/rest/v1/content_publication_scheduler_runs", baseUrl),
+        {
+          body: JSON.stringify({
+            batch_size: batchSize,
+            claim_timeout_ms: claimTimeoutMs,
+            completed_at: null,
+            id: runId,
+            last_attempt_at: startedAt,
+            last_error_code: null,
+            last_error_message: null,
+            metadata,
+            poll_interval_ms: pollIntervalMs,
+            run_status: "running",
+            scanned_count: 0,
+            scheduler_name: schedulerName,
+            skipped_count: 0,
+            started_at: startedAt,
+            stale_claim_count: 0,
+            stuck_claim_count: 0,
+            due_claim_count: 0,
+            queued_count: 0,
+            recovered_count: 0,
+            retryable_failed_count: 0,
+            permanent_failed_count: 0,
+            updated_at: startedAt,
+            worker_id: workerId,
+          }),
+          headers: minimalHeaders,
+          method: "POST",
+        },
+      );
     },
     async patchPublicationById({ payload, publicationId, userId }) {
       await patchRows(

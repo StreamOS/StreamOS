@@ -309,12 +309,11 @@ approved publications and parent fanouts. It groups planned items by day,
 shows export eligibility and history links, and stays tenant-scoped without
 starting any worker, publish, or provider-write flow from the browser.
 
-`GET /api/observability` is a protected server-to-server snapshot route for
-operator use. It requires `API_GATEWAY_SECRET`, returns the current
-observability backend (`redis` in production, `memory` only for local/test
-fallback), and exposes only the counters `dedupe_hits`,
-`rate_limit_rejects`, `webhook_validation_failures`, and
-`queue_enqueue_failures`.
+`GET /api/observability/scheduler` is a protected server-to-server snapshot
+route for operator use. It requires `API_GATEWAY_SECRET`, returns persisted
+scheduler run history plus summary counters and stuck-claim visibility, and
+exposes only secret-safe attempt/run reasons without raw payloads or private
+URLs.
 
 In production, `services/api-gateway` fails startup unless
 `API_GATEWAY_SECRET`, `STREAM_EVENT_WEBHOOK_SECRET`, and `REDIS_URL` are set.

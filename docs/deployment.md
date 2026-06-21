@@ -152,9 +152,10 @@ RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 
 `REDIS_URL` is mandatory in production for the API gateway because
 observability, distributed rate limiting, and webhook replay protection must
-share the same Redis-backed state. `GET /api/observability` is a protected
-server-to-server snapshot route that exposes only the four core counters plus
-the current backend mode (`redis` in production, `memory` only in local/test).
+share the same Redis-backed state. `GET /api/observability/scheduler` is a
+protected server-to-server snapshot route that exposes persisted scheduler run
+history, summary counters, and stuck-claim visibility without raw payloads or
+secrets.
 
 Use `/health` as the Railway healthcheck path. The endpoint must return HTTP 200 before Railway sends traffic to the new deployment.
 
@@ -524,6 +525,8 @@ The publishing scheduler worker is a private polling service that claims due
 scheduled publications in Supabase and enqueues deterministic
 `publication.publish` jobs into `streamos-publishing`. It does not execute
 provider writes itself and it does not call `services/automation-service`.
+Operators can inspect its persisted run history and stuck-claim visibility via
+the protected `GET /api/observability/scheduler` snapshot route.
 
 Recommended Docker configuration:
 

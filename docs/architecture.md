@@ -71,10 +71,10 @@ apps/web/src/
   views, and does not schedule, publish, or call provider APIs from the
   browser.
 - Rate limiting, retry handling, and audit logging for external API calls.
-- `GET /api/observability` is a protected server-to-server snapshot route for
-  operator use. In production it must be backed by Redis so rate limiting,
-  replay protection, and observability counters share cluster-wide state; the
-  memory backend is only for local and test runs.
+- `GET /api/observability/scheduler` is a protected server-to-server snapshot
+  route for operator use. It reads persisted scheduler run history and safe
+  attempt reasons, keeping raw payloads, private URLs, and secrets out of the
+  read model.
 
 ## Data Model Status
 
@@ -160,7 +160,8 @@ Use realtime channels or server-sent events for live viewer counts, stream statu
 - `workers/publishing-scheduler-worker` is the private scheduler for
   publication timing. It claims due scheduled `content_publications` rows and
   enqueues deterministic `publication.publish` jobs into `streamos-publishing`
-  without calling provider APIs or automation-service directly.
+  without calling provider APIs or automation-service directly. Its protected
+  operator read model lives at `GET /api/observability/scheduler`.
 - `workers/transcription-worker` consumes only `streamos-transcription`, calls
   `services/automation-service`, and persists `vod_assets`,
   `stream_transcripts`, clip follow-up jobs, and transcription job status.

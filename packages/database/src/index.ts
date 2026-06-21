@@ -81,6 +81,21 @@ export type ContentPublicationFanoutEventType =
   | "manual_action_blocked"
   | "parent_aggregate_refreshed"
   | "target_rechecked";
+export type PublicationSchedulerRunStatus =
+  | "running"
+  | "completed"
+  | "completed_with_warnings"
+  | "failed"
+  | "canceled"
+  | "unknown";
+export type PublicationSchedulerRunAttemptKind = "stale_claim" | "due_claim";
+export type PublicationSchedulerRunAttemptStatus =
+  | "recovered"
+  | "queued"
+  | "retryable_failed"
+  | "permanent_failed"
+  | "skipped"
+  | "stuck_claim";
 export type ContentPublicationScheduleStatus =
   | "not_scheduled"
   | "scheduled"
@@ -1295,6 +1310,166 @@ export type Database = {
             foreignKeyName: "content_publication_fanout_events_actor_id_fkey";
             columns: ["actor_id"];
             referencedRelation: "auth.users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      content_publication_scheduler_runs: {
+        Row: {
+          batch_size: number;
+          claim_timeout_ms: number;
+          completed_at: string | null;
+          created_at: string;
+          due_claim_count: number;
+          id: string;
+          last_attempt_at: string | null;
+          last_error_code: string | null;
+          last_error_message: string | null;
+          metadata: Json;
+          poll_interval_ms: number;
+          permanent_failed_count: number;
+          queued_count: number;
+          recovered_count: number;
+          retryable_failed_count: number;
+          run_status: PublicationSchedulerRunStatus;
+          scanned_count: number;
+          scheduler_name: string;
+          skipped_count: number;
+          started_at: string;
+          stale_claim_count: number;
+          stuck_claim_count: number;
+          updated_at: string;
+          worker_id: string;
+        };
+        Insert: {
+          batch_size?: number;
+          claim_timeout_ms?: number;
+          completed_at?: string | null;
+          created_at?: string;
+          due_claim_count?: number;
+          id: string;
+          last_attempt_at?: string | null;
+          last_error_code?: string | null;
+          last_error_message?: string | null;
+          metadata?: Json;
+          poll_interval_ms?: number;
+          permanent_failed_count?: number;
+          queued_count?: number;
+          recovered_count?: number;
+          retryable_failed_count?: number;
+          run_status?: PublicationSchedulerRunStatus;
+          scanned_count?: number;
+          scheduler_name?: string;
+          skipped_count?: number;
+          started_at?: string;
+          stale_claim_count?: number;
+          stuck_claim_count?: number;
+          updated_at?: string;
+          worker_id: string;
+        };
+        Update: {
+          batch_size?: number;
+          claim_timeout_ms?: number;
+          completed_at?: string | null;
+          created_at?: string;
+          due_claim_count?: number;
+          id?: string;
+          last_attempt_at?: string | null;
+          last_error_code?: string | null;
+          last_error_message?: string | null;
+          metadata?: Json;
+          poll_interval_ms?: number;
+          permanent_failed_count?: number;
+          queued_count?: number;
+          recovered_count?: number;
+          retryable_failed_count?: number;
+          run_status?: PublicationSchedulerRunStatus;
+          scanned_count?: number;
+          scheduler_name?: string;
+          skipped_count?: number;
+          started_at?: string;
+          stale_claim_count?: number;
+          stuck_claim_count?: number;
+          updated_at?: string;
+          worker_id?: string;
+        };
+        Relationships: [];
+      };
+      content_publication_scheduler_run_attempts: {
+        Row: {
+          attempt_count: number;
+          attempt_kind: PublicationSchedulerRunAttemptKind;
+          attempt_status: PublicationSchedulerRunAttemptStatus;
+          claimed_at: string | null;
+          claimed_by: string | null;
+          content_publication_id: string;
+          created_at: string;
+          error_code: string | null;
+          error_message: string | null;
+          id: string;
+          metadata: Json;
+          next_attempt_at: string | null;
+          queue_job_id: string | null;
+          retryable: boolean;
+          scheduled_at_utc: string | null;
+          scheduler_run_id: string;
+          source: string;
+          stuck_claim: boolean;
+          user_id: string;
+        };
+        Insert: {
+          attempt_count?: number;
+          attempt_kind: PublicationSchedulerRunAttemptKind;
+          attempt_status: PublicationSchedulerRunAttemptStatus;
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          content_publication_id: string;
+          created_at?: string;
+          error_code?: string | null;
+          error_message?: string | null;
+          id?: string;
+          metadata?: Json;
+          next_attempt_at?: string | null;
+          queue_job_id?: string | null;
+          retryable?: boolean;
+          scheduled_at_utc?: string | null;
+          scheduler_run_id: string;
+          source?: string;
+          stuck_claim?: boolean;
+          user_id: string;
+        };
+        Update: {
+          attempt_count?: number;
+          attempt_kind?: PublicationSchedulerRunAttemptKind;
+          attempt_status?: PublicationSchedulerRunAttemptStatus;
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          content_publication_id?: string;
+          created_at?: string;
+          error_code?: string | null;
+          error_message?: string | null;
+          id?: string;
+          metadata?: Json;
+          next_attempt_at?: string | null;
+          queue_job_id?: string | null;
+          retryable?: boolean;
+          scheduled_at_utc?: string | null;
+          scheduler_run_id?: string;
+          source?: string;
+          stuck_claim?: boolean;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_publication_scheduler_run_attempts_publication_user_fkey";
+            columns: ["content_publication_id", "user_id"];
+            referencedRelation: "content_publications";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_scheduler_run_attempts_run_fkey";
+            columns: ["scheduler_run_id"];
+            referencedRelation: "content_publication_scheduler_runs";
             referencedColumns: ["id"];
           },
         ];
