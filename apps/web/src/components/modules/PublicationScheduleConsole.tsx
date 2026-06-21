@@ -7,8 +7,11 @@ import {
   getPublicationProviderNativeSchedulingAvailabilityLabel,
   getPublicationProviderNativeSchedulingExecutionStatusLabel,
   getPublicationProviderNativeSchedulingPolicyLabel,
+  getPublicationScheduleConflictSeverityLabel,
+  getPublicationScheduleConflictSeverityTone,
   getPublicationScheduleFilterLabel,
   getPublicationSchedulingSourceOfTruthLabel,
+  type PublicationScheduleConflict,
   type PublicationScheduleStatusTone,
   type PublicationScheduleDashboardModel,
   type PublicationScheduleItem,
@@ -373,6 +376,8 @@ function ScheduleDetail({ item }: { item: PublicationScheduleItem }) {
             ) : null}
           </div>
         </div>
+
+        <ConflictSummaryPanel item={item} />
 
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <DetailStat
@@ -776,6 +781,320 @@ function ScheduleDetail({ item }: { item: PublicationScheduleItem }) {
       </section>
     </div>
   );
+}
+
+function ConflictSummaryPanel({ item }: { item: PublicationScheduleItem }) {
+  const activeConflicts = item.conflictSummary.conflicts.filter(
+    (conflict) =>
+      conflict.severity !== "info" && conflict.severity !== "unknown",
+  );
+  const policyConflicts = item.conflictSummary.conflicts.filter(
+    (conflict) =>
+      conflict.severity === "info" || conflict.severity === "unknown",
+  );
+  const primaryConflict =
+    activeConflicts[0] ?? item.conflictSummary.primaryConflict;
+  const activeGroups = groupConflictsByScope(activeConflicts);
+  const policyGroups = groupConflictsByScope(policyConflicts);
+
+  return (
+    <section className="mt-6 space-y-4 rounded-lg border border-white/10 bg-surface-950/70 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-signal-green">
+            Conflict summary
+          </p>
+          <h3 className="mt-1 text-lg font-semibold text-white">
+            Schedule conflict signal, policy note, and target readiness
+          </h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+            Diese Sicht bleibt rein lesend. Sie zeigt nur serverseitig
+            berechnete Konflikte und Hinweise. Der Browser startet keine Worker,
+            Provider-Writes oder neue Scheduling-Aktionen.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <StatusPill
+            label={getPublicationScheduleConflictSeverityLabel(
+              item.conflictSummary.highestSeverity,
+            )}
+            tone={getPublicationScheduleConflictSeverityTone(
+              item.conflictSummary.highestSeverity,
+            )}
+          />
+          <StatusPill
+            label={
+              activeConflicts.length > 0
+                ? `${activeConflicts.length} active`
+                : "No active conflicts"
+            }
+            tone={activeConflicts.length > 0 ? "rose" : "emerald"}
+          />
+          <StatusPill
+            label={`${item.conflictSummary.conflictCount} total`}
+            tone="slate"
+          />
+        </div>
+      </div>
+
+      {primaryConflict ? (
+        <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                Primary conflict
+              </p>
+              <h4 className="mt-1 text-base font-semibold text-white">
+                {primaryConflict.title}
+              </h4>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                {primaryConflict.description}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-400">
+                {primaryConflict.userFacingNextStep}
+              </p>
+              {primaryConflict.operatorFacingHint ? (
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  Operator hint: {primaryConflict.operatorFacingHint}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <StatusPill
+                label={getPublicationScheduleConflictSeverityLabel(
+                  primaryConflict.severity,
+                )}
+                tone={getPublicationScheduleConflictSeverityTone(
+                  primaryConflict.severity,
+                )}
+              />
+              <StatusPill
+                label={primaryConflict.affectedScope}
+                tone={primaryConflict.blocked ? "rose" : "violet"}
+              />
+            </div>
+          </div>
+
+          {primaryConflict.actionLink ? (
+            <div className="mt-4">
+              <Link
+                href={primaryConflict.actionLink.href}
+                className="btn-ghost"
+              >
+                {primaryConflict.actionLink.label}
+              </Link>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <ConflictGroupList
+        emptyLabel="No active schedule conflicts are currently stored."
+        groups={activeGroups}
+        title="Active conflicts"
+      />
+
+      {policyGroups.length > 0 ? (
+        <ConflictGroupList
+          emptyLabel="No policy notes are currently stored."
+          groups={policyGroups}
+          title="Policy notes"
+        />
+      ) : null}
+
+      <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+          Safe hint
+        </p>
+        <p className="mt-2 text-sm leading-6 text-slate-300">
+          {item.conflictSummary.topHint ??
+            "No additional conflict hint available."}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function ConflictGroupList({
+  emptyLabel,
+  groups,
+  title,
+}: {
+  emptyLabel: string;
+  groups: Array<{
+    conflicts: PublicationScheduleConflict[];
+    scope: PublicationScheduleConflict["affectedScope"];
+  }>;
+  title: string;
+}) {
+  if (groups.length === 0) {
+    return (
+      <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+          {title}
+        </p>
+        <p className="mt-2 text-sm leading-6 text-slate-400">{emptyLabel}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+          {title}
+        </p>
+        <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
+          {groups.reduce((count, group) => count + group.conflicts.length, 0)}{" "}
+          entries
+        </span>
+      </div>
+
+      <div className="space-y-4">
+        {groups.map((group) => (
+          <section key={`${title}-${group.scope}`} className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-white">
+                {getConflictScopeLabel(group.scope)}
+              </p>
+              <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
+                {group.conflicts.length} items
+              </span>
+            </div>
+            <div className="space-y-3">
+              {group.conflicts.map((conflict) => (
+                <ConflictCard
+                  key={`${conflict.conflictKey}:${conflict.targetId ?? "global"}:${conflict.targetLabel ?? "any"}`}
+                  conflict={conflict}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ConflictCard({ conflict }: { conflict: PublicationScheduleConflict }) {
+  return (
+    <article className="rounded-lg border border-white/10 bg-surface-900/75 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+            {getConflictScopeLabel(conflict.affectedScope)}
+          </p>
+          <h4 className="mt-1 text-base font-semibold text-white">
+            {conflict.title}
+          </h4>
+          {conflict.targetLabel ? (
+            <p className="mt-1 text-xs uppercase tracking-[0.08em] text-slate-500">
+              {conflict.targetLabel}
+            </p>
+          ) : null}
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            {conflict.description}
+          </p>
+          <p className="mt-2 text-sm leading-6 text-slate-400">
+            {conflict.userFacingNextStep}
+          </p>
+          {conflict.operatorFacingHint ? (
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              Operator hint: {conflict.operatorFacingHint}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <StatusPill
+            label={getPublicationScheduleConflictSeverityLabel(
+              conflict.severity,
+            )}
+            tone={getPublicationScheduleConflictSeverityTone(conflict.severity)}
+          />
+          <StatusPill
+            label={conflict.blocked ? "Blocked" : "Advisory"}
+            tone={conflict.blocked ? "rose" : "slate"}
+          />
+          {conflict.editable ? (
+            <StatusPill label="Editable" tone="emerald" />
+          ) : (
+            <StatusPill label="Read-only" tone="slate" />
+          )}
+        </div>
+      </div>
+
+      {conflict.actionLink ? (
+        <div className="mt-4">
+          <Link href={conflict.actionLink.href} className="btn-ghost">
+            {conflict.actionLink.label}
+          </Link>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function getConflictScopeLabel(
+  scope: PublicationScheduleConflict["affectedScope"],
+): string {
+  switch (scope) {
+    case "fanout":
+      return "Fanout";
+    case "policy":
+      return "Policy";
+    case "publication":
+      return "Publication";
+    case "provider":
+      return "Provider";
+    case "schedule":
+      return "Schedule";
+    case "target":
+      return "Fanout target";
+  }
+}
+
+function groupConflictsByScope(
+  conflicts: PublicationScheduleConflict[],
+): Array<{
+  conflicts: PublicationScheduleConflict[];
+  scope: PublicationScheduleConflict["affectedScope"];
+}> {
+  const order: PublicationScheduleConflict["affectedScope"][] = [
+    "schedule",
+    "provider",
+    "publication",
+    "fanout",
+    "target",
+    "policy",
+  ];
+  const groups = new Map<
+    PublicationScheduleConflict["affectedScope"],
+    PublicationScheduleConflict[]
+  >();
+
+  for (const conflict of conflicts) {
+    const existing = groups.get(conflict.affectedScope) ?? [];
+    existing.push(conflict);
+    groups.set(conflict.affectedScope, existing);
+  }
+
+  return order
+    .map((scope) => {
+      const value = groups.get(scope);
+
+      return value ? { conflicts: value, scope } : null;
+    })
+    .filter(
+      (
+        value,
+      ): value is {
+        conflicts: PublicationScheduleConflict[];
+        scope: PublicationScheduleConflict["affectedScope"];
+      } => value !== null,
+    );
 }
 
 function EmptyScheduleState({

@@ -206,7 +206,7 @@ describe("PublicationScheduleConsole", () => {
       fanoutItem!.scheduleActionPolicy.actions.replace_schedule.allowed,
     ).toBe(false);
     expect(publicationItem!.targetPlatformSummary).toContain("YouTube");
-    expect(fanoutItem!.fanoutTargetProviderSummary).toBe("Twitch · YouTube");
+    expect(fanoutItem!.fanoutTargetProviderSummary).toBe("Twitch / YouTube");
     expect(getPublicationScheduleFilterLabel("recent_7d")).toBe(
       "Letzte 7 Tage",
     );
@@ -243,6 +243,13 @@ describe("PublicationScheduleConsole", () => {
     expect(html).toContain("Provider-native policy");
     expect(html).toContain("Provider-native execution");
     expect(html).toContain("Provider-native revalidation");
+    expect(html).toContain("Conflict summary");
+    expect(html).toContain("Primary conflict");
+    expect(html).toContain("Active conflicts");
+    expect(html).toContain("Policy notes");
+    expect(html).toContain(
+      "Schedule conflict signal, policy note, and target readiness",
+    );
     expect(html).toContain("Update schedule");
     expect(html).toContain("Replace schedule");
     expect(html).toContain("Cancel schedule");
@@ -254,6 +261,7 @@ describe("PublicationScheduleConsole", () => {
     expect(html).toContain("Schedule metadata");
     expect(html).toContain("UTC (Fallback)");
     expect(html).toContain("Needs re-auth");
+    expect(html).toContain("Platform connection needs re-auth");
     expect(html).toContain("Open publication history");
     expect(html).toContain("Open schedule permalink");
     expect(html).toContain("Review: Approved");

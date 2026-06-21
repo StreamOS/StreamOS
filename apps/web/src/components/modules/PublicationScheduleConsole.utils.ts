@@ -20,6 +20,21 @@ import {
   evaluatePublicationScheduleIntent,
   isApprovedRepurposingPlanResult,
 } from "@streamos/types";
+import {
+  buildPublicationScheduleConflictSummary,
+  getPublicationScheduleConflictSeverityLabel,
+  getPublicationScheduleConflictSeverityTone,
+  type PublicationScheduleConflict,
+  type PublicationScheduleConflictSummary,
+  type PublicationScheduleFanoutTargetConflictSummary,
+} from "./PublicationScheduleConflictMapping";
+import { sanitizePublicationFreeformText } from "./PublicationStatusConsole.utils";
+
+export {
+  getPublicationScheduleConflictSeverityLabel,
+  getPublicationScheduleConflictSeverityTone,
+  type PublicationScheduleConflict,
+} from "./PublicationScheduleConflictMapping";
 
 export type { PublicationScheduleStatusTone } from "@streamos/types";
 
@@ -153,12 +168,14 @@ export type PublicationScheduleItem = {
   connectionStatusLabel: string | null;
   createdAt: string;
   detailHref: string;
+  conflictSummary: PublicationScheduleConflictSummary;
   fanoutStatusLabel: string | null;
   fanoutSummaryHref: string | null;
   fanoutTargetCount: number | null;
   fanoutTargetProviderSummary: string | null;
   fanoutTargetReadyCount: number | null;
   fanoutTargetReauthRequiredCount: number | null;
+  fanoutPolicy: PublicationFanoutRow["fanout_policy"] | null;
   historyHref: string;
   id: string;
   isAttentionNeeded: boolean;
@@ -800,18 +817,64 @@ function buildPublicationScheduleItem({
     approvedBundle,
     contentJob,
   );
+  const conflictSummary = buildPublicationScheduleConflictSummary({
+    blockedReason:
+      schedulePolicy.blockReason ?? publication.schedule_block_reason,
+    detailHref: buildSchedulePageHref(filters, publication.id),
+    fanoutPolicy: null,
+    fanoutSummaryHref: null,
+    fanoutTargetBlockedCount: null,
+    fanoutTargetCount: null,
+    fanoutTargetProviderSummary: null,
+    fanoutTargetReauthRequiredCount: null,
+    fanoutTargetReadyCount: null,
+    fanoutTargetSummaries: [],
+    hasApprovedBundle: Boolean(approvedBundle),
+    hasPublishableAsset: readScheduleValidationBoolean(
+      scheduleValidationMetadata,
+      "has_publishable_asset",
+      publication.schedule_block_reason !== "publishable_asset_missing",
+    ),
+    hasRequiredScopes: readScheduleValidationBoolean(
+      scheduleValidationMetadata,
+      "has_required_scopes",
+      publication.schedule_block_reason !== "missing_publish_scopes",
+    ),
+    historyHref: `/dashboard/publications?publicationId=${publication.id}`,
+    isBlocked,
+    isExpired,
+    isReauthRequired,
+    itemType: "publication",
+    publicationStatusLabel: formatStatusLabel(publication.publication_status),
+    scheduleActionPolicy: scheduleActions,
+    schedulePolicy,
+    scheduleStatus,
+    scheduledAtUtc: publication.scheduled_at_utc,
+    scheduledTimezoneLabel: formatPublicationScheduleTimezone(
+      publication.scheduled_timezone,
+    ),
+    scheduledTimezoneRaw: publication.scheduled_timezone,
+    targetAccountLabel:
+      channel?.display_name ??
+      getProviderProfileDisplayName(connection) ??
+      "Unlinked target account",
+    targetPlatform: publication.target_platform,
+    targetPlatformLabel: providerLabel,
+  });
 
   return {
     blockedReasonLabel,
     connectionStatusLabel,
     createdAt: publication.created_at,
     detailHref: buildSchedulePageHref(filters, publication.id),
+    conflictSummary,
     fanoutStatusLabel: null,
     fanoutSummaryHref: null,
     fanoutTargetCount: null,
     fanoutTargetProviderSummary: null,
     fanoutTargetReadyCount: null,
     fanoutTargetReauthRequiredCount: null,
+    fanoutPolicy: null,
     historyHref: `/dashboard/publications?publicationId=${publication.id}`,
     id: publication.id,
     isAttentionNeeded: isBlocked || isExpired || isReauthRequired,
@@ -870,7 +933,7 @@ function buildPublicationScheduleItem({
       getProviderProfileDisplayName(connection) ??
       "Unlinked target account",
     targetPlatformLabel: providerLabel,
-    targetPlatformSummary: `${providerLabel} · ${
+    targetPlatformSummary: `${providerLabel} / ${
       channel?.display_name ??
       getProviderProfileDisplayName(connection) ??
       "Unlinked target account"
@@ -956,7 +1019,7 @@ function buildFanoutScheduleItem({
       reauthRequiredTargetCount,
   );
   const approvedBundle = extractFanoutApprovedBundle(fanout.snapshot);
-  const providerSummary = providerLabels.join(" · ") || "Unbekannter Provider";
+  const providerSummary = providerLabels.join(" / ") || "Unbekannter Provider";
   const isReauthRequired =
     reauthRequiredTargetCount > 0 || schedulePolicy.providerHint.requiresReauth;
   const isExpired =
@@ -973,18 +1036,62 @@ function buildFanoutScheduleItem({
     itemLabel: "fanout schedule",
     replaceSupported: false,
   });
+  const fanoutTargetSummaries = buildFanoutTargetConflictSummaries({
+    connectionsById,
+    fanoutTargets,
+  });
+  const conflictSummary = buildPublicationScheduleConflictSummary({
+    blockedReason: schedulePolicy.blockReason ?? fanout.schedule_block_reason,
+    detailHref: buildSchedulePageHref(filters, fanout.id),
+    fanoutPolicy: fanout.fanout_policy,
+    fanoutSummaryHref: `/dashboard/publications/fanouts?fanoutId=${fanout.id}`,
+    fanoutTargetBlockedCount: fanout.blocked_target_count,
+    fanoutTargetCount: fanout.target_count,
+    fanoutTargetProviderSummary: providerSummary,
+    fanoutTargetReauthRequiredCount: reauthRequiredTargetCount,
+    fanoutTargetReadyCount: readyTargetCount,
+    fanoutTargetSummaries,
+    hasApprovedBundle: Boolean(approvedBundle),
+    hasPublishableAsset: readScheduleValidationBoolean(
+      scheduleValidationMetadata,
+      "has_publishable_asset",
+      fanout.schedule_block_reason !== "publishable_asset_missing",
+    ),
+    hasRequiredScopes: readScheduleValidationBoolean(
+      scheduleValidationMetadata,
+      "has_required_scopes",
+      fanout.schedule_block_reason !== "missing_publish_scopes",
+    ),
+    historyHref: `/dashboard/publications/fanouts?fanoutId=${fanout.id}`,
+    isBlocked,
+    isExpired,
+    isReauthRequired,
+    itemType: "fanout",
+    publicationStatusLabel: null,
+    scheduleActionPolicy: scheduleActions,
+    schedulePolicy,
+    scheduleStatus,
+    scheduledAtUtc: fanout.scheduled_at_utc,
+    scheduledTimezoneLabel: scheduledTimezone,
+    scheduledTimezoneRaw: fanout.scheduled_timezone,
+    targetAccountLabel: `${fanout.target_count} targets`,
+    targetPlatform: "fanout",
+    targetPlatformLabel: "Parent-Fanout",
+  });
 
   return {
     blockedReasonLabel,
     connectionStatusLabel: null,
     createdAt: fanout.created_at,
     detailHref: buildSchedulePageHref(filters, fanout.id),
+    conflictSummary,
     fanoutStatusLabel: getFanoutStatusLabel(fanout.fanout_status),
     fanoutSummaryHref: `/dashboard/publications/fanouts?fanoutId=${fanout.id}`,
     fanoutTargetCount: fanout.target_count,
     fanoutTargetProviderSummary: providerSummary,
     fanoutTargetReadyCount: readyTargetCount,
     fanoutTargetReauthRequiredCount: reauthRequiredTargetCount,
+    fanoutPolicy: fanout.fanout_policy,
     historyHref: `/dashboard/publications/fanouts?fanoutId=${fanout.id}`,
     id: fanout.id,
     isAttentionNeeded: isBlocked || isExpired || isReauthRequired,
@@ -1038,10 +1145,60 @@ function buildFanoutScheduleItem({
     summaryHref: `/dashboard/publications/fanouts?fanoutId=${fanout.id}`,
     targetAccountLabel: `${fanout.target_count} targets`,
     targetPlatformLabel: "Parent-Fanout",
-    targetPlatformSummary: `${fanout.target_count} targets · ${fanout.blocked_target_count} blocked · ${reauthRequiredTargetCount} re-auth required`,
+    targetPlatformSummary: `${fanout.target_count} targets / ${fanout.blocked_target_count} blocked / ${reauthRequiredTargetCount} re-auth required`,
     updatedAt: fanout.updated_at,
     utcLabel: formatPublicationScheduleCanonicalUtc(fanout.scheduled_at_utc),
   };
+}
+
+function buildFanoutTargetConflictSummaries({
+  connectionsById,
+  fanoutTargets,
+}: {
+  connectionsById: Map<string, PublicationConnectionRow>;
+  fanoutTargets: PublicationFanoutTargetRow[];
+}): PublicationScheduleFanoutTargetConflictSummary[] {
+  return fanoutTargets.map((target) => {
+    const connection =
+      connectionsById.get(target.platform_connection_id) ?? null;
+    const connectionStatus = connection
+      ? normalizeScheduleConnectionStatus(connection.status)
+      : null;
+    const targetPlatformLabel = getPlatformLabel(target.target_platform);
+    const connectionLabel =
+      getProviderProfileDisplayName(connection) ?? "Unlinked target account";
+    const targetLabel = `${targetPlatformLabel} / ${connectionLabel}`;
+    const blockMessage = target.block_message
+      ? sanitizePublicationFreeformText(target.block_message)
+      : null;
+    const isBlocked = Boolean(
+      target.target_status === "blocked" ||
+      target.block_reason ||
+      target.last_block_reason ||
+      blockMessage,
+    );
+    const isReauthRequired = Boolean(
+      connectionStatus && connectionStatus !== "connected",
+    );
+
+    return {
+      blockMessage,
+      blockReason: target.block_reason,
+      connectionStatus,
+      id: target.id,
+      isBlocked,
+      isReauthRequired,
+      providerLabel: targetPlatformLabel,
+      targetLabel,
+      targetPlatform: target.target_platform as Extract<
+        StreamPlatform,
+        "tiktok" | "youtube"
+      >,
+      targetStatus: target.target_status,
+      targetStatusLabel:
+        target.target_status === "blocked" ? "Blocked" : "Validated",
+    };
+  });
 }
 
 function buildPublicationSafeSourceLabel(
