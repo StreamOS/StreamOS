@@ -671,6 +671,192 @@ For `publishing-scheduler-worker`, the audit expects:
 - `AUTOMATION_SERVICE_URL`, provider secrets, and browser-facing secrets to stay
   off the scheduler service
 
+## Controlled Staging Proof for Publishing / Scheduling
+
+Use a controlled staging proof before any production-oriented approval for the
+publishing and scheduling slice. This proof is not a product smoke publish. It
+must verify staging inventory, runtime provenance, schema readiness, queue
+wiring, worker privacy, observability protection, and creator-safe read models
+without triggering real third-party writes.
+
+Allowed outcome states:
+
+- `passed`: all hard checks are green and the evidence is complete
+- `passed_with_warnings`: hard checks are green and only documented
+  non-blocking warnings remain
+- `blocked`: a hard blocker exists
+- `incomplete`: evidence is missing, unverifiable, or contradictory
+
+Hard blockers for the controlled staging proof:
+
+- `publishing-worker` missing from staging
+- `publishing-scheduler-worker` missing from staging when the code still
+  models it as its own service
+- public networking or a public domain attached to either worker
+- missing required env names for gateway, publishing worker, or scheduler
+- provider secrets exposed in `apps/web` / Vercel or browser-visible bundles
+- staging schema drift against the scheduling / publication runtime contract
+- publishing queue not reachable or queue-name drift against the code contract
+- protected observability routes exposed without server-to-server protection
+- staging services running from the wrong RC SHA or an unverifiable provenance
+  state
+- any proof step that performs a real YouTube, TikTok, or other third-party
+  write
+
+Minimum staging checks:
+
+1. Release candidate / provenance
+   - Record one unique RC SHA for the staging proof.
+   - Verify `api-gateway`, `publishing-worker`,
+     `publishing-scheduler-worker`, and `release-gate-runner` (or the
+     equivalent staging proof runtime) all come from the same RC SHA.
+   - Verify `/health` exposes only non-secret runtime provenance markers.
+2. Service inventory
+   - Confirm staging contains `apps/web`, `api-gateway`,
+     `publishing-worker`, `publishing-scheduler-worker`,
+     `release-gate-runner` when Railway-internal proof steps are needed,
+     Redis, and the staging Supabase database.
+3. Worker privacy
+   - Confirm both publishing workers remain private background services with no
+     public domain.
+4. Env contract
+   - Confirm only env ownership and presence, never values.
+   - `publishing-worker` currently requires `REDIS_URL`, `SUPABASE_URL`,
+     `SUPABASE_SERVICE_ROLE_KEY`, `APP_ENCRYPTION_KEY`, `YOUTUBE_CLIENT_ID`,
+     `YOUTUBE_CLIENT_SECRET`, `TIKTOK_CLIENT_KEY`, and
+     `TIKTOK_CLIENT_SECRET`.
+   - `publishing-scheduler-worker` currently requires `REDIS_URL`,
+     `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`.
+   - `AUTOMATION_SERVICE_URL` is not part of the current publishing or
+     scheduler worker contract.
+5. Database / schema
+   - Confirm staging contains `content_publications`,
+     `content_publication_events`, `content_publication_fanouts`,
+     `content_publication_fanout_targets`,
+     `content_publication_scheduler_runs`, and
+     `content_publication_scheduler_run_attempts`.
+   - Treat obvious schema drift as `blocked` or `incomplete`, never `passed`.
+6. Queue / Redis
+   - Confirm the effective queue name stays `streamos-publishing` unless the
+     deployed worker contract overrides it intentionally.
+   - Confirm the gateway produces into the queue and both workers consume or
+     forward using the same queue contract.
+7. Gateway contract
+   - Confirm publication, fanout, schedule create/edit/replace/cancel,
+     publish/reconcile, and observability routes stay server-side and
+     protected.
+   - Confirm responses do not expose provider tokens, raw provider payloads,
+     or secret-bearing URLs.
+8. Scheduler proof
+   - Confirm the scheduler can claim due work, revalidate before enqueue,
+     record run history and attempt history, and avoid duplicate publication
+     jobs.
+   - Confirm canceled, replaced, expired, and completed schedules remain
+     untouched.
+9. Publishing worker proof
+   - Confirm the worker starts cleanly, remains idle-safe, consumes the
+     expected queue, and does not perform uncontrolled provider writes during
+     the proof.
+10. Observability and UI
+
+- Confirm `GET /api/observability` and `GET /api/observability/scheduler`
+  stay protected and secret-safe.
+- Confirm Calendar Light and fanout read models stay creator-safe and do
+  not call provider write APIs from the browser.
+
+Safe staging commands:
+
+```bash
+pnpm railway:audit --env staging --format markdown > audit-baseline-staging.md
+pnpm railway:audit --env staging --format json > audit-staging.json
+```
+
+Use Railway-internal runtime checks only when the step requires private
+networking. Keep those checks read-only or validation-like. Do not execute real
+provider publishes or reconciliations as part of the proof.
+
+Controlled staging proof evidence template:
+
+```md
+## Publishing / Scheduling Controlled Staging Proof
+
+- RC SHA:
+- Target environment: `staging`
+- Decision: `passed` / `passed_with_warnings` / `blocked` / `incomplete`
+
+### Services checked
+
+- apps/web:
+- api-gateway:
+- publishing-worker:
+- publishing-scheduler-worker:
+- release-gate-runner or equivalent staging proof runtime:
+- Redis:
+- Supabase staging DB:
+
+### Provenance
+
+- RC SHA unique and recorded:
+- Same RC SHA across staging services:
+- Gateway runtime provenance verified:
+- Proof runtime classified as staging:
+
+### Worker privacy
+
+- publishing-worker private:
+- publishing-scheduler-worker private:
+- No public domain on workers:
+
+### Env contract status
+
+- api-gateway required env names present:
+- publishing-worker required env names present:
+- publishing-scheduler-worker required env names present:
+- Provider secrets stay server-only:
+- No browser-visible Railway private URLs:
+
+### Database / schema
+
+- content_publications compatible:
+- content_publication_events compatible:
+- fanout tables compatible:
+- scheduler run history compatible:
+- scheduler attempt history compatible:
+
+### Queue / Redis
+
+- streamos-publishing queue contract aligned:
+- gateway enqueue path reachable:
+- publishing-worker consume path aligned:
+- scheduler forward path aligned:
+
+### Gateway / scheduler / observability
+
+- publication and scheduling routes protected:
+- scheduler claims and revalidation verified:
+- run history visible:
+- attempt history visible:
+- observability routes protected and secret-safe:
+
+### UI / read-model safety
+
+- Calendar Light safe:
+- fanout summary consistent:
+- no browser provider-write path:
+
+### Warnings
+
+- none / list documented non-blocking warnings
+
+### Blockers
+
+- none / list exact blockers
+```
+
+If staging credentials, Railway evidence, or schema visibility are missing, the
+proof must stay `incomplete` or `blocked`. Local green tests alone are not a
+staging proof.
+
 ### Publishing-worker Audit Interpretation
 
 `pnpm railway:audit` renders the same underlying report as Markdown or JSON.

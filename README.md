@@ -208,6 +208,11 @@ The gate now fails early with `snapshot_not_proof_capable` if the runtime is
 missing `scripts/rollout-check.cjs`, the root `rollout:check:production`
 script, required workspace sources, or the current runner-provenance / gate-contract
 marker generated from the deployed checkout.
+For the publishing and scheduling slice, run the controlled staging proof in
+[`docs/deployment.md`](docs/deployment.md) before any production-oriented
+approval. That staging proof verifies inventory, worker privacy, schema,
+queue, observability, and creator-safe read models without real third-party
+writes.
 
 ### Required GitHub Secrets
 
