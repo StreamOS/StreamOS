@@ -223,6 +223,8 @@ jobs:
           set -euo pipefail
           # shellcheck disable=SC2016
 
+          npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
+
           service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
           if printf '%s' "${service_list}" | jq -e 'if type == "array" then . elif has("services") then .services else [] end | any(.name == "publishing-scheduler-worker")' >/dev/null; then
             service_exists="yes"
