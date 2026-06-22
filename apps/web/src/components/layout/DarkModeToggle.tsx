@@ -2,16 +2,28 @@
 
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
+
+function subscribeToMountedState() {
+  return () => {};
+}
+
+function getMountedSnapshot() {
+  return true;
+}
+
+function getServerMountedSnapshot() {
+  return false;
+}
 
 export function DarkModeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(
+    subscribeToMountedState,
+    getMountedSnapshot,
+    getServerMountedSnapshot,
+  );
   const isDark = resolvedTheme !== "light";
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   return (
     <button

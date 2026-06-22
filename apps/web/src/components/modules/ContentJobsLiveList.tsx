@@ -82,14 +82,15 @@ export function ContentJobsLiveList({
   retryAction,
   userId,
 }: ContentJobsLiveListProps) {
-  const [jobs, setJobs] = useState(initialJobs);
+  const [snapshotJobs, setSnapshotJobs] = useState<ContentJobRow[]>([]);
+  const [realtimeJobs, setRealtimeJobs] = useState<ContentJobRow[]>([]);
+  const jobs = useMemo(
+    () => mergeJobs(initialJobs, snapshotJobs, realtimeJobs),
+    [initialJobs, realtimeJobs, snapshotJobs],
+  );
   const [filter, setFilter] = useState<JobStatusFilter>("all");
   const [realtimeStatus, setRealtimeStatus] =
     useState<ContentJobsRealtimeStatus>("connecting");
-
-  useEffect(() => {
-    setJobs(initialJobs);
-  }, [initialJobs]);
 
   useEffect(() => {
     if (!userId) {
@@ -99,7 +100,7 @@ export function ContentJobsLiveList({
     return subscribeToContentJobs({
       userId,
       onChange: (updatedJob) => {
-        setJobs((currentJobs) => mergeJob(currentJobs, updatedJob));
+        setRealtimeJobs((currentJobs) => mergeJob(currentJobs, updatedJob));
       },
       onStatus: setRealtimeStatus,
     });
@@ -120,7 +121,7 @@ export function ContentJobsLiveList({
         });
 
         if (!cancelled) {
-          setJobs(snapshot);
+          setSnapshotJobs(snapshot);
         }
       } catch {
         // Keep the last known jobs; the visible realtime badge already shows degraded state.
@@ -414,9 +415,17 @@ function mergeJob(
   currentJobs: ContentJobRow[],
   updatedJob: ContentJobRow,
 ): ContentJobRow[] {
-  const nextJobs = new Map(currentJobs.map((job) => [job.id, job]));
+  return mergeJobs(currentJobs, [updatedJob]);
+}
 
-  nextJobs.set(updatedJob.id, updatedJob);
+function mergeJobs(...jobGroups: ContentJobRow[][]): ContentJobRow[] {
+  const nextJobs = new Map<string, ContentJobRow>();
+
+  for (const jobs of jobGroups) {
+    for (const job of jobs) {
+      nextJobs.set(job.id, job);
+    }
+  }
 
   return [...nextJobs.values()].sort(
     (left, right) =>

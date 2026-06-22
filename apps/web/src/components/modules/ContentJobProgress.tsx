@@ -61,11 +61,11 @@ export function ContentJobProgress({
   initialJobs,
   userId,
 }: ContentJobProgressProps) {
-  const [jobs, setJobs] = useState(initialJobs);
-
-  useEffect(() => {
-    setJobs(initialJobs);
-  }, [initialJobs]);
+  const [realtimeJobs, setRealtimeJobs] = useState<ContentJobRow[]>([]);
+  const jobs = useMemo(
+    () => mergeJobs(initialJobs, realtimeJobs),
+    [initialJobs, realtimeJobs],
+  );
 
   useEffect(() => {
     if (!userId) {
@@ -75,7 +75,7 @@ export function ContentJobProgress({
     return subscribeToContentJobs({
       userId,
       onChange: (updatedJob) => {
-        setJobs((currentJobs) => mergeJob(currentJobs, updatedJob));
+        setRealtimeJobs((currentJobs) => mergeJob(currentJobs, updatedJob));
       },
     });
   }, [userId]);
@@ -237,9 +237,18 @@ function mergeJob(
   currentJobs: ContentJobRow[],
   updatedJob: ContentJobRow,
 ): ContentJobRow[] {
-  const nextJobs = new Map(currentJobs.map((job) => [job.id, job]));
+  return mergeJobs(currentJobs, [updatedJob]);
+}
 
-  nextJobs.set(updatedJob.id, updatedJob);
+function mergeJobs(
+  baseJobs: ContentJobRow[],
+  updatedJobs: ContentJobRow[],
+): ContentJobRow[] {
+  const nextJobs = new Map(baseJobs.map((job) => [job.id, job]));
+
+  for (const job of updatedJobs) {
+    nextJobs.set(job.id, job);
+  }
 
   return [...nextJobs.values()].sort(
     (left, right) =>
