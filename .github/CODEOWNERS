@@ -1,17 +1,53 @@
-# Default owner for protected branches and dependency PRs.
+# StreamOS CODEOWNERS
+# Syntax: <path-pattern> <owner>
+# Rules are evaluated top-to-bottom; the last matching rule wins.
+
+# Global fallback for protected branches and dependency PRs.
 * @thomasdorts-hash
 
-# Repo operations and delivery
-/.github/ @thomasdorts-hash
-/docs/ @thomasdorts-hash
-/scripts/ @thomasdorts-hash
-/e2e/ @thomasdorts-hash
-/tests/ @thomasdorts-hash
-/src/ @thomasdorts-hash
-
-# Monorepo workspaces
+# Frontend and Vercel-owned web surface
 /apps/web/ @thomasdorts-hash
+
+# Backend services
 /services/api-gateway/ @thomasdorts-hash
 /services/automation-service/ @thomasdorts-hash
+
+# Railway worker services
 /workers/ @thomasdorts-hash
+/workers/stream-job-worker/ @thomasdorts-hash
+/workers/transcription-worker/ @thomasdorts-hash
+/workers/clip-worker/ @thomasdorts-hash
+/workers/repurposing-worker/ @thomasdorts-hash
+/workers/publishing-worker/ @thomasdorts-hash
+/workers/publishing-scheduler-worker/ @thomasdorts-hash
+/workers/content-job-retry-worker/ @thomasdorts-hash
+/workers/metrics-sync-worker/ @thomasdorts-hash
+
+# Shared packages and data contracts
 /packages/ @thomasdorts-hash
+/packages/config/ @thomasdorts-hash
+/packages/database/ @thomasdorts-hash
+/packages/database/supabase/migrations/ @thomasdorts-hash
+/packages/queue/ @thomasdorts-hash
+/packages/redis/ @thomasdorts-hash
+/packages/twitch-eventsub/ @thomasdorts-hash
+/packages/types/ @thomasdorts-hash
+/packages/ui/ @thomasdorts-hash
+/packages/utils/ @thomasdorts-hash
+/packages/youtube-websub/ @thomasdorts-hash
+
+# Repo operations, delivery, release gates, and deployment topology
+/.github/ @thomasdorts-hash
+/.github/workflows/ @thomasdorts-hash
+/scripts/ @thomasdorts-hash
+/docs/ @thomasdorts-hash
+/e2e/ @thomasdorts-hash
+/tests/ @thomasdorts-hash
+/Dockerfile* @thomasdorts-hash
+/compose.yaml @thomasdorts-hash
+/docker-compose*.yml @thomasdorts-hash
+/package.json @thomasdorts-hash
+/pnpm-lock.yaml @thomasdorts-hash
+/pnpm-workspace.yaml @thomasdorts-hash
+/turbo.json @thomasdorts-hash
+/AGENTS.md @thomasdorts-hash
