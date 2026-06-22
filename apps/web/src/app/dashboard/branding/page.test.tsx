@@ -35,7 +35,7 @@ describe("BrandingPage", () => {
 
     expect(html).toContain("Noch kein Brand Kit");
     expect(html).toContain("Brand Kit erstellen");
-    expect(html).toContain("Kein Upload in diesem Slice");
+    expect(html).toContain("Private Assets ohne Public URLs");
     expect(html).not.toContain('type="file"');
     expect(html).not.toContain("Storage-Bucket erstellen");
   });
@@ -58,6 +58,8 @@ describe("BrandingPage", () => {
           id: "22222222-2222-4222-8222-222222222222",
           metadata: {},
           name: "Neon Overlay",
+          previewStatus: "available",
+          previewUrl: "https://storage.example/signed-preview",
           status: "active",
           updated_at: "2026-06-22T10:15:00.000Z",
         },
@@ -77,6 +79,7 @@ describe("BrandingPage", () => {
     expect(html).toContain("Brand Kit wurde aktualisiert");
     expect(html).toContain("Neon Overlay");
     expect(html).toContain("Main stream overlay.");
+    expect(html).toContain("https://storage.example/signed-preview");
     expect(html).toContain("Bearbeiten");
     expect(html).toContain("Aenderungen speichern");
     expect(html).toContain("Brand Kit loeschen");

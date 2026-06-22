@@ -9,6 +9,7 @@ import { brandAssetStatusValues, brandAssetTypeValues } from "./brand-kit";
 
 export const BRAND_ASSETS_STORAGE_BUCKET = "brand-assets";
 export const BRAND_ASSET_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+export const BRAND_ASSET_SIGNED_PREVIEW_TTL_SECONDS = 5 * 60;
 
 const allowedImageTypes = {
   "image/jpeg": ["jpg", "jpeg"],
@@ -44,6 +45,31 @@ export type BrandAssetUploadParseResult =
         | "invalid-brand-kit-form";
       ok: false;
     };
+
+export type BrandAssetPreviewStatus =
+  | "available"
+  | "invalid_storage_metadata"
+  | "no_preview"
+  | "storage_error";
+
+export type BrandAssetSignedPreview = {
+  previewStatus: BrandAssetPreviewStatus;
+  previewUrl: string | null;
+};
+
+export type BrandAssetPreviewStorageClient = {
+  storage: {
+    from: (bucket: string) => {
+      createSignedUrl: (
+        path: string,
+        expiresIn: number,
+      ) => Promise<{
+        data: { signedUrl?: string | null } | null;
+        error: unknown;
+      }>;
+    };
+  };
+};
 
 const uploadFormSchema = z.object({
   assetType: z.enum(brandAssetTypeValues),
@@ -151,6 +177,101 @@ export function buildBrandAssetStoragePath({
   return `${userId}/${assetType}/${assetId}/${filename}`;
 }
 
+export async function createBrandAssetSignedPreviewUrl({
+  client,
+  storageBucket,
+  storagePath,
+  ttlSeconds = BRAND_ASSET_SIGNED_PREVIEW_TTL_SECONDS,
+  userId,
+}: {
+  client: BrandAssetPreviewStorageClient;
+  storageBucket: string | null;
+  storagePath: string | null;
+  ttlSeconds?: number;
+  userId: string;
+}): Promise<BrandAssetSignedPreview> {
+  const storage = parseBrandAssetPreviewStorage({
+    storageBucket,
+    storagePath,
+    userId,
+  });
+
+  if (!storage.ok) {
+    return {
+      previewStatus: storage.status,
+      previewUrl: null,
+    };
+  }
+
+  const { data, error } = await client.storage
+    .from(storage.bucket)
+    .createSignedUrl(storage.path, ttlSeconds);
+
+  if (error || !data?.signedUrl) {
+    return {
+      previewStatus: "storage_error",
+      previewUrl: null,
+    };
+  }
+
+  return {
+    previewStatus: "available",
+    previewUrl: data.signedUrl,
+  };
+}
+
+export function parseBrandAssetPreviewStorage({
+  storageBucket,
+  storagePath,
+  userId,
+}:
+  | {
+      storageBucket: string | null;
+      storagePath: string | null;
+      userId: string;
+    }
+  | {
+      storageBucket?: string | null;
+      storagePath?: string | null;
+      userId: string;
+    }):
+  | {
+      bucket: typeof BRAND_ASSETS_STORAGE_BUCKET;
+      ok: true;
+      path: string;
+    }
+  | {
+      ok: false;
+      status: Exclude<BrandAssetPreviewStatus, "available" | "storage_error">;
+    } {
+  if (!storageBucket && !storagePath) {
+    return {
+      ok: false,
+      status: "no_preview",
+    };
+  }
+
+  if (storageBucket !== BRAND_ASSETS_STORAGE_BUCKET || !storagePath) {
+    return {
+      ok: false,
+      status: "invalid_storage_metadata",
+    };
+  }
+
+  if (!isTenantScopedStoragePath(storagePath, userId)) {
+    return {
+      ok: false,
+      status: "invalid_storage_metadata",
+    };
+  }
+
+  return {
+    bucket: BRAND_ASSETS_STORAGE_BUCKET,
+    ok: true,
+    path: storagePath,
+  };
+}
+
 export function sanitizeBrandAssetFilename(filename: string) {
   const normalized = filename.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
   const segments = normalized.split(/[/\\]+/);
@@ -173,6 +294,24 @@ export function sanitizeBrandAssetFilename(filename: string) {
   }
 
   return `${safeName}.${extension}`;
+}
+
+function isTenantScopedStoragePath(storagePath: string, userId: string) {
+  if (
+    storagePath.startsWith("/") ||
+    storagePath.includes("\\") ||
+    storagePath.includes("://")
+  ) {
+    return false;
+  }
+
+  const segments = storagePath.split("/");
+
+  return (
+    segments.length >= 4 &&
+    segments[0] === userId &&
+    segments.every((segment) => segment.length > 0 && segment !== "..")
+  );
 }
 
 function isAllowedImageMimeType(type: string): type is AllowedImageMimeType {

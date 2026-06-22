@@ -53,7 +53,14 @@ export type BrandAssetRow = Pick<
   | "name"
   | "status"
   | "updated_at"
->;
+> & {
+  previewStatus:
+    | "available"
+    | "invalid_storage_metadata"
+    | "no_preview"
+    | "storage_error";
+  previewUrl: string | null;
+};
 
 export type BrandKitFormValues = {
   assetType: BrandAssetType;
