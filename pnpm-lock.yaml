@@ -12,8 +12,8 @@ importers:
         specifier: ^9.39.4
         version: 9.39.4
       '@next/eslint-plugin-next':
-        specifier: ^15.5.18
-        version: 15.5.18
+        specifier: ^16.2.9
+        version: 16.2.9
       '@playwright/test':
         specifier: ^1.60.0
         version: 1.60.0
@@ -442,13 +442,13 @@ importers:
 
   workers/publishing-scheduler-worker:
     dependencies:
-      "@streamos/queue":
+      '@streamos/queue':
         specifier: workspace:*
         version: link:../../packages/queue
-      "@streamos/redis":
+      '@streamos/redis':
         specifier: workspace:*
         version: link:../../packages/redis
-      "@streamos/types":
+      '@streamos/types':
         specifier: workspace:*
         version: link:../../packages/types
       bullmq:
@@ -458,10 +458,10 @@ importers:
         specifier: ^3.24.2
         version: 3.25.76
     devDependencies:
-      "@streamos/config":
+      '@streamos/config':
         specifier: workspace:*
         version: link:../../packages/config
-      "@types/node":
+      '@types/node':
         specifier: ^22.13.14
         version: 22.19.19
       tsx:
@@ -476,13 +476,13 @@ importers:
 
   workers/publishing-worker:
     dependencies:
-      "@streamos/queue":
+      '@streamos/queue':
         specifier: workspace:*
         version: link:../../packages/queue
-      "@streamos/redis":
+      '@streamos/redis':
         specifier: workspace:*
         version: link:../../packages/redis
-      "@streamos/types":
+      '@streamos/types':
         specifier: workspace:*
         version: link:../../packages/types
       bullmq:
@@ -492,10 +492,10 @@ importers:
         specifier: ^3.24.2
         version: 3.25.76
     devDependencies:
-      "@streamos/config":
+      '@streamos/config':
         specifier: workspace:*
         version: link:../../packages/config
-      "@types/node":
+      '@types/node':
         specifier: ^22.13.14
         version: 22.19.19
       tsx:
@@ -1263,6 +1263,9 @@ packages:
 
   '@next/eslint-plugin-next@15.5.18':
     resolution: {integrity: sha512-w4MYq8M26a8PNrfto0JosLf5/3ssln1rsyP96g2DkC8uFVymStM5DLSz5ElxxrPRg2XnTMnFo3kREFlhYvxhWw==}
+
+  '@next/eslint-plugin-next@16.2.9':
+    resolution: {integrity: sha512-UZi8+YT/MLgTC9nrrn2Xd4lBYv1B7lVmtWHfPcthAI5Tt/C1LuDe6DfmtCtJ+WQod3ksY4VrKSvk3oMVAnL7qw==}
 
   '@next/swc-darwin-arm64@15.5.18':
     resolution: {integrity: sha512-w0WvQf1n+txiwns/9pwIQteCJpZTbxzO2SE0FLcwuD4v0WEh1JPOjdyxWL21XwJsdpx8cFRjyzxzCS/siP7HcQ==}
@@ -4635,6 +4638,10 @@ snapshots:
   '@next/env@15.5.18': {}
 
   '@next/eslint-plugin-next@15.5.18':
+    dependencies:
+      fast-glob: 3.3.1
+
+  '@next/eslint-plugin-next@16.2.9':
     dependencies:
       fast-glob: 3.3.1
 
