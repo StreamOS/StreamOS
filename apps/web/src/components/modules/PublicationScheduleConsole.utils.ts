@@ -688,12 +688,118 @@ function extractSchedulePolicySnapshot(
   if (
     typeof candidate.policyVersion !== "string" ||
     typeof candidate.policyStatus !== "string" ||
-    typeof candidate.scheduleStatus !== "string"
+    typeof candidate.scheduleStatus !== "string" ||
+    !isPublicationSchedulePolicyExecutionSnapshot(candidate.execution) ||
+    !isPublicationSchedulePolicyProviderHintSnapshot(candidate.providerHint) ||
+    !isPublicationSchedulePolicySchedulingDecisionSnapshot(
+      candidate.schedulingDecision,
+    ) ||
+    !isPublicationSchedulePolicyTimingSnapshot(candidate.timing) ||
+    !Array.isArray(candidate.info) ||
+    !Array.isArray(candidate.warnings) ||
+    !isPublicationSchedulePolicyActionPolicySnapshot(candidate.actionPolicy)
   ) {
     return null;
   }
 
   return candidate as PublicationSchedulePolicy;
+}
+
+function isPublicationSchedulePolicyExecutionSnapshot(
+  value: unknown,
+): value is PublicationSchedulePolicy["execution"] {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof (value as { status?: unknown }).status === "string" &&
+    typeof (value as { isLocked?: unknown }).isLocked === "boolean" &&
+    typeof (value as { claimedAt?: unknown }).claimedAt !== "undefined" &&
+    typeof (value as { claimedBy?: unknown }).claimedBy !== "undefined" &&
+    typeof (value as { queueJobId?: unknown }).queueJobId !== "undefined"
+  );
+}
+
+function isPublicationSchedulePolicyProviderHintSnapshot(
+  value: unknown,
+): value is PublicationSchedulePolicy["providerHint"] {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof (value as { description?: unknown }).description === "string" &&
+    typeof (value as { nativeSchedulingSupported?: unknown })
+      .nativeSchedulingSupported === "boolean" &&
+    typeof (value as { nativeSchedulingUsed?: unknown })
+      .nativeSchedulingUsed === "boolean" &&
+    typeof (value as { provider?: unknown }).provider === "string" &&
+    Array.isArray((value as { requiredScopes?: unknown }).requiredScopes) &&
+    typeof (value as { requiresReauth?: unknown }).requiresReauth ===
+      "boolean" &&
+    typeof (value as { requiresScopes?: unknown }).requiresScopes ===
+      "boolean" &&
+    typeof (value as { schedulingAllowed?: unknown }).schedulingAllowed ===
+      "boolean" &&
+    typeof (value as { safeLabel?: unknown }).safeLabel === "string" &&
+    typeof (value as { supportStatus?: unknown }).supportStatus === "string"
+  );
+}
+
+function isPublicationSchedulePolicySchedulingDecisionSnapshot(
+  value: unknown,
+): value is PublicationSchedulePolicy["schedulingDecision"] {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof (value as { providerNativeSchedulingAvailability?: unknown })
+      .providerNativeSchedulingAvailability === "string" &&
+    typeof (value as { providerNativeSchedulingExecutionStatus?: unknown })
+      .providerNativeSchedulingExecutionStatus === "string" &&
+    typeof (value as { providerNativeSchedulingPolicy?: unknown })
+      .providerNativeSchedulingPolicy === "string" &&
+    typeof (value as { requiresRevalidation?: unknown })
+      .requiresRevalidation === "boolean" &&
+    typeof (value as { schedulerSourceOfTruth?: unknown })
+      .schedulerSourceOfTruth === "string"
+  );
+}
+
+function isPublicationSchedulePolicyTimingSnapshot(
+  value: unknown,
+): value is PublicationSchedulePolicy["timing"] {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof (value as { expiresAt?: unknown }).expiresAt !== "undefined" &&
+    typeof (value as { isExpired?: unknown }).isExpired === "boolean" &&
+    typeof (value as { isNearDue?: unknown }).isNearDue === "boolean" &&
+    typeof (value as { isStale?: unknown }).isStale === "boolean" &&
+    typeof (value as { minLeadTimeMinutes?: unknown }).minLeadTimeMinutes ===
+      "number" &&
+    typeof (value as { maxHorizonDays?: unknown }).maxHorizonDays ===
+      "number" &&
+    typeof (value as { nearDueEditWindowMinutes?: unknown })
+      .nearDueEditWindowMinutes === "number" &&
+    typeof (value as { scheduledAtUtc?: unknown }).scheduledAtUtc !==
+      "undefined" &&
+    typeof (value as { scheduledTimezone?: unknown }).scheduledTimezone !==
+      "undefined" &&
+    typeof (value as { staleAt?: unknown }).staleAt !== "undefined"
+  );
+}
+
+function isPublicationSchedulePolicyActionPolicySnapshot(
+  value: unknown,
+): value is PublicationSchedulePolicy["actionPolicy"] {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof (value as { actions?: unknown }).actions === "object" &&
+    typeof (value as { blockReason?: unknown }).blockReason !== "undefined" &&
+    typeof (value as { canCancel?: unknown }).canCancel === "boolean" &&
+    typeof (value as { canEdit?: unknown }).canEdit === "boolean" &&
+    typeof (value as { canReplace?: unknown }).canReplace === "boolean" &&
+    typeof (value as { explanation?: unknown }).explanation === "string" &&
+    typeof (value as { nextAction?: unknown }).nextAction !== "undefined"
+  );
 }
 
 function readScheduleValidationBoolean(

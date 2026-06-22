@@ -24,6 +24,80 @@ import {
 import { PublicationScheduleConsole } from "./PublicationScheduleConsole";
 
 describe("PublicationScheduleConsole", () => {
+  it("falls back to evaluated policy when stored schedule snapshots are partial", () => {
+    const model = buildPublicationScheduleDashboardModel({
+      channels: [],
+      connections: [],
+      contentJobs: [],
+      fanoutTargets: [],
+      fanouts: [
+        makeFanout({
+          id: "fanout-partial",
+          content_job_id: "job-partial-fanout",
+          fanout_status: "requested",
+          review_status_at_request: "approved",
+          schedule_block_reason: null,
+          schedule_status: "scheduled",
+          scheduled_at_utc: "2026-06-22T18:30:00.000Z",
+          scheduled_timezone: "Europe/Berlin",
+          snapshot: {},
+          schedule_validation_metadata: {
+            schedule_policy: {
+              policyStatus: "blocked",
+              policyVersion: "2026.06.p3.19.v1",
+              scheduleStatus: "schedule_blocked",
+            },
+          },
+        }),
+      ],
+      publications: [
+        makePublication({
+          content_job_id: "job-partial-publication",
+          id: "publication-partial",
+          platform_connection_id: "connection-partial",
+          publication_status: "requested",
+          review_status_at_request: "approved",
+          schedule_block_reason: null,
+          schedule_source: "dashboard",
+          schedule_status: "scheduled",
+          schedule_validation_metadata: {
+            schedule_policy: {
+              policyStatus: "blocked",
+              policyVersion: "2026.06.p3.19.v1",
+              scheduleStatus: "schedule_blocked",
+            },
+          },
+          scheduled_at_utc: "2026-06-21T18:30:00.000Z",
+          scheduled_timezone: "Europe/Berlin",
+          target_platform: "youtube",
+        }),
+      ],
+    });
+
+    expect(model.items).toHaveLength(2);
+    expect(
+      model.items.find((item) => item.id === "publication-partial")
+        ?.schedulePolicy.providerHint.safeLabel,
+    ).toBe("YouTube scheduling");
+    expect(
+      model.items.find((item) => item.id === "fanout-partial")?.schedulePolicy
+        .providerHint.safeLabel,
+    ).toBe("Fanout scheduling");
+    expect(() =>
+      renderToStaticMarkup(<PublicationScheduleConsole model={model} />),
+    ).not.toThrow();
+
+    const html = renderToStaticMarkup(
+      <PublicationScheduleConsole model={model} />,
+    );
+
+    expect(html).toContain("Conflict summary");
+    expect(html).toContain("Primary conflict");
+    expect(html).toContain(
+      "Schedule conflict signal, policy note, and target readiness",
+    );
+  });
+
   it("renders grouped schedule entries, safe fallbacks, and read-only history links", () => {
     const model = buildPublicationScheduleDashboardModel({
       channels: [
