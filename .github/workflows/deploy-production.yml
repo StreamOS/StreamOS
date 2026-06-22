@@ -122,7 +122,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -241,7 +241,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Stamp api-gateway runtime provenance
         if: ${{ matrix.service == 'api-gateway' }}
@@ -339,7 +339,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -413,7 +413,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v2
@@ -469,7 +469,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Vercel CLI
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"

@@ -55,7 +55,7 @@ jobs:
 
     steps:
       - name: Checkout repository metadata
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -148,7 +148,7 @@ jobs:
 
     steps:
       - name: Checkout rollback target
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve-target.outputs.git_sha }}
 
@@ -236,7 +236,7 @@ jobs:
 
     steps:
       - name: Checkout rollback target
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve-target.outputs.git_sha }}
 
