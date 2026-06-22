@@ -618,6 +618,15 @@ The runner does not need a public URL. It only needs Railway-private network
 reachability plus the operator shell/exec path that lets you run the gate from
 inside the same environment as the deployed services.
 
+The runner is proof-only, not a product service. It may have only the env names
+that the production gate needs to prove the hosted flow from inside Railway:
+`STREAMOS_RC_COMMIT_SHA`, `TRANSCRIPTION_E2E_FIXTURE_ASSET_URL`,
+`SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`. The Supabase values are used by
+the hosted transcription E2E to seed/read durable proof rows and must never be
+printed in logs, reports, screenshots, or runbook output. Provider webhook
+secrets such as `STREAM_EVENT_WEBHOOK_SECRET` remain owned by `api-gateway` and
+must not be configured on `release-gate-runner`.
+
 ## Production Checks
 
 Run the rollout tooling before promoting a deployment. StreamOS now separates
@@ -1176,6 +1185,13 @@ is non-sensitive, but it must be a stable public HTTPS media file with no
 credentials, no query-string tokens, no private hostnames, and no placeholder
 hosts such as `example.com`. If the fixture asset is missing or invalid, the
 gate now fails closed before any transcription work is queued.
+
+The hosted E2E also requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in
+the proof runtime so it can verify durable database state. These names are
+allowed only on `release-gate-runner` as proof-only env and on the server-side
+services/workers that own Supabase writes. They remain forbidden in `apps/web`,
+Vercel browser/runtime client bundles, reports, and any non-owning Railway
+service.
 
 Do not promote when the production gate fails. Successful package tests, builds,
 or a green local diagnostic are not enough on their own. The transcription E2E

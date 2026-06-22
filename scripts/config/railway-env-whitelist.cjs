@@ -495,6 +495,8 @@ module.exports = {
     "release-gate-runner": {
       optional: [
         "STREAMOS_RC_COMMIT_SHA",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL",
         "TRANSCRIPTION_E2E_FIXTURE_ASSET_URL",
       ],
       publicNetworking: "disabled",

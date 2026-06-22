@@ -1147,3 +1147,116 @@ test("buildAuditReport accepts release-gate-runner commit provenance stamp", () 
   assert.equal(commitRow.status, "✅");
   assert.match(commitRow.summary, /configured via service/);
 });
+
+test("buildAuditReport accepts release-gate-runner proof-only Supabase env", () => {
+  const production = cloneEnvironment(loadEnvironment("production"));
+  production.serviceVariables["release-gate-runner"] = {
+    ...production.serviceVariables["release-gate-runner"],
+    TRANSCRIPTION_E2E_FIXTURE_ASSET_URL:
+      "https://fixtures.example.test/transcription-fixture.mp4",
+  };
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const runnerRows =
+    report.environments.production.services["release-gate-runner"].variables;
+
+  for (const variableName of [
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_URL",
+    "TRANSCRIPTION_E2E_FIXTURE_ASSET_URL",
+  ]) {
+    const row = runnerRows.find((entry) => entry.variable === variableName);
+
+    assert.ok(row, `release-gate-runner should model ${variableName}`);
+    assert.equal(row.status, CHECK);
+    assert.equal(
+      row.findings.some((finding) =>
+        ["WRONG_SERVICE", "DANGEROUS_EXPOSURE"].includes(finding.flag),
+      ),
+      false,
+    );
+    assert.match(row.summary, /configured via (service|shared)/);
+  }
+
+  const runnerSupabaseBlockingFindings = runnerRows
+    .filter((entry) =>
+      ["SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL"].includes(entry.variable),
+    )
+    .flatMap((entry) => entry.findings)
+    .filter((finding) => ["CRITICAL", "HIGH"].includes(finding.priority));
+
+  assert.deepEqual(runnerSupabaseBlockingFindings, []);
+});
+
+test("buildAuditReport rejects gateway-owned webhook secret on release-gate-runner", () => {
+  const production = cloneEnvironment(loadEnvironment("production"));
+  production.serviceVariables["release-gate-runner"] = {
+    ...production.serviceVariables["release-gate-runner"],
+    STREAM_EVENT_WEBHOOK_SECRET: "production-webhook-secret",
+  };
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const webhookRow = report.environments.production.services[
+    "release-gate-runner"
+  ].variables.find((row) => row.variable === "STREAM_EVENT_WEBHOOK_SECRET");
+
+  assert.ok(webhookRow);
+  assert.equal(webhookRow.status, CROSS);
+  assert.match(webhookRow.summary, /belongs to api-gateway/);
+  assert.ok(
+    webhookRow.findings.some(
+      (finding) =>
+        finding.flag === "DANGEROUS_EXPOSURE" &&
+        finding.priority === "CRITICAL",
+    ),
+  );
+  assert.equal(hasBlockingFindings(report), true);
+});
+
+test("buildAuditReport keeps api-gateway Twitch client env as critical production requirements", () => {
+  const production = cloneEnvironment(loadEnvironment("production"));
+  delete production.serviceVariables["api-gateway"].TWITCH_CLIENT_ID;
+  delete production.serviceVariables["api-gateway"].TWITCH_CLIENT_SECRET;
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const apiGatewayRows =
+    report.environments.production.services["api-gateway"].variables;
+
+  for (const variableName of ["TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET"]) {
+    const row = apiGatewayRows.find((entry) => entry.variable === variableName);
+
+    assert.ok(row, `api-gateway should model ${variableName}`);
+    assert.equal(row.status, CROSS);
+    assert.match(row.summary, /Required variable is not set/);
+    assert.ok(
+      row.findings.some(
+        (finding) =>
+          finding.flag === "MISSING" && finding.priority === "CRITICAL",
+      ),
+    );
+  }
+});
