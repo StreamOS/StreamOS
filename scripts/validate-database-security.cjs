@@ -251,6 +251,32 @@ const monetizationProviderEventDropIndexRegex = new RegExp(
   "i",
 );
 
+const brandAssetsPrivateBucketRegex = new RegExp(
+  "insert\\s+into\\s+storage\\.buckets\\s*\\(\\s*id\\s*,\\s*name\\s*,\\s*public\\s*\\)\\s*values\\s*\\(\\s*'brand-assets'\\s*,\\s*'brand-assets'\\s*,\\s*false\\s*\\)",
+  "i",
+);
+
+const brandAssetsPublicBucketRegex = new RegExp(
+  "insert\\s+into\\s+storage\\.buckets\\s*\\([^)]*public[^)]*\\)\\s*values\\s*\\([^;]*'brand-assets'[^;]*true",
+  "i",
+);
+
+const brandAssetsStoragePolicyRegex = (action, clause) =>
+  new RegExp(
+    `create\\s+policy\\s+"[^"]+"\\s+on\\s+storage\\.objects\\s+for\\s+${action}\\s+to\\s+authenticated\\s+${clause}\\s*\\(\\s*bucket_id\\s*=\\s*'brand-assets'\\s+and\\s+auth\\.uid\\s*\\(\\s*\\)\\s+is\\s+not\\s+null\\s+and\\s+\\(\\s*storage\\.foldername\\s*\\(\\s*name\\s*\\)\\s*\\)\\s*\\[\\s*1\\s*\\]\\s*=\\s*auth\\.uid\\s*\\(\\s*\\)\\s*::\\s*text\\s*\\)`,
+    "i",
+  );
+
+const brandAssetsStorageAnonPolicyRegex = new RegExp(
+  'create\\s+policy\\s+"[^"]+"\\s+on\\s+storage\\.objects\\s+for\\s+(?:select|insert|update|delete)\\s+to\\s+anon\\b[^;]*brand-assets',
+  "i",
+);
+
+const brandAssetsStorageUpdatePolicyRegex = new RegExp(
+  'create\\s+policy\\s+"[^"]+"\\s+on\\s+storage\\.objects\\s+for\\s+update\\s+to\\s+authenticated\\b[^;]*brand-assets',
+  "i",
+);
+
 for (const table of tenantTables) {
   const tableName = escapeRegex(table);
 
@@ -611,6 +637,41 @@ assertPattern(
   "monetization_events: provider/provider_event_id unique index must be tenant-scoped by leading user_id",
 );
 
+assertPattern(
+  hasPattern(brandAssetsPrivateBucketRegex),
+  "brand-assets storage: private storage bucket must be created with public=false",
+);
+
+assertPattern(
+  !hasPattern(brandAssetsPublicBucketRegex),
+  "brand-assets storage: bucket must not be public",
+);
+
+assertPattern(
+  hasPattern(brandAssetsStoragePolicyRegex("select", "using")),
+  "brand-assets storage: SELECT policy must require authenticated user-owned first path segment",
+);
+
+assertPattern(
+  hasPattern(brandAssetsStoragePolicyRegex("insert", "with\\s+check")),
+  "brand-assets storage: INSERT policy must require authenticated user-owned first path segment",
+);
+
+assertPattern(
+  hasPattern(brandAssetsStoragePolicyRegex("delete", "using")),
+  "brand-assets storage: DELETE policy must require authenticated user-owned first path segment",
+);
+
+assertPattern(
+  !hasPattern(brandAssetsStorageUpdatePolicyRegex),
+  "brand-assets storage: UPDATE policy must stay absent until replace/upsert is explicitly supported",
+);
+
+assertPattern(
+  !hasPattern(brandAssetsStorageAnonPolicyRegex),
+  "brand-assets storage: anonymous storage access must not be granted",
+);
+
 if (failures.length > 0) {
   console.error("Database security validation failed:");
   for (const failure of failures) {
@@ -620,5 +681,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `Database security validation passed for ${tenantTables.length} tenant tables and ${compositeTenantConstraints.length} composite tenant foreign keys.`,
+  `Database security validation passed for ${tenantTables.length} tenant tables, ${compositeTenantConstraints.length} composite tenant foreign keys, and brand-assets private storage policies.`,
 );
