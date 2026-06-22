@@ -87,7 +87,7 @@ export async function updateSession(
     };
   }
 
-  const supabase = createServerClient<Database, "public", Database["public"]>(
+  const supabase = createServerClient<Database>(
     supabaseConfig.url,
     supabaseConfig.anonKey,
     {

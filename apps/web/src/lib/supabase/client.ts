@@ -9,10 +9,7 @@ export function createOptionalBrowserClient() {
     return null;
   }
 
-  return createBrowserClient<Database, "public", Database["public"]>(
-    config.url,
-    config.anonKey,
-  );
+  return createBrowserClient<Database>(config.url, config.anonKey);
 }
 
 export function createClient() {
