@@ -16,24 +16,20 @@ export async function createClient() {
     throw new Error("Missing server Supabase environment variables.");
   }
 
-  return createServerClient<Database, "public", Database["public"]>(
-    config.url,
-    config.anonKey,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet: CookieToSet[]) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            try {
-              cookieStore.set(name, value, options);
-            } catch {
-              // Server Components cannot always mutate cookies. Server Actions and Route Handlers can.
-            }
-          });
-        },
+  return createServerClient<Database>(config.url, config.anonKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet: CookieToSet[]) {
+        cookiesToSet.forEach(({ name, value, options }) => {
+          try {
+            cookieStore.set(name, value, options);
+          } catch {
+            // Server Components cannot always mutate cookies. Server Actions and Route Handlers can.
+          }
+        });
       },
     },
-  );
+  });
 }

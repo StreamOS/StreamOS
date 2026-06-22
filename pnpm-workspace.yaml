@@ -9,6 +9,9 @@ packages:
 # pre-v11 behavior explicit instead of inheriting a new implicit default.
 minimumReleaseAge: 0
 
+overrides:
+  ioredis: 5.11.1
+
 allowBuilds:
   esbuild: true
   msgpackr-extract: true
