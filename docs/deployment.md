@@ -4,27 +4,29 @@ This document defines the production deployment topology for the StreamOS monore
 
 ## Target Topology
 
-| Path                               | Runtime                | Platform                                                       | Purpose                                                                                                   |
-| ---------------------------------- | ---------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `apps/web`                         | Next.js App Router     | Vercel                                                         | Dashboard, Supabase SSR Auth, app-facing BFF routes                                                       |
-| `services/api-gateway`             | Node.js                | Railway                                                        | Public API gateway, platform OAuth, server-only mutations, webhook ingress, BullMQ job producers          |
-| `services/automation-service`      | FastAPI                | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                                                                   |
-| `workers/stream-job-worker`        | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-media` consumer for stream materialization and transcription fan-out                  |
-| `workers/repurposing-worker`       | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-repurposing` consumer for manual-review-only repurposing plans                        |
-| `workers/publishing-worker`        | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-publishing` consumer for approved publication execution and reconciliation            |
-| `workers/transcription-worker`     | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI                                                    |
-| `workers/content-job-retry-worker` | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into BullMQ                                                      |
-| `release-gate-runner`              | Node.js operator shell | Railway private worker/service                                 | Proof-only runtime for `pnpm rollout:check:production` using the gate-required release-candidate snapshot |
+| Path                                  | Runtime                | Platform                                                       | Purpose                                                                                                               |
+| ------------------------------------- | ---------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `apps/web`                            | Next.js App Router     | Vercel                                                         | Dashboard, Supabase SSR Auth, app-facing BFF routes                                                                   |
+| `services/api-gateway`                | Node.js                | Railway                                                        | Public API gateway, platform OAuth, server-only mutations, webhook ingress, BullMQ job producers                      |
+| `services/automation-service`         | FastAPI                | Railway first, Fly.io when GPU or regional compute is required | Server-side AI and clip automation APIs                                                                               |
+| `workers/stream-job-worker`           | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-media` consumer for stream materialization and transcription fan-out                              |
+| `workers/repurposing-worker`          | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-repurposing` consumer for manual-review-only repurposing plans                                    |
+| `workers/publishing-worker`           | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Canonical `streamos-publishing` consumer for approved publication execution and reconciliation                        |
+| `workers/publishing-scheduler-worker` | Node.js polling worker | Railway Worker Dyno                                            | Private StreamOS-managed scheduler that claims due publications and enqueues deterministic `publication.publish` jobs |
+| `workers/transcription-worker`        | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Long-running transcription consumer that calls FastAPI                                                                |
+| `workers/content-job-retry-worker`    | Node.js BullMQ Worker  | Railway Worker Dyno                                            | Requeues retryable failed `content_jobs` into transcription, clip, and repurposing queues                             |
+| `release-gate-runner`                 | Node.js operator shell | Railway private worker/service                                 | Proof-only runtime for `pnpm rollout:check:production` using the gate-required release-candidate snapshot             |
 
 ## Service Boundaries
 
 - Browser code must call the Next.js app or `services/api-gateway`; it must not call AI providers directly.
 - `services/api-gateway` is the public backend entrypoint for external webhooks, app-facing backend APIs, platform OAuth flows, provider token refresh, metrics writes, and queue-producing commands.
-- `services/api-gateway` also owns the server-side publication contract at `POST /api/content-publications` and the publish/reconcile actions under `/api/content-publications/:id/publish` and `/api/content-publications/:id/reconcile`; it freezes approved repurposing snapshots, validates tenant and scope eligibility, writes `content_publications` plus `content_publication_events`, and enqueues `streamos-publishing` jobs for server-side worker execution.
+- `services/api-gateway` also owns the server-side publication contract at `POST /api/content-publications`, the fanout preparation contract at `POST /api/content-publications/fanout`, and the publish/reconcile actions under `/api/content-publications/:id/publish` and `/api/content-publications/:id/reconcile`; it freezes approved repurposing snapshots, validates tenant and scope eligibility, writes `content_publications`, `content_publication_fanouts`, `content_publication_fanout_targets`, plus `content_publication_events`, and enqueues `streamos-publishing` jobs for server-side worker execution.
 - `services/automation-service` should use private Railway networking in production. Do not call it from browser code or Vercel client bundles; only Railway services/workers in the same project/environment should call it.
 - `workers/stream-job-worker` is the only canonical `streamos-media` consumer. It materializes `streams`, creates durable `content_jobs`, and enqueues canonical `transcription.trigger` jobs when a media event already includes, or the API Gateway can resolve, enough transcription input such as `vodAssetUrl`.
 - `workers/repurposing-worker` is the only canonical `streamos-repurposing` consumer. It consumes durable `repurposing.plan` jobs, calls `services/automation-service` at `POST /repurposing/plan`, and persists a manual-review-only result to `content_jobs.result`.
 - `workers/publishing-worker` is the only canonical `streamos-publishing` consumer. It executes approved publication jobs against server-owned provider write APIs, performs publication reconciliation, and persists publication status plus audit events in Supabase.
+- `workers/publishing-scheduler-worker` is the private scheduler for `streamos-publishing`. It polls due scheduled publications, claims work in Supabase, and enqueues deterministic `publication.publish` jobs for the publishing worker. StreamOS remains the primary schedule authority; provider-native scheduling is only a secondary hint and it does not call provider APIs or `services/automation-service` directly.
 - `workers/transcription-worker` consumes only `streamos-transcription`, calls `services/automation-service`, and writes transcription job status plus derived transcript state to Supabase.
 - `workers/content-job-retry-worker` owns retry orchestration for failed `content_jobs`; it uses the Supabase service-role key server-side and requeues only supported job payloads. Row-level `content_jobs.max_retries` is the source of truth for retry budget, including manual retries from the dashboard.
 - `release-gate-runner` is not a product service. It exists only to provide a Railway-internal shell/runtime that contains the same gate-required release-candidate snapshot as the services under test, so `pnpm rollout:check:production` can run with private Automation Service reachability and the required monorepo sources.
@@ -101,49 +103,59 @@ Required Railway variables:
 
 ```bash
 NODE_ENV=production
-HOST=::
-PORT=4000
 REDIS_URL=rediss://default:password@host:6379
-QUEUE_DEFAULT_NAME=streamos-media
-CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
-TRANSCRIPTION_QUEUE_NAME=streamos-transcription
 API_GATEWAY_SECRET=
 API_GATEWAY_ALLOWED_ORIGINS=https://app.streamos.example
-CONNECT_SUCCESS_REDIRECT=https://app.streamos.example/dashboard/platforms
-API_GATEWAY_RATE_LIMIT_MAX=120
-API_GATEWAY_RATE_LIMIT_WINDOW_MS=60000
 STREAM_EVENT_WEBHOOK_SECRET=
 APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 TWITCH_CLIENT_ID=
 TWITCH_CLIENT_SECRET=
-TWITCH_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/twitch/callback
-TWITCH_SCOPES=user:read:email moderator:read:followers
+TWITCH_EVENTSUB_SECRET=
 YOUTUBE_CLIENT_ID=
 YOUTUBE_CLIENT_SECRET=
-YOUTUBE_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/youtube/callback
-YOUTUBE_SCOPES=https://www.googleapis.com/auth/youtube.readonly
+YOUTUBE_WEBHOOK_SECRET=
 TIKTOK_CLIENT_KEY=
 TIKTOK_CLIENT_SECRET=
-TIKTOK_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/tiktok/callback
-TIKTOK_SCOPES=user.info.basic
 KICK_CLIENT_ID=
 KICK_CLIENT_SECRET=
-KICK_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/kick/callback
-KICK_SCOPES=user:read channel:read events:subscribe channel:follow channel:subscription
-KICK_WEBHOOK_SECRET=
-RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 ```
 
 Twitch, YouTube, TikTok, and Kick OAuth are gateway-owned and must use the API
 Gateway callback URLs shown above.
 
+Optional Railway overrides:
+
+```bash
+HOST=::
+PORT=4000
+QUEUE_DEFAULT_NAME=streamos-media
+CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
+TRANSCRIPTION_QUEUE_NAME=streamos-transcription
+CONNECT_SUCCESS_REDIRECT=https://app.streamos.example/dashboard/platforms
+API_GATEWAY_RATE_LIMIT_MAX=120
+API_GATEWAY_RATE_LIMIT_WINDOW_MS=60000
+TWITCH_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/twitch/callback
+TWITCH_SCOPES=user:read:email moderator:read:followers
+YOUTUBE_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/youtube/callback
+YOUTUBE_SCOPES=https://www.googleapis.com/auth/youtube.readonly
+TIKTOK_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/tiktok/callback
+TIKTOK_SCOPES=user.info.basic
+KICK_REDIRECT_URI=https://streamos-api-gateway.up.railway.app/api/auth/kick/callback
+KICK_SCOPES=user:read channel:read events:subscribe channel:follow channel:subscription
+RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
+```
+
+`TWITCH_EVENTSUB_SECRET` accepts the compatibility alias `TWITCH_WEBHOOK_SECRET`.
+`YOUTUBE_WEBHOOK_SECRET` accepts the compatibility alias `YOUTUBE_WEBSUB_SECRET`.
+
 `REDIS_URL` is mandatory in production for the API gateway because
 observability, distributed rate limiting, and webhook replay protection must
-share the same Redis-backed state. `GET /api/observability` is a protected
-server-to-server snapshot route that exposes only the four core counters plus
-the current backend mode (`redis` in production, `memory` only in local/test).
+share the same Redis-backed state. `GET /api/observability/scheduler` is a
+protected server-to-server snapshot route that exposes persisted scheduler run
+history, summary counters, and stuck-claim visibility without raw payloads or
+secrets.
 
 Use `/health` as the Railway healthcheck path. The endpoint must return HTTP 200 before Railway sends traffic to the new deployment.
 
@@ -188,9 +200,22 @@ Recommended Docker configuration:
 Required variables:
 
 ```bash
+OPENAI_API_KEY=
+```
+
+`OPENAI_MODEL` is reserved for complex analysis tasks. `OPENAI_TITLE_MODEL`
+remains a server-only reserved setting for a future canonical title-generation
+or repurposing contract. `video.published` can now create a durable
+`repurposing` plan content job and enqueue `repurposing.plan` when provider
+enrichment resolves `asset_available` and the connected platform metadata
+explicitly opts in; the active production endpoints are now `/clips/analyze`,
+`/repurposing/plan`, and `/transcriptions/process`.
+
+Optional Railway overrides:
+
+```bash
 HOST=::
 PORT=8000
-OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o
 OPENAI_TITLE_MODEL=gpt-4o-mini
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
@@ -202,14 +227,6 @@ STREAMOS_E2E_MODE=false
 TRANSCRIPTION_PROCESSOR_MODE=openai
 RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 ```
-
-`OPENAI_MODEL` is reserved for complex analysis tasks. `OPENAI_TITLE_MODEL`
-remains a server-only reserved setting for a future canonical title-generation
-or repurposing contract. `video.published` can now create a durable
-`repurposing` plan content job and enqueue `repurposing.plan` when provider
-enrichment resolves `asset_available` and the connected platform metadata
-explicitly opts in; the active production endpoints are now `/clips/analyze`,
-`/repurposing/plan`, and `/transcriptions/process`.
 
 Keep public networking disabled for steady-state production. During first deploy only, you may temporarily enable a Railway public domain to smoke-test `/health`, then remove it and verify from the dedicated `release-gate-runner` Railway shell with `node scripts/check-deployment.cjs --expect-private-automation`.
 
@@ -268,7 +285,6 @@ Required variables:
 
 ```bash
 REDIS_URL=rediss://default:password@host:6379
-TRANSCRIPTION_QUEUE_NAME=streamos-transcription
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
@@ -280,6 +296,8 @@ QUEUE_DEFAULT_NAME=streamos-media
 STREAM_JOB_QUEUE_NAME=streamos-media
 STREAM_JOB_WORKER_CONCURRENCY=5
 STREAM_JOB_ALERT_WEBHOOK_URL=
+REPURPOSING_QUEUE_NAME=streamos-repurposing
+TRANSCRIPTION_QUEUE_NAME=streamos-transcription
 ```
 
 This worker must not call `AUTOMATION_SERVICE_URL` and must not depend on
@@ -314,10 +332,17 @@ Required variables:
 ```bash
 REDIS_URL=rediss://default:password@host:6379
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
-TRANSCRIPTION_WORKER_CONCURRENCY=2
 AUTOMATION_SERVICE_URL=http://${{automation-service.RAILWAY_PRIVATE_DOMAIN}}:8000
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
+```
+
+Optional variables:
+
+```bash
+CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
+TRANSCRIPTION_QUEUE_NAME=streamos-transcription
+TRANSCRIPTION_WORKER_CONCURRENCY=2
 ```
 
 If the Railway service is named differently, replace `automation-service` in the reference variable with the exact Railway service name. The rendered value must end in `railway.internal` and must use `http` plus the Automation Service port.
@@ -381,9 +406,11 @@ pnpm --filter @streamos/clip-worker build
 
 The content job retry worker scans failed `content_jobs`, claims retryable rows
 with optimistic `retry_count` checks, and requeues supported jobs with BullMQ
-`attempts=3` and exponential backoff. It uses the row-level `max_retries` value
-as the retry budget so `/dashboard/jobs` can manually release an exhausted job
-by raising that value.
+`attempts=3` and exponential backoff. It keeps retry support aligned with the
+deployed queue contract, including transcription, clip-generation, and
+repurposing when those queue names are configured. It uses the row-level
+`max_retries` value as the retry budget so `/dashboard/jobs` can manually
+release an exhausted job by raising that value.
 
 Recommended Docker configuration:
 
@@ -397,15 +424,21 @@ Required variables:
 
 ```bash
 REDIS_URL=rediss://default:password@host:6379
-CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
-TRANSCRIPTION_QUEUE_NAME=streamos-transcription
-CLIP_WORKER_CONCURRENCY=2
 CONTENT_JOB_RETRY_WORKER_BATCH_SIZE=25
 CONTENT_JOB_RETRY_WORKER_POLL_INTERVAL_MS=60000
 CONTENT_JOB_RETRY_ATTEMPTS=3
 CONTENT_JOB_RETRY_BACKOFF_MS=30000
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
+REPURPOSING_QUEUE_NAME=streamos-repurposing
+```
+
+Optional variables:
+
+```bash
+CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
+QUEUE_DEFAULT_NAME=streamos-media
+TRANSCRIPTION_QUEUE_NAME=streamos-transcription
 ```
 
 Validation:
@@ -486,6 +519,63 @@ pnpm --filter @streamos/publishing-worker test
 pnpm --filter @streamos/publishing-worker build
 ```
 
+## Railway Worker Dyno: `workers/publishing-scheduler-worker`
+
+The publishing scheduler worker is a private polling service that claims due
+scheduled publications in Supabase and enqueues deterministic
+`publication.publish` jobs into `streamos-publishing`. It does not execute
+provider writes itself and it does not call `services/automation-service`.
+Operators can inspect its persisted run history and stuck-claim visibility via
+the protected `GET /api/observability/scheduler` snapshot route.
+
+Recommended Docker configuration:
+
+| Setting           | Value                                    |
+| ----------------- | ---------------------------------------- |
+| Dockerfile Path   | `Dockerfile.publishing-scheduler-worker` |
+| Service Type      | Worker                                   |
+| Public Networking | Disabled                                 |
+
+Required variables:
+
+```bash
+REDIS_URL=rediss://default:password@host:6379
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+```
+
+Optional variables:
+
+```bash
+PUBLICATION_QUEUE_NAME=streamos-publishing
+PUBLISHING_SCHEDULER_WORKER_BATCH_SIZE=25
+PUBLISHING_SCHEDULER_WORKER_CLAIM_TIMEOUT_MS=300000
+PUBLISHING_SCHEDULER_WORKER_POLL_INTERVAL_MS=30000
+```
+
+Operator rollout checklist:
+
+1. Confirm the Railway project contains a `publishing-scheduler-worker`
+   service in the target environment.
+2. Confirm the service is deployed from the intended release-candidate commit
+   and uses `Dockerfile.publishing-scheduler-worker` from the repository root
+   build context.
+3. Verify the worker remains private with no public domain attached.
+4. Confirm `REDIS_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` are
+   present and no provider write secrets or `AUTOMATION_SERVICE_URL` are
+   configured on the scheduler.
+5. Confirm the scheduler enqueues deterministic `publication.publish` jobs
+   into `streamos-publishing` and leaves provider writes to
+   `workers/publishing-worker`.
+
+Validation:
+
+```bash
+pnpm --filter @streamos/publishing-scheduler-worker lint
+pnpm --filter @streamos/publishing-scheduler-worker test
+pnpm --filter @streamos/publishing-scheduler-worker build
+```
+
 ## Railway Private Service: `release-gate-runner`
 
 Use a dedicated Railway worker or private service for production-gate proofs
@@ -528,6 +618,15 @@ The runner does not need a public URL. It only needs Railway-private network
 reachability plus the operator shell/exec path that lets you run the gate from
 inside the same environment as the deployed services.
 
+The runner is proof-only, not a product service. It may have only the env names
+that the production gate needs to prove the hosted flow from inside Railway:
+`STREAMOS_RC_COMMIT_SHA`, `TRANSCRIPTION_E2E_FIXTURE_ASSET_URL`,
+`SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`. The Supabase values are used by
+the hosted transcription E2E to seed/read durable proof rows and must never be
+printed in logs, reports, screenshots, or runbook output. Provider webhook
+secrets such as `STREAM_EVENT_WEBHOOK_SECRET` remain owned by `api-gateway` and
+must not be configured on `release-gate-runner`.
+
 ## Production Checks
 
 Run the rollout tooling before promoting a deployment. StreamOS now separates
@@ -560,8 +659,9 @@ pnpm railway:audit --env production --format markdown > audit-production.md
 values in repo files or generated reports. If `RAILWAY_TOKEN` is explicitly set
 in the current shell, that shared token overrides the env-specific Railway
 tokens for the audit run. The audit inventory now includes
-`release-gate-runner` and `publishing-worker`; if either service is missing in
-the audited environment, the environment is not proof-ready.
+`release-gate-runner`, `publishing-worker`, and
+`publishing-scheduler-worker`; if any of those services is missing in the
+audited environment, the environment is not proof-ready.
 
 For `publishing-worker`, the audit expects:
 
@@ -570,6 +670,201 @@ For `publishing-worker`, the audit expects:
 - no public domain to be attached
 - the worker-specific required env contract to be populated, without requiring
   `AUTOMATION_SERVICE_URL`
+
+For `publishing-scheduler-worker`, the audit expects:
+
+- the service to be present in the Railway inventory
+- public networking to stay disabled
+- no public domain to be attached
+- the worker-specific required env contract to be populated
+- `AUTOMATION_SERVICE_URL`, provider secrets, and browser-facing secrets to stay
+  off the scheduler service
+
+## Controlled Staging Proof for Publishing / Scheduling
+
+Use a controlled staging proof before any production-oriented approval for the
+publishing and scheduling slice. This proof is not a product smoke publish. It
+must verify staging inventory, runtime provenance, schema readiness, queue
+wiring, worker privacy, observability protection, and creator-safe read models
+without triggering real third-party writes.
+
+Allowed outcome states:
+
+- `passed`: all hard checks are green and the evidence is complete
+- `passed_with_warnings`: hard checks are green and only documented
+  non-blocking warnings remain
+- `blocked`: a hard blocker exists
+- `incomplete`: evidence is missing, unverifiable, or contradictory
+
+Hard blockers for the controlled staging proof:
+
+- `publishing-worker` missing from staging
+- `publishing-scheduler-worker` missing from staging when the code still
+  models it as its own service
+- public networking or a public domain attached to either worker
+- missing required env names for gateway, publishing worker, or scheduler
+- provider secrets exposed in `apps/web` / Vercel or browser-visible bundles
+- staging schema drift against the scheduling / publication runtime contract
+- publishing queue not reachable or queue-name drift against the code contract
+- protected observability routes exposed without server-to-server protection
+- staging services running from the wrong RC SHA or an unverifiable provenance
+  state
+- any proof step that performs a real YouTube, TikTok, or other third-party
+  write
+
+Minimum staging checks:
+
+1. Release candidate / provenance
+   - Record one unique RC SHA for the staging proof.
+   - Verify `api-gateway`, `publishing-worker`,
+     `publishing-scheduler-worker`, and `release-gate-runner` (or the
+     equivalent staging proof runtime) all come from the same RC SHA.
+   - Verify `/health` exposes only non-secret runtime provenance markers.
+2. Service inventory
+   - Confirm staging contains `apps/web`, `api-gateway`,
+     `publishing-worker`, `publishing-scheduler-worker`,
+     `release-gate-runner` when Railway-internal proof steps are needed,
+     Redis, and the staging Supabase database.
+3. Worker privacy
+   - Confirm both publishing workers remain private background services with no
+     public domain.
+4. Env contract
+   - Confirm only env ownership and presence, never values.
+   - `publishing-worker` currently requires `REDIS_URL`, `SUPABASE_URL`,
+     `SUPABASE_SERVICE_ROLE_KEY`, `APP_ENCRYPTION_KEY`, `YOUTUBE_CLIENT_ID`,
+     `YOUTUBE_CLIENT_SECRET`, `TIKTOK_CLIENT_KEY`, and
+     `TIKTOK_CLIENT_SECRET`.
+   - `publishing-scheduler-worker` currently requires `REDIS_URL`,
+     `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`.
+   - `AUTOMATION_SERVICE_URL` is not part of the current publishing or
+     scheduler worker contract.
+5. Database / schema
+   - Confirm staging contains `content_publications`,
+     `content_publication_events`, `content_publication_fanouts`,
+     `content_publication_fanout_targets`,
+     `content_publication_scheduler_runs`, and
+     `content_publication_scheduler_run_attempts`.
+   - Treat obvious schema drift as `blocked` or `incomplete`, never `passed`.
+6. Queue / Redis
+   - Confirm the effective queue name stays `streamos-publishing` unless the
+     deployed worker contract overrides it intentionally.
+   - Confirm the gateway produces into the queue and both workers consume or
+     forward using the same queue contract.
+7. Gateway contract
+   - Confirm publication, fanout, schedule create/edit/replace/cancel,
+     publish/reconcile, and observability routes stay server-side and
+     protected.
+   - Confirm responses do not expose provider tokens, raw provider payloads,
+     or secret-bearing URLs.
+8. Scheduler proof
+   - Confirm the scheduler can claim due work, revalidate before enqueue,
+     record run history and attempt history, and avoid duplicate publication
+     jobs.
+   - Confirm canceled, replaced, expired, and completed schedules remain
+     untouched.
+9. Publishing worker proof
+   - Confirm the worker starts cleanly, remains idle-safe, consumes the
+     expected queue, and does not perform uncontrolled provider writes during
+     the proof.
+10. Observability and UI
+
+- Confirm `GET /api/observability` and `GET /api/observability/scheduler`
+  stay protected and secret-safe.
+- Confirm Calendar Light and fanout read models stay creator-safe and do
+  not call provider write APIs from the browser.
+
+Safe staging commands:
+
+```bash
+pnpm railway:audit --env staging --format markdown > audit-baseline-staging.md
+pnpm railway:audit --env staging --format json > audit-staging.json
+```
+
+Use Railway-internal runtime checks only when the step requires private
+networking. Keep those checks read-only or validation-like. Do not execute real
+provider publishes or reconciliations as part of the proof.
+
+Controlled staging proof evidence template:
+
+```md
+## Publishing / Scheduling Controlled Staging Proof
+
+- RC SHA:
+- Target environment: `staging`
+- Decision: `passed` / `passed_with_warnings` / `blocked` / `incomplete`
+
+### Services checked
+
+- apps/web:
+- api-gateway:
+- publishing-worker:
+- publishing-scheduler-worker:
+- release-gate-runner or equivalent staging proof runtime:
+- Redis:
+- Supabase staging DB:
+
+### Provenance
+
+- RC SHA unique and recorded:
+- Same RC SHA across staging services:
+- Gateway runtime provenance verified:
+- Proof runtime classified as staging:
+
+### Worker privacy
+
+- publishing-worker private:
+- publishing-scheduler-worker private:
+- No public domain on workers:
+
+### Env contract status
+
+- api-gateway required env names present:
+- publishing-worker required env names present:
+- publishing-scheduler-worker required env names present:
+- Provider secrets stay server-only:
+- No browser-visible Railway private URLs:
+
+### Database / schema
+
+- content_publications compatible:
+- content_publication_events compatible:
+- fanout tables compatible:
+- scheduler run history compatible:
+- scheduler attempt history compatible:
+
+### Queue / Redis
+
+- streamos-publishing queue contract aligned:
+- gateway enqueue path reachable:
+- publishing-worker consume path aligned:
+- scheduler forward path aligned:
+
+### Gateway / scheduler / observability
+
+- publication and scheduling routes protected:
+- scheduler claims and revalidation verified:
+- run history visible:
+- attempt history visible:
+- observability routes protected and secret-safe:
+
+### UI / read-model safety
+
+- Calendar Light safe:
+- fanout summary consistent:
+- no browser provider-write path:
+
+### Warnings
+
+- none / list documented non-blocking warnings
+
+### Blockers
+
+- none / list exact blockers
+```
+
+If staging credentials, Railway evidence, or schema visibility are missing, the
+proof must stay `incomplete` or `blocked`. Local green tests alone are not a
+staging proof.
 
 ### Publishing-worker Audit Interpretation
 
@@ -707,6 +1002,21 @@ harter Blocker existiert, setze die Entscheidung auf `Blockiert`. Wenn die
 Nachweise unvollständig oder widersprüchlich sind, setze die Entscheidung auf
 `Zurückgestellt`.
 
+**Known Non-Blocking Warnings**
+
+- [ ] Local diagnostic failures caused by missing Docker or unavailable
+      Railway private networking are not production-proof blockers.
+- [ ] Provider-native scheduling remains a secondary policy hint only;
+      StreamOS-managed scheduling is still the primary execution path.
+- [ ] Informational web warnings that are already documented in the release
+      report are tracked, not treated as automatic blockers.
+- [ ] The scheduler enqueue-failure follow-up from P3.21 is resolved in the
+      current tests and must not be reopened as a warning.
+
+Any new or unexplained warning must be classified before release. If it is not
+understood, it blocks the release decision until it is explicitly documented
+and accepted.
+
 **Beispielausfüllung ohne Secrets**
 
 _Die Werte unten sind fiktiv und kein Produktionsnachweis. Echte Freigabe
@@ -773,12 +1083,23 @@ eintragen._
 - [x] Gate enthält keinen echten Drittanbieter-Write
 - [x] Bekannte nicht-blockierende Warnungen sind dokumentiert
 
+**Known Non-Blocking Warnings**
+
+- [x] Local diagnostic failures caused by missing Docker or unavailable
+      Railway private networking are not production-proof blockers.
+- [x] Provider-native scheduling remains a secondary policy hint only;
+      StreamOS-managed scheduling is still the primary execution path.
+- [x] Informational web warnings are documented and do not change the gate
+      decision.
+- [x] The previous scheduler enqueue-failure gap is covered by tests and is no
+      longer a current warning.
+
 **Decision**
 
 - [x] Decision: `Freigegeben`
 - [x] Reason: Audit clean, worker privat, Pflicht-Env vollständig, production gate grün.
 
-### Erster kontrollierter Production-Deploy-Proof fÃ¼r publishing-worker
+### Erster kontrollierter Production-Deploy-Proof für publishing-worker
 
 Use this proof for the first controlled production deploy. It proves service,
 audit, env, privacy, queue readiness, and gate context. It does not prove a
@@ -839,11 +1160,11 @@ provider publish.
 
 **Proof Result**
 
-- Decision: `Freigegeben` / `Blockiert` / `ZurÃ¼ckgestellt`
+- Decision: `Freigegeben` / `Blockiert` / `Zurückgestellt`
 - Reason:
 
 If any hard blocker is present, the proof is `Blockiert`. If the evidence is
-incomplete or inconsistent, the proof is `ZurÃ¼ckgestellt`. If the RC SHA, audit
+incomplete or inconsistent, the proof is `Zurückgestellt`. If the RC SHA, audit
 status, worker privacy, env status, gate status, and runtime sanity checks are
 all confirmed, the proof can be `Freigegeben`.
 
@@ -864,6 +1185,13 @@ is non-sensitive, but it must be a stable public HTTPS media file with no
 credentials, no query-string tokens, no private hostnames, and no placeholder
 hosts such as `example.com`. If the fixture asset is missing or invalid, the
 gate now fails closed before any transcription work is queued.
+
+The hosted E2E also requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in
+the proof runtime so it can verify durable database state. These names are
+allowed only on `release-gate-runner` as proof-only env and on the server-side
+services/workers that own Supabase writes. They remain forbidden in `apps/web`,
+Vercel browser/runtime client bundles, reports, and any non-owning Railway
+service.
 
 Do not promote when the production gate fails. Successful package tests, builds,
 or a green local diagnostic are not enough on their own. The transcription E2E

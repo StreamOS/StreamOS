@@ -2,7 +2,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
+const whitelist = require("./config/railway-env-whitelist.cjs");
 const { buildServiceConfigIndex } = require("./audit-railway-env.cjs");
+
+const expectedServices = Object.keys(whitelist.services);
+const privateServices = expectedServices.filter(
+  (serviceName) => serviceName !== "api-gateway",
+);
 
 function runAuditCli(args, rootName = "railway-audit") {
   const fixturesDir = join(__dirname, "__fixtures__", rootName);
@@ -84,6 +90,146 @@ test("audit CLI renders publishing-worker in JSON output for staging and product
     ),
     false,
   );
+});
+
+test("audit CLI renders publishing-scheduler-worker in markdown output for staging and production", () => {
+  const result = runAuditCli(["--format", "markdown"]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /### publishing-scheduler-worker/);
+
+  const sectionMatches =
+    result.stdout.match(/^### publishing-scheduler-worker$/gm) ?? [];
+  assert.equal(sectionMatches.length, 2);
+  assert.match(
+    result.stdout,
+    /### publishing-scheduler-worker[\s\S]*SERVICE_INVENTORY/,
+  );
+  assert.match(
+    result.stdout,
+    /### publishing-scheduler-worker[\s\S]*PUBLIC_NETWORKING/,
+  );
+});
+
+test("audit CLI renders publishing-scheduler-worker in JSON output for staging and production", () => {
+  const result = runAuditCli(["--format", "json"]);
+
+  assert.equal(result.status, 0, result.stderr);
+
+  const report = JSON.parse(result.stdout);
+
+  assert.ok(
+    report.environments.staging.services["publishing-scheduler-worker"],
+  );
+  assert.ok(
+    report.environments.production.services["publishing-scheduler-worker"],
+  );
+  assert.equal(
+    report.environments.staging.services[
+      "publishing-scheduler-worker"
+    ].variables.some((row) => row.variable === "AUTOMATION_SERVICE_URL"),
+    false,
+  );
+  assert.equal(
+    report.environments.production.services[
+      "publishing-scheduler-worker"
+    ].variables.some((row) => row.variable === "AUTOMATION_SERVICE_URL"),
+    false,
+  );
+});
+
+test("audit CLI renders every expected service in markdown output for staging and production", () => {
+  const result = runAuditCli([
+    "--environments",
+    "staging,production",
+    "--format",
+    "markdown",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+
+  for (const serviceName of expectedServices) {
+    const sectionMatches = result.stdout.match(
+      new RegExp(`^### ${serviceName}$`, "gm"),
+    );
+
+    assert.equal(
+      sectionMatches?.length ?? 0,
+      2,
+      `Expected two markdown sections for ${serviceName}`,
+    );
+  }
+});
+
+test("audit CLI renders every expected service in JSON output for staging and production", () => {
+  const result = runAuditCli([
+    "--environments",
+    "staging,production",
+    "--format",
+    "json",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+
+  const report = JSON.parse(result.stdout);
+
+  for (const environmentName of ["staging", "production"]) {
+    for (const serviceName of expectedServices) {
+      assert.ok(
+        report.environments[environmentName].services[serviceName],
+        `${environmentName} is missing ${serviceName}`,
+      );
+    }
+  }
+});
+
+test("audit CLI keeps every non-gateway service private in the rendered markdown output", () => {
+  const result = runAuditCli([
+    "--environments",
+    "staging,production",
+    "--format",
+    "markdown",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+
+  assert.match(
+    result.stdout,
+    /### api-gateway[\s\S]*Public networking is enabled as expected\./,
+  );
+
+  for (const serviceName of privateServices) {
+    assert.match(
+      result.stdout,
+      new RegExp(
+        `### ${serviceName}[\\s\\S]*Service remains private as expected\\.`,
+      ),
+    );
+  }
+});
+
+test("audit CLI renders api-gateway Twitch and YouTube ownership in markdown output", () => {
+  const result = runAuditCli([
+    "--environments",
+    "staging,production",
+    "--format",
+    "markdown",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  const apiGatewaySection = result.stdout.match(
+    /### api-gateway[\s\S]*?\n### automation-service/,
+  )?.[0];
+
+  assert.ok(apiGatewaySection, result.stdout);
+  assert.match(apiGatewaySection, /TWITCH_CLIENT_ID/);
+  assert.match(apiGatewaySection, /TWITCH_CLIENT_SECRET/);
+  assert.match(apiGatewaySection, /TWITCH_EVENTSUB_SECRET/);
+  assert.match(apiGatewaySection, /YOUTUBE_CLIENT_ID/);
+  assert.match(apiGatewaySection, /YOUTUBE_CLIENT_SECRET/);
+  assert.match(apiGatewaySection, /YOUTUBE_WEBHOOK_SECRET/);
+  assert.doesNotMatch(apiGatewaySection, /KICK_WEBHOOK_SECRET/);
+  assert.doesNotMatch(apiGatewaySection, /CLIP_WORKER_CONCURRENCY/);
 });
 
 test("audit CLI keeps publishing-worker happy-path output non-blocking in markdown and JSON", () => {

@@ -43,5 +43,10 @@
     "id": "svc-release-gate-runner-staging",
     "name": "release-gate-runner",
     "url": null
+  },
+  {
+    "id": "svc-publishing-scheduler-staging",
+    "name": "publishing-scheduler-worker",
+    "url": null
   }
 ]

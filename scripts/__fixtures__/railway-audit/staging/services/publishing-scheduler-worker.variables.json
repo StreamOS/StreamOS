@@ -1,0 +1,9 @@
+{
+  "PUBLICATION_QUEUE_NAME": "streamos-publishing",
+  "PUBLISHING_SCHEDULER_WORKER_BATCH_SIZE": "25",
+  "PUBLISHING_SCHEDULER_WORKER_CLAIM_TIMEOUT_MS": "300000",
+  "PUBLISHING_SCHEDULER_WORKER_POLL_INTERVAL_MS": "30000",
+  "REDIS_URL": "rediss://default:password@redis.upstash.io:6379",
+  "SUPABASE_SERVICE_ROLE_KEY": "shared-service-role-key",
+  "SUPABASE_URL": "https://streamos.supabase.co"
+}

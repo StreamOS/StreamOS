@@ -28,6 +28,22 @@ function matchesAnyPattern(name, patterns = []) {
   return patterns.some((pattern) => matchesPattern(name, pattern));
 }
 
+function getValidatorAliases(whitelist, variableName) {
+  const aliases = whitelist.validators.byVariable[variableName]?.aliases;
+
+  if (!Array.isArray(aliases)) {
+    return [];
+  }
+
+  return aliases
+    .filter((alias) => typeof alias === "string" && alias.trim().length > 0)
+    .map((alias) => alias.trim());
+}
+
+function getManagedVariableNames(whitelist, variableName) {
+  return [variableName, ...getValidatorAliases(whitelist, variableName)];
+}
+
 function isPlaceholderValue(value) {
   const normalizedValue = String(value || "")
     .trim()
@@ -233,9 +249,14 @@ function buildOwnershipIndex(whitelist) {
       ...serviceConfig.required,
       ...serviceConfig.optional,
     ]) {
-      const owners = ownership.get(variableName) ?? new Set();
-      owners.add(serviceName);
-      ownership.set(variableName, owners);
+      for (const managedVariableName of getManagedVariableNames(
+        whitelist,
+        variableName,
+      )) {
+        const owners = ownership.get(managedVariableName) ?? new Set();
+        owners.add(serviceName);
+        ownership.set(managedVariableName, owners);
+      }
     }
   }
 
@@ -599,8 +620,21 @@ function evaluateManagedVariable({
   variableName,
   whitelist,
 }) {
-  const sharedValue = sharedVariables[variableName];
-  const serviceValue = serviceVariables[variableName];
+  const managedVariableNames = getManagedVariableNames(whitelist, variableName);
+  const sharedVariableName = managedVariableNames.find(
+    (name) => sharedVariables[name] !== undefined,
+  );
+  const serviceVariableName = managedVariableNames.find(
+    (name) => serviceVariables[name] !== undefined,
+  );
+  const sharedValue =
+    sharedVariableName !== undefined
+      ? sharedVariables[sharedVariableName]
+      : undefined;
+  const serviceValue =
+    serviceVariableName !== undefined
+      ? serviceVariables[serviceVariableName]
+      : undefined;
   const hasSharedValue = sharedValue !== undefined;
   const hasServiceValue = serviceValue !== undefined;
   const effectiveValue = hasServiceValue ? serviceValue : sharedValue;
@@ -1032,6 +1066,7 @@ function buildEffectiveValues(sharedVariables, serviceVariables) {
 function buildRedisConsistency({ rawEnvironment, whitelist }) {
   const sharedVariables = parseVariablePayload(rawEnvironment.sharedVariables);
   const entries = [];
+  const rawValues = [];
 
   for (const [serviceName, serviceConfig] of Object.entries(
     whitelist.services,
@@ -1050,17 +1085,17 @@ function buildRedisConsistency({ rawEnvironment, whitelist }) {
     const effectiveValue =
       serviceVariables.REDIS_URL ?? sharedVariables.REDIS_URL;
 
+    rawValues.push(effectiveValue);
     entries.push({
       service: serviceName,
-      value: effectiveValue,
       valueState: effectiveValue ? redactUrl(effectiveValue) : "missing",
     });
   }
 
   const distinctValues = new Set(
-    entries
-      .map((entry) => entry.value)
-      .filter((value) => typeof value === "string" && value.trim().length > 0),
+    rawValues.filter(
+      (value) => typeof value === "string" && value.trim().length > 0,
+    ),
   );
 
   if (distinctValues.size <= 1) {
@@ -1160,10 +1195,11 @@ function auditEnvironment({
       sharedVariables,
       serviceVariables,
     );
-    const managedVariables = new Set([
-      ...serviceConfig.required,
-      ...serviceConfig.optional,
-    ]);
+    const managedVariables = new Set(
+      [...serviceConfig.required, ...serviceConfig.optional].flatMap((name) =>
+        getManagedVariableNames(whitelist, name),
+      ),
+    );
     const rows = [];
     const infoExtras = [];
 

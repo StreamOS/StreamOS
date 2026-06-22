@@ -203,6 +203,9 @@ describe("PublicationStatusConsole", () => {
     expect(html).toContain("Manual intervention");
     expect(html).toContain("Safe retry controls for approved publications");
     expect(html).toContain("Retry publish");
+    expect(html).toContain("Schedule view");
+    expect(html).toContain("Crossposting summary");
+    expect(html).toContain("Publishing analytics");
     expect(html).toContain("Reconcile now");
     expect(html).toContain("Mark final failed");
     expect(html).toContain("Blocked");

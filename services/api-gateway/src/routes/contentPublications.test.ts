@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildCanonicalPublicationDraft,
+  buildPublicationScheduleSummary,
   PUBLICATION_CAPABILITY_VERSION,
   resolvePublicationCapabilities,
 } from "@streamos/types";
@@ -255,6 +256,208 @@ describe("content publications router", () => {
     }
   });
 
+  it("stores schedule metadata for a future publication request without exposing secrets", async () => {
+    useSupabaseTestEnv();
+    const requests: Array<{
+      body: string | null;
+      method: string;
+      url: string;
+    }> = [];
+    const app = createApp({
+      apiGatewaySecret: API_SECRET,
+      nodeEnv: "test",
+      oauth: {
+        fetchImpl: async (input, init) => {
+          const requestUrl =
+            typeof input === "string"
+              ? input
+              : input instanceof URL
+                ? input.toString()
+                : input.url;
+          const method = init?.method ?? "GET";
+          const body = typeof init?.body === "string" ? init.body : null;
+          requests.push({ body, method, url: requestUrl });
+
+          if (requestUrl.includes("/rest/v1/content_jobs")) {
+            return jsonResponse([
+              {
+                channel_id: null,
+                id: CONTENT_JOB_ID,
+                job_type: "repurposing",
+                queue_job_id: "repurposing-plan-001",
+                result: {
+                  captions: ["Caption one"],
+                  confidence: 0.93,
+                  content_job_id: CONTENT_JOB_ID,
+                  descriptions: ["Description one"],
+                  hashtag_sets: [["#streamos", "#repurposing"]],
+                  hook_ideas: ["Hook one"],
+                  manual_review_required: true,
+                  model: "gpt-4o",
+                  provider: "openai",
+                  queue_job_id: "repurposing-plan-001",
+                  review_notes: ["Reviewed and approved."],
+                  short_form_plan: "Short-form plan",
+                  title_suggestions: ["Title one"],
+                  warnings: ["Sanitized and review-ready."],
+                },
+                review_status: "approved",
+                status: "done",
+                stream_id: "55555555-5555-4555-8555-555555555555",
+                type: "repurposing",
+                user_id: USER_ID,
+              },
+            ]);
+          }
+
+          if (requestUrl.includes("/rest/v1/platform_connections")) {
+            return jsonResponse([
+              {
+                id: PLATFORM_CONNECTION_ID,
+                metadata: {
+                  publish_capabilities: {
+                    youtube: {
+                      allowed_visibility: ["public", "unlisted"],
+                      notes: ["Account capability overlay loaded."],
+                      scheduling_allowed: true,
+                      support_status: "supported",
+                    },
+                  },
+                },
+                platform: "youtube",
+                provider_profile: {},
+                scopes: [
+                  "https://www.googleapis.com/auth/youtube.upload",
+                  "https://www.googleapis.com/auth/youtube.readonly",
+                ],
+                status: "connected",
+                user_id: USER_ID,
+              },
+            ]);
+          }
+
+          if (requestUrl.includes("/rest/v1/vod_assets")) {
+            return jsonResponse([
+              {
+                id: "vod-asset-1",
+                source_url: "https://cdn.example.com/vods/stream-123.mp4",
+              },
+            ]);
+          }
+
+          if (requestUrl.includes("/rest/v1/content_publications")) {
+            return jsonResponse([]);
+          }
+
+          if (
+            requestUrl.includes(
+              "/rest/v1/rpc/record_content_publication_request",
+            )
+          ) {
+            const parsedBody = JSON.parse(body ?? "{}") as Record<
+              string,
+              unknown
+            >;
+
+            expect(parsedBody.p_schedule_source).toBe("api-gateway");
+            expect(parsedBody.p_schedule_status).toBe("schedule_ready");
+            expect(parsedBody.p_schedule_block_reason).toBeNull();
+            expect(parsedBody.p_schedule_validation_metadata).toMatchObject({
+              has_approved_bundle: true,
+              has_publishable_asset: true,
+              has_required_scopes: true,
+              schedule_requested: true,
+              target_platform: "youtube",
+            });
+            expect(parsedBody.p_snapshot).toMatchObject({
+              schedule: {
+                scheduleStatus: "schedule_ready",
+                scheduledAtUtc: "2099-06-21T12:00:00.000Z",
+                scheduledTimezone: "Europe/Berlin",
+              },
+            });
+            expect(JSON.stringify(parsedBody.p_snapshot)).not.toContain(
+              "access_token",
+            );
+
+            return jsonResponse({
+              capability_snapshot: parsedBody.p_capability_snapshot,
+              capability_version: PUBLICATION_CAPABILITY_VERSION,
+              content_job_id: CONTENT_JOB_ID,
+              id: PUBLICATION_ID,
+              platform_connection_id: PLATFORM_CONNECTION_ID,
+              publication_status: "validated",
+              provider_overrides: {},
+              request_intent_hash: String(parsedBody.p_request_intent_hash),
+              requested_at: "2026-06-21T12:00:00.000Z",
+              schedule_block_message: null,
+              schedule_block_reason: null,
+              schedule_canceled_at: null,
+              schedule_canceled_reason: null,
+              schedule_capability_snapshot:
+                parsedBody.p_schedule_capability_snapshot,
+              schedule_created_at: "2026-06-21T12:00:00.000Z",
+              schedule_expired_at: null,
+              schedule_replaced_at: null,
+              schedule_source: "api-gateway",
+              schedule_status: "schedule_ready",
+              schedule_updated_at: "2026-06-21T12:00:00.000Z",
+              schedule_validation_metadata:
+                parsedBody.p_schedule_validation_metadata,
+              scheduled_at_utc: "2099-06-21T12:00:00.000Z",
+              scheduled_timezone: "Europe/Berlin",
+              snapshot_hash: String(parsedBody.p_snapshot_hash),
+              target_platform: "youtube",
+              user_id: USER_ID,
+              validated_at: "2026-06-21T12:00:00.000Z",
+              validation_code: "validated",
+              validation_message: "Publish request validated by the gateway.",
+            });
+          }
+
+          return new Response("not found", { status: 404 });
+        },
+      },
+    });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/api/content-publications`,
+        {
+          body: JSON.stringify({
+            content_job_id: CONTENT_JOB_ID,
+            platform_connection_id: PLATFORM_CONNECTION_ID,
+            scheduled_publish_at: "2099-06-21T12:00:00.000Z",
+            scheduled_timezone: "Europe/Berlin",
+            target_platform: "youtube",
+            user_id: USER_ID,
+          }),
+          headers: {
+            Authorization: `Bearer ${API_SECRET}`,
+            "content-type": "application/json",
+          },
+          method: "POST",
+        },
+      );
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.schedule_status).toBe("schedule_ready");
+      expect(payload.schedule_block_reason).toBeNull();
+      expect(payload.publication_status).toBe("validated");
+      expect(payload.content_publication_id).toBe(PUBLICATION_ID);
+      expect(requests).toHaveLength(5);
+    } finally {
+      server.close();
+    }
+  });
+
   it("returns an existing validated publication when the request intent is already stored", async () => {
     useSupabaseTestEnv();
     let rpcCalls = 0;
@@ -320,6 +523,9 @@ describe("content publications router", () => {
         scopes: ["https://www.googleapis.com/auth/youtube.upload"],
       },
       providerOverrides: {},
+      schedule: buildPublicationScheduleSummary({
+        scheduleStatus: "not_scheduled",
+      }),
       targetPlatform: "youtube",
     };
     const snapshotHash = createHash("sha256")
@@ -408,6 +614,20 @@ describe("content publications router", () => {
                 publication_status: "validated",
                 request_intent_hash: requestIntentHash,
                 requested_at: "2026-06-19T12:00:00.000Z",
+                schedule_block_message: null,
+                schedule_block_reason: null,
+                schedule_canceled_at: null,
+                schedule_canceled_reason: null,
+                schedule_capability_snapshot: {},
+                schedule_created_at: null,
+                schedule_expired_at: null,
+                schedule_replaced_at: null,
+                schedule_source: null,
+                schedule_status: "not_scheduled",
+                schedule_updated_at: null,
+                schedule_validation_metadata: {},
+                scheduled_at_utc: null,
+                scheduled_timezone: null,
                 snapshot_hash: snapshotHash,
                 target_platform: "youtube",
                 user_id: USER_ID,
@@ -431,6 +651,20 @@ describe("content publications router", () => {
               publication_status: "validated",
               request_intent_hash: requestIntentHash,
               requested_at: "2026-06-19T12:00:00.000Z",
+              schedule_block_message: null,
+              schedule_block_reason: null,
+              schedule_canceled_at: null,
+              schedule_canceled_reason: null,
+              schedule_capability_snapshot: {},
+              schedule_created_at: null,
+              schedule_expired_at: null,
+              schedule_replaced_at: null,
+              schedule_source: null,
+              schedule_status: "not_scheduled",
+              schedule_updated_at: null,
+              schedule_validation_metadata: {},
+              scheduled_at_utc: null,
+              scheduled_timezone: null,
               snapshot_hash: snapshotHash,
               target_platform: "youtube",
               user_id: USER_ID,

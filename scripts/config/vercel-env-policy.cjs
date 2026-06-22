@@ -27,9 +27,13 @@ const FORBIDDEN_VERCEL_ENV_NAMES = new Set([
   "KICK_WEBHOOK_SECRET",
   "REDIS_TLS_URL",
   "REDIS_URL",
+  "SB_SUPABASE_JWT_SECRET",
+  "SB_SUPABASE_SECRET_KEY",
+  "SB_SUPABASE_SERVICE_ROLE_KEY",
   "STREAM_EVENT_WEBHOOK_SECRET",
   "SUPABASE_DB_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
+  "TIKTOK_CLIENT_KEY",
   "TIKTOK_CLIENT_SECRET",
   "TWITCH_CLIENT_SECRET",
   "TWITCH_EVENTSUB_SECRET",
@@ -46,6 +50,7 @@ const FORBIDDEN_VERCEL_ENV_NAMES = new Set([
 const FORBIDDEN_VERCEL_ENV_PREFIXES = [
   FORBIDDEN_OPENAI_PREFIX,
   "OPENAI_",
+  "SB_POSTGRES_",
   "RAILWAY_",
   "REDIS_",
   "REPLICATE_",
@@ -198,7 +203,14 @@ function getForbiddenVercelEnvReason(name) {
     return "Encryption keys belong in trusted Railway services, not apps/web on Vercel.";
   }
 
-  if (name === "SUPABASE_SERVICE_ROLE_KEY" || name === "SUPABASE_DB_URL") {
+  if (
+    name === "SUPABASE_SERVICE_ROLE_KEY" ||
+    name === "SUPABASE_DB_URL" ||
+    name === "SB_SUPABASE_JWT_SECRET" ||
+    name === "SB_SUPABASE_SECRET_KEY" ||
+    name === "SB_SUPABASE_SERVICE_ROLE_KEY" ||
+    name.startsWith("SB_POSTGRES_")
+  ) {
     return "Privileged Supabase database access belongs in Railway services/workers, not apps/web on Vercel.";
   }
 
@@ -228,6 +240,7 @@ function getForbiddenVercelEnvReason(name) {
       "KICK_CLIENT_SECRET",
       "KICK_WEBHOOK_SECRET",
       "STREAM_EVENT_WEBHOOK_SECRET",
+      "TIKTOK_CLIENT_KEY",
       "TIKTOK_CLIENT_SECRET",
       "TWITCH_CLIENT_SECRET",
       "TWITCH_EVENTSUB_SECRET",

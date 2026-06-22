@@ -39,6 +39,7 @@ import {
 import { createContentPublicationsRouter } from "./routes/contentPublications.js";
 import { createRoutes } from "./routes/index.js";
 import { createMetricsSyncRouter } from "./routes/metricsSync.js";
+import { createSchedulerObservabilityRouter } from "./routes/observability.js";
 import { createPlatformConnectionsRouter } from "./routes/platformConnections.js";
 import {
   createSupabaseRestClient,
@@ -788,6 +789,13 @@ export function createApp(
     "/api/platforms",
     requireAppApiSecret(securityConfig.apiGatewaySecret),
     createPlatformConnectionsRouter({
+      fetchImpl: options.oauth?.fetchImpl,
+    }),
+  );
+  app.use(
+    "/api/observability",
+    requireAppApiSecret(securityConfig.apiGatewaySecret),
+    createSchedulerObservabilityRouter({
       fetchImpl: options.oauth?.fetchImpl,
     }),
   );

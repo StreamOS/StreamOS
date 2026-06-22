@@ -61,11 +61,21 @@ apps/web/src/
   publish snapshot and enqueues `streamos-publishing`, while
   `workers/publishing-worker` performs the server-side provider write and
   reconciliation work.
+- Publication fanout preparation for approved repurposing jobs through
+  `POST /api/content-publications/fanout`; the gateway validates the approved
+  snapshot once, evaluates each requested target server-side, and persists
+  fanout audit rows before any publication worker path is used.
+- `GET /dashboard/publications/schedule` is the read-only calendar-light
+  schedule surface for approved publications and parent fanouts. It groups
+  planned items by day, links back to publication history and fanout summary
+  views, and does not schedule, publish, or call provider APIs from the
+  browser. StreamOS remains the primary source of truth for the schedule,
+  while provider-native scheduling can only appear as a secondary policy hint.
 - Rate limiting, retry handling, and audit logging for external API calls.
-- `GET /api/observability` is a protected server-to-server snapshot route for
-  operator use. In production it must be backed by Redis so rate limiting,
-  replay protection, and observability counters share cluster-wide state; the
-  memory backend is only for local and test runs.
+- `GET /api/observability/scheduler` is a protected server-to-server snapshot
+  route for operator use. It reads persisted scheduler run history and safe
+  attempt reasons, keeping raw payloads, private URLs, and secrets out of the
+  read model.
 
 ## Data Model Status
 
@@ -97,9 +107,10 @@ Current tenant-owned and service-managed entities include:
 - `youtube_websub_subscriptions`
 
 `content_jobs` already carries durable retry state through `retry_count`,
-`max_retries`, `error_message`, and `next_retry_at`. Failed jobs can be requeued by
-`workers/content-job-retry-worker` into the transcription or clip-generation
-queues.
+`max_retries`, `error_message`, and `next_retry_at`. Failed jobs can be
+requeued by `workers/content-job-retry-worker` into the transcription,
+clip-generation, or repurposing queues when the deployed contract supports
+those targets.
 
 Use `user_id` on every Supabase table plus row-level security policies scoped to `user_id = auth.uid()` for tenant isolation. Service-role keys must remain server-only.
 
@@ -147,6 +158,13 @@ Use realtime channels or server-sent events for live viewer counts, stream statu
   consumer. It receives `publication.publish` and `publication.reconcile`
   jobs, executes server-side provider write APIs, and persists publication
   state transitions plus audit events.
+- `workers/publishing-scheduler-worker` is the private scheduler for
+  publication timing. It claims due scheduled `content_publications` rows and
+  enqueues deterministic `publication.publish` jobs into `streamos-publishing`
+  without calling provider APIs or automation-service directly. The scheduler
+  stays StreamOS-managed as the primary source of truth; provider-native
+  scheduling is not used as the primary execution path. Its protected operator
+  read model lives at `GET /api/observability/scheduler`.
 - `workers/transcription-worker` consumes only `streamos-transcription`, calls
   `services/automation-service`, and persists `vod_assets`,
   `stream_transcripts`, clip follow-up jobs, and transcription job status.
