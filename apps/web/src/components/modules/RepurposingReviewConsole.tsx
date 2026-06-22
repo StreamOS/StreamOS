@@ -10,7 +10,7 @@ import {
   ThumbsDown,
   ThumbsUp,
 } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   buildRepurposingReviewBundle,
   formatSanitizedJsonBlock,
@@ -249,21 +249,25 @@ export function RepurposingReviewConsole({
   const counts = useMemo(() => getJobCounts(jobs), [jobs]);
   const hasVisibleJobs = filteredJobs.length > 0;
 
-  useEffect(() => {
-    setExportSelection(
-      getDefaultRepurposingExportSelection(selectedJob ?? null),
-    );
+  function resetExportUiState(job: ContentJobRow | null) {
+    setExportSelection(getDefaultRepurposingExportSelection(job));
     setCopiedExportActionId(null);
     setExportCopyState({
       actionId: null,
       kind: "idle",
       message: null,
     });
-    setSelectedJobId((currentSelectedJobId) => {
-      const selected = resolveSelectedJob(filteredJobs, currentSelectedJobId);
-      return selected?.id ?? null;
-    });
-  }, [filteredJobs, selectedJob]);
+  }
+
+  function selectJob(job: ContentJobRow) {
+    setSelectedJobId(job.id);
+    resetExportUiState(job);
+  }
+
+  function resetFilteredSelection() {
+    setSelectedJobId(null);
+    resetExportUiState(null);
+  }
 
   async function copyExportOption(
     option: RepurposingExportCopyOption,
@@ -382,7 +386,10 @@ export function RepurposingReviewConsole({
                     : "btn-ghost min-h-9 px-3 py-1.5"
                 }
                 key={item.value}
-                onClick={() => setFilter(item.value)}
+                onClick={() => {
+                  setFilter(item.value);
+                  resetFilteredSelection();
+                }}
                 type="button"
               >
                 {item.label}
@@ -399,11 +406,12 @@ export function RepurposingReviewConsole({
                 { label: "YouTube Shorts", value: "youtube_shorts" },
               ]}
               value={exportPlatformFilter}
-              onChange={(value) =>
+              onChange={(value) => {
                 setExportPlatformFilter(
                   value as RepurposingExportTargetPlatform | "all",
-                )
-              }
+                );
+                resetFilteredSelection();
+              }}
             />
             <FilterGroup
               label="Export status"
@@ -413,11 +421,12 @@ export function RepurposingReviewConsole({
                 { label: "Not exported", value: "not_exported" },
               ]}
               value={exportStatusFilter}
-              onChange={(value) =>
+              onChange={(value) => {
                 setExportStatusFilter(
                   value as "all" | "exported" | "not_exported",
-                )
-              }
+                );
+                resetFilteredSelection();
+              }}
             />
             <FilterGroup
               label="Period"
@@ -427,11 +436,12 @@ export function RepurposingReviewConsole({
                 { label: "Last 30 days", value: "last_30_days" },
               ]}
               value={exportPeriodFilter}
-              onChange={(value) =>
+              onChange={(value) => {
                 setExportPeriodFilter(
                   value as "all" | "last_7_days" | "last_30_days",
-                )
-              }
+                );
+                resetFilteredSelection();
+              }}
             />
           </div>
 
@@ -456,7 +466,7 @@ export function RepurposingReviewConsole({
                         : "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10"
                     }`}
                     key={job.id}
-                    onClick={() => setSelectedJobId(job.id)}
+                    onClick={() => selectJob(job)}
                     type="button"
                   >
                     <div className="flex items-start justify-between gap-3">

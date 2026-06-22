@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { AuthError } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { createOptionalBrowserClient } from "@/lib/supabase/client";
@@ -69,7 +69,7 @@ function getAuthErrorMessage(error: AuthError) {
 
 export function LoginForm({ next = "/dashboard" }: { next?: string }) {
   const router = useRouter();
-  const supabase = useMemo(createOptionalBrowserClient, []);
+  const [supabase] = useState(() => createOptionalBrowserClient());
   const [formError, setFormError] = useState<string | null>(null);
   const form = useForm<LoginValues>({
     defaultValues: { email: "", password: "" },
@@ -148,7 +148,7 @@ export function LoginForm({ next = "/dashboard" }: { next?: string }) {
 
 export function SignupForm() {
   const router = useRouter();
-  const supabase = useMemo(createOptionalBrowserClient, []);
+  const [supabase] = useState(() => createOptionalBrowserClient());
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const form = useForm<SignupValues>({
@@ -220,7 +220,7 @@ export function SignupForm() {
 }
 
 export function ResetPasswordForm() {
-  const supabase = useMemo(createOptionalBrowserClient, []);
+  const [supabase] = useState(() => createOptionalBrowserClient());
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const form = useForm<ResetPasswordValues>({
@@ -274,7 +274,7 @@ export function ResetPasswordForm() {
 
 export function UpdatePasswordForm() {
   const router = useRouter();
-  const supabase = useMemo(createOptionalBrowserClient, []);
+  const [supabase] = useState(() => createOptionalBrowserClient());
   const [formError, setFormError] = useState<string | null>(null);
   const form = useForm<UpdatePasswordValues>({
     defaultValues: { password: "", passwordConfirmation: "" },
