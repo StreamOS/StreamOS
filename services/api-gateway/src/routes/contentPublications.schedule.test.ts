@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PUBLICATION_CAPABILITY_VERSION } from "@streamos/types";
 
 import { createApp } from "../app.js";
@@ -47,6 +47,7 @@ function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
 
 describe("content publications schedule routes", () => {
   afterEach(() => {
+    vi.useRealTimers();
     restoreEnvValue(
       "SUPABASE_SERVICE_ROLE_KEY",
       ORIGINAL_ENV.SUPABASE_SERVICE_ROLE_KEY,
@@ -55,6 +56,8 @@ describe("content publications schedule routes", () => {
   });
 
   it("updates a mutable publication schedule without triggering worker or provider execution", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-22T12:00:00.000Z"));
     useSupabaseTestEnv();
     const requests: Array<{
       body: string | null;
