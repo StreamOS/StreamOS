@@ -47,6 +47,7 @@ describe("getBrandKitDashboardData", () => {
 
     expect(data.assets).toHaveLength(1);
     expect(data.assets[0]).toMatchObject({
+      hasStoredFile: true,
       id: "22222222-2222-4222-8222-222222222222",
       previewStatus: "available",
       previewUrl: "https://storage.example/signed-preview",
@@ -95,6 +96,11 @@ describe("getBrandKitDashboardData", () => {
       "invalid_storage_metadata",
       "invalid_storage_metadata",
     ]);
+    expect(data.assets.map((asset) => asset.hasStoredFile)).toEqual([
+      false,
+      false,
+      false,
+    ]);
     expect(data.assets.map((asset) => asset.previewUrl)).toEqual([
       null,
       null,
@@ -119,6 +125,7 @@ describe("getBrandKitDashboardData", () => {
     const data = await getBrandKitDashboardData();
 
     expect(data.assets[0]).toMatchObject({
+      hasStoredFile: true,
       previewStatus: "storage_error",
       previewUrl: null,
     });

@@ -11,8 +11,10 @@ import { StatCard } from "@streamos/ui";
 import {
   createBrandKitAction,
   deleteBrandKitAction,
+  uploadBrandAssetFileAction,
   updateBrandKitAction,
 } from "./actions";
+import { BrandAssetUploadForm } from "./BrandAssetUploadForm";
 import { BrandKitEditorForm } from "./BrandKitEditorForm";
 import { BrandKitPreview } from "./BrandKitPreview";
 import {
@@ -113,6 +115,10 @@ export default async function BrandingPage({
             </article>
 
             <article className="card">
+              <BrandAssetUploadForm action={uploadBrandAssetFileAction} />
+            </article>
+
+            <article className="card">
               <div className="flex items-center gap-3">
                 <span className="rounded-lg border border-signal-blue/20 bg-signal-blue/10 p-2 text-signal-blue">
                   <ShieldCheck className="h-4 w-4" aria-hidden="true" />
@@ -129,7 +135,7 @@ export default async function BrandingPage({
               <ul className="mt-4 space-y-2 text-sm text-slate-300">
                 <li>Private Dateien liegen im Bucket `brand-assets`.</li>
                 <li>Kurzlebige Signed URLs werden nur serverseitig erzeugt.</li>
-                <li>Keine Public-URLs und keine Upload-UI in diesem Slice.</li>
+                <li>Keine Public-URLs und keine Client-Storage-API.</li>
                 <li>Keine Service-Role im Web-Scope.</li>
                 <li>Update/Delete nutzen `id` und `user_id` Filter.</li>
               </ul>
@@ -211,7 +217,9 @@ export default async function BrandingPage({
                         className="inline-flex min-h-10 items-center justify-center rounded-lg border border-signal-red/30 bg-signal-red/10 px-4 py-2 text-sm font-semibold text-signal-red transition hover:bg-signal-red/15"
                         type="submit"
                       >
-                        Brand Kit loeschen
+                        {asset.hasStoredFile
+                          ? "Datei und Brand Asset entfernen"
+                          : "Brand Kit loeschen"}
                       </button>
                     </form>
                   </article>
@@ -235,11 +243,19 @@ function BrandingNotice({
   status?: string;
 }) {
   const successMessages: Record<string, string> = {
+    "brand-asset-uploaded": "Brand Asset wurde hochgeladen.",
     "brand-kit-created": "Brand Kit wurde erstellt.",
     "brand-kit-deleted": "Brand Kit wurde geloescht.",
     "brand-kit-updated": "Brand Kit wurde aktualisiert.",
   };
   const errorMessages: Record<string, string> = {
+    "brand-asset-file-extension-mismatch":
+      "Dateityp und Dateiendung passen nicht zusammen.",
+    "brand-asset-file-required": "Bitte waehle eine Datei fuer den Upload.",
+    "brand-asset-file-too-large": "Die Datei darf maximal 5 MB gross sein.",
+    "brand-asset-file-type-not-supported":
+      "Dieses Dateiformat wird fuer Brand Assets nicht unterstuetzt.",
+    "brand-asset-upload-failed": "Brand Asset konnte nicht hochgeladen werden.",
     "brand-kit-create-failed": "Brand Kit konnte nicht gespeichert werden.",
     "brand-kit-delete-failed": "Brand Kit konnte nicht geloescht werden.",
     "brand-kit-load-failed": "Brand Kit konnte nicht geladen werden.",
@@ -293,8 +309,8 @@ function EmptyBrandKitState() {
           Noch kein Brand Kit
         </h3>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-          Erstelle zuerst ein Kit mit Name, Typ, Status und JSON-Config. Die
-          Upload-UI bleibt ausserhalb dieses Runtime-Slices.
+          Erstelle zuerst ein Kit mit Name, Typ, Status und JSON-Config oder
+          lade ein privates Brand Asset ueber das Upload-Formular hoch.
         </p>
       </div>
     </section>

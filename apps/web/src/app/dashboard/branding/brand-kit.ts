@@ -54,6 +54,7 @@ export type BrandAssetRow = Pick<
   | "status"
   | "updated_at"
 > & {
+  hasStoredFile: boolean;
   previewStatus:
     | "available"
     | "invalid_storage_metadata"

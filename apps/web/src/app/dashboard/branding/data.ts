@@ -70,6 +70,9 @@ export async function getBrandKitDashboardData(): Promise<BrandKitDashboardData>
 
       return {
         ...brandAsset,
+        hasStoredFile:
+          preview.previewStatus === "available" ||
+          preview.previewStatus === "storage_error",
         previewStatus: preview.previewStatus,
         previewUrl: preview.previewUrl,
       } satisfies BrandAssetRow;
