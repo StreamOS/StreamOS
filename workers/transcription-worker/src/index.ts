@@ -7,7 +7,10 @@ import { Redis } from "ioredis";
 
 import { createAutomationClient } from "./automationClient.js";
 import { loadWorkerConfig } from "./config.js";
-import { createRedisConnectionOptions } from "./redisConnection.js";
+import {
+  createRedisClientOptions,
+  createRedisConnectionOptions,
+} from "./redisConnection.js";
 import { createSupabaseJobStatusStore } from "./statusStore.js";
 import { processTranscriptionJob } from "./worker.js";
 import type {
@@ -24,10 +27,7 @@ const statusStore = createSupabaseJobStatusStore({
   supabaseUrl: config.supabaseUrl,
 });
 const redisConnection = createRedisConnectionOptions(config.redisUrl);
-const heartbeatRedis = new Redis(config.redisUrl, {
-  enableReadyCheck: true,
-  maxRetriesPerRequest: null,
-});
+const heartbeatRedis = new Redis(createRedisClientOptions(config.redisUrl));
 const clipGenerationQueue = new Queue<
   ClipGenerationJobData,
   void,
