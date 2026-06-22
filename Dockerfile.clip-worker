@@ -10,6 +10,7 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY packages ./packages
 COPY scripts/prepare.cjs ./scripts/prepare.cjs
+COPY scripts/lib ./scripts/lib
 COPY workers/clip-worker ./workers/clip-worker
 
 RUN pnpm install --frozen-lockfile --filter @streamos/clip-worker...

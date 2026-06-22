@@ -1,0 +1,4 @@
+{
+  "PUBLICATION_QUEUE_NAME": "streamos-publishing",
+  "PUBLISHING_WORKER_CONCURRENCY": "1"
+}

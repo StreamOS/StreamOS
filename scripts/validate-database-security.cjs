@@ -18,6 +18,9 @@ const tenantTables = [
   "metrics_snapshots",
   "streams",
   "content_jobs",
+  "content_job_export_events",
+  "content_publications",
+  "content_publication_events",
   "vod_assets",
   "stream_transcripts",
   "stream_highlights",
@@ -54,6 +57,8 @@ const contentJobClientInsertColumns = [
 
 const authenticatedReadOnlyTables = [
   "metrics_snapshots",
+  "content_publications",
+  "content_publication_events",
   "vod_assets",
   "stream_transcripts",
   "clip_exports",
@@ -62,11 +67,23 @@ const authenticatedReadOnlyTables = [
   "youtube_websub_subscriptions",
 ];
 
+const authenticatedAppendOnlyTables = ["content_job_export_events"];
+
 const authenticatedReadOnlyWritePolicies = {
   clip_exports: {
     delete: "Clip exports can be deleted by their user",
     insert: "Clip exports can be inserted by their user",
     update: "Clip exports can be updated by their user",
+  },
+  content_publications: {
+    delete: "Content publications can be deleted by their user",
+    insert: "Content publications can be inserted by their user",
+    update: "Content publications can be updated by their user",
+  },
+  content_publication_events: {
+    delete: "Content publication events can be deleted by their user",
+    insert: "Content publication events can be inserted by their user",
+    update: "Content publication events can be updated by their user",
   },
   metrics_snapshots: {
     delete: "Metrics snapshots can be deleted by their user",
@@ -116,6 +133,9 @@ const compositeTenantConstraints = [
   "clips_stream_user_fkey",
   "clips_highlight_user_fkey",
   "clip_exports_clip_user_fkey",
+  "content_publications_content_job_user_fkey",
+  "content_publications_connection_user_fkey",
+  "content_publication_events_publication_user_fkey",
   "brand_assets_creator_user_fkey",
   "brand_assets_channel_user_fkey",
   "monetization_events_creator_user_fkey",
@@ -451,6 +471,58 @@ for (const table of tenantTables) {
         ),
       ),
       `${table}: authenticated role must keep explicit read-only SELECT grant`,
+    );
+  } else if (authenticatedAppendOnlyTables.includes(table)) {
+    assertPattern(
+      hasPattern(
+        policyRegex(
+          table,
+          "select",
+          `using\\s*\\(\\s*${authenticatedUserScope}\\s*\\)`,
+        ),
+      ),
+      `${table}: SELECT policy must explicitly check auth.uid() is not null and user_id = auth.uid()`,
+    );
+
+    assertPattern(
+      hasPattern(
+        policyRegex(
+          table,
+          "insert",
+          `with\\s+check\\s*\\(\\s*auth\\.uid\\s*\\(\\s*\\)\\s+is\\s+not\\s+null\\s+and\\s+user_id\\s*=\\s*auth\\.uid\\s*\\(\\s*\\)\\s+and\\s+actor_id\\s*=\\s*auth\\.uid\\s*\\(\\s*\\)\\s*\\)`,
+        ),
+      ),
+      `${table}: INSERT policy must require authenticated ownership and matching actor_id`,
+    );
+
+    assertPattern(
+      hasPattern(
+        droppedPolicyRegex(
+          table,
+          "Content job export events can be updated by their user",
+        ),
+      ),
+      `${table}: authenticated UPDATE policy must be dropped; export events are append-only`,
+    );
+
+    assertPattern(
+      hasPattern(
+        droppedPolicyRegex(
+          table,
+          "Content job export events can be deleted by their user",
+        ),
+      ),
+      `${table}: authenticated DELETE policy must be dropped; export events are append-only`,
+    );
+
+    assertPattern(
+      hasPattern(
+        new RegExp(
+          `grant\\s+select\\s*,\\s*insert\\s+on\\s+public\\.${tableName}\\s+to\\s+authenticated`,
+          "i",
+        ),
+      ),
+      `${table}: authenticated role must keep explicit SELECT and INSERT grants only`,
     );
   } else {
     assertPattern(

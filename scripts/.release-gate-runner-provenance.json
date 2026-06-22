@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "runnerService": "release-gate-runner",
+  "environment": "placeholder",
+  "gitCommit": "0000000000000000000000000000000000000000",
+  "gitRef": "refs/heads/main",
+  "repository": "StreamOS/StreamOS",
+  "workflow": "placeholder",
+  "runId": "placeholder",
+  "runAttempt": "0",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gateContract": {
+    "apiGatewayBuildLabel": "API Gateway build",
+    "apiGatewayTestLabel": "API Gateway integration and signed-webhook tests",
+    "apiGatewayRuntimePackages": [
+      "@streamos/redis",
+      "@streamos/queue",
+      "@streamos/youtube-websub"
+    ],
+    "apiGatewayRuntimePackageSteps": [
+      "API Gateway runtime package build: @streamos/redis",
+      "API Gateway runtime package build: @streamos/queue",
+      "API Gateway runtime package build: @streamos/youtube-websub"
+    ],
+    "transcriptionWorkerRuntimePackages": [
+      "@streamos/types",
+      "@streamos/queue",
+      "@streamos/redis"
+    ],
+    "transcriptionWorkerRuntimePackageSteps": [
+      "transcription-worker runtime package build: @streamos/types",
+      "transcription-worker runtime package build: @streamos/queue",
+      "transcription-worker runtime package build: @streamos/redis"
+    ],
+    "transcriptionWorkerTestLabel": "transcription-worker tests",
+    "sharedRuntimePackageSteps": [
+      "API Gateway runtime package build: @streamos/redis",
+      "API Gateway runtime package build: @streamos/queue",
+      "API Gateway runtime package build: @streamos/youtube-websub",
+      "transcription-worker runtime package build: @streamos/types",
+      "transcription-worker runtime package build: @streamos/queue",
+      "transcription-worker runtime package build: @streamos/redis"
+    ],
+    "transcriptionE2eLabel": "Transcription E2E path",
+    "contractHash": "acbc4e29ce322ee1bea24ecf0e6656b01b900ffb14f407a4ef184e0689d9117d"
+  },
+  "snapshot": {
+    "packageJsonSha256": "fbde1b91c9d86081b75962f45948cf95bf94b43a358ef359bb90257ac026d02e",
+    "proofPaths": [
+      "pnpm-workspace.yaml",
+      "turbo.json",
+      "scripts/rollout-check.cjs",
+      "scripts/check-deployment.cjs",
+      "scripts/e2e-transcription-job.cjs",
+      "services/api-gateway",
+      "workers/stream-job-worker",
+      "workers/transcription-worker",
+      "packages/database",
+      "packages/redis",
+      "packages/queue",
+      "packages/youtube-websub",
+      "packages/types"
+    ],
+    "rolloutCheckSha256": "fed61ddb35127c63ef64d0f2f38403bf403a2e943601fb7f3f04d5037bf95e9c"
+  }
+}

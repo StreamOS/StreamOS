@@ -36,6 +36,7 @@ apps/web/src/
 - Provider analytics syncs should run in server actions, route handlers, backend
   services, or workers, never in client components.
 - Database and API contracts live in shared packages where possible, especially `packages/types` and `packages/database`.
+- Publish and export command surfaces should stay server-owned; browser code may request review/export/publish actions, but it must not call provider write APIs directly.
 
 ## Backend Responsibilities
 
@@ -51,13 +52,30 @@ apps/web/src/
 - BullMQ orchestration for transcription triggers, clip generation, stream jobs,
   and durable content-job retries.
 - AI jobs for transcription and clip scoring in `services/automation-service`.
-  Title generation and broader repurposing remain future server-side contracts
-  and are not active media-worker endpoints today.
+  Title generation remains a future server-side contract, while approved
+  repurposing publication execution is handled by the gateway plus
+  `workers/publishing-worker` and is not a browser-visible provider write path.
+- Publication validation and execution for approved repurposing jobs through
+  `POST /api/content-publications`, `POST /api/content-publications/:id/publish`,
+  and `POST /api/content-publications/:id/reconcile`; the gateway freezes the
+  publish snapshot and enqueues `streamos-publishing`, while
+  `workers/publishing-worker` performs the server-side provider write and
+  reconciliation work.
+- Publication fanout preparation for approved repurposing jobs through
+  `POST /api/content-publications/fanout`; the gateway validates the approved
+  snapshot once, evaluates each requested target server-side, and persists
+  fanout audit rows before any publication worker path is used.
+- `GET /dashboard/publications/schedule` is the read-only calendar-light
+  schedule surface for approved publications and parent fanouts. It groups
+  planned items by day, links back to publication history and fanout summary
+  views, and does not schedule, publish, or call provider APIs from the
+  browser. StreamOS remains the primary source of truth for the schedule,
+  while provider-native scheduling can only appear as a secondary policy hint.
 - Rate limiting, retry handling, and audit logging for external API calls.
-- `GET /api/observability` is a protected server-to-server snapshot route for
-  operator use. In production it must be backed by Redis so rate limiting,
-  replay protection, and observability counters share cluster-wide state; the
-  memory backend is only for local and test runs.
+- `GET /api/observability/scheduler` is a protected server-to-server snapshot
+  route for operator use. It reads persisted scheduler run history and safe
+  attempt reasons, keeping raw payloads, private URLs, and secrets out of the
+  read model.
 
 ## Data Model Status
 
@@ -76,6 +94,8 @@ Current tenant-owned and service-managed entities include:
 - `metrics_snapshots`
 - `streams`
 - `content_jobs`
+- `content_publications`
+- `content_publication_events`
 - `vod_assets`
 - `stream_transcripts`
 - `stream_highlights`
@@ -87,9 +107,10 @@ Current tenant-owned and service-managed entities include:
 - `youtube_websub_subscriptions`
 
 `content_jobs` already carries durable retry state through `retry_count`,
-`max_retries`, `error_message`, and `next_retry_at`. Failed jobs can be requeued by
-`workers/content-job-retry-worker` into the transcription or clip-generation
-queues.
+`max_retries`, `error_message`, and `next_retry_at`. Failed jobs can be
+requeued by `workers/content-job-retry-worker` into the transcription,
+clip-generation, or repurposing queues when the deployed contract supports
+those targets.
 
 Use `user_id` on every Supabase table plus row-level security policies scoped to `user_id = auth.uid()` for tenant isolation. Service-role keys must remain server-only.
 
@@ -106,6 +127,9 @@ Use REST route handlers or the API gateway for simple commands and webhooks:
 - `services/api-gateway`: `/api/auth/kick/connect`
 - `services/api-gateway`: `/api/auth/kick/callback`
 - `services/api-gateway`: `/api/clips/generate`
+- `services/api-gateway`: `/api/content-publications`
+- `services/api-gateway`: `/api/content-publications/:id/publish`
+- `services/api-gateway`: `/api/content-publications/:id/reconcile`
 - `services/api-gateway`: `/api/metrics/sync`
 - `services/api-gateway`: `/api/content-jobs/retry`
 - `services/api-gateway`: `/api/platforms/:provider/disconnect`
@@ -130,6 +154,17 @@ Use realtime channels or server-sent events for live viewer counts, stream statu
   consumer. It receives durable `repurposing.plan` jobs, calls
   `services/automation-service` at `POST /repurposing/plan`, and persists a
   manual-review-only plan result in `content_jobs.result`.
+- `workers/publishing-worker` is the canonical `streamos-publishing`
+  consumer. It receives `publication.publish` and `publication.reconcile`
+  jobs, executes server-side provider write APIs, and persists publication
+  state transitions plus audit events.
+- `workers/publishing-scheduler-worker` is the private scheduler for
+  publication timing. It claims due scheduled `content_publications` rows and
+  enqueues deterministic `publication.publish` jobs into `streamos-publishing`
+  without calling provider APIs or automation-service directly. The scheduler
+  stays StreamOS-managed as the primary source of truth; provider-native
+  scheduling is not used as the primary execution path. Its protected operator
+  read model lives at `GET /api/observability/scheduler`.
 - `workers/transcription-worker` consumes only `streamos-transcription`, calls
   `services/automation-service`, and persists `vod_assets`,
   `stream_transcripts`, clip follow-up jobs, and transcription job status.
@@ -137,11 +172,21 @@ Use realtime channels or server-sent events for live viewer counts, stream statu
   `content_jobs` row and enqueue `repurposing.plan` when provider enrichment
   resolves `asset_available` and the connected platform metadata explicitly
   enables repurposing. The durable job remains review-oriented only: it does
-  not auto-publish, export, render, or crosspost. Provider enrichment is
+  not auto-publish, export, render, or crosspost. Approved repurposing jobs
+  can later produce a sanitized, clipboard-only export bundle for manual use.
+  Provider enrichment is
   classified as `asset_available`, `enrichment_required`,
   `enrichment_retryable`, `enrichment_failed`, or `unsupported`; only
   `asset_available` plus explicit opt-in may feed the plan row and downstream
   repurposing queue.
+- `POST /api/content-publications` validates a request against an approved
+  repurposing result, a matching platform connection, and the server-side
+  publish snapshot. The gateway writes the publication snapshot and audit
+  events to Supabase, then enqueues the deterministic `publication.publish`
+  job in `streamos-publishing` for the server-side publishing worker.
+- `POST /api/content-publications/:id/publish` and
+  `POST /api/content-publications/:id/reconcile` are the operator and retry
+  actions for the same server-owned publication contract.
 
 ## Twitch OAuth Placement Decision
 

@@ -28,6 +28,22 @@ function matchesAnyPattern(name, patterns = []) {
   return patterns.some((pattern) => matchesPattern(name, pattern));
 }
 
+function getValidatorAliases(whitelist, variableName) {
+  const aliases = whitelist.validators.byVariable[variableName]?.aliases;
+
+  if (!Array.isArray(aliases)) {
+    return [];
+  }
+
+  return aliases
+    .filter((alias) => typeof alias === "string" && alias.trim().length > 0)
+    .map((alias) => alias.trim());
+}
+
+function getManagedVariableNames(whitelist, variableName) {
+  return [variableName, ...getValidatorAliases(whitelist, variableName)];
+}
+
 function isPlaceholderValue(value) {
   const normalizedValue = String(value || "")
     .trim()
@@ -154,6 +170,34 @@ function parseServiceListPayload(payload) {
   return [];
 }
 
+function getServiceListEntry(serviceList, serviceName) {
+  const listedServices = parseServiceListPayload(serviceList);
+  return listedServices.find((entry) => entry.name === serviceName) ?? null;
+}
+
+function getConfiguredService(environmentConfig, serviceName, serviceId) {
+  return (
+    environmentConfig?.servicesByName?.[serviceName] ??
+    (serviceId ? environmentConfig?.servicesById?.[serviceId] : undefined) ??
+    null
+  );
+}
+
+function hasServiceInventoryEntry({
+  environmentConfig,
+  serviceList,
+  serviceName,
+}) {
+  const listedService = getServiceListEntry(serviceList, serviceName);
+  const configuredService = getConfiguredService(
+    environmentConfig,
+    serviceName,
+    listedService?.id,
+  );
+
+  return Boolean(listedService && configuredService);
+}
+
 function getServicePublicUrl(serviceList, serviceName) {
   const services = parseServiceListPayload(serviceList);
   const service = services.find((entry) => entry.name === serviceName);
@@ -162,6 +206,7 @@ function getServicePublicUrl(serviceList, serviceName) {
 
 function parseEnvironmentConfigPayload(payload) {
   const servicesByName = {};
+  const servicesById = {};
   const services = payload?.services ?? {};
 
   for (const [serviceId, serviceConfig] of Object.entries(services)) {
@@ -177,12 +222,19 @@ function parseEnvironmentConfigPayload(payload) {
       networking: serviceConfig?.networking ?? {},
       variables: parseVariablePayload(serviceConfig?.variables ?? {}),
     };
+    servicesById[serviceId] = {
+      id: serviceId,
+      name: serviceName,
+      networking: serviceConfig?.networking ?? {},
+      variables: parseVariablePayload(serviceConfig?.variables ?? {}),
+    };
   }
 
   return {
     privateNetworkDisabled:
       payload?.privateNetworkDisabled === true ||
       payload?.private_network_disabled === true,
+    servicesById,
     servicesByName,
   };
 }
@@ -197,9 +249,14 @@ function buildOwnershipIndex(whitelist) {
       ...serviceConfig.required,
       ...serviceConfig.optional,
     ]) {
-      const owners = ownership.get(variableName) ?? new Set();
-      owners.add(serviceName);
-      ownership.set(variableName, owners);
+      for (const managedVariableName of getManagedVariableNames(
+        whitelist,
+        variableName,
+      )) {
+        const owners = ownership.get(managedVariableName) ?? new Set();
+        owners.add(serviceName);
+        ownership.set(managedVariableName, owners);
+      }
     }
   }
 
@@ -563,8 +620,21 @@ function evaluateManagedVariable({
   variableName,
   whitelist,
 }) {
-  const sharedValue = sharedVariables[variableName];
-  const serviceValue = serviceVariables[variableName];
+  const managedVariableNames = getManagedVariableNames(whitelist, variableName);
+  const sharedVariableName = managedVariableNames.find(
+    (name) => sharedVariables[name] !== undefined,
+  );
+  const serviceVariableName = managedVariableNames.find(
+    (name) => serviceVariables[name] !== undefined,
+  );
+  const sharedValue =
+    sharedVariableName !== undefined
+      ? sharedVariables[sharedVariableName]
+      : undefined;
+  const serviceValue =
+    serviceVariableName !== undefined
+      ? serviceVariables[serviceVariableName]
+      : undefined;
   const hasSharedValue = sharedValue !== undefined;
   const hasServiceValue = serviceValue !== undefined;
   const effectiveValue = hasServiceValue ? serviceValue : sharedValue;
@@ -934,6 +1004,58 @@ function createNetworkRow({
   };
 }
 
+function createInventoryRow({
+  environment,
+  environmentConfig,
+  serviceList,
+  serviceName,
+  whitelist,
+}) {
+  const present = hasServiceInventoryEntry({
+    environmentConfig,
+    serviceList,
+    serviceName,
+  });
+
+  if (present) {
+    return {
+      checks: ["inventory"],
+      findings: [],
+      required: false,
+      scope: "service",
+      status: "✅",
+      summary: "Service is present in the Railway inventory.",
+      valueState: "present",
+      variable: "SERVICE_INVENTORY",
+    };
+  }
+
+  return {
+    checks: ["inventory"],
+    findings: [
+      createFinding({
+        environment,
+        flag: "MISSING",
+        message: "Service is missing from the Railway environment inventory.",
+        priority: getFindingPriority({
+          environment,
+          flag: "MISSING",
+          variableName: "SERVICE_INVENTORY",
+          whitelist,
+        }),
+        serviceName,
+        variableName: "SERVICE_INVENTORY",
+      }),
+    ],
+    required: false,
+    scope: "service",
+    status: "❌",
+    summary: "Service is missing from the Railway environment inventory.",
+    valueState: "missing",
+    variable: "SERVICE_INVENTORY",
+  };
+}
+
 function buildEffectiveValues(sharedVariables, serviceVariables) {
   return {
     ...sharedVariables,
@@ -944,6 +1066,7 @@ function buildEffectiveValues(sharedVariables, serviceVariables) {
 function buildRedisConsistency({ rawEnvironment, whitelist }) {
   const sharedVariables = parseVariablePayload(rawEnvironment.sharedVariables);
   const entries = [];
+  const rawValues = [];
 
   for (const [serviceName, serviceConfig] of Object.entries(
     whitelist.services,
@@ -962,17 +1085,17 @@ function buildRedisConsistency({ rawEnvironment, whitelist }) {
     const effectiveValue =
       serviceVariables.REDIS_URL ?? sharedVariables.REDIS_URL;
 
+    rawValues.push(effectiveValue);
     entries.push({
       service: serviceName,
-      value: effectiveValue,
       valueState: effectiveValue ? redactUrl(effectiveValue) : "missing",
     });
   }
 
   const distinctValues = new Set(
-    entries
-      .map((entry) => entry.value)
-      .filter((value) => typeof value === "string" && value.trim().length > 0),
+    rawValues.filter(
+      (value) => typeof value === "string" && value.trim().length > 0,
+    ),
   );
 
   if (distinctValues.size <= 1) {
@@ -1051,18 +1174,37 @@ function auditEnvironment({
     const serviceVariables = parseVariablePayload(
       rawEnvironment.serviceVariables?.[serviceName],
     );
-    const environmentServiceConfig =
-      environmentConfig.servicesByName[serviceName];
+    const listedService = getServiceListEntry(
+      rawEnvironment.serviceList,
+      serviceName,
+    );
+    const environmentServiceConfig = getConfiguredService(
+      environmentConfig,
+      serviceName,
+      listedService?.id,
+    );
+    const serviceInventoryRow = createInventoryRow({
+      environment,
+      environmentConfig,
+      serviceList: rawEnvironment.serviceList,
+      serviceName,
+      whitelist,
+    });
+    const serviceAvailable = serviceInventoryRow.status === "✅";
     const effectiveValues = buildEffectiveValues(
       sharedVariables,
       serviceVariables,
     );
-    const managedVariables = new Set([
-      ...serviceConfig.required,
-      ...serviceConfig.optional,
-    ]);
+    const managedVariables = new Set(
+      [...serviceConfig.required, ...serviceConfig.optional].flatMap((name) =>
+        getManagedVariableNames(whitelist, name),
+      ),
+    );
     const rows = [];
     const infoExtras = [];
+
+    rows.push(serviceInventoryRow);
+    prioritizedFixes.push(...serviceInventoryRow.findings);
 
     for (const variableName of [
       ...serviceConfig.required,
@@ -1115,24 +1257,29 @@ function auditEnvironment({
       prioritizedFixes.push(...row.findings);
     }
 
-    const networkingRow = createNetworkRow({
-      environment,
-      serviceConfig,
-      serviceDomains: environmentServiceConfig?.networking?.serviceDomains,
-      servicePublicUrl: getServicePublicUrl(
-        rawEnvironment.serviceList,
+    const serviceHealthChecks = serviceAvailable
+      ? healthChecks.filter(
+          (check) =>
+            check.category === "health" && check.service === serviceName,
+        )
+      : [];
+
+    if (serviceAvailable) {
+      const networkingRow = createNetworkRow({
+        environment,
+        serviceConfig,
+        serviceDomains: environmentServiceConfig?.networking?.serviceDomains,
+        servicePublicUrl: getServicePublicUrl(
+          rawEnvironment.serviceList,
+          serviceName,
+        ),
         serviceName,
-      ),
-      serviceName,
-      whitelist,
-    });
+        whitelist,
+      });
 
-    rows.push(networkingRow);
-    prioritizedFixes.push(...networkingRow.findings);
-
-    const serviceHealthChecks = healthChecks.filter(
-      (check) => check.category === "health" && check.service === serviceName,
-    );
+      rows.push(networkingRow);
+      prioritizedFixes.push(...networkingRow.findings);
+    }
 
     for (const check of serviceHealthChecks) {
       if (!check.ok && !check.unverified) {
@@ -1502,6 +1649,7 @@ module.exports = {
   buildOwnershipIndex,
   formatMarkdownReport,
   getServicePublicUrl,
+  hasServiceInventoryEntry,
   hasBlockingFindings,
   parseEnvironmentConfigPayload,
   parseServiceListPayload,
