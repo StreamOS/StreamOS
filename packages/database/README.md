@@ -46,6 +46,18 @@ pnpm db:validate-security
 The validator checks required `user_id` columns, RLS enablement, authenticated Data API grants, leading `user_id` query indexes, composite tenant foreign keys, and explicit authenticated ownership predicates (`auth.uid() is not null and user_id = auth.uid()`). `platform_connections` is intentionally stricter: authenticated users get column-level `SELECT` grants that exclude token ciphertext columns, while writes remain service-role only. `content_jobs` accepts client inserts only for request metadata (`user_id`, `stream_id`, `queue_job_id`, `job_type`, `payload`); status, result, error, and retry fields are mutated only by service-role server actions, services, or workers. `content_publications` and `content_publication_events` are server-managed publication contract tables: authenticated users can read their rows, but the gateway writes validated snapshots and append-only events through the service role only. `metrics_snapshots`, `vod_assets`, `stream_transcripts`, `clip_exports`, `monetization_events`, and `monetization_summaries` are read-only for authenticated users; ingestion, processing, export, metric, and summary writes must run through service-role workers or server services.
 Monetization provider event idempotency must also stay tenant-scoped: unique indexes for provider event IDs include leading `user_id`, so two creators can ingest the same provider event identifier without cross-tenant collisions.
 
+Brand asset uploads use the private Supabase Storage bucket `brand-assets`.
+The bucket is not public, and authenticated storage policies allow users to
+select, insert, and delete only objects whose first path segment equals
+`auth.uid()`. Update/upsert is intentionally not granted until a later
+replace-flow is specified. The planned storage path shape is
+`user_id/asset_type/asset_id/sanitized_filename`. The branding MVP must store
+only `storage_bucket` and `storage_path` when upload runtime is added later;
+durable `public_url` persistence is intentionally avoided. SVG remains blocked
+for the upload MVP because uploaded SVG can carry script-capable content, and
+previews should use short-lived server-generated signed URLs from the private
+bucket instead of public bucket URLs.
+
 `content_jobs.queue_job_id` links BullMQ job attempts to durable database state.
 Workers and server actions mutate runtime status, result, error, and retry
 fields with the Supabase service role, while user-facing access remains scoped

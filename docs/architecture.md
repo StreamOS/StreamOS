@@ -114,6 +114,17 @@ those targets.
 
 Use `user_id` on every Supabase table plus row-level security policies scoped to `user_id = auth.uid()` for tenant isolation. Service-role keys must remain server-only.
 
+Brand asset uploads are prepared as a private Supabase Storage contract, not a
+public bucket contract. The `brand-assets` bucket remains private, object paths
+start with the owning `auth.uid()` value, and storage policies grant
+authenticated users only select, insert, and delete for their own first path
+segment. Update/upsert is intentionally excluded until replace semantics and
+orphan cleanup are specified. Future upload runtime should persist
+`storage_bucket` and `storage_path`, generate signed preview URLs server-side,
+avoid durable `public_url` storage, and block SVG in the MVP. Upload UI,
+signed-URL preview runtime, file parsing, and orphan cleanup are separate later
+slices.
+
 ## API Strategy
 
 Use REST route handlers or the API gateway for simple commands and webhooks:
