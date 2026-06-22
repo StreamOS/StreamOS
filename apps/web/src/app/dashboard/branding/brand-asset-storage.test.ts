@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   BRAND_ASSET_MAX_FILE_SIZE_BYTES,
+  BRAND_ASSET_SIGNED_PREVIEW_TTL_SECONDS,
   buildBrandAssetStoragePath,
+  createBrandAssetSignedPreviewUrl,
   parseBrandAssetUploadFormData,
+  parseBrandAssetPreviewStorage,
   sanitizeBrandAssetFilename,
 } from "./brand-asset-storage";
 
@@ -103,6 +106,103 @@ describe("brand asset storage helpers", () => {
       "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/fancy-logo.png",
     );
   });
+
+  it("creates short-lived signed preview URLs for tenant-scoped brand assets", async () => {
+    const client = createPreviewStorageClientMock({
+      signedUrl: "https://storage.example/signed-preview",
+    });
+
+    await expect(
+      createBrandAssetSignedPreviewUrl({
+        client,
+        storageBucket: "brand-assets",
+        storagePath:
+          "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
+        userId: "11111111-1111-4111-8111-111111111111",
+      }),
+    ).resolves.toEqual({
+      previewStatus: "available",
+      previewUrl: "https://storage.example/signed-preview",
+    });
+    expect(client.signedUrlRequests).toEqual([
+      {
+        bucket: "brand-assets",
+        expiresIn: BRAND_ASSET_SIGNED_PREVIEW_TTL_SECONDS,
+        path: "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
+      },
+    ]);
+  });
+
+  it("rejects tenant-mismatched preview storage paths before signing", async () => {
+    const client = createPreviewStorageClientMock({
+      signedUrl: "https://storage.example/signed-preview",
+    });
+
+    await expect(
+      createBrandAssetSignedPreviewUrl({
+        client,
+        storageBucket: "brand-assets",
+        storagePath:
+          "99999999-9999-4999-8999-999999999999/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
+        userId: "11111111-1111-4111-8111-111111111111",
+      }),
+    ).resolves.toEqual({
+      previewStatus: "invalid_storage_metadata",
+      previewUrl: null,
+    });
+    expect(client.signedUrlRequests).toHaveLength(0);
+  });
+
+  it("does not sign previews for missing storage paths or wrong buckets", async () => {
+    const client = createPreviewStorageClientMock({
+      signedUrl: "https://storage.example/signed-preview",
+    });
+
+    expect(
+      parseBrandAssetPreviewStorage({
+        storageBucket: null,
+        storagePath: null,
+        userId: "11111111-1111-4111-8111-111111111111",
+      }),
+    ).toEqual({
+      ok: false,
+      status: "no_preview",
+    });
+
+    await expect(
+      createBrandAssetSignedPreviewUrl({
+        client,
+        storageBucket: "public-assets",
+        storagePath:
+          "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
+        userId: "11111111-1111-4111-8111-111111111111",
+      }),
+    ).resolves.toEqual({
+      previewStatus: "invalid_storage_metadata",
+      previewUrl: null,
+    });
+    expect(client.signedUrlRequests).toHaveLength(0);
+  });
+
+  it("sanitizes storage signing failures into a generic preview status", async () => {
+    const client = createPreviewStorageClientMock({
+      error: { message: "private storage implementation detail" },
+      signedUrl: null,
+    });
+
+    await expect(
+      createBrandAssetSignedPreviewUrl({
+        client,
+        storageBucket: "brand-assets",
+        storagePath:
+          "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
+        userId: "11111111-1111-4111-8111-111111111111",
+      }),
+    ).resolves.toEqual({
+      previewStatus: "storage_error",
+      previewUrl: null,
+    });
+  });
 });
 
 function createUploadFormData({ file }: { file: File }) {
@@ -114,4 +214,38 @@ function createUploadFormData({ file }: { file: File }) {
   formData.set("status", "draft");
 
   return formData;
+}
+
+function createPreviewStorageClientMock({
+  error = null,
+  signedUrl,
+}: {
+  error?: unknown;
+  signedUrl: string | null;
+}) {
+  const signedUrlRequests: Array<{
+    bucket: string;
+    expiresIn: number;
+    path: string;
+  }> = [];
+
+  return {
+    signedUrlRequests,
+    storage: {
+      from: (bucket: string) => ({
+        createSignedUrl: async (path: string, expiresIn: number) => {
+          signedUrlRequests.push({
+            bucket,
+            expiresIn,
+            path,
+          });
+
+          return {
+            data: signedUrl ? { signedUrl } : null,
+            error,
+          };
+        },
+      }),
+    },
+  };
 }

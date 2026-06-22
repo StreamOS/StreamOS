@@ -55,9 +55,9 @@ export default async function BrandingPage({
             Brand Kits, Overlays und visuelle Leitplanken
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-            Pflege einfache Brand-Kit-Daten direkt in `brand_assets`. Dieser MVP
-            speichert nur Metadaten und JSON-Config, ohne Upload, Storage oder
-            Public-URL-Pfade.
+            Pflege Brand-Kit-Daten direkt in `brand_assets`. Private Dateien
+            bleiben im Bucket `brand-assets`; Vorschauen nutzen kurzlebige
+            Signed URLs ohne dauerhafte Public-URL-Persistenz.
           </p>
         </div>
         <div className="rounded-2xl border border-signal-green/20 bg-signal-green/10 px-4 py-3 text-sm text-signal-green">
@@ -106,7 +106,7 @@ export default async function BrandingPage({
             <article className="card">
               <BrandKitEditorForm
                 action={createBrandKitAction}
-                description="Lege ein Brand Kit ohne Datei-Upload an. Die Daten werden tenant-sicher ueber die angemeldete Supabase-Session gespeichert."
+                description="Lege ein Brand Kit ohne Upload-UI an. Die Daten werden tenant-sicher ueber die angemeldete Supabase-Session gespeichert."
                 submitLabel="Brand Kit erstellen"
                 title="Neues Brand Kit"
               />
@@ -122,13 +122,14 @@ export default async function BrandingPage({
                     Security Scope
                   </p>
                   <h2 className="mt-1 text-lg font-semibold text-white">
-                    Kein Upload in diesem Slice
+                    Private Assets ohne Public URLs
                   </h2>
                 </div>
               </div>
               <ul className="mt-4 space-y-2 text-sm text-slate-300">
-                <li>Keine Storage-Buckets oder Storage-Policies.</li>
-                <li>Keine Public-URLs und keine Datei-Verarbeitung.</li>
+                <li>Private Dateien liegen im Bucket `brand-assets`.</li>
+                <li>Kurzlebige Signed URLs werden nur serverseitig erzeugt.</li>
+                <li>Keine Public-URLs und keine Upload-UI in diesem Slice.</li>
                 <li>Keine Service-Role im Web-Scope.</li>
                 <li>Update/Delete nutzen `id` und `user_id` Filter.</li>
               </ul>
@@ -193,7 +194,7 @@ export default async function BrandingPage({
                         <BrandKitEditorForm
                           action={updateBrandKitAction}
                           asset={asset}
-                          description="Aendere Metadaten und Config. Upload- und Storage-Felder bleiben bewusst ausserhalb dieses MVP."
+                          description="Aendere Metadaten und Config. Storage-Felder und Preview-URLs bleiben serverseitig kontrolliert."
                           submitLabel="Aenderungen speichern"
                           title="Brand Kit bearbeiten"
                         />
@@ -292,8 +293,8 @@ function EmptyBrandKitState() {
           Noch kein Brand Kit
         </h3>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-          Erstelle zuerst ein Kit mit Name, Typ, Status und JSON-Config. Datei-
-          Uploads und Storage kommen erst in einem separaten Security-Slice.
+          Erstelle zuerst ein Kit mit Name, Typ, Status und JSON-Config. Die
+          Upload-UI bleibt ausserhalb dieses Runtime-Slices.
         </p>
       </div>
     </section>

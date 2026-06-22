@@ -1,6 +1,23 @@
+import type { Tables } from "@streamos/database";
 import type { BrandAssetRow } from "./brand-kit";
+import { createBrandAssetSignedPreviewUrl } from "./brand-asset-storage";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
+
+type StoredBrandAssetRow = Pick<
+  Tables<"brand_assets">,
+  | "asset_type"
+  | "config"
+  | "created_at"
+  | "description"
+  | "id"
+  | "metadata"
+  | "name"
+  | "status"
+  | "storage_bucket"
+  | "storage_path"
+  | "updated_at"
+>;
 
 export type BrandKitDashboardData = {
   activeAssets: number;
@@ -27,7 +44,7 @@ export async function getBrandKitDashboardData(): Promise<BrandKitDashboardData>
   const { data, error } = await supabase
     .from("brand_assets")
     .select(
-      "asset_type,config,created_at,description,id,metadata,name,status,updated_at",
+      "asset_type,config,created_at,description,id,metadata,name,status,storage_bucket,storage_path,updated_at",
     )
     .eq("user_id", userData.user.id)
     .order("updated_at", { ascending: false })
@@ -40,7 +57,24 @@ export async function getBrandKitDashboardData(): Promise<BrandKitDashboardData>
     };
   }
 
-  const assets = (data ?? []) as BrandAssetRow[];
+  const rows = (data ?? []) as StoredBrandAssetRow[];
+  const assets = await Promise.all(
+    rows.map(async (asset) => {
+      const { storage_bucket, storage_path, ...brandAsset } = asset;
+      const preview = await createBrandAssetSignedPreviewUrl({
+        client: supabase,
+        storageBucket: storage_bucket,
+        storagePath: storage_path,
+        userId: userData.user.id,
+      });
+
+      return {
+        ...brandAsset,
+        previewStatus: preview.previewStatus,
+        previewUrl: preview.previewUrl,
+      } satisfies BrandAssetRow;
+    }),
+  );
 
   return {
     activeAssets: assets.filter((asset) => asset.status === "active").length,

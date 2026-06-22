@@ -1,4 +1,5 @@
 import React from "react";
+import Image from "next/image";
 import type { Json } from "@streamos/database";
 import type { BrandAssetRow } from "./brand-kit";
 import {
@@ -22,6 +23,17 @@ export function BrandKitPreview({ asset }: BrandKitPreviewProps) {
       }}
     >
       <div className="rounded-xl border border-white/15 bg-surface-950/65 p-4">
+        {asset.previewUrl ? (
+          // Signed URLs are short-lived and generated server-side for this user.
+          <Image
+            alt={`${asset.name} preview`}
+            className="mb-4 max-h-40 w-full rounded-lg border border-white/10 object-contain"
+            height={320}
+            unoptimized
+            src={asset.previewUrl}
+            width={480}
+          />
+        ) : null}
         <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em]">
           <span className="rounded-full bg-white/10 px-3 py-1 text-white">
             {brandAssetTypeLabels[asset.asset_type]}
@@ -39,6 +51,12 @@ export function BrandKitPreview({ asset }: BrandKitPreviewProps) {
         <p className="mt-2 text-sm text-slate-300">
           {asset.description || summarizeBrandKitConfig(asset.config)}
         </p>
+        {asset.previewStatus !== "available" ? (
+          <p className="mt-4 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">
+            Private Datei-Vorschau aktuell nicht verfuegbar. Es werden keine
+            Public URLs gespeichert.
+          </p>
+        ) : null}
       </div>
     </section>
   );
