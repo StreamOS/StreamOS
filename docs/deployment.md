@@ -807,6 +807,21 @@ harter Blocker existiert, setze die Entscheidung auf `Blockiert`. Wenn die
 Nachweise unvollständig oder widersprüchlich sind, setze die Entscheidung auf
 `Zurückgestellt`.
 
+**Known Non-Blocking Warnings**
+
+- [ ] Local diagnostic failures caused by missing Docker or unavailable
+      Railway private networking are not production-proof blockers.
+- [ ] Provider-native scheduling remains a secondary policy hint only;
+      StreamOS-managed scheduling is still the primary execution path.
+- [ ] Informational web warnings that are already documented in the release
+      report are tracked, not treated as automatic blockers.
+- [ ] The scheduler enqueue-failure follow-up from P3.21 is resolved in the
+      current tests and must not be reopened as a warning.
+
+Any new or unexplained warning must be classified before release. If it is not
+understood, it blocks the release decision until it is explicitly documented
+and accepted.
+
 **Beispielausfüllung ohne Secrets**
 
 _Die Werte unten sind fiktiv und kein Produktionsnachweis. Echte Freigabe
@@ -872,6 +887,17 @@ eintragen._
 - [x] Gate enthält keinen echten YouTube-Publish
 - [x] Gate enthält keinen echten Drittanbieter-Write
 - [x] Bekannte nicht-blockierende Warnungen sind dokumentiert
+
+**Known Non-Blocking Warnings**
+
+- [x] Local diagnostic failures caused by missing Docker or unavailable
+      Railway private networking are not production-proof blockers.
+- [x] Provider-native scheduling remains a secondary policy hint only;
+      StreamOS-managed scheduling is still the primary execution path.
+- [x] Informational web warnings are documented and do not change the gate
+      decision.
+- [x] The previous scheduler enqueue-failure gap is covered by tests and is no
+      longer a current warning.
 
 **Decision**
 
