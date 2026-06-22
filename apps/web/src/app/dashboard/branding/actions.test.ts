@@ -29,6 +29,7 @@ vi.mock("@/lib/supabase/server", () => ({
 import {
   createBrandKitAction,
   deleteBrandKitAction,
+  uploadBrandAssetFileAction,
   updateBrandKitAction,
 } from "./actions";
 
@@ -70,6 +71,62 @@ describe("branding server actions", () => {
     ]);
     expect(supabase.storageTouched).toBe(false);
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/dashboard/branding");
+  });
+
+  it("uploads a brand asset file through private storage and persists storage metadata", async () => {
+    const supabase = createSupabaseClientMock();
+    mocks.createClient.mockResolvedValue(supabase as never);
+    const formData = createBrandAssetUploadFormData();
+
+    await expect(uploadBrandAssetFileAction(formData)).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?status=brand-asset-uploaded",
+    );
+
+    expect(supabase.storageUploads).toEqual([
+      {
+        bucket: "brand-assets",
+        options: {
+          contentType: "image/png",
+          upsert: false,
+        },
+        path: expect.stringMatching(
+          /^11111111-1111-4111-8111-111111111111\/logo\/[0-9a-f-]{36}\/neon-logo\.png$/,
+        ),
+      },
+    ]);
+    expect(supabase.inserts).toEqual([
+      expect.objectContaining({
+        asset_type: "logo",
+        name: "Neon Logo",
+        public_url: null,
+        status: "draft",
+        storage_bucket: "brand-assets",
+        storage_path: supabase.storageUploads[0]?.path,
+        user_id: "11111111-1111-4111-8111-111111111111",
+      }),
+    ]);
+    expect(supabase.storageRemoves).toHaveLength(0);
+  });
+
+  it("cleans up uploaded storage when database persistence fails", async () => {
+    const supabase = createSupabaseClientMock({
+      insertError: { message: "database exploded" },
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      uploadBrandAssetFileAction(createBrandAssetUploadFormData()),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-upload-failed",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(1);
+    expect(supabase.storageRemoves).toEqual([
+      {
+        bucket: "brand-assets",
+        paths: [supabase.storageUploads[0]?.path],
+      },
+    ]);
   });
 
   it("rejects malformed form data before Supabase writes", async () => {
@@ -163,6 +220,55 @@ describe("branding server actions", () => {
     ]);
     expect(supabase.storageTouched).toBe(false);
   });
+
+  it("removes private storage when deleting a stored brand asset", async () => {
+    const supabase = createSupabaseClientMock({
+      existingBrandAsset: {
+        id: "22222222-2222-4222-8222-222222222222",
+        storage_bucket: "brand-assets",
+        storage_path:
+          "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
+      },
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+    const formData = new FormData();
+    formData.set("brandAssetId", "22222222-2222-4222-8222-222222222222");
+
+    await expect(deleteBrandKitAction(formData)).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?status=brand-kit-deleted",
+    );
+
+    expect(supabase.storageRemoves).toEqual([
+      {
+        bucket: "brand-assets",
+        paths: [
+          "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
+        ],
+      },
+    ]);
+    expect(supabase.deletes).toHaveLength(1);
+  });
+
+  it("does not leak raw storage errors when delete cleanup fails", async () => {
+    const supabase = createSupabaseClientMock({
+      existingBrandAsset: {
+        id: "22222222-2222-4222-8222-222222222222",
+        storage_bucket: "brand-assets",
+        storage_path:
+          "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
+      },
+      removeError: { message: "signed internal storage failure" },
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+    const formData = new FormData();
+    formData.set("brandAssetId", "22222222-2222-4222-8222-222222222222");
+
+    await expect(deleteBrandKitAction(formData)).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-storage-delete-failed",
+    );
+
+    expect(supabase.deletes).toHaveLength(0);
+  });
 });
 
 function createBrandKitFormData({
@@ -189,13 +295,44 @@ function createBrandKitFormData({
   return formData;
 }
 
+function createBrandAssetUploadFormData() {
+  const formData = new FormData();
+
+  formData.set(
+    "assetFile",
+    new File(["safe image"], "Neon Logo.PNG", { type: "image/png" }),
+  );
+  formData.set("assetType", "logo");
+  formData.set("name", "Neon Logo");
+  formData.set("status", "draft");
+
+  return formData;
+}
+
 function createSupabaseClientMock({
   existingBrandAsset = null,
+  insertError = null,
+  removeError = null,
 }: {
-  existingBrandAsset?: { id: string } | null;
+  existingBrandAsset?: {
+    id: string;
+    storage_bucket?: string | null;
+    storage_path?: string | null;
+  } | null;
+  insertError?: { message: string } | null;
+  removeError?: { message: string } | null;
 } = {}) {
   const inserts: unknown[] = [];
   const updates: unknown[] = [];
+  const storageUploads: Array<{
+    bucket: string;
+    options: { contentType: string; upsert: boolean };
+    path: string;
+  }> = [];
+  const storageRemoves: Array<{
+    bucket: string;
+    paths: string[];
+  }> = [];
   const deletes: Array<{
     filters: Array<[string, string]>;
     table: string;
@@ -219,7 +356,7 @@ function createSupabaseClientMock({
     }),
     insert: vi.fn(async (payload: unknown) => {
       inserts.push(payload);
-      return { error: null };
+      return { error: insertError };
     }),
     maybeSingle: vi.fn(async () => {
       selects.push({
@@ -276,7 +413,46 @@ function createSupabaseClientMock({
     }),
     inserts,
     selects,
-    storageTouched: false,
+    storage: {
+      from: vi.fn((bucket: string) => ({
+        remove: vi.fn(async (paths: string[]) => {
+          storageRemoves.push({
+            bucket,
+            paths,
+          });
+
+          return {
+            data: null,
+            error: removeError,
+          };
+        }),
+        upload: vi.fn(
+          async (
+            path: string,
+            _file: File,
+            options: { contentType: string; upsert: boolean },
+          ) => {
+            storageUploads.push({
+              bucket,
+              options,
+              path,
+            });
+
+            return {
+              data: {
+                path,
+              },
+              error: null,
+            };
+          },
+        ),
+      })),
+    },
+    get storageTouched() {
+      return storageUploads.length > 0 || storageRemoves.length > 0;
+    },
+    storageRemoves,
+    storageUploads,
     updates,
   };
 }
