@@ -1,0 +1,5 @@
+{
+  "AUTOMATION_SERVICE_URL": "http://automation-service.railway.internal:8000",
+  "CLIP_GENERATION_QUEUE_NAME": "streamos-clip-generation",
+  "CLIP_WORKER_CONCURRENCY": "2"
+}

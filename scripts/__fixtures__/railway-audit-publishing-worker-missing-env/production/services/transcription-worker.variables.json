@@ -1,0 +1,8 @@
+{
+  "AUTOMATION_SERVICE_URL": "https://automation-service-production.up.railway.app",
+  "TRANSCRIPTION_QUEUE_NAME": "streamos-transcription",
+  "TRANSCRIPTION_WORKER_CONCURRENCY": "2",
+  "REDIS_URL": "rediss://default:password@redis.upstash.io:6379",
+  "SUPABASE_URL": "https://streamos.supabase.co",
+  "SUPABASE_SERVICE_ROLE_KEY": "shared-service-role-key"
+}

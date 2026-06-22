@@ -40,7 +40,7 @@ concurrency:
 env:
   NODE_VERSION: "22"
   PNPM_VERSION: "11.7.0"
-  VERCEL_CLI_VERSION: "52.2.0"
+  VERCEL_CLI_VERSION: "54.10.3"
   RAILWAY_CLI_VERSION: "4.58.0"
   RAILWAY_ENVIRONMENT: production
   SUPABASE_CLI_VERSION: "2.102.0"
@@ -122,7 +122,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -234,6 +234,8 @@ jobs:
           - automation-service
           - stream-job-worker
           - repurposing-worker
+          - publishing-worker
+          - publishing-scheduler-worker
           - clip-worker
           - transcription-worker
           - content-job-retry-worker
@@ -241,7 +243,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Stamp api-gateway runtime provenance
         if: ${{ matrix.service == 'api-gateway' }}
@@ -306,6 +308,139 @@ jobs:
       - name: Install Railway CLI
         run: npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
 
+      - name: Provision repurposing-worker when missing
+        if: ${{ matrix.service == 'repurposing-worker' }}
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016
+
+          npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
+
+          service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
+          if printf '%s' "${service_list}" | jq -e 'if type == "array" then . elif has("services") then .services else [] end | any(.name == "repurposing-worker")' >/dev/null; then
+            service_exists="yes"
+          else
+            service_exists="no"
+          fi
+
+          if [ "${service_exists}" = "yes" ]; then
+            echo "repurposing-worker already exists in Railway production." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            railway_service_response="$(
+              SERVICE_NAME=repurposing-worker node scripts/railway-service-create.cjs
+            )"
+            repurposing_worker_service_id="$(printf '%s' "${railway_service_response}" | jq -r '.id')"
+
+            {
+              echo "## repurposing-worker provisioning"
+              echo ""
+              echo "- Environment: ${RAILWAY_ENVIRONMENT}"
+              echo "- Service: repurposing-worker"
+              echo "- Source: empty service created in the existing project"
+              echo "- Service ID: \`${repurposing_worker_service_id}\`"
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+          railway variable set \
+            --project "${RAILWAY_PROJECT_ID}" \
+            --service repurposing-worker \
+            --environment "${RAILWAY_ENVIRONMENT}" \
+            --skip-deploys \
+            RAILWAY_DOCKERFILE_PATH=Dockerfile.repurposing-worker \
+            --json >/tmp/railway-set-repurposing-worker.json
+
+      - name: Provision publishing-worker when missing
+        if: ${{ matrix.service == 'publishing-worker' }}
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016
+
+          service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
+          if printf '%s' "${service_list}" | jq -e 'if type == "array" then . elif has("services") then .services else [] end | any(.name == "publishing-worker")' >/dev/null; then
+            service_exists="yes"
+          else
+            service_exists="no"
+          fi
+
+          if [ "${service_exists}" = "yes" ]; then
+            echo "publishing-worker already exists in Railway production." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            railway_service_response="$(
+              SERVICE_NAME=publishing-worker node scripts/railway-service-create.cjs
+            )"
+            publishing_worker_service_id="$(printf '%s' "${railway_service_response}" | jq -r '.id')"
+
+            {
+              echo "## publishing-worker provisioning"
+              echo ""
+              echo "- Environment: ${RAILWAY_ENVIRONMENT}"
+              echo "- Service: publishing-worker"
+              echo "- Source: empty service created in the existing project"
+              echo "- Service ID: \`${publishing_worker_service_id}\`"
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+          railway variable set \
+            --project "${RAILWAY_PROJECT_ID}" \
+            --service publishing-worker \
+            --environment "${RAILWAY_ENVIRONMENT}" \
+            --skip-deploys \
+            RAILWAY_DOCKERFILE_PATH=Dockerfile.publishing-worker \
+            --json >/tmp/railway-set-publishing-worker.json
+
+      - name: Provision publishing-scheduler-worker when missing
+        if: ${{ matrix.service == 'publishing-scheduler-worker' }}
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016
+
+          npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
+
+          service_list="$(railway service list --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --json)"
+          if printf '%s' "${service_list}" | jq -e 'if type == "array" then . elif has("services") then .services else [] end | any(.name == "publishing-scheduler-worker")' >/dev/null; then
+            service_exists="yes"
+          else
+            service_exists="no"
+          fi
+
+          if [ "${service_exists}" = "yes" ]; then
+            echo "publishing-scheduler-worker already exists in Railway production." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            railway_service_response="$(
+              SERVICE_NAME=publishing-scheduler-worker node scripts/railway-service-create.cjs
+            )"
+            publishing_scheduler_worker_service_id="$(printf '%s' "${railway_service_response}" | jq -r '.id')"
+
+            {
+              echo "## publishing-scheduler-worker provisioning"
+              echo ""
+              echo "- Environment: ${RAILWAY_ENVIRONMENT}"
+              echo "- Service: publishing-scheduler-worker"
+              echo "- Source: empty service created in the existing project"
+              echo "- Service ID: \`${publishing_scheduler_worker_service_id}\`"
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+          railway variable set \
+            --project "${RAILWAY_PROJECT_ID}" \
+            --service publishing-scheduler-worker \
+            --environment "${RAILWAY_ENVIRONMENT}" \
+            --skip-deploys \
+            RAILWAY_DOCKERFILE_PATH=Dockerfile.publishing-scheduler-worker \
+            --json >/tmp/railway-set-publishing-scheduler-worker.json
+
       - name: Deploy Railway service
         env:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
@@ -315,6 +450,16 @@ jobs:
           set -euo pipefail
 
           if [ "${{ matrix.service }}" = "release-gate-runner" ]; then
+            git_sha="$(git rev-parse HEAD)"
+
+            railway variable set \
+              --project "${RAILWAY_PROJECT_ID}" \
+              --service "${{ matrix.service }}" \
+              --environment "${RAILWAY_ENVIRONMENT}" \
+              --skip-deploys \
+              STREAMOS_RC_COMMIT_SHA="${git_sha}" \
+              --json >/tmp/railway-set-release-gate-runner-commit.json
+
             railway up --ci --no-gitignore --project "${RAILWAY_PROJECT_ID}" --environment "${RAILWAY_ENVIRONMENT}" --service "${{ matrix.service }}"
             exit 0
           fi
@@ -339,7 +484,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -413,7 +558,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v2
@@ -469,21 +614,17 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Vercel CLI
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
-      - name: Link Vercel project
+      - name: Pull Vercel production environment
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          vercel link --yes \
-            --project "${VERCEL_PROJECT_ID}" \
-            --team "${VERCEL_ORG_ID}" \
-            --token="${VERCEL_TOKEN}"
+        run: vercel pull --yes --environment=production --token="${VERCEL_TOKEN}"
 
       - name: Smoke protected Vercel deployment
         env:
@@ -497,11 +638,12 @@ jobs:
             exit 1
           fi
 
-          if ! status="$(vercel --token="${VERCEL_TOKEN}" curl "${DEPLOYMENT_URL}/dashboard" \
-            -s -o /dev/null -w "%{http_code}" 2>smoke.stderr)"; then
+          if ! status="$(vercel curl "/dashboard" --deployment "${DEPLOYMENT_URL}" --yes -- --silent --show-error --output /dev/null --write-out '%{http_code}' 2>smoke.stderr)"; then
             cat smoke.stderr
             exit 1
           fi
+
+          status="${status//$'\r'/}"
 
           if ! [[ "${status}" =~ ^(200|307)$ ]]; then
             echo "::error::Expected ${DEPLOYMENT_URL}/dashboard to return 200 or 307, got ${status}."

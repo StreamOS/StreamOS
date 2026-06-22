@@ -158,6 +158,11 @@ export type ContentJobStatus =
   | "completed"
   | "failed"
   | "cancelled";
+export type ContentJobReviewStatus =
+  | "needs_review"
+  | "approved"
+  | "rejected"
+  | "needs_changes";
 export type VodAssetStatus =
   | "ingested"
   | "transcribing"
@@ -230,6 +235,23 @@ export type RepurposingPlanResult = {
   short_form_plan: string;
   title_suggestions: string[];
   warnings: string[];
+};
+
+export type RepurposingReviewDecision = Exclude<
+  ContentJobReviewStatus,
+  "needs_review"
+>;
+
+export type RepurposingReviewAuditEvent = {
+  contentJobId: string;
+  createdAt: string;
+  id: string;
+  previousReviewStatus: ContentJobReviewStatus | null;
+  reviewStatus: ContentJobReviewStatus;
+  reviewedAt: string;
+  reviewedBy: string | null;
+  reviewerNotes: string;
+  userId: string;
 };
 
 export type RepurposingPlanFailureResult = {
@@ -523,6 +545,10 @@ export type ContentJob = {
   jobType: ContentJobType;
   type: ContentJobType;
   status: ContentJobStatus;
+  reviewStatus: ContentJobReviewStatus;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  reviewerNotes: string;
   payload: Record<string, unknown>;
   result:
     | TranscriptionJobResult
@@ -539,3 +565,194 @@ export type ContentJob = {
   createdAt: string;
   updatedAt: string;
 };
+
+export const CONTENT_PUBLICATION_STATUSES = [
+  "requested",
+  "validated",
+  "queued",
+  "publishing",
+  "published",
+  "failed_retryable",
+  "failed_permanent",
+  "canceled",
+  "rejected",
+] as const;
+
+export type ContentPublicationStatus =
+  (typeof CONTENT_PUBLICATION_STATUSES)[number];
+
+export const CONTENT_PUBLICATION_EVENT_TYPES = [
+  "requested",
+  "validated",
+  "rejected",
+  "canceled",
+  "schedule_blocked",
+  "schedule_canceled",
+  "schedule_created",
+  "schedule_expired",
+  "schedule_replaced",
+  "schedule_updated",
+  "schedule_validation_failed",
+  "queued",
+  "publishing",
+  "published",
+  "failed_retryable",
+  "failed_permanent",
+  "reconcile_requested",
+  "reconcile_skipped",
+  "reconcile_failed_retryable",
+  "reconcile_failed_permanent",
+  "reconciled",
+] as const;
+
+export type ContentPublicationEventType =
+  (typeof CONTENT_PUBLICATION_EVENT_TYPES)[number];
+
+export const CONTENT_PUBLICATION_FANOUT_EVENT_TYPES = [
+  "child_retry_queued",
+  "child_retry_requested",
+  "fanout_blocked",
+  "fanout_requested",
+  "fanout_schedule_blocked",
+  "fanout_schedule_canceled",
+  "fanout_schedule_created",
+  "fanout_schedule_expired",
+  "fanout_schedule_replaced",
+  "fanout_schedule_updated",
+  "fanout_schedule_validation_failed",
+  "fanout_target_schedule_blocked",
+  "fanout_target_schedule_inherited",
+  "fanout_validated",
+  "manual_action_blocked",
+  "parent_aggregate_refreshed",
+  "target_rechecked",
+] as const;
+
+export type ContentPublicationFanoutEventType =
+  (typeof CONTENT_PUBLICATION_FANOUT_EVENT_TYPES)[number];
+
+export const CONTENT_PUBLICATION_VALIDATION_CODES = [
+  "account_capability_missing",
+  "content_job_not_found",
+  "conditional_field_unresolved",
+  "invalid_provider_override_value",
+  "missing_publish_scopes",
+  "policy_blocked",
+  "provider_override_mismatch",
+  "provider_override_unsupported_field",
+  "platform_connection_not_found",
+  "platform_mismatch",
+  "publication_not_ready",
+  "publishable_bundle_missing",
+  "unsupported_capability_version",
+  "unsupported_target_platform",
+] as const;
+
+export type ContentPublicationValidationCode =
+  (typeof CONTENT_PUBLICATION_VALIDATION_CODES)[number];
+
+export type ContentPublicationSnapshot = {
+  approvedBundle: RepurposingPlanResult;
+  capability: Record<string, unknown>;
+  contentJob: {
+    id: string;
+    queueJobId: string | null;
+    reviewStatus: ContentJobReviewStatus;
+    status: ContentJobStatus;
+    streamId: string | null;
+  };
+  platformConnection: {
+    id: string;
+    platform: StreamPlatform;
+    scopes: string[];
+  };
+  providerOverrides: Record<string, Record<string, unknown>>;
+  schedule: ContentPublicationScheduleSummary;
+  targetPlatform: StreamPlatform;
+};
+
+export type ContentPublication = {
+  capabilitySnapshot: Record<string, unknown>;
+  capabilityVersion: string;
+  id: string;
+  userId: string;
+  contentJobId: string;
+  desiredVisibility: PublicationCanonicalDraft["visibility"];
+  effectiveVisibility: string | null;
+  lastReconciledAt: string | null;
+  platformConnectionId: string;
+  targetPlatform: StreamPlatform;
+  publicationStatus: ContentPublicationStatus;
+  providerFailureCode: PublicationProviderFailureCode | null;
+  providerFailureMetadata: Record<string, unknown>;
+  providerFailureReason: string | null;
+  providerOverrides: Record<string, Record<string, unknown>>;
+  reconciliationStatus: PublicationReconciliationStatus;
+  reconcileMaxRetries: number;
+  reconcileNextRetryAt: string | null;
+  reconcileRetryCount: number;
+  reviewStatusAtRequest: ContentJobReviewStatus;
+  requestedBy: string;
+  requestedAt: string;
+  validatedAt: string | null;
+  requestIntentHash: string;
+  snapshotHash: string;
+  snapshot: ContentPublicationSnapshot;
+  validationCode: ContentPublicationValidationCode | null;
+  validationMessage: string | null;
+  validationMetadata: Record<string, unknown>;
+  retryCount: number;
+  maxRetries: number;
+  nextRetryAt: string | null;
+  scheduledAtUtc: string | null;
+  scheduledTimezone: string | null;
+  scheduleBlockMessage: string | null;
+  scheduleBlockReason: ContentPublicationScheduleBlockReason | null;
+  scheduleCanceledAt: string | null;
+  scheduleCanceledReason: string | null;
+  scheduleCapabilitySnapshot: Record<string, unknown>;
+  scheduleCreatedAt: string | null;
+  scheduleExpiredAt: string | null;
+  scheduleReplacedAt: string | null;
+  scheduleSource: ContentPublicationScheduleSource | null;
+  scheduleStatus: ContentPublicationScheduleStatus;
+  scheduleUpdatedAt: string | null;
+  scheduleValidationMetadata: Record<string, unknown>;
+  externalPostId: string | null;
+  externalUrl: string | null;
+  publishedAt: string | null;
+  remoteProcessingStatus: string | null;
+  remoteState: Record<string, unknown>;
+  remoteStatus: PublicationRemoteStatus | null;
+  remoteUploadStatus: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ContentPublicationEvent = {
+  actorId: string;
+  contentPublicationId: string;
+  createdAt: string;
+  eventType: ContentPublicationEventType;
+  id: string;
+  metadata: Record<string, unknown>;
+  previousPublicationStatus: ContentPublicationStatus | null;
+  publicationStatus: ContentPublicationStatus;
+  source: string;
+  userId: string;
+};
+
+export * from "./publications.js";
+export * from "./publication-scheduling.js";
+import type {
+  PublicationCanonicalDraft,
+  PublicationProviderFailureCode,
+  PublicationReconciliationStatus,
+  PublicationRemoteStatus,
+} from "./publications.js";
+import type {
+  ContentPublicationScheduleBlockReason,
+  ContentPublicationScheduleSource,
+  ContentPublicationScheduleStatus,
+  ContentPublicationScheduleSummary,
+} from "./publication-scheduling.js";

@@ -190,6 +190,8 @@ The production deployment topology is documented in
 - `services/automation-service` deploys to Railway first, or Fly.io when GPU-backed Whisper becomes required.
 - `workers/stream-job-worker` deploys to Railway as the canonical `streamos-media` consumer and materializes durable stream/content-job state.
 - `workers/repurposing-worker` deploys to Railway as the canonical `streamos-repurposing` consumer and calls `POST /repurposing/plan` for manual-review-only repurposing plans.
+- `workers/publishing-worker` deploys to Railway as the canonical `streamos-publishing` consumer and executes approved publication and reconciliation jobs for server-side provider writes.
+- `workers/publishing-scheduler-worker` deploys to Railway as a private polling worker that claims due scheduled publications and enqueues deterministic `publication.publish` jobs into `streamos-publishing`. The StreamOS scheduler remains the primary source of truth; provider-native scheduling is treated only as a secondary policy hint, not as the primary execution path.
 - `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.
 - `workers/clip-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for clip scoring.
 - `workers/content-job-retry-worker` deploys to Railway as a Node.js BullMQ worker that requeues retryable failed `content_jobs`.
@@ -206,6 +208,11 @@ The gate now fails early with `snapshot_not_proof_capable` if the runtime is
 missing `scripts/rollout-check.cjs`, the root `rollout:check:production`
 script, required workspace sources, or the current runner-provenance / gate-contract
 marker generated from the deployed checkout.
+For the publishing and scheduling slice, run the controlled staging proof in
+[`docs/deployment.md`](docs/deployment.md) before any production-oriented
+approval. That staging proof verifies inventory, worker privacy, schema,
+queue, observability, and creator-safe read models without real third-party
+writes.
 
 ### Required GitHub Secrets
 
@@ -239,12 +246,22 @@ the Redis protocol endpoint, not the REST endpoint:
 REDIS_URL=rediss://default:password@host.upstash.io:6379
 CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
-CLIP_WORKER_CONCURRENCY=1
+REPURPOSING_QUEUE_NAME=streamos-repurposing
 API_GATEWAY_SECRET=
 API_GATEWAY_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 API_GATEWAY_RATE_LIMIT_MAX=120
 API_GATEWAY_RATE_LIMIT_WINDOW_MS=60000
 STREAM_EVENT_WEBHOOK_SECRET=
+TWITCH_CLIENT_ID=
+TWITCH_CLIENT_SECRET=
+TWITCH_EVENTSUB_SECRET=
+YOUTUBE_CLIENT_ID=
+YOUTUBE_CLIENT_SECRET=
+YOUTUBE_WEBHOOK_SECRET=
+TIKTOK_CLIENT_KEY=
+TIKTOK_CLIENT_SECRET=
+KICK_CLIENT_ID=
+KICK_CLIENT_SECRET=
 CONTENT_JOB_RETRY_ATTEMPTS=3
 CONTENT_JOB_RETRY_BACKOFF_MS=30000
 ```
@@ -273,16 +290,38 @@ and the connected platform metadata explicitly opts in. The dedicated
 `repurposing-worker` consumes only `streamos-repurposing`, calls
 `POST /repurposing/plan`, and persists a manual-review-only plan in
 `content_jobs.result`. It does not auto-publish, export, render, or
-crosspost. Raw provider events without a direct `vodAssetUrl` still rely on
-server-side enrichment against existing assets before they can trigger
-automatic transcription.
+crosspost. Approved repurposing jobs can later produce a sanitized,
+clipboard-only export bundle for manual use. Raw provider events without a
+direct `vodAssetUrl` still rely on server-side enrichment against existing
+assets before they can trigger automatic transcription.
 
-`GET /api/observability` is a protected server-to-server snapshot route for
-operator use. It requires `API_GATEWAY_SECRET`, returns the current
-observability backend (`redis` in production, `memory` only for local/test
-fallback), and exposes only the counters `dedupe_hits`,
-`rate_limit_rejects`, `webhook_validation_failures`, and
-`queue_enqueue_failures`.
+`POST /api/content-publications` is the server-side publication contract for
+approved repurposing jobs. It freezes a publish snapshot, writes
+`content_publications`, and appends `content_publication_events` for audit
+history. The gateway then enqueues the deterministic `publication.publish`
+job into `streamos-publishing`, where `workers/publishing-worker` performs the
+server-side provider write and reconciliation work. The browser still does not
+call provider write APIs directly.
+
+`POST /api/content-publications/fanout` is the server-side fanout contract for
+approved repurposing jobs that should prepare multiple target publications in
+one request. It validates the repurposing snapshot once, validates each target
+server-side, and writes durable fanout audit rows before any publication worker
+path is used. The browser still does not call provider write APIs directly.
+
+`GET /dashboard/publications/schedule` is the read-only schedule overview for
+approved publications and parent fanouts. It groups planned items by day,
+shows export eligibility and history links, and stays tenant-scoped without
+starting any worker, publish, or provider-write flow from the browser. The
+schedule timeline is always StreamOS-managed first; provider-native hints can
+inform policy, but they do not replace the canonical schedule state or fanout
+parent ownership.
+
+`GET /api/observability/scheduler` is a protected server-to-server snapshot
+route for operator use. It requires `API_GATEWAY_SECRET`, returns persisted
+scheduler run history plus summary counters and stuck-claim visibility, and
+exposes only secret-safe attempt/run reasons without raw payloads or private
+URLs.
 
 In production, `services/api-gateway` fails startup unless
 `API_GATEWAY_SECRET`, `STREAM_EVENT_WEBHOOK_SECRET`, and `REDIS_URL` are set.

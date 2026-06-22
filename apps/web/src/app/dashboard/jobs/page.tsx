@@ -28,6 +28,9 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
             Live-Status fuer Clip-, Transkriptions- und Repurposing-Jobs.
           </p>
         </div>
+        <a className="btn-ghost" href="/dashboard/jobs/repurposing">
+          Repurposing Review
+        </a>
       </header>
 
       <ContentJobsLiveList

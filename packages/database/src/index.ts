@@ -19,6 +19,120 @@ export type ContentJobType =
   | "repurposing"
   | "clip_scoring"
   | "title_generation";
+export type ContentJobReviewStatus =
+  | "needs_review"
+  | "approved"
+  | "rejected"
+  | "needs_changes";
+export type ContentPublicationStatus =
+  | "requested"
+  | "validated"
+  | "queued"
+  | "publishing"
+  | "published"
+  | "failed_retryable"
+  | "failed_permanent"
+  | "canceled"
+  | "rejected";
+export type ContentPublicationEventType =
+  | "requested"
+  | "validated"
+  | "rejected"
+  | "canceled"
+  | "schedule_blocked"
+  | "schedule_canceled"
+  | "schedule_created"
+  | "schedule_expired"
+  | "schedule_replaced"
+  | "schedule_updated"
+  | "schedule_validation_failed"
+  | "queued"
+  | "publishing"
+  | "published"
+  | "failed_retryable"
+  | "failed_permanent"
+  | "reconcile_requested"
+  | "reconcile_skipped"
+  | "reconcile_failed_retryable"
+  | "reconcile_failed_permanent"
+  | "reconciled";
+export type ContentPublicationFanoutStatus =
+  | "blocked"
+  | "canceled"
+  | "partially_validated"
+  | "requested"
+  | "validated";
+export type ContentPublicationFanoutTargetStatus = "blocked" | "validated";
+export type ContentPublicationFanoutEventType =
+  | "child_retry_queued"
+  | "child_retry_requested"
+  | "fanout_blocked"
+  | "fanout_requested"
+  | "fanout_schedule_blocked"
+  | "fanout_schedule_canceled"
+  | "fanout_schedule_created"
+  | "fanout_schedule_expired"
+  | "fanout_schedule_replaced"
+  | "fanout_schedule_updated"
+  | "fanout_schedule_validation_failed"
+  | "fanout_target_schedule_blocked"
+  | "fanout_target_schedule_inherited"
+  | "fanout_validated"
+  | "manual_action_blocked"
+  | "parent_aggregate_refreshed"
+  | "target_rechecked";
+export type PublicationSchedulerRunStatus =
+  | "running"
+  | "completed"
+  | "completed_with_warnings"
+  | "failed"
+  | "canceled"
+  | "unknown";
+export type PublicationSchedulerRunAttemptKind = "stale_claim" | "due_claim";
+export type PublicationSchedulerRunAttemptStatus =
+  | "recovered"
+  | "queued"
+  | "retryable_failed"
+  | "permanent_failed"
+  | "skipped"
+  | "stuck_claim";
+export type ContentPublicationScheduleStatus =
+  | "not_scheduled"
+  | "scheduled"
+  | "schedule_blocked"
+  | "schedule_expired"
+  | "schedule_canceled"
+  | "schedule_replaced"
+  | "schedule_ready"
+  | "schedule_unknown";
+export type ContentPublicationScheduleSource =
+  | "api-gateway"
+  | "dashboard"
+  | "manual"
+  | "system";
+export type ContentPublicationScheduleBlockReason =
+  | "child_not_part_of_parent"
+  | "content_job_not_approved"
+  | "content_job_not_complete"
+  | "fanout_finalized"
+  | "fanout_not_ready"
+  | "missing_publish_scopes"
+  | "platform_connection_missing"
+  | "platform_connection_not_connected"
+  | "publication_finalized"
+  | "publication_processing"
+  | "publication_reauth_required"
+  | "publication_status_not_schedulable"
+  | "publishable_asset_missing"
+  | "publishable_bundle_missing"
+  | "schedule_time_invalid"
+  | "schedule_timezone_invalid"
+  | "scheduling_not_allowed"
+  | "target_unsupported"
+  | "tenant_mismatch";
+export type PublicationFanoutPolicy =
+  | "all_or_nothing_preflight"
+  | "prepare_valid_targets";
 export type VodAssetStatus =
   | "ingested"
   | "transcribing"
@@ -152,7 +266,7 @@ export type Database = {
           user_id: string;
           creator_id: string;
           platform: Database["public"]["Enums"]["stream_platform"];
-          external_channel_id: string | null;
+          external_post_id: string | null;
           display_name: string;
           follower_count: number;
           connected_at: string | null;
@@ -455,6 +569,10 @@ export type Database = {
           job_type: ContentJobType;
           type: ContentJobType;
           status: ContentJobStatus;
+          review_status: ContentJobReviewStatus;
+          reviewer_notes: string;
+          reviewed_by: string | null;
+          reviewed_at: string | null;
           payload: Json;
           result: Json | null;
           error_message: string | null;
@@ -476,6 +594,10 @@ export type Database = {
           job_type: ContentJobType;
           type?: ContentJobType;
           status?: ContentJobStatus;
+          review_status?: ContentJobReviewStatus;
+          reviewer_notes?: string;
+          reviewed_by?: string | null;
+          reviewed_at?: string | null;
           payload?: Json;
           result?: Json | null;
           error_message?: string | null;
@@ -497,6 +619,10 @@ export type Database = {
           job_type?: ContentJobType;
           type?: ContentJobType;
           status?: ContentJobStatus;
+          review_status?: ContentJobReviewStatus;
+          reviewer_notes?: string;
+          reviewed_by?: string | null;
+          reviewed_at?: string | null;
           payload?: Json;
           result?: Json | null;
           error_message?: string | null;
@@ -524,6 +650,830 @@ export type Database = {
           },
         ];
       };
+      content_job_review_events: {
+        Row: {
+          content_job_id: string;
+          created_at: string;
+          id: string;
+          previous_review_status: ContentJobReviewStatus | null;
+          review_status: ContentJobReviewStatus;
+          reviewed_at: string;
+          reviewed_by: string | null;
+          reviewer_notes: string;
+          user_id: string;
+        };
+        Insert: {
+          content_job_id: string;
+          created_at?: string;
+          id?: string;
+          previous_review_status?: ContentJobReviewStatus | null;
+          review_status: ContentJobReviewStatus;
+          reviewed_at?: string;
+          reviewed_by?: string | null;
+          reviewer_notes?: string;
+          user_id: string;
+        };
+        Update: {
+          content_job_id?: string;
+          created_at?: string;
+          id?: string;
+          previous_review_status?: ContentJobReviewStatus | null;
+          review_status?: ContentJobReviewStatus;
+          reviewed_at?: string;
+          reviewed_by?: string | null;
+          reviewer_notes?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_job_review_events_content_job_user_fkey";
+            columns: ["content_job_id", "user_id"];
+            referencedRelation: "content_jobs";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
+      content_job_export_events: {
+        Row: {
+          actor_id: string;
+          bundle_hash: string | null;
+          content_job_id: string;
+          created_at: string;
+          event_type: "copy_bundle" | "copy_template";
+          id: string;
+          metadata: Json;
+          review_status_at_export: ContentJobReviewStatus;
+          source: string;
+          target_platform: "tiktok" | "youtube_shorts";
+          template_key: "bundle" | "tiktok" | "youtube_shorts";
+          user_id: string;
+        };
+        Insert: {
+          actor_id: string;
+          bundle_hash?: string | null;
+          content_job_id: string;
+          created_at?: string;
+          event_type: "copy_bundle" | "copy_template";
+          id?: string;
+          metadata?: Json;
+          review_status_at_export: ContentJobReviewStatus;
+          source?: string;
+          target_platform: "tiktok" | "youtube_shorts";
+          template_key: "bundle" | "tiktok" | "youtube_shorts";
+          user_id: string;
+        };
+        Update: {
+          actor_id?: string;
+          bundle_hash?: string | null;
+          content_job_id?: string;
+          created_at?: string;
+          event_type?: "copy_bundle" | "copy_template";
+          id?: string;
+          metadata?: Json;
+          review_status_at_export?: ContentJobReviewStatus;
+          source?: string;
+          target_platform?: "tiktok" | "youtube_shorts";
+          template_key?: "bundle" | "tiktok" | "youtube_shorts";
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_job_export_events_content_job_user_fkey";
+            columns: ["content_job_id", "user_id"];
+            referencedRelation: "content_jobs";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
+      content_publications: {
+        Row: {
+          capability_snapshot: Json;
+          capability_version: string;
+          content_job_id: string;
+          created_at: string;
+          desired_visibility: string;
+          effective_visibility: string | null;
+          external_post_id: string | null;
+          external_url: string | null;
+          id: string;
+          last_reconciled_at: string | null;
+          max_retries: number;
+          next_retry_at: string | null;
+          scheduled_at_utc: string | null;
+          scheduled_timezone: string | null;
+          schedule_block_message: string | null;
+          schedule_block_reason: ContentPublicationScheduleBlockReason | null;
+          schedule_canceled_at: string | null;
+          schedule_canceled_reason: string | null;
+          schedule_capability_snapshot: Json;
+          schedule_created_at: string | null;
+          schedule_expired_at: string | null;
+          schedule_replaced_at: string | null;
+          schedule_source: ContentPublicationScheduleSource | null;
+          schedule_status: ContentPublicationScheduleStatus;
+          schedule_updated_at: string | null;
+          schedule_validation_metadata: Json;
+          schedule_execution_attempt_count: number;
+          schedule_execution_claimed_at: string | null;
+          schedule_execution_claimed_by: string | null;
+          schedule_execution_completed_at: string | null;
+          schedule_execution_error_code: string | null;
+          schedule_execution_error_message: string | null;
+          schedule_execution_last_attempt_at: string | null;
+          schedule_execution_max_retries: number;
+          schedule_execution_metadata: Json;
+          schedule_execution_next_attempt_at: string | null;
+          schedule_execution_queue_job_id: string | null;
+          schedule_execution_status: string;
+          platform_connection_id: string;
+          published_at: string | null;
+          publication_status: ContentPublicationStatus;
+          provider_failure_code: string | null;
+          provider_failure_metadata: Json;
+          provider_failure_reason: string | null;
+          request_intent_hash: string;
+          requested_at: string;
+          requested_by: string;
+          provider_overrides: Json;
+          reconciliation_status: string;
+          reconcile_max_retries: number;
+          reconcile_next_retry_at: string | null;
+          reconcile_retry_count: number;
+          retry_count: number;
+          review_status_at_request: ContentJobReviewStatus;
+          snapshot: Json;
+          snapshot_hash: string;
+          remote_processing_status: string | null;
+          remote_state: Json;
+          remote_status: string;
+          remote_upload_status: string | null;
+          target_platform: Database["public"]["Enums"]["stream_platform"];
+          updated_at: string;
+          user_id: string;
+          validated_at: string | null;
+          validation_code: string | null;
+          validation_message: string | null;
+          validation_metadata: Json;
+        };
+        Insert: {
+          capability_snapshot?: Json;
+          capability_version?: string;
+          content_job_id: string;
+          created_at?: string;
+          desired_visibility?: string;
+          effective_visibility?: string | null;
+          external_post_id?: string | null;
+          external_url?: string | null;
+          id?: string;
+          last_reconciled_at?: string | null;
+          max_retries?: number;
+          next_retry_at?: string | null;
+          scheduled_at_utc?: string | null;
+          scheduled_timezone?: string | null;
+          schedule_block_message?: string | null;
+          schedule_block_reason?: ContentPublicationScheduleBlockReason | null;
+          schedule_canceled_at?: string | null;
+          schedule_canceled_reason?: string | null;
+          schedule_capability_snapshot?: Json;
+          schedule_created_at?: string | null;
+          schedule_expired_at?: string | null;
+          schedule_replaced_at?: string | null;
+          schedule_source?: ContentPublicationScheduleSource | null;
+          schedule_status?: ContentPublicationScheduleStatus;
+          schedule_updated_at?: string | null;
+          schedule_validation_metadata?: Json;
+          schedule_execution_attempt_count?: number;
+          schedule_execution_claimed_at?: string | null;
+          schedule_execution_claimed_by?: string | null;
+          schedule_execution_completed_at?: string | null;
+          schedule_execution_error_code?: string | null;
+          schedule_execution_error_message?: string | null;
+          schedule_execution_last_attempt_at?: string | null;
+          schedule_execution_max_retries?: number;
+          schedule_execution_metadata?: Json;
+          schedule_execution_next_attempt_at?: string | null;
+          schedule_execution_queue_job_id?: string | null;
+          schedule_execution_status?: string;
+          platform_connection_id: string;
+          published_at?: string | null;
+          publication_status?: ContentPublicationStatus;
+          provider_failure_code?: string | null;
+          provider_failure_metadata?: Json;
+          provider_failure_reason?: string | null;
+          request_intent_hash: string;
+          requested_at?: string;
+          requested_by: string;
+          provider_overrides?: Json;
+          reconciliation_status?: string;
+          reconcile_max_retries?: number;
+          reconcile_next_retry_at?: string | null;
+          reconcile_retry_count?: number;
+          retry_count?: number;
+          review_status_at_request: ContentJobReviewStatus;
+          snapshot?: Json;
+          snapshot_hash: string;
+          remote_processing_status?: string | null;
+          remote_state?: Json;
+          remote_status?: string;
+          remote_upload_status?: string | null;
+          target_platform: Database["public"]["Enums"]["stream_platform"];
+          updated_at?: string;
+          user_id: string;
+          validated_at?: string | null;
+          validation_code?: string | null;
+          validation_message?: string | null;
+          validation_metadata?: Json;
+        };
+        Update: {
+          capability_snapshot?: Json;
+          capability_version?: string;
+          content_job_id?: string;
+          created_at?: string;
+          desired_visibility?: string;
+          effective_visibility?: string | null;
+          external_post_id?: string | null;
+          external_url?: string | null;
+          id?: string;
+          last_reconciled_at?: string | null;
+          max_retries?: number;
+          next_retry_at?: string | null;
+          scheduled_at_utc?: string | null;
+          scheduled_timezone?: string | null;
+          schedule_block_message?: string | null;
+          schedule_block_reason?: ContentPublicationScheduleBlockReason | null;
+          schedule_canceled_at?: string | null;
+          schedule_canceled_reason?: string | null;
+          schedule_capability_snapshot?: Json;
+          schedule_created_at?: string | null;
+          schedule_expired_at?: string | null;
+          schedule_replaced_at?: string | null;
+          schedule_source?: ContentPublicationScheduleSource | null;
+          schedule_status?: ContentPublicationScheduleStatus;
+          schedule_updated_at?: string | null;
+          schedule_validation_metadata?: Json;
+          schedule_execution_attempt_count?: number;
+          schedule_execution_claimed_at?: string | null;
+          schedule_execution_claimed_by?: string | null;
+          schedule_execution_completed_at?: string | null;
+          schedule_execution_error_code?: string | null;
+          schedule_execution_error_message?: string | null;
+          schedule_execution_last_attempt_at?: string | null;
+          schedule_execution_max_retries?: number;
+          schedule_execution_metadata?: Json;
+          schedule_execution_next_attempt_at?: string | null;
+          schedule_execution_queue_job_id?: string | null;
+          schedule_execution_status?: string;
+          platform_connection_id?: string;
+          published_at?: string | null;
+          publication_status?: ContentPublicationStatus;
+          provider_failure_code?: string | null;
+          provider_failure_metadata?: Json;
+          provider_failure_reason?: string | null;
+          request_intent_hash?: string;
+          requested_at?: string;
+          requested_by?: string;
+          provider_overrides?: Json;
+          reconciliation_status?: string;
+          reconcile_max_retries?: number;
+          reconcile_next_retry_at?: string | null;
+          reconcile_retry_count?: number;
+          retry_count?: number;
+          review_status_at_request?: ContentJobReviewStatus;
+          snapshot?: Json;
+          snapshot_hash?: string;
+          remote_processing_status?: string | null;
+          remote_state?: Json;
+          remote_status?: string;
+          remote_upload_status?: string | null;
+          target_platform?: Database["public"]["Enums"]["stream_platform"];
+          updated_at?: string;
+          user_id?: string;
+          validated_at?: string | null;
+          validation_code?: string | null;
+          validation_message?: string | null;
+          validation_metadata?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_publications_content_job_user_fkey";
+            columns: ["content_job_id", "user_id"];
+            referencedRelation: "content_jobs";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publications_connection_user_fkey";
+            columns: ["platform_connection_id", "user_id"];
+            referencedRelation: "platform_connections";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
+      content_publication_events: {
+        Row: {
+          actor_id: string;
+          content_publication_id: string;
+          created_at: string;
+          event_type: ContentPublicationEventType;
+          id: string;
+          metadata: Json;
+          previous_publication_status: ContentPublicationStatus | null;
+          publication_status: ContentPublicationStatus;
+          source: string;
+          user_id: string;
+        };
+        Insert: {
+          actor_id: string;
+          content_publication_id: string;
+          created_at?: string;
+          event_type: ContentPublicationEventType;
+          id?: string;
+          metadata?: Json;
+          previous_publication_status?: ContentPublicationStatus | null;
+          publication_status: ContentPublicationStatus;
+          source?: string;
+          user_id: string;
+        };
+        Update: {
+          actor_id?: string;
+          content_publication_id?: string;
+          created_at?: string;
+          event_type?: ContentPublicationEventType;
+          id?: string;
+          metadata?: Json;
+          previous_publication_status?: ContentPublicationStatus | null;
+          publication_status?: ContentPublicationStatus;
+          source?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_publication_events_publication_user_fkey";
+            columns: ["content_publication_id", "user_id"];
+            referencedRelation: "content_publications";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
+      content_publication_fanouts: {
+        Row: {
+          blocked_target_count: number;
+          content_job_id: string;
+          created_at: string;
+          last_action_at: string | null;
+          last_action_key: string | null;
+          last_action_result: string | null;
+          last_aggregate_refreshed_at: string | null;
+          fanout_policy: PublicationFanoutPolicy;
+          fanout_status: ContentPublicationFanoutStatus;
+          id: string;
+          scheduled_at_utc: string | null;
+          scheduled_timezone: string | null;
+          schedule_block_message: string | null;
+          schedule_block_reason: ContentPublicationScheduleBlockReason | null;
+          schedule_canceled_at: string | null;
+          schedule_canceled_reason: string | null;
+          schedule_capability_snapshot: Json;
+          schedule_created_at: string | null;
+          schedule_expired_at: string | null;
+          schedule_replaced_at: string | null;
+          schedule_source: ContentPublicationScheduleSource | null;
+          schedule_status: ContentPublicationScheduleStatus;
+          schedule_updated_at: string | null;
+          schedule_validation_metadata: Json;
+          requested_at: string;
+          requested_by: string;
+          request_intent_hash: string;
+          review_status_at_request: ContentJobReviewStatus;
+          snapshot: Json;
+          snapshot_hash: string;
+          target_count: number;
+          updated_at: string;
+          user_id: string;
+          validated_at: string | null;
+          validated_target_count: number;
+        };
+        Insert: {
+          blocked_target_count?: number;
+          content_job_id: string;
+          created_at?: string;
+          last_action_at?: string | null;
+          last_action_key?: string | null;
+          last_action_result?: string | null;
+          last_aggregate_refreshed_at?: string | null;
+          fanout_policy?: PublicationFanoutPolicy;
+          fanout_status?: ContentPublicationFanoutStatus;
+          id?: string;
+          scheduled_at_utc?: string | null;
+          scheduled_timezone?: string | null;
+          schedule_block_message?: string | null;
+          schedule_block_reason?: ContentPublicationScheduleBlockReason | null;
+          schedule_canceled_at?: string | null;
+          schedule_canceled_reason?: string | null;
+          schedule_capability_snapshot?: Json;
+          schedule_created_at?: string | null;
+          schedule_expired_at?: string | null;
+          schedule_replaced_at?: string | null;
+          schedule_source?: ContentPublicationScheduleSource | null;
+          schedule_status?: ContentPublicationScheduleStatus;
+          schedule_updated_at?: string | null;
+          schedule_validation_metadata?: Json;
+          requested_at?: string;
+          requested_by: string;
+          request_intent_hash: string;
+          review_status_at_request: ContentJobReviewStatus;
+          snapshot?: Json;
+          snapshot_hash: string;
+          target_count?: number;
+          updated_at?: string;
+          user_id: string;
+          validated_at?: string | null;
+          validated_target_count?: number;
+        };
+        Update: {
+          blocked_target_count?: number;
+          content_job_id?: string;
+          created_at?: string;
+          last_action_at?: string | null;
+          last_action_key?: string | null;
+          last_action_result?: string | null;
+          last_aggregate_refreshed_at?: string | null;
+          fanout_policy?: PublicationFanoutPolicy;
+          fanout_status?: ContentPublicationFanoutStatus;
+          id?: string;
+          scheduled_at_utc?: string | null;
+          scheduled_timezone?: string | null;
+          schedule_block_message?: string | null;
+          schedule_block_reason?: ContentPublicationScheduleBlockReason | null;
+          schedule_canceled_at?: string | null;
+          schedule_canceled_reason?: string | null;
+          schedule_capability_snapshot?: Json;
+          schedule_created_at?: string | null;
+          schedule_expired_at?: string | null;
+          schedule_replaced_at?: string | null;
+          schedule_source?: ContentPublicationScheduleSource | null;
+          schedule_status?: ContentPublicationScheduleStatus;
+          schedule_updated_at?: string | null;
+          schedule_validation_metadata?: Json;
+          requested_at?: string;
+          requested_by?: string;
+          request_intent_hash?: string;
+          review_status_at_request?: ContentJobReviewStatus;
+          snapshot?: Json;
+          snapshot_hash?: string;
+          target_count?: number;
+          updated_at?: string;
+          user_id?: string;
+          validated_at?: string | null;
+          validated_target_count?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_publication_fanouts_content_job_user_fkey";
+            columns: ["content_job_id", "user_id"];
+            referencedRelation: "content_jobs";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_fanouts_requested_by_fkey";
+            columns: ["requested_by"];
+            referencedRelation: "auth.users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      content_publication_fanout_targets: {
+        Row: {
+          block_message: string | null;
+          block_reason: string | null;
+          capability_snapshot: Json;
+          capability_version: string;
+          content_publication_fanout_id: string;
+          content_publication_id: string | null;
+          created_at: string;
+          last_action_at: string | null;
+          last_action_key: string | null;
+          last_action_result: string | null;
+          last_block_reason: string | null;
+          last_rechecked_at: string | null;
+          id: string;
+          platform_connection_id: string;
+          provider_overrides: Json;
+          request_intent_hash: string;
+          target_platform: Database["public"]["Enums"]["stream_platform"];
+          target_status: ContentPublicationFanoutTargetStatus;
+          updated_at: string;
+          user_id: string;
+          validated_at: string | null;
+        };
+        Insert: {
+          block_message?: string | null;
+          block_reason?: string | null;
+          capability_snapshot?: Json;
+          capability_version?: string;
+          content_publication_fanout_id: string;
+          content_publication_id?: string | null;
+          created_at?: string;
+          last_action_at?: string | null;
+          last_action_key?: string | null;
+          last_action_result?: string | null;
+          last_block_reason?: string | null;
+          last_rechecked_at?: string | null;
+          id?: string;
+          platform_connection_id: string;
+          provider_overrides?: Json;
+          request_intent_hash: string;
+          target_platform: Database["public"]["Enums"]["stream_platform"];
+          target_status: ContentPublicationFanoutTargetStatus;
+          updated_at?: string;
+          user_id: string;
+          validated_at?: string | null;
+        };
+        Update: {
+          block_message?: string | null;
+          block_reason?: string | null;
+          capability_snapshot?: Json;
+          capability_version?: string;
+          content_publication_fanout_id?: string;
+          content_publication_id?: string | null;
+          created_at?: string;
+          last_action_at?: string | null;
+          last_action_key?: string | null;
+          last_action_result?: string | null;
+          last_block_reason?: string | null;
+          last_rechecked_at?: string | null;
+          id?: string;
+          platform_connection_id?: string;
+          provider_overrides?: Json;
+          request_intent_hash?: string;
+          target_platform?: Database["public"]["Enums"]["stream_platform"];
+          target_status?: ContentPublicationFanoutTargetStatus;
+          updated_at?: string;
+          user_id?: string;
+          validated_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_publication_fanout_targets_fanout_user_fkey";
+            columns: ["content_publication_fanout_id", "user_id"];
+            referencedRelation: "content_publication_fanouts";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_fanout_targets_publication_user_fkey";
+            columns: ["content_publication_id", "user_id"];
+            referencedRelation: "content_publications";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_fanout_targets_connection_user_fkey";
+            columns: ["platform_connection_id", "user_id"];
+            referencedRelation: "platform_connections";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
+      content_publication_fanout_events: {
+        Row: {
+          action_key: string | null;
+          action_result: string;
+          actor_id: string;
+          content_publication_fanout_id: string;
+          content_publication_fanout_target_id: string | null;
+          content_publication_id: string | null;
+          created_at: string;
+          event_type: ContentPublicationFanoutEventType;
+          fanout_status: string;
+          id: string;
+          metadata: Json;
+          previous_fanout_status: string | null;
+          previous_target_status: string | null;
+          source: string;
+          target_status: string | null;
+          user_id: string;
+        };
+        Insert: {
+          action_key?: string | null;
+          action_result: string;
+          actor_id: string;
+          content_publication_fanout_id: string;
+          content_publication_fanout_target_id?: string | null;
+          content_publication_id?: string | null;
+          created_at?: string;
+          event_type: ContentPublicationFanoutEventType;
+          fanout_status: string;
+          id?: string;
+          metadata?: Json;
+          previous_fanout_status?: string | null;
+          previous_target_status?: string | null;
+          source?: string;
+          target_status?: string | null;
+          user_id: string;
+        };
+        Update: {
+          action_key?: string | null;
+          action_result?: string;
+          actor_id?: string;
+          content_publication_fanout_id?: string;
+          content_publication_fanout_target_id?: string | null;
+          content_publication_id?: string | null;
+          created_at?: string;
+          event_type?: ContentPublicationFanoutEventType;
+          fanout_status?: string;
+          id?: string;
+          metadata?: Json;
+          previous_fanout_status?: string | null;
+          previous_target_status?: string | null;
+          source?: string;
+          target_status?: string | null;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_publication_fanout_events_fanout_user_fkey";
+            columns: ["content_publication_fanout_id", "user_id"];
+            referencedRelation: "content_publication_fanouts";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_fanout_events_target_user_fkey";
+            columns: ["content_publication_fanout_target_id", "user_id"];
+            referencedRelation: "content_publication_fanout_targets";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_fanout_events_publication_user_fkey";
+            columns: ["content_publication_id", "user_id"];
+            referencedRelation: "content_publications";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_fanout_events_actor_id_fkey";
+            columns: ["actor_id"];
+            referencedRelation: "auth.users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      content_publication_scheduler_runs: {
+        Row: {
+          batch_size: number;
+          claim_timeout_ms: number;
+          completed_at: string | null;
+          created_at: string;
+          due_claim_count: number;
+          id: string;
+          last_attempt_at: string | null;
+          last_error_code: string | null;
+          last_error_message: string | null;
+          metadata: Json;
+          poll_interval_ms: number;
+          permanent_failed_count: number;
+          queued_count: number;
+          recovered_count: number;
+          retryable_failed_count: number;
+          run_status: PublicationSchedulerRunStatus;
+          scanned_count: number;
+          scheduler_name: string;
+          skipped_count: number;
+          started_at: string;
+          stale_claim_count: number;
+          stuck_claim_count: number;
+          updated_at: string;
+          worker_id: string;
+        };
+        Insert: {
+          batch_size?: number;
+          claim_timeout_ms?: number;
+          completed_at?: string | null;
+          created_at?: string;
+          due_claim_count?: number;
+          id: string;
+          last_attempt_at?: string | null;
+          last_error_code?: string | null;
+          last_error_message?: string | null;
+          metadata?: Json;
+          poll_interval_ms?: number;
+          permanent_failed_count?: number;
+          queued_count?: number;
+          recovered_count?: number;
+          retryable_failed_count?: number;
+          run_status?: PublicationSchedulerRunStatus;
+          scanned_count?: number;
+          scheduler_name?: string;
+          skipped_count?: number;
+          started_at?: string;
+          stale_claim_count?: number;
+          stuck_claim_count?: number;
+          updated_at?: string;
+          worker_id: string;
+        };
+        Update: {
+          batch_size?: number;
+          claim_timeout_ms?: number;
+          completed_at?: string | null;
+          created_at?: string;
+          due_claim_count?: number;
+          id?: string;
+          last_attempt_at?: string | null;
+          last_error_code?: string | null;
+          last_error_message?: string | null;
+          metadata?: Json;
+          poll_interval_ms?: number;
+          permanent_failed_count?: number;
+          queued_count?: number;
+          recovered_count?: number;
+          retryable_failed_count?: number;
+          run_status?: PublicationSchedulerRunStatus;
+          scanned_count?: number;
+          scheduler_name?: string;
+          skipped_count?: number;
+          started_at?: string;
+          stale_claim_count?: number;
+          stuck_claim_count?: number;
+          updated_at?: string;
+          worker_id?: string;
+        };
+        Relationships: [];
+      };
+      content_publication_scheduler_run_attempts: {
+        Row: {
+          attempt_count: number;
+          attempt_kind: PublicationSchedulerRunAttemptKind;
+          attempt_status: PublicationSchedulerRunAttemptStatus;
+          claimed_at: string | null;
+          claimed_by: string | null;
+          content_publication_id: string;
+          created_at: string;
+          error_code: string | null;
+          error_message: string | null;
+          id: string;
+          metadata: Json;
+          next_attempt_at: string | null;
+          queue_job_id: string | null;
+          retryable: boolean;
+          scheduled_at_utc: string | null;
+          scheduler_run_id: string;
+          source: string;
+          stuck_claim: boolean;
+          user_id: string;
+        };
+        Insert: {
+          attempt_count?: number;
+          attempt_kind: PublicationSchedulerRunAttemptKind;
+          attempt_status: PublicationSchedulerRunAttemptStatus;
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          content_publication_id: string;
+          created_at?: string;
+          error_code?: string | null;
+          error_message?: string | null;
+          id?: string;
+          metadata?: Json;
+          next_attempt_at?: string | null;
+          queue_job_id?: string | null;
+          retryable?: boolean;
+          scheduled_at_utc?: string | null;
+          scheduler_run_id: string;
+          source?: string;
+          stuck_claim?: boolean;
+          user_id: string;
+        };
+        Update: {
+          attempt_count?: number;
+          attempt_kind?: PublicationSchedulerRunAttemptKind;
+          attempt_status?: PublicationSchedulerRunAttemptStatus;
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          content_publication_id?: string;
+          created_at?: string;
+          error_code?: string | null;
+          error_message?: string | null;
+          id?: string;
+          metadata?: Json;
+          next_attempt_at?: string | null;
+          queue_job_id?: string | null;
+          retryable?: boolean;
+          scheduled_at_utc?: string | null;
+          scheduler_run_id?: string;
+          source?: string;
+          stuck_claim?: boolean;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_publication_scheduler_run_attempts_publication_user_fkey";
+            columns: ["content_publication_id", "user_id"];
+            referencedRelation: "content_publications";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "content_publication_scheduler_run_attempts_run_fkey";
+            columns: ["scheduler_run_id"];
+            referencedRelation: "content_publication_scheduler_runs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       vod_assets: {
         Row: {
           id: string;
@@ -531,7 +1481,7 @@ export type Database = {
           stream_id: string;
           platform: Database["public"]["Enums"]["stream_platform"];
           source_url: string;
-          external_asset_id: string | null;
+          external_post_id: string | null;
           status: VodAssetStatus;
           duration_seconds: number | null;
           ingested_at: string;
@@ -914,7 +1864,7 @@ export type Database = {
           event_type: MonetizationEventType;
           status: MonetizationEventStatus;
           source: string;
-          external_event_id: string | null;
+          external_post_id: string | null;
           provider_event_id: string | null;
           raw_event_id: string | null;
           raw_payload: Json;
@@ -1100,6 +2050,48 @@ export type Database = {
           p_period: string;
         };
         Returns: Json;
+      };
+      claim_due_content_publication_executions: {
+        Args: {
+          p_claim_timeout_ms?: number;
+          p_limit?: number;
+          p_worker_id?: string;
+        };
+        Returns: Database["public"]["Tables"]["content_publications"]["Row"][];
+      };
+      record_content_publication_request: {
+        Args: {
+          p_capability_snapshot?: Json;
+          p_capability_version?: string;
+          p_content_job_id: string;
+          p_scheduled_at_utc?: string | null;
+          p_scheduled_timezone?: string | null;
+          p_schedule_block_message?: string | null;
+          p_schedule_block_reason?: ContentPublicationScheduleBlockReason | null;
+          p_schedule_canceled_at?: string | null;
+          p_schedule_canceled_reason?: string | null;
+          p_schedule_capability_snapshot?: Json;
+          p_schedule_created_at?: string | null;
+          p_schedule_expired_at?: string | null;
+          p_schedule_replaced_at?: string | null;
+          p_schedule_source?: ContentPublicationScheduleSource | null;
+          p_schedule_status?: ContentPublicationScheduleStatus;
+          p_schedule_updated_at?: string | null;
+          p_schedule_validation_metadata?: Json;
+          p_platform_connection_id: string;
+          p_provider_overrides?: Json;
+          p_target_platform: Database["public"]["Enums"]["stream_platform"];
+          p_requested_by: string;
+          p_requested_at?: string;
+          p_request_intent_hash: string;
+          p_snapshot: Json;
+          p_snapshot_hash: string;
+          p_user_id: string;
+          p_validation_code?: string;
+          p_validation_message?: string | null;
+          p_validation_metadata?: Json;
+        };
+        Returns: Database["public"]["Tables"]["content_publications"]["Row"];
       };
     };
     Enums: {

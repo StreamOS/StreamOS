@@ -1,0 +1,52 @@
+[
+  {
+    "id": "svc-api-staging",
+    "name": "api-gateway",
+    "url": "https://api-gateway-staging.up.railway.app"
+  },
+  {
+    "id": "svc-automation-staging",
+    "name": "automation-service",
+    "url": null
+  },
+  {
+    "id": "svc-repurposing-staging",
+    "name": "repurposing-worker",
+    "url": null
+  },
+  {
+    "id": "svc-transcription-staging",
+    "name": "transcription-worker",
+    "url": null
+  },
+  {
+    "id": "svc-stream-job-staging",
+    "name": "stream-job-worker",
+    "url": null
+  },
+  {
+    "id": "svc-retry-staging",
+    "name": "content-job-retry-worker",
+    "url": null
+  },
+  {
+    "id": "svc-clip-staging",
+    "name": "clip-worker",
+    "url": null
+  },
+  {
+    "id": "svc-publishing-staging",
+    "name": "publishing-worker",
+    "url": "https://publishing-worker-staging.up.railway.app"
+  },
+  {
+    "id": "svc-release-gate-runner-staging",
+    "name": "release-gate-runner",
+    "url": null
+  },
+  {
+    "id": "svc-publishing-scheduler-staging",
+    "name": "publishing-scheduler-worker",
+    "url": null
+  }
+]

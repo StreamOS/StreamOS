@@ -417,11 +417,13 @@ test("rollout gate contract check requires shared package builds before api-gate
 
   assert.deepEqual(result.issues, []);
   assert.deepEqual(result.contract.apiGatewayRuntimePackages, [
+    "@streamos/types",
     "@streamos/redis",
     "@streamos/queue",
     "@streamos/youtube-websub",
   ]);
   assert.deepEqual(result.contract.sharedRuntimePackageSteps, [
+    "API Gateway runtime package build: @streamos/types",
     "API Gateway runtime package build: @streamos/redis",
     "API Gateway runtime package build: @streamos/queue",
     "API Gateway runtime package build: @streamos/youtube-websub",
@@ -480,6 +482,7 @@ test("rollout check builds shared runtime packages before api-gateway tests", ()
   assert.deepEqual(
     getApiGatewayRuntimePackageBuildSteps().map((step) => step.label),
     [
+      "API Gateway runtime package build: @streamos/types",
       "API Gateway runtime package build: @streamos/redis",
       "API Gateway runtime package build: @streamos/queue",
       "API Gateway runtime package build: @streamos/youtube-websub",
@@ -496,6 +499,32 @@ test("rollout check builds shared runtime packages before api-gateway tests", ()
       `${label} should run before the API Gateway tests`,
     );
   }
+});
+
+test("rollout gate contract fails closed when an api-gateway runtime package step is missing", () => {
+  const sequence = getCheckSequence(
+    parseRolloutArgs([
+      "--mode",
+      "production-gate",
+      "--skip-docker",
+      "--allow-hosted-e2e",
+      "--expect-private-automation",
+      "--api-gateway-url",
+      "https://api.example.com",
+      "--automation-service-url",
+      "http://automation-service.railway.internal:8000",
+    ]),
+  ).filter(
+    (step) =>
+      step.label !== "API Gateway runtime package build: @streamos/types",
+  );
+
+  const result = collectGateContractIssues(sequence);
+
+  assert.match(
+    result.issues.join("; "),
+    /missing gate contract step API Gateway runtime package build: @streamos\/types/,
+  );
 });
 
 test("rollout check builds transcription-worker runtime packages before transcription-worker tests", () => {
@@ -543,7 +572,12 @@ test("rollout check builds transcription-worker runtime packages before transcri
 test("api-gateway runtime package inventory is explicit and includes youtube-websub", () => {
   assert.deepEqual(
     API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES.map((pkg) => pkg.name),
-    ["@streamos/redis", "@streamos/queue", "@streamos/youtube-websub"],
+    [
+      "@streamos/types",
+      "@streamos/redis",
+      "@streamos/queue",
+      "@streamos/youtube-websub",
+    ],
   );
 });
 
@@ -856,6 +890,46 @@ test("release-gate-runner provenance writer parses explicit args", () => {
 
   assert.equal(options.environment, "production");
   assert.equal(options.gitCommit, "195c6685282571d9d5017f3a0ec3b197b97cfa1d");
+});
+
+test("release-gate-runner provenance writer parses STREAMOS_RC_COMMIT_SHA fallback", () => {
+  const previousGitSha = process.env.GITHUB_SHA;
+  const previousRcSha = process.env.STREAMOS_RC_COMMIT_SHA;
+
+  delete process.env.GITHUB_SHA;
+  process.env.STREAMOS_RC_COMMIT_SHA =
+    "8d5bea297833579ef2782c3878d6fe39ad497fcc";
+
+  try {
+    const options = parseProvenanceWriterArgs([
+      "--environment",
+      "production",
+      "--git-ref",
+      "refs/heads/main",
+      "--repository",
+      "StreamOS/StreamOS",
+      "--workflow",
+      "CD - Production Deployment",
+      "--run-id",
+      "123456789",
+      "--run-attempt",
+      "1",
+    ]);
+
+    assert.equal(options.gitCommit, "8d5bea297833579ef2782c3878d6fe39ad497fcc");
+  } finally {
+    if (previousGitSha === undefined) {
+      delete process.env.GITHUB_SHA;
+    } else {
+      process.env.GITHUB_SHA = previousGitSha;
+    }
+
+    if (previousRcSha === undefined) {
+      delete process.env.STREAMOS_RC_COMMIT_SHA;
+    } else {
+      process.env.STREAMOS_RC_COMMIT_SHA = previousRcSha;
+    }
+  }
 });
 
 test("api-gateway runtime provenance payload stays non-secret and commit-bound", () => {

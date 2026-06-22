@@ -16,6 +16,7 @@ import {
   getClipGenerationJobId,
   type ClipGenerationQueue,
 } from "./jobs/clipGenerationQueue.js";
+import type { PublicationExecutionQueue } from "./jobs/publicationExecutionQueue.js";
 import { streamEndedPayloadSchema } from "./jobs/transcriptionQueue.js";
 import {
   createOAuthRouter,
@@ -35,8 +36,10 @@ import {
   type ClipGenerationRequest,
   upsertClipContentJob,
 } from "./routes/contentJobs.js";
+import { createContentPublicationsRouter } from "./routes/contentPublications.js";
 import { createRoutes } from "./routes/index.js";
 import { createMetricsSyncRouter } from "./routes/metricsSync.js";
+import { createSchedulerObservabilityRouter } from "./routes/observability.js";
 import { createPlatformConnectionsRouter } from "./routes/platformConnections.js";
 import {
   createSupabaseRestClient,
@@ -50,6 +53,7 @@ type CreateAppOptions = {
   allowedOrigins?: string[];
   apiGatewaySecret?: string;
   clipGenerationQueue?: ClipGenerationQueue;
+  publicationExecutionQueue?: PublicationExecutionQueue;
   nodeEnv?: string;
   oauth?: Partial<
     Pick<CreateOAuthRouterOptions, "fetchImpl" | "repository" | "stateStore">
@@ -644,7 +648,10 @@ async function assertKnownStreamForTranscription({
   }
 }
 
-export function createApp(options: CreateAppOptions = {}): Express {
+export function createApp(
+  options: CreateAppOptions = {},
+  publicationExecutionQueue?: PublicationExecutionQueue,
+): Express {
   const app = express();
   const securityConfig = resolveSecurityConfig(options);
   const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
@@ -770,9 +777,25 @@ export function createApp(options: CreateAppOptions = {}): Express {
     }),
   );
   app.use(
+    "/api/content-publications",
+    requireAppApiSecret(securityConfig.apiGatewaySecret),
+    createContentPublicationsRouter({
+      fetchImpl: options.oauth?.fetchImpl,
+      publicationExecutionQueue:
+        options.publicationExecutionQueue ?? publicationExecutionQueue,
+    }),
+  );
+  app.use(
     "/api/platforms",
     requireAppApiSecret(securityConfig.apiGatewaySecret),
     createPlatformConnectionsRouter({
+      fetchImpl: options.oauth?.fetchImpl,
+    }),
+  );
+  app.use(
+    "/api/observability",
+    requireAppApiSecret(securityConfig.apiGatewaySecret),
+    createSchedulerObservabilityRouter({
       fetchImpl: options.oauth?.fetchImpl,
     }),
   );

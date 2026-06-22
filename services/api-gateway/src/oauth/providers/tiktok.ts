@@ -5,7 +5,7 @@ export const TIKTOK_AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/";
 export const TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
 export const TIKTOK_USER_INFO_URL = "https://open.tiktokapis.com/v2/user/info/";
 
-const DEFAULT_TIKTOK_SCOPES = ["user.info.basic"];
+const DEFAULT_TIKTOK_SCOPES = ["user.info.basic", "video.publish"];
 const DEFAULT_TIKTOK_USER_FIELDS = ["open_id", "display_name", "avatar_url"];
 
 export type TikTokOAuthConfig = {
@@ -54,7 +54,9 @@ export function getTikTokOAuthConfig({
   const clientSecret = env.TIKTOK_CLIENT_SECRET?.trim();
   const redirectUri =
     env.TIKTOK_REDIRECT_URI?.trim() || `${origin}/api/auth/tiktok/callback`;
-  const scopes = parseDelimitedEnv(env.TIKTOK_SCOPES) ?? DEFAULT_TIKTOK_SCOPES;
+  const scopes = ensureTikTokPublishScope(
+    parseDelimitedEnv(env.TIKTOK_SCOPES) ?? DEFAULT_TIKTOK_SCOPES,
+  );
   const userFields =
     parseDelimitedEnv(env.TIKTOK_USER_FIELDS) ??
     getDefaultTikTokUserFields(scopes);
@@ -206,4 +208,10 @@ function parseDelimitedEnv(value: string | undefined): string[] | undefined {
   const items = value?.split(/[,\s]+/).filter(Boolean) ?? [];
 
   return items.length > 0 ? items : undefined;
+}
+
+function ensureTikTokPublishScope(scopes: string[]): string[] {
+  return scopes.includes("video.publish")
+    ? [...scopes]
+    : [...scopes, "video.publish"];
 }

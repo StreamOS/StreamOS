@@ -18,10 +18,10 @@
     }
   },
   "scripts": {
-    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
-    "dev": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --watch",
-    "lint": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
-    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {},
   "devDependencies": {

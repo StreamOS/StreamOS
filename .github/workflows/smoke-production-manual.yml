@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  VERCEL_CLI_VERSION: "52.2.0"
+  VERCEL_CLI_VERSION: "54.10.3"
 
 permissions:
   contents: read
@@ -19,21 +19,17 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Vercel CLI
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
-      - name: Link Vercel project
+      - name: Pull Vercel production environment
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          vercel link --yes \
-            --project "${VERCEL_PROJECT_ID}" \
-            --team "${VERCEL_ORG_ID}" \
-            --token="${VERCEL_TOKEN}"
+        run: vercel pull --yes --environment=production --token="${VERCEL_TOKEN}"
 
       - name: Production Smoke
         env:
@@ -52,11 +48,12 @@ jobs:
             local expected_pattern="$2"
             local status
 
-            if ! status="$(vercel --token="${VERCEL_TOKEN}" curl "${PROD_APP_URL}${path}" \
-              -s -o /dev/null -w "%{http_code}" 2>smoke.stderr)"; then
+            if ! status="$(vercel curl "${path}" --deployment "${PROD_APP_URL}" --yes -- --silent --show-error --output /dev/null --write-out '%{http_code}' 2>smoke.stderr)"; then
               cat smoke.stderr
               exit 1
             fi
+
+            status="${status//$'\r'/}"
 
             if ! [[ "${status}" =~ ${expected_pattern} ]]; then
               echo "::error::Expected ${path} to match ${expected_pattern}, got ${status}."

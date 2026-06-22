@@ -119,9 +119,9 @@ export default async function ContentPage() {
           </p>
           <a
             className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-signal-green"
-            href="/dashboard/jobs"
+            href="/dashboard/jobs/repurposing"
           >
-            Job-Liste ansehen
+            Repurposing Review ansehen
             <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
           </a>
         </article>

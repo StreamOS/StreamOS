@@ -40,7 +40,7 @@ concurrency:
 env:
   NODE_VERSION: "22"
   PNPM_VERSION: "11.7.0"
-  VERCEL_CLI_VERSION: "52.2.0"
+  VERCEL_CLI_VERSION: "54.10.3"
   RAILWAY_CLI_VERSION: "4.58.0"
 
 jobs:
@@ -55,7 +55,7 @@ jobs:
 
     steps:
       - name: Checkout repository metadata
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -145,10 +145,12 @@ jobs:
           - transcription-worker
           - content-job-retry-worker
           - release-gate-runner
+          - publishing-worker
+          - publishing-scheduler-worker
 
     steps:
       - name: Checkout rollback target
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve-target.outputs.git_sha }}
 
@@ -208,6 +210,16 @@ jobs:
           fi
 
           if [ "${{ matrix.service }}" = "release-gate-runner" ]; then
+            git_sha="$(git rev-parse HEAD)"
+
+            railway variable set \
+              --project "${RAILWAY_PROJECT_ID}" \
+              --service "${{ matrix.service }}" \
+              --environment "${TARGET_ENV}" \
+              --skip-deploys \
+              STREAMOS_RC_COMMIT_SHA="${git_sha}" \
+              --json >/tmp/railway-set-release-gate-runner-commit.json
+
             railway up --ci --no-gitignore \
               --project "${RAILWAY_PROJECT_ID}" \
               --environment "${TARGET_ENV}" \
@@ -236,7 +248,7 @@ jobs:
 
     steps:
       - name: Checkout rollback target
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve-target.outputs.git_sha }}
 
