@@ -159,6 +159,9 @@ describe("PublicationScheduleConflictMapping", () => {
   });
 
   it("groups fanout target blockers and reauth requirements safely", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-22T12:00:00.000Z"));
+
     const model = buildPublicationScheduleDashboardModel({
       channels: [],
       connections: [
