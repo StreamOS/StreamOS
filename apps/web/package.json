@@ -20,7 +20,7 @@
     "@streamos/ui": "workspace:*",
     "@streamos/utils": "workspace:*",
     "@streamos/youtube-websub": "workspace:*",
-    "@supabase/ssr": "^0.6.1",
+    "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.49.4",
     "clsx": "^2.1.1",
     "jose": "^6.2.3",
