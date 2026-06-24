@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import express from "express";
 import type { Express, NextFunction, Request, Response } from "express";
+import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import helmet from "helmet";
 import { Redis } from "ioredis";
 import {
@@ -56,10 +57,19 @@ type CreateAppOptions = {
   publicationExecutionQueue?: PublicationExecutionQueue;
   nodeEnv?: string;
   oauth?: Partial<
-    Pick<CreateOAuthRouterOptions, "fetchImpl" | "repository" | "stateStore">
+    Pick<
+      CreateOAuthRouterOptions,
+      "fetchImpl" | "repository" | "routeRateLimit" | "stateStore"
+    >
   >;
   providerWebhookDispatcher?: ProviderWebhookDispatcher;
   rateLimit?: Partial<RateLimitConfig>;
+  routeRateLimits?: {
+    streamEndedWebhook?: {
+      maxRequests?: number;
+      windowMs?: number;
+    };
+  };
   runtimeProvenance?: ApiGatewayRuntimeProvenance | null;
   streamEventWebhookSecret?: string;
   twitchEventSubSecret?: string;
@@ -98,6 +108,8 @@ const DEFAULT_ALLOWED_DEV_ORIGINS = [
 ];
 const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 120;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
+const STREAM_ENDED_WEBHOOK_RATE_LIMIT_MAX_REQUESTS = 500;
+const STREAM_ENDED_WEBHOOK_RATE_LIMIT_WINDOW_MS = 60_000;
 const MIN_PRODUCTION_SECRET_LENGTH = 24;
 const WEBHOOK_TIMESTAMP_TOLERANCE_MS = 10 * 60 * 1000;
 
@@ -657,6 +669,23 @@ export function createApp(
   const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
   const providerWebhookDispatcher =
     options.providerWebhookDispatcher ?? dispatchStreamOSJob;
+  const streamEndedWebhookRateLimiter = rateLimit({
+    keyGenerator: (request) =>
+      `webhook:streams-ended:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+    legacyHeaders: false,
+    limit:
+      options.routeRateLimits?.streamEndedWebhook?.maxRequests ??
+      STREAM_ENDED_WEBHOOK_RATE_LIMIT_MAX_REQUESTS,
+    message: {
+      error: "rate_limit_exceeded",
+      message: "Too many stream-ended webhook requests.",
+    },
+    skip: () => !securityConfig.rateLimit.enabled,
+    standardHeaders: "draft-7",
+    windowMs:
+      options.routeRateLimits?.streamEndedWebhook?.windowMs ??
+      STREAM_ENDED_WEBHOOK_RATE_LIMIT_WINDOW_MS,
+  });
   const deduplicationClient =
     options.webhookDeduplicationClient ??
     createDefaultDeduplicationClient(nodeEnv);
@@ -751,6 +780,10 @@ export function createApp(
       apiGatewaySecret: securityConfig.apiGatewaySecret,
       fetchImpl: options.oauth?.fetchImpl,
       repository: options.oauth?.repository,
+      routeRateLimit: {
+        enabled: securityConfig.rateLimit.enabled,
+        ...options.oauth?.routeRateLimit,
+      },
       stateStore: options.oauth?.stateStore,
       now: securityConfig.webhookNow,
     }),
@@ -889,6 +922,7 @@ export function createApp(
 
   app.post(
     "/api/webhooks/streams/ended",
+    streamEndedWebhookRateLimiter,
     requireSignedWebhook({
       expectedSecret: securityConfig.streamEventWebhookSecret,
       now: securityConfig.webhookNow,

@@ -1,5 +1,6 @@
 import express from "express";
 import type { Request, Response, Router } from "express";
+import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import type { StreamOSJob } from "@streamos/queue";
 
 import {
@@ -29,11 +30,17 @@ const TWITCH_MESSAGE_TYPE_NOTIFICATION = "notification";
 const TWITCH_MESSAGE_TYPE_REVOCATION = "revocation";
 const TWITCH_MESSAGE_TYPE_VERIFICATION = "webhook_callback_verification";
 const TWITCH_DEDUP_TTL_SECONDS = 600;
+const TWITCH_WEBHOOK_RATE_LIMIT_WINDOW_MS = 60_000;
+const TWITCH_WEBHOOK_RATE_LIMIT_MAX_REQUESTS = 500;
 
 export type CreateTwitchWebhookRouterOptions = {
   deduplicationClient: RedisDeduplicationClient;
   dispatcher?: ProviderWebhookDispatcher;
   now: () => number;
+  rateLimit?: {
+    maxRequests?: number;
+    windowMs?: number;
+  };
   secret: string | undefined;
 };
 
@@ -280,135 +287,155 @@ export function createTwitchWebhookRouter({
   deduplicationClient,
   dispatcher,
   now,
+  rateLimit: routeRateLimit,
   secret,
 }: CreateTwitchWebhookRouterOptions): Router {
   const router = express.Router();
+  const twitchWebhookRateLimiter = rateLimit({
+    keyGenerator: (request) =>
+      `legacy:twitch:webhook:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+    legacyHeaders: false,
+    limit:
+      routeRateLimit?.maxRequests ?? TWITCH_WEBHOOK_RATE_LIMIT_MAX_REQUESTS,
+    message: {
+      error: "rate_limit_exceeded",
+      message: "Too many Twitch webhook requests.",
+    },
+    standardHeaders: "draft-7",
+    windowMs: routeRateLimit?.windowMs ?? TWITCH_WEBHOOK_RATE_LIMIT_WINDOW_MS,
+  });
 
-  router.post("/", async (request: Request, response: Response) => {
-    const startedAt = now();
+  router.post(
+    "/",
+    twitchWebhookRateLimiter,
+    async (request: Request, response: Response) => {
+      const startedAt = now();
 
-    if (!secret) {
-      response.sendStatus(503);
-      return;
-    }
-
-    const rawBody = getRawBody(request);
-    const messageId = getHeaderValue(request.headers[TWITCH_HEADER_MESSAGE_ID]);
-    const messageTimestamp = getHeaderValue(
-      request.headers[TWITCH_HEADER_MESSAGE_TIMESTAMP],
-    );
-    const messageSignature = getTwitchSignatureHeader(request);
-    const messageType = getHeaderValue(
-      request.headers[TWITCH_HEADER_MESSAGE_TYPE],
-    );
-
-    if (!rawBody || !messageId || !messageTimestamp || !messageSignature) {
-      response.sendStatus(403);
-      return;
-    }
-
-    if (!isFreshTwitchTimestamp(messageTimestamp, now())) {
-      response.sendStatus(403);
-      return;
-    }
-
-    if (
-      !verifyTwitchSignature(
-        messageId,
-        messageTimestamp,
-        rawBody,
-        messageSignature,
-        secret,
-      )
-    ) {
-      response.sendStatus(403);
-      return;
-    }
-
-    let body: Record<string, unknown>;
-
-    try {
-      body = parseJsonObject(rawBody);
-    } catch {
-      response.status(400).json({ error: "invalid_twitch_payload" });
-      return;
-    }
-
-    if (messageType === TWITCH_MESSAGE_TYPE_VERIFICATION) {
-      const challenge = asString(body.challenge);
-
-      if (!challenge) {
-        response.status(400).json({ error: "missing_twitch_challenge" });
+      if (!secret) {
+        response.sendStatus(503);
         return;
       }
 
-      response.status(200).type("text/plain").send(challenge);
-      return;
-    }
+      const rawBody = getRawBody(request);
+      const messageId = getHeaderValue(
+        request.headers[TWITCH_HEADER_MESSAGE_ID],
+      );
+      const messageTimestamp = getHeaderValue(
+        request.headers[TWITCH_HEADER_MESSAGE_TIMESTAMP],
+      );
+      const messageSignature = getTwitchSignatureHeader(request);
+      const messageType = getHeaderValue(
+        request.headers[TWITCH_HEADER_MESSAGE_TYPE],
+      );
 
-    const duplicate = await isMessageDuplicate(
-      deduplicationClient,
-      `twitch:msg:${messageId}`,
-      TWITCH_DEDUP_TTL_SECONDS,
-    );
-
-    if (duplicate) {
-      console.info("webhook_duplicate", {
-        event: "webhook_duplicate",
-        messageId,
-        provider: "twitch",
-      });
-      response.status(200).json({ received: true, duplicate: true });
-      return;
-    }
-
-    if (messageType === TWITCH_MESSAGE_TYPE_REVOCATION) {
-      response.status(200).json({ received: true, revoked: true });
-      return;
-    }
-
-    if (messageType !== TWITCH_MESSAGE_TYPE_NOTIFICATION) {
-      response.status(200).json({ received: true, handled: false });
-      return;
-    }
-
-    try {
-      const type = getTwitchSubscriptionType(body);
-      const job = await routeTwitchEvent({
-        body,
-        messageId,
-        receivedAt: new Date(startedAt).toISOString(),
-      });
-
-      if (job && dispatcher) {
-        await dispatcher(job);
+      if (!rawBody || !messageId || !messageTimestamp || !messageSignature) {
+        response.sendStatus(403);
+        return;
       }
 
-      logWebhookReceived({
-        latencyMs: now() - startedAt,
-        messageId,
-        type,
-        userId:
-          job && "userId" in job && typeof job.userId === "string"
-            ? job.userId
-            : undefined,
-      });
+      if (!isFreshTwitchTimestamp(messageTimestamp, now())) {
+        response.sendStatus(403);
+        return;
+      }
 
-      response.status(200).json({
-        dispatched: Boolean(job && dispatcher),
-        event_id: messageId,
-        event_type: type,
-        received: true,
-      });
-    } catch (error) {
-      console.error("twitch_webhook_processing_failed", {
-        error: error instanceof Error ? error.message : String(error),
-        messageId,
-        provider: "twitch",
-      });
-      response.sendStatus(500);
-    }
-  });
+      if (
+        !verifyTwitchSignature(
+          messageId,
+          messageTimestamp,
+          rawBody,
+          messageSignature,
+          secret,
+        )
+      ) {
+        response.sendStatus(403);
+        return;
+      }
+
+      let body: Record<string, unknown>;
+
+      try {
+        body = parseJsonObject(rawBody);
+      } catch {
+        response.status(400).json({ error: "invalid_twitch_payload" });
+        return;
+      }
+
+      if (messageType === TWITCH_MESSAGE_TYPE_VERIFICATION) {
+        const challenge = asString(body.challenge);
+
+        if (!challenge) {
+          response.status(400).json({ error: "missing_twitch_challenge" });
+          return;
+        }
+
+        response.status(200).type("text/plain").send(challenge);
+        return;
+      }
+
+      const duplicate = await isMessageDuplicate(
+        deduplicationClient,
+        `twitch:msg:${messageId}`,
+        TWITCH_DEDUP_TTL_SECONDS,
+      );
+
+      if (duplicate) {
+        console.info("webhook_duplicate", {
+          event: "webhook_duplicate",
+          messageId,
+          provider: "twitch",
+        });
+        response.status(200).json({ received: true, duplicate: true });
+        return;
+      }
+
+      if (messageType === TWITCH_MESSAGE_TYPE_REVOCATION) {
+        response.status(200).json({ received: true, revoked: true });
+        return;
+      }
+
+      if (messageType !== TWITCH_MESSAGE_TYPE_NOTIFICATION) {
+        response.status(200).json({ received: true, handled: false });
+        return;
+      }
+
+      try {
+        const type = getTwitchSubscriptionType(body);
+        const job = await routeTwitchEvent({
+          body,
+          messageId,
+          receivedAt: new Date(startedAt).toISOString(),
+        });
+
+        if (job && dispatcher) {
+          await dispatcher(job);
+        }
+
+        logWebhookReceived({
+          latencyMs: now() - startedAt,
+          messageId,
+          type,
+          userId:
+            job && "userId" in job && typeof job.userId === "string"
+              ? job.userId
+              : undefined,
+        });
+
+        response.status(200).json({
+          dispatched: Boolean(job && dispatcher),
+          event_id: messageId,
+          event_type: type,
+          received: true,
+        });
+      } catch (error) {
+        console.error("twitch_webhook_processing_failed", {
+          error: error instanceof Error ? error.message : String(error),
+          messageId,
+          provider: "twitch",
+        });
+        response.sendStatus(500);
+      }
+    },
+  );
 
   return router;
 }

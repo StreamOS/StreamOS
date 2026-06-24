@@ -23,13 +23,25 @@ const TWITCH_MESSAGE_TYPE_REVOCATION = "revocation";
 const TWITCH_MESSAGE_TYPE_VERIFICATION = "webhook_callback_verification";
 
 const WEBHOOK_TIMESTAMP_TOLERANCE_MS = 10 * 60 * 1000;
+const TWITCH_EVENTSUB_RATE_LIMIT_WINDOW_MS = 60_000;
+const TWITCH_EVENTSUB_RATE_LIMIT_MAX_REQUESTS = 500;
+const YOUTUBE_WEBSUB_CHALLENGE_RATE_LIMIT_WINDOW_MS = 60_000;
+const YOUTUBE_WEBSUB_CHALLENGE_RATE_LIMIT_MAX_REQUESTS = 120;
 const YOUTUBE_WEBSUB_POST_RATE_LIMIT_WINDOW_MS = 60_000;
 const YOUTUBE_WEBSUB_POST_RATE_LIMIT_MAX_REQUESTS = 500;
 
 type CreateProviderWebhookRouterOptions = {
   dispatcher?: ProviderWebhookDispatcher;
   now: () => number;
+  twitchEventSubRateLimit?: {
+    maxRequests?: number;
+    windowMs?: number;
+  };
   twitchEventSubSecret: string | undefined;
+  youtubeWebSubChallengeRateLimit?: {
+    maxRequests?: number;
+    windowMs?: number;
+  };
   youtubeWebSubSecret: string | undefined;
   youtubeWebSubPostRateLimit?: {
     maxRequests?: number;
@@ -118,13 +130,46 @@ async function dispatchIfConfigured({
 export function createProviderWebhookRouter({
   dispatcher,
   now,
+  twitchEventSubRateLimit,
   twitchEventSubSecret,
+  youtubeWebSubChallengeRateLimit,
   youtubeWebSubPostRateLimit,
   youtubeWebSubSecret,
   youtubeWebSubVerifyToken,
 }: CreateProviderWebhookRouterOptions): Router {
   const router = express.Router();
   const rawBodyParser = express.raw({ limit: "1mb", type: "*/*" });
+  const twitchEventSubRateLimiter = rateLimit({
+    keyGenerator: (request) =>
+      `twitch:eventsub:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+    legacyHeaders: false,
+    limit:
+      twitchEventSubRateLimit?.maxRequests ??
+      TWITCH_EVENTSUB_RATE_LIMIT_MAX_REQUESTS,
+    message: {
+      error: "rate_limit_exceeded",
+      message: "Too many Twitch EventSub webhook requests.",
+    },
+    standardHeaders: "draft-7",
+    windowMs:
+      twitchEventSubRateLimit?.windowMs ?? TWITCH_EVENTSUB_RATE_LIMIT_WINDOW_MS,
+  });
+  const youtubeWebSubChallengeRateLimiter = rateLimit({
+    keyGenerator: (request) =>
+      `youtube:websub:challenge:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+    legacyHeaders: false,
+    limit:
+      youtubeWebSubChallengeRateLimit?.maxRequests ??
+      YOUTUBE_WEBSUB_CHALLENGE_RATE_LIMIT_MAX_REQUESTS,
+    message: {
+      error: "rate_limit_exceeded",
+      message: "Too many YouTube WebSub challenge requests.",
+    },
+    standardHeaders: "draft-7",
+    windowMs:
+      youtubeWebSubChallengeRateLimit?.windowMs ??
+      YOUTUBE_WEBSUB_CHALLENGE_RATE_LIMIT_WINDOW_MS,
+  });
   const youtubeWebSubPostRateLimiter = rateLimit({
     keyGenerator: (request) =>
       `youtube:websub:post:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
@@ -144,6 +189,7 @@ export function createProviderWebhookRouter({
 
   router.post(
     "/twitch/eventsub",
+    twitchEventSubRateLimiter,
     rawBodyParser,
     async (request: Request, response: Response) => {
       if (!twitchEventSubSecret) {
@@ -287,51 +333,55 @@ export function createProviderWebhookRouter({
     },
   );
 
-  router.get("/youtube/websub", (request: Request, response: Response) => {
-    const mode = getQueryString(request.query["hub.mode"]);
-    const topic = getQueryString(request.query["hub.topic"]);
-    const challenge = getQueryString(request.query["hub.challenge"]);
-    const verifyToken = getQueryString(request.query["hub.verify_token"]);
-    const leaseSeconds = getQueryInteger(request.query["hub.lease_seconds"]);
+  router.get(
+    "/youtube/websub",
+    youtubeWebSubChallengeRateLimiter,
+    (request: Request, response: Response) => {
+      const mode = getQueryString(request.query["hub.mode"]);
+      const topic = getQueryString(request.query["hub.topic"]);
+      const challenge = getQueryString(request.query["hub.challenge"]);
+      const verifyToken = getQueryString(request.query["hub.verify_token"]);
+      const leaseSeconds = getQueryInteger(request.query["hub.lease_seconds"]);
 
-    if (mode !== "subscribe" && mode !== "unsubscribe") {
-      response.status(400).json({
-        error: "invalid_youtube_websub_mode",
-        message: "hub.mode must be subscribe or unsubscribe.",
+      if (mode !== "subscribe" && mode !== "unsubscribe") {
+        response.status(400).json({
+          error: "invalid_youtube_websub_mode",
+          message: "hub.mode must be subscribe or unsubscribe.",
+        });
+        return;
+      }
+
+      if (!topic || !challenge) {
+        response.status(400).json({
+          error: "invalid_youtube_websub_challenge",
+          message: "hub.topic and hub.challenge are required.",
+        });
+        return;
+      }
+
+      if (
+        !validateYouTubeVerifyToken({
+          expectedToken: youtubeWebSubVerifyToken,
+          receivedToken: verifyToken,
+        })
+      ) {
+        response.status(403).json({
+          error: "invalid_youtube_websub_verify_token",
+          message: "YouTube WebSub verify token is invalid.",
+        });
+        return;
+      }
+
+      response.status(200).type("text/plain").send(challenge);
+
+      void updateYouTubeWebSubChallengeTracking({
+        leaseSeconds,
+        mode,
+        now,
+        topic,
       });
-      return;
-    }
-
-    if (!topic || !challenge) {
-      response.status(400).json({
-        error: "invalid_youtube_websub_challenge",
-        message: "hub.topic and hub.challenge are required.",
-      });
-      return;
-    }
-
-    if (
-      !validateYouTubeVerifyToken({
-        expectedToken: youtubeWebSubVerifyToken,
-        receivedToken: verifyToken,
-      })
-    ) {
-      response.status(403).json({
-        error: "invalid_youtube_websub_verify_token",
-        message: "YouTube WebSub verify token is invalid.",
-      });
-      return;
-    }
-
-    response.status(200).type("text/plain").send(challenge);
-
-    void updateYouTubeWebSubChallengeTracking({
-      leaseSeconds,
-      mode,
-      now,
-      topic,
-    });
-  });
+    },
+  );
 
   router.post(
     "/youtube/websub",
