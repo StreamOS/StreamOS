@@ -773,6 +773,65 @@ describe("api-gateway", () => {
     }
   });
 
+  it("rate limits stream-ended webhooks before repeated signature checks", async () => {
+    const app = createApp({
+      providerWebhookDispatcher: async () => {
+        throw new Error("Queue should not be called.");
+      },
+      routeRateLimits: {
+        streamEndedWebhook: {
+          maxRequests: 1,
+          windowMs: 60_000,
+        },
+      },
+      streamEventWebhookSecret: WEBHOOK_SECRET,
+      webhookNow: () => WEBHOOK_NOW.getTime(),
+    });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const bodyPayload = JSON.stringify({
+        stream_id: "stream-123",
+        platform: "twitch",
+      });
+      const request = () =>
+        fetch(`http://127.0.0.1:${address.port}/api/webhooks/streams/ended`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...createSignedWebhookHeaders({
+              body: bodyPayload,
+              secret: "wrong-stream-webhook-secret",
+            }),
+          },
+          body: bodyPayload,
+        });
+
+      const rejectedResponse = await request();
+      const limitedResponse = await request();
+      const rejectedBody = await rejectedResponse.json();
+      const limitedBody = await limitedResponse.json();
+      const serializedLimitBody = JSON.stringify(limitedBody);
+
+      expect(rejectedResponse.status).toBe(401);
+      expect(rejectedBody.error).toBe("invalid_webhook_signature");
+      expect(limitedResponse.status).toBe(429);
+      expect(limitedBody).toEqual({
+        error: "rate_limit_exceeded",
+        message: "Too many stream-ended webhook requests.",
+      });
+      expect(serializedLimitBody).not.toContain(WEBHOOK_SECRET);
+      expect(serializedLimitBody).not.toContain("stream-123");
+    } finally {
+      server.close();
+    }
+  });
+
   it("rejects stream-ended webhooks outside the replay window", async () => {
     const app = createApp({
       providerWebhookDispatcher: createProviderWebhookDispatcher(),

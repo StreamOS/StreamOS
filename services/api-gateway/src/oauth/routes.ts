@@ -1,5 +1,6 @@
 import type { Request, Response, Router } from "express";
 import express from "express";
+import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import type {
   OAuthErrorCode,
   OAuthProvider,
@@ -65,6 +66,10 @@ export const SUPPORTED_OAUTH_PROVIDERS = [
   "kick",
 ] as const;
 const OAUTH_STATE_TTL_MS = 5 * 60 * 1000;
+const OAUTH_CONNECT_RATE_LIMIT_WINDOW_MS = 60_000;
+const OAUTH_CONNECT_RATE_LIMIT_MAX_REQUESTS = 30;
+const OAUTH_CALLBACK_RATE_LIMIT_WINDOW_MS = 60_000;
+const OAUTH_CALLBACK_RATE_LIMIT_MAX_REQUESTS = 60;
 
 export type CreateOAuthRouterOptions = {
   allowedOrigins?: string[];
@@ -72,6 +77,12 @@ export type CreateOAuthRouterOptions = {
   fetchImpl?: typeof fetch;
   now?: () => number;
   repository?: OAuthConnectionRepository;
+  routeRateLimit?: {
+    callbackMaxRequests?: number;
+    connectMaxRequests?: number;
+    enabled?: boolean;
+    windowMs?: number;
+  };
   stateStore?: OAuthStateStore;
   connectSuccessRedirect?: string;
   youtubeConnectSuccessRedirect?: string;
@@ -105,6 +116,10 @@ function isSupportedOAuthProvider(
 
 function getOrigin(request: Request): string {
   return `${request.protocol}://${request.get("host")}`;
+}
+
+function getRouteParam(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? "unknown") : (value ?? "unknown");
 }
 
 function sendOAuthError({
@@ -272,208 +287,248 @@ export function createOAuthRouter({
   fetchImpl = fetch,
   now = Date.now,
   repository,
+  routeRateLimit,
   stateStore,
   connectSuccessRedirect = process.env.CONNECT_SUCCESS_REDIRECT,
   youtubeConnectSuccessRedirect = process.env.YOUTUBE_CONNECT_SUCCESS_REDIRECT,
 }: CreateOAuthRouterOptions): Router {
   const router = express.Router();
   const oauthStateStore = stateStore ?? createDefaultOAuthStateStore(now);
-
-  router.get("/:provider/connect", async (request, response) => {
-    const provider = request.params.provider;
-
-    if (!isSupportedOAuthProvider(provider)) {
-      sendOAuthError({
-        code: "provider_not_supported",
-        message: "OAuth provider is not supported by this gateway.",
-        response,
-        status: 404,
-      });
-      return;
-    }
-
-    let handoff: ReturnType<typeof verifyOAuthHandoffToken>;
-    let providerRuntime: OAuthProviderRuntime;
-
-    try {
-      assertEncryptionConfigured();
-      handoff = verifyOAuthHandoffToken({
-        now,
-        secret: apiGatewaySecret,
-        token: getQueryValue(request, "handoff"),
-      });
-      providerRuntime = getProviderRuntime({
-        origin: getOrigin(request),
-        provider,
-      });
-    } catch (error) {
-      const code =
-        error instanceof Error && error.message.includes("handoff")
-          ? "user_handoff_invalid"
-          : "oauth_setup_missing";
-      sendOAuthError({
-        code,
-        message:
-          code === "user_handoff_invalid"
-            ? "OAuth user handoff is missing, expired, or invalid."
-            : "OAuth provider or encryption configuration is incomplete.",
-        response,
-        status: code === "user_handoff_invalid" ? 401 : 500,
-      });
-      return;
-    }
-
-    const state = createOAuthState();
-    const codeVerifier = createPkceVerifier();
-    const codeChallenge =
-      providerRuntime.createCodeChallenge?.(codeVerifier) ??
-      createPkceChallenge(codeVerifier);
-
-    await oauthStateStore.save({
-      codeVerifier,
-      creatorId: handoff.creator_id,
-      expiresAt: now() + OAUTH_STATE_TTL_MS,
-      provider,
-      returnTo: handoff.return_to,
-      state,
-      userId: handoff.user_id,
-    });
-
-    const authorizeUrl = providerRuntime.createAuthorizeUrl({
-      codeChallenge,
-      state,
-    });
-
-    response.redirect(302, authorizeUrl.toString());
+  const oauthConnectRateLimiter = rateLimit({
+    keyGenerator: (request) =>
+      `oauth:connect:${getRouteParam(request.params.provider)}:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+    legacyHeaders: false,
+    limit:
+      routeRateLimit?.connectMaxRequests ??
+      OAUTH_CONNECT_RATE_LIMIT_MAX_REQUESTS,
+    message: {
+      error: "rate_limit_exceeded",
+      message: "Too many OAuth connect requests.",
+    },
+    skip: () => routeRateLimit?.enabled === false,
+    standardHeaders: "draft-7",
+    windowMs: routeRateLimit?.windowMs ?? OAUTH_CONNECT_RATE_LIMIT_WINDOW_MS,
+  });
+  const oauthCallbackRateLimiter = rateLimit({
+    keyGenerator: (request) =>
+      `oauth:callback:${getRouteParam(request.params.provider)}:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+    legacyHeaders: false,
+    limit:
+      routeRateLimit?.callbackMaxRequests ??
+      OAUTH_CALLBACK_RATE_LIMIT_MAX_REQUESTS,
+    message: {
+      error: "rate_limit_exceeded",
+      message: "Too many OAuth callback requests.",
+    },
+    skip: () => routeRateLimit?.enabled === false,
+    standardHeaders: "draft-7",
+    windowMs: routeRateLimit?.windowMs ?? OAUTH_CALLBACK_RATE_LIMIT_WINDOW_MS,
   });
 
-  router.get("/:provider/callback", async (request, response) => {
-    const provider = request.params.provider;
+  router.get(
+    "/:provider/connect",
+    oauthConnectRateLimiter,
+    async (request, response) => {
+      const provider = getRouteParam(request.params.provider);
 
-    if (!isSupportedOAuthProvider(provider)) {
-      sendOAuthError({
-        code: "provider_not_supported",
-        message: "OAuth provider is not supported by this gateway.",
-        response,
-        status: 404,
-      });
-      return;
-    }
+      if (!isSupportedOAuthProvider(provider)) {
+        sendOAuthError({
+          code: "provider_not_supported",
+          message: "OAuth provider is not supported by this gateway.",
+          response,
+          status: 404,
+        });
+        return;
+      }
 
-    const returnedState = getQueryValue(request, "state");
-    const storedState = returnedState
-      ? await oauthStateStore.consume(returnedState)
-      : null;
+      let handoff: ReturnType<typeof verifyOAuthHandoffToken>;
+      let providerRuntime: OAuthProviderRuntime;
 
-    if (
-      !returnedState ||
-      !storedState ||
-      storedState.provider !== (provider as OAuthProvider) ||
-      !hasMatchingState(returnedState, storedState.state)
-    ) {
-      redirectToOAuthError({
-        allowedOrigins,
-        connectSuccessRedirect,
+      try {
+        assertEncryptionConfigured();
+        handoff = verifyOAuthHandoffToken({
+          now,
+          secret: apiGatewaySecret,
+          token: getQueryValue(request, "handoff"),
+        });
+        providerRuntime = getProviderRuntime({
+          origin: getOrigin(request),
+          provider,
+        });
+      } catch (error) {
+        const code =
+          error instanceof Error && error.message.includes("handoff")
+            ? "user_handoff_invalid"
+            : "oauth_setup_missing";
+        sendOAuthError({
+          code,
+          message:
+            code === "user_handoff_invalid"
+              ? "OAuth user handoff is missing, expired, or invalid."
+              : "OAuth provider or encryption configuration is incomplete.",
+          response,
+          status: code === "user_handoff_invalid" ? 401 : 500,
+        });
+        return;
+      }
+
+      const state = createOAuthState();
+      const codeVerifier = createPkceVerifier();
+      const codeChallenge =
+        providerRuntime.createCodeChallenge?.(codeVerifier) ??
+        createPkceChallenge(codeVerifier);
+
+      await oauthStateStore.save({
+        codeVerifier,
+        creatorId: handoff.creator_id,
+        expiresAt: now() + OAUTH_STATE_TTL_MS,
         provider,
-        response,
-        youtubeConnectSuccessRedirect,
+        returnTo: handoff.return_to,
+        state,
+        userId: handoff.user_id,
       });
-      return;
-    }
 
-    const providerError = getQueryValue(request, "error");
-    const code = getQueryValue(request, "code");
-
-    if (providerError || !code) {
-      redirectToOAuthError({
-        allowedOrigins,
-        connectSuccessRedirect,
-        provider,
-        response,
-        youtubeConnectSuccessRedirect,
+      const authorizeUrl = providerRuntime.createAuthorizeUrl({
+        codeChallenge,
+        state,
       });
-      return;
-    }
 
-    let tokenResult: PersistOAuthConnectionInput;
+      response.redirect(302, authorizeUrl.toString());
+    },
+  );
 
-    try {
-      const providerRuntime = getProviderRuntime({
-        origin: getOrigin(request),
-        provider,
-      });
-      const token = await providerRuntime.exchangeCode({
-        code,
-        codeVerifier: storedState.codeVerifier,
-        fetchImpl,
-      });
-      const expiresAt = token.expiresIn
-        ? new Date(now() + token.expiresIn * 1000).toISOString()
+  router.get(
+    "/:provider/callback",
+    oauthCallbackRateLimiter,
+    async (request, response) => {
+      const provider = getRouteParam(request.params.provider);
+
+      if (!isSupportedOAuthProvider(provider)) {
+        sendOAuthError({
+          code: "provider_not_supported",
+          message: "OAuth provider is not supported by this gateway.",
+          response,
+          status: 404,
+        });
+        return;
+      }
+
+      const returnedState = getQueryValue(request, "state");
+      const storedState = returnedState
+        ? await oauthStateStore.consume(returnedState)
         : null;
 
-      tokenResult = {
-        accessTokenCiphertext: encryptSecret(token.accessToken),
-        creatorId: storedState.creatorId,
-        expiresAt,
-        profile: token.profile,
-        provider,
-        refreshTokenCiphertext: token.refreshToken
-          ? encryptSecret(token.refreshToken)
-          : null,
-        scopes: token.scopes,
-        userId: storedState.userId,
-      };
-    } catch {
-      redirectToOAuthError({
-        allowedOrigins,
-        connectSuccessRedirect,
-        provider,
-        response,
-        youtubeConnectSuccessRedirect,
-      });
-      return;
-    }
-
-    let result;
-
-    try {
-      result = await getRepository({ fetchImpl, repository }).persistConnection(
-        tokenResult,
-      );
-    } catch {
-      redirectToOAuthError({
-        allowedOrigins,
-        connectSuccessRedirect,
-        provider,
-        response,
-        youtubeConnectSuccessRedirect,
-      });
-      return;
-    }
-
-    if (provider === "youtube") {
-      await registerInitialYouTubeWebSub({
-        channelId: tokenResult.profile.providerAccountId,
-        connectionId: result.connectionId,
-        fetchImpl,
-        repository: getRepository({ fetchImpl, repository }),
-        userId: storedState.userId,
-      });
-    }
-
-    response.redirect(
-      302,
-      resolveOAuthRedirectTarget({
-        allowedOrigins,
-        fallbackPath: getConnectSuccessRedirect({
+      if (
+        !returnedState ||
+        !storedState ||
+        storedState.provider !== (provider as OAuthProvider) ||
+        !hasMatchingState(returnedState, storedState.state)
+      ) {
+        redirectToOAuthError({
+          allowedOrigins,
           connectSuccessRedirect,
           provider,
+          response,
           youtubeConnectSuccessRedirect,
+        });
+        return;
+      }
+
+      const providerError = getQueryValue(request, "error");
+      const code = getQueryValue(request, "code");
+
+      if (providerError || !code) {
+        redirectToOAuthError({
+          allowedOrigins,
+          connectSuccessRedirect,
+          provider,
+          response,
+          youtubeConnectSuccessRedirect,
+        });
+        return;
+      }
+
+      let tokenResult: PersistOAuthConnectionInput;
+
+      try {
+        const providerRuntime = getProviderRuntime({
+          origin: getOrigin(request),
+          provider,
+        });
+        const token = await providerRuntime.exchangeCode({
+          code,
+          codeVerifier: storedState.codeVerifier,
+          fetchImpl,
+        });
+        const expiresAt = token.expiresIn
+          ? new Date(now() + token.expiresIn * 1000).toISOString()
+          : null;
+
+        tokenResult = {
+          accessTokenCiphertext: encryptSecret(token.accessToken),
+          creatorId: storedState.creatorId,
+          expiresAt,
+          profile: token.profile,
+          provider,
+          refreshTokenCiphertext: token.refreshToken
+            ? encryptSecret(token.refreshToken)
+            : null,
+          scopes: token.scopes,
+          userId: storedState.userId,
+        };
+      } catch {
+        redirectToOAuthError({
+          allowedOrigins,
+          connectSuccessRedirect,
+          provider,
+          response,
+          youtubeConnectSuccessRedirect,
+        });
+        return;
+      }
+
+      let result;
+
+      try {
+        result = await getRepository({
+          fetchImpl,
+          repository,
+        }).persistConnection(tokenResult);
+      } catch {
+        redirectToOAuthError({
+          allowedOrigins,
+          connectSuccessRedirect,
+          provider,
+          response,
+          youtubeConnectSuccessRedirect,
+        });
+        return;
+      }
+
+      if (provider === "youtube") {
+        await registerInitialYouTubeWebSub({
+          channelId: tokenResult.profile.providerAccountId,
+          connectionId: result.connectionId,
+          fetchImpl,
+          repository: getRepository({ fetchImpl, repository }),
+          userId: storedState.userId,
+        });
+      }
+
+      response.redirect(
+        302,
+        resolveOAuthRedirectTarget({
+          allowedOrigins,
+          fallbackPath: getConnectSuccessRedirect({
+            connectSuccessRedirect,
+            provider,
+            youtubeConnectSuccessRedirect,
+          }),
+          returnTo: storedState.returnTo,
         }),
-        returnTo: storedState.returnTo,
-      }),
-    );
-  });
+      );
+    },
+  );
 
   return router;
 }

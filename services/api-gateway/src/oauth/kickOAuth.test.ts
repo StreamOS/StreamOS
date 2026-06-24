@@ -215,6 +215,71 @@ describe("Kick OAuth gateway routes", () => {
     }
   });
 
+  it("rate limits OAuth connect and callback handlers without weakening state validation", async () => {
+    const repository = new RecordingOAuthRepository();
+    const stateStore = new RecordingOAuthStateStore();
+    const { fetchImpl } = createSuccessfulProviderFetch();
+    const app = createApp({
+      apiGatewaySecret: API_SECRET,
+      oauth: {
+        fetchImpl,
+        repository,
+        routeRateLimit: {
+          callbackMaxRequests: 1,
+          connectMaxRequests: 1,
+          windowMs: 60_000,
+        },
+        stateStore,
+      },
+      webhookNow: () => NOW,
+    });
+    const server = createServer(app);
+
+    try {
+      const connectUrl = server.url(
+        `/api/auth/kick/connect?handoff=${encodeURIComponent(createHandoffToken())}`,
+      );
+      const connectResponse = await fetch(connectUrl, { redirect: "manual" });
+      const limitedConnectResponse = await fetch(connectUrl, {
+        redirect: "manual",
+      });
+      const limitedConnectPayload = await limitedConnectResponse.json();
+      const authorizeUrl = new URL(
+        connectResponse.headers.get("location") ?? "",
+      );
+      const state = authorizeUrl.searchParams.get("state");
+
+      expect(connectResponse.status).toBe(302);
+      expect(state).toBeTruthy();
+      expect(limitedConnectResponse.status).toBe(429);
+      expect(limitedConnectPayload).toEqual({
+        error: "rate_limit_exceeded",
+        message: "Too many OAuth connect requests.",
+      });
+      expect(JSON.stringify(limitedConnectPayload)).not.toContain(API_SECRET);
+
+      const callbackUrl = server.url(
+        `/api/auth/kick/callback?code=auth-code&state=${state}`,
+      );
+      const callbackResponse = await fetch(callbackUrl, { redirect: "manual" });
+      const limitedCallbackResponse = await fetch(callbackUrl, {
+        redirect: "manual",
+      });
+      const limitedCallbackPayload = await limitedCallbackResponse.json();
+
+      expect(callbackResponse.status).toBe(302);
+      expect(limitedCallbackResponse.status).toBe(429);
+      expect(limitedCallbackPayload).toEqual({
+        error: "rate_limit_exceeded",
+        message: "Too many OAuth callback requests.",
+      });
+      expect(JSON.stringify(limitedCallbackPayload)).not.toContain(API_SECRET);
+      expect(repository.persisted).toHaveLength(1);
+    } finally {
+      server.close();
+    }
+  });
+
   it("rejects connect requests with missing or expired handoff tokens", async () => {
     const app = createApp({
       apiGatewaySecret: API_SECRET,

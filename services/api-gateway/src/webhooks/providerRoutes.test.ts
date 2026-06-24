@@ -3,6 +3,9 @@ import express from "express";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
+import { InMemoryDeduplicationClient } from "../lib/deduplication.js";
+import { createTwitchWebhookRouter } from "../routes/webhooks/twitch.js";
+import { createYouTubeWebhookRouter } from "../routes/webhooks/youtube.js";
 import type { ProviderWebhookEvent } from "./providerEvents.js";
 import { createProviderWebhookRouter } from "./providerRoutes.js";
 
@@ -190,6 +193,72 @@ describe("provider webhook routes", () => {
     });
   });
 
+  it("rate limits Twitch EventSub requests at the provider webhook boundary", async () => {
+    const events: ProviderWebhookEvent[] = [];
+    const app = express();
+    app.set("trust proxy", 1);
+    app.use(
+      "/api/webhooks",
+      createProviderWebhookRouter({
+        dispatcher: async (event) => {
+          events.push(event);
+        },
+        now: () => NOW.getTime(),
+        twitchEventSubRateLimit: {
+          maxRequests: 1,
+          windowMs: 60_000,
+        },
+        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+        youtubeWebSubSecret: YOUTUBE_WEBHOOK_SECRET,
+      }),
+    );
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const body = JSON.stringify({ challenge: "twitch-challenge-token" });
+      const url = `http://127.0.0.1:${address.port}/api/webhooks/twitch/eventsub`;
+      const headers = {
+        "content-type": "application/json",
+        ...createTwitchEventSubHeaders({
+          body,
+          messageType: "webhook_callback_verification",
+        }),
+      };
+
+      const acceptedResponse = await fetch(url, {
+        body,
+        headers,
+        method: "POST",
+      });
+      const limitedResponse = await fetch(url, {
+        body,
+        headers,
+        method: "POST",
+      });
+      const limitedPayload = await limitedResponse.json();
+      const serializedLimitPayload = JSON.stringify(limitedPayload);
+
+      expect(acceptedResponse.status).toBe(200);
+      expect(await acceptedResponse.text()).toBe("twitch-challenge-token");
+      expect(limitedResponse.status).toBe(429);
+      expect(limitedPayload).toEqual({
+        error: "rate_limit_exceeded",
+        message: "Too many Twitch EventSub webhook requests.",
+      });
+      expect(serializedLimitPayload).not.toContain(TWITCH_EVENTSUB_SECRET);
+      expect(serializedLimitPayload).not.toContain("twitch-challenge-token");
+      expect(events).toEqual([]);
+    } finally {
+      server.close();
+    }
+  });
+
   it("dispatches signed Twitch EventSub notifications", async () => {
     const events: ProviderWebhookEvent[] = [];
 
@@ -273,7 +342,7 @@ describe("provider webhook routes", () => {
         "hub.topic",
         "https://www.youtube.com/feeds/videos.xml?channel_id=youtube-channel-1",
       );
-      url.searchParams.set("hub.challenge", "youtube-challenge-token");
+      url.searchParams.set("hub.challenge", "<youtube-challenge-token>");
       url.searchParams.set("hub.verify_token", "youtube-verify-token");
 
       const response = await fetch(url);
@@ -281,9 +350,70 @@ describe("provider webhook routes", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/plain");
-      expect(text).toBe("youtube-challenge-token");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(text).toBe("<youtube-challenge-token>");
       expect(events).toEqual([]);
     });
+  });
+
+  it("rate limits YouTube WebSub challenge requests at the provider webhook boundary", async () => {
+    const events: ProviderWebhookEvent[] = [];
+    const app = express();
+    app.set("trust proxy", 1);
+    app.use(
+      "/api/webhooks",
+      createProviderWebhookRouter({
+        dispatcher: async (event) => {
+          events.push(event);
+        },
+        now: () => NOW.getTime(),
+        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+        youtubeWebSubChallengeRateLimit: {
+          maxRequests: 1,
+          windowMs: 60_000,
+        },
+        youtubeWebSubSecret: YOUTUBE_WEBHOOK_SECRET,
+        youtubeWebSubVerifyToken: "youtube-verify-token",
+      }),
+    );
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const url = new URL(
+        `http://127.0.0.1:${address.port}/api/webhooks/youtube/websub`,
+      );
+      url.searchParams.set("hub.mode", "subscribe");
+      url.searchParams.set(
+        "hub.topic",
+        "https://www.youtube.com/feeds/videos.xml?channel_id=youtube-channel-1",
+      );
+      url.searchParams.set("hub.challenge", "youtube-challenge-token");
+      url.searchParams.set("hub.verify_token", "youtube-verify-token");
+
+      const acceptedResponse = await fetch(url);
+      const limitedResponse = await fetch(url);
+      const limitedPayload = await limitedResponse.json();
+      const serializedLimitPayload = JSON.stringify(limitedPayload);
+
+      expect(acceptedResponse.status).toBe(200);
+      expect(await acceptedResponse.text()).toBe("youtube-challenge-token");
+      expect(limitedResponse.status).toBe(429);
+      expect(limitedPayload).toEqual({
+        error: "rate_limit_exceeded",
+        message: "Too many YouTube WebSub challenge requests.",
+      });
+      expect(serializedLimitPayload).not.toContain(YOUTUBE_WEBHOOK_SECRET);
+      expect(serializedLimitPayload).not.toContain("youtube-challenge-token");
+      expect(events).toEqual([]);
+    } finally {
+      server.close();
+    }
   });
 
   it("dispatches signed YouTube WebSub Atom feed notifications", async () => {
@@ -432,5 +562,134 @@ describe("provider webhook routes", () => {
       expect(payload.error).toBe("invalid_youtube_websub_signature");
       expect(events).toEqual([]);
     });
+  });
+
+  it("rate limits the legacy Twitch webhook route before repeated signature work", async () => {
+    const events: ProviderWebhookEvent[] = [];
+    const app = express();
+    app.set("trust proxy", 1);
+    app.use(express.raw({ limit: "1mb", type: "*/*" }));
+    app.use(
+      "/webhooks/twitch",
+      createTwitchWebhookRouter({
+        deduplicationClient: new InMemoryDeduplicationClient(),
+        dispatcher: async (event) => {
+          events.push(event);
+        },
+        now: () => NOW.getTime(),
+        rateLimit: {
+          maxRequests: 1,
+          windowMs: 60_000,
+        },
+        secret: TWITCH_EVENTSUB_SECRET,
+      }),
+    );
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const body = JSON.stringify({ challenge: "legacy-twitch-challenge" });
+      const url = `http://127.0.0.1:${address.port}/webhooks/twitch`;
+      const headers = {
+        "content-type": "application/json",
+        ...createTwitchEventSubHeaders({
+          body,
+          messageType: "webhook_callback_verification",
+        }),
+      };
+
+      const acceptedResponse = await fetch(url, {
+        body,
+        headers,
+        method: "POST",
+      });
+      const limitedResponse = await fetch(url, {
+        body,
+        headers,
+        method: "POST",
+      });
+      const limitedPayload = await limitedResponse.json();
+
+      expect(acceptedResponse.status).toBe(200);
+      expect(await acceptedResponse.text()).toBe("legacy-twitch-challenge");
+      expect(limitedResponse.status).toBe(429);
+      expect(limitedPayload.error).toBe("rate_limit_exceeded");
+      expect(JSON.stringify(limitedPayload)).not.toContain(
+        TWITCH_EVENTSUB_SECRET,
+      );
+      expect(events).toEqual([]);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("rate limits the legacy YouTube webhook route before repeated signature work", async () => {
+    const events: ProviderWebhookEvent[] = [];
+    const app = express();
+    app.set("trust proxy", 1);
+    app.use(express.raw({ limit: "1mb", type: "*/*" }));
+    app.use(
+      "/webhooks/youtube",
+      createYouTubeWebhookRouter({
+        dispatcher: async (event) => {
+          events.push(event);
+        },
+        now: () => NOW.getTime(),
+        rateLimit: {
+          maxRequests: 1,
+          windowMs: 60_000,
+        },
+        secret: YOUTUBE_WEBHOOK_SECRET,
+      }),
+    );
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const body = "<feed><entry /></feed>";
+      const url = `http://127.0.0.1:${address.port}/webhooks/youtube`;
+      const headers = {
+        "content-type": "application/atom+xml",
+        "x-hub-signature": createWebSubSignature(body),
+      };
+
+      const acceptedResponse = await fetch(url, {
+        body,
+        headers,
+        method: "POST",
+      });
+      const limitedResponse = await fetch(url, {
+        body,
+        headers,
+        method: "POST",
+      });
+      const acceptedPayload = await acceptedResponse.json();
+      const limitedPayload = await limitedResponse.json();
+
+      expect(acceptedResponse.status).toBe(200);
+      expect(acceptedPayload).toMatchObject({
+        entries: 0,
+        queued: 0,
+        received: true,
+      });
+      expect(limitedResponse.status).toBe(429);
+      expect(limitedPayload.error).toBe("rate_limit_exceeded");
+      expect(JSON.stringify(limitedPayload)).not.toContain(
+        YOUTUBE_WEBHOOK_SECRET,
+      );
+      expect(events).toEqual([]);
+    } finally {
+      server.close();
+    }
   });
 });
