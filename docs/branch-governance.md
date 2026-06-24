@@ -111,6 +111,45 @@ Use this lifecycle for normal work:
 Do not merge stale draft PRs directly. If an old PR contains useful work,
 extract the still-relevant scope into a fresh branch from current `main`.
 
+## Audit Workflow
+
+Before any branch mutation, run the read-only audit:
+
+```bash
+pnpm branch:audit
+```
+
+Useful variants:
+
+```bash
+pnpm branch:audit -- --format both
+pnpm branch:audit -- --no-gh
+pnpm branch:audit -- --active-days 30 --abandoned-days 60
+```
+
+The audit checks branch inventory, last commit metadata, merge state against
+`main`, references in GitHub workflows and deployment documentation, local dirty
+worktree state, and open GitHub pull requests when `gh` is available.
+
+## GitHub And CI Checklist
+
+External GitHub or CI audit notes are inputs, not source of truth. Before any
+branch mutation or CI/deploy-adjacent debugging, classify findings into these
+blocks:
+
+- `Branch-Sicherheit`: open PRs, head branch binding, base branch, draft/review
+  state, merge status, divergence, and worktree collisions.
+- `Workflow-/Deploy-Relevanz`: workflow triggers, GitHub Environment bindings,
+  deployment branch rules, concurrency behavior, release paths, and rollback
+  paths.
+- `Secret-/Runtime-Sicherheit`: Railway/Vercel secret scope, `NEXT_PUBLIC_*`
+  boundaries, and private-network smoke or rollout checks.
+
+Repo-first workflow mapping must preserve the active repository files,
+environment bindings, and branch triggers. External audit wording must not
+override `.github/workflows/*`, `docs/deployment.md`, or the branch-governance
+policy.
+
 ## Cleanup Rules
 
 Classify branches before deletion:
