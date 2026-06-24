@@ -136,8 +136,6 @@ export function TopHeader({
   }, []);
 
   useEffect(() => {
-    let cleanup: () => void = () => {};
-
     try {
       const supabase = createClient();
       const channel = supabase
@@ -150,14 +148,12 @@ export function TopHeader({
         })
         .subscribe();
 
-      cleanup = () => {
+      return () => {
         void supabase.removeChannel(channel);
       };
     } catch {
-      cleanup = () => {};
+      return () => {};
     }
-
-    return cleanup;
   }, [incrementNotificationCount, userId]);
 
   function markAllRead() {
