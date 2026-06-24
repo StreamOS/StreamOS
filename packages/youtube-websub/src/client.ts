@@ -6,6 +6,8 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const RETRY_DELAYS_MS = [2_000, 4_000, 8_000] as const;
+const MAX_STREAMOS_PUBLIC_URL_LENGTH = 4096;
+const YOUTUBE_WEBSUB_CALLBACK_PATH = "/api/webhooks/youtube/websub";
 
 type RequestWebSubOptions = {
   fetchImpl?: typeof fetch;
@@ -257,7 +259,37 @@ function getCallbackUrl(streamOsPublicUrl: string | undefined): string {
     throw new Error("STREAMOS_PUBLIC_URL is required for YouTube WebSub.");
   }
 
-  return `${publicUrl.replace(/\/+$/, "")}/api/webhooks/youtube/websub`;
+  if (publicUrl.length > MAX_STREAMOS_PUBLIC_URL_LENGTH) {
+    throw new Error("STREAMOS_PUBLIC_URL is invalid for YouTube WebSub.");
+  }
+
+  let url: URL;
+
+  try {
+    url = new URL(publicUrl);
+  } catch {
+    throw new Error("STREAMOS_PUBLIC_URL is invalid for YouTube WebSub.");
+  }
+
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("STREAMOS_PUBLIC_URL is invalid for YouTube WebSub.");
+  }
+
+  if (url.search || url.hash) {
+    throw new Error("STREAMOS_PUBLIC_URL is invalid for YouTube WebSub.");
+  }
+
+  url.pathname = joinUrlPath(url.pathname, YOUTUBE_WEBSUB_CALLBACK_PATH);
+  return url.toString();
+}
+
+function joinUrlPath(basePath: string, suffixPath: string): string {
+  const segments = [
+    ...basePath.split("/").filter(Boolean),
+    ...suffixPath.split("/").filter(Boolean),
+  ];
+
+  return `/${segments.join("/")}`;
 }
 
 function getRequiredSecret(secret: string | undefined): string {
