@@ -3,6 +3,10 @@ import type { Request, Response, Router } from "express";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 
 import {
+  sendPlainTextWebhookChallenge,
+  validateWebhookChallenge,
+} from "../lib/webhook-challenge.js";
+import {
   normalizeTwitchNotification,
   normalizeYouTubeAtomEntry,
   parseYouTubeAtomEntries,
@@ -266,8 +270,7 @@ export function createProviderWebhookRouter({
       }
 
       if (messageType === TWITCH_MESSAGE_TYPE_VERIFICATION) {
-        const challenge =
-          typeof body.challenge === "string" ? body.challenge : undefined;
+        const challenge = validateWebhookChallenge(body.challenge);
 
         if (!challenge) {
           response.status(400).json({
@@ -278,7 +281,7 @@ export function createProviderWebhookRouter({
           return;
         }
 
-        sendPlainTextChallenge(response, challenge);
+        sendPlainTextWebhookChallenge(response, challenge);
         return;
       }
 
@@ -339,7 +342,9 @@ export function createProviderWebhookRouter({
     (request: Request, response: Response) => {
       const mode = getQueryString(request.query["hub.mode"]);
       const topic = getQueryString(request.query["hub.topic"]);
-      const challenge = getQueryString(request.query["hub.challenge"]);
+      const challenge = validateWebhookChallenge(
+        getQueryString(request.query["hub.challenge"]),
+      );
       const verifyToken = getQueryString(request.query["hub.verify_token"]);
       const leaseSeconds = getQueryInteger(request.query["hub.lease_seconds"]);
 
@@ -372,7 +377,7 @@ export function createProviderWebhookRouter({
         return;
       }
 
-      sendPlainTextChallenge(response, challenge);
+      sendPlainTextWebhookChallenge(response, challenge);
 
       void updateYouTubeWebSubChallengeTracking({
         leaseSeconds,
@@ -453,14 +458,6 @@ export function createProviderWebhookRouter({
   );
 
   return router;
-}
-
-function sendPlainTextChallenge(response: Response, challenge: string) {
-  response
-    .status(200)
-    .set("Content-Type", "text/plain; charset=utf-8")
-    .set("X-Content-Type-Options", "nosniff")
-    .end(Buffer.from(challenge, "utf8"));
 }
 
 async function updateYouTubeWebSubChallengeTracking({
