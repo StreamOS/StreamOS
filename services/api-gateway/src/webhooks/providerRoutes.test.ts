@@ -342,7 +342,7 @@ describe("provider webhook routes", () => {
         "hub.topic",
         "https://www.youtube.com/feeds/videos.xml?channel_id=youtube-channel-1",
       );
-      url.searchParams.set("hub.challenge", "youtube-challenge-token");
+      url.searchParams.set("hub.challenge", "<youtube-challenge-token>");
       url.searchParams.set("hub.verify_token", "youtube-verify-token");
 
       const response = await fetch(url);
@@ -350,7 +350,8 @@ describe("provider webhook routes", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/plain");
-      expect(text).toBe("youtube-challenge-token");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(text).toBe("<youtube-challenge-token>");
       expect(events).toEqual([]);
     });
   });

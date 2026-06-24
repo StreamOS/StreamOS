@@ -278,7 +278,7 @@ export function createProviderWebhookRouter({
           return;
         }
 
-        response.status(200).type("text/plain").send(challenge);
+        sendPlainTextChallenge(response, challenge);
         return;
       }
 
@@ -372,7 +372,7 @@ export function createProviderWebhookRouter({
         return;
       }
 
-      response.status(200).type("text/plain").send(challenge);
+      sendPlainTextChallenge(response, challenge);
 
       void updateYouTubeWebSubChallengeTracking({
         leaseSeconds,
@@ -453,6 +453,14 @@ export function createProviderWebhookRouter({
   );
 
   return router;
+}
+
+function sendPlainTextChallenge(response: Response, challenge: string) {
+  response
+    .status(200)
+    .set("Content-Type", "text/plain; charset=utf-8")
+    .set("X-Content-Type-Options", "nosniff")
+    .end(Buffer.from(challenge, "utf8"));
 }
 
 async function updateYouTubeWebSubChallengeTracking({
