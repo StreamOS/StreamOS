@@ -238,6 +238,11 @@ function normalizeYamlValue(value) {
 }
 
 function extractPushBranches(content) {
+  // Match the `push:` section and lazily capture its body until we hit:
+  // - another key at the same workflow-map indentation (`\n  <key>:`),
+  // - a top-level key (`\n<key>:`), or
+  // - end of file.
+  // This documents the stop-condition strategy for this lightweight YAML shape parsing.
   const pushBlockMatch = content.match(
     /push:\s*\n([\s\S]*?)(?:\n\s{2}[A-Za-z_][A-Za-z0-9_-]*:|\n[A-Za-z_][A-Za-z0-9_-]*:|$)/,
   );
