@@ -1,5 +1,6 @@
 import express from "express";
 import type { Request, Response, Router } from "express";
+import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 
 import {
   normalizeTwitchNotification,
@@ -22,12 +23,18 @@ const TWITCH_MESSAGE_TYPE_REVOCATION = "revocation";
 const TWITCH_MESSAGE_TYPE_VERIFICATION = "webhook_callback_verification";
 
 const WEBHOOK_TIMESTAMP_TOLERANCE_MS = 10 * 60 * 1000;
+const YOUTUBE_WEBSUB_POST_RATE_LIMIT_WINDOW_MS = 60_000;
+const YOUTUBE_WEBSUB_POST_RATE_LIMIT_MAX_REQUESTS = 500;
 
 type CreateProviderWebhookRouterOptions = {
   dispatcher?: ProviderWebhookDispatcher;
   now: () => number;
   twitchEventSubSecret: string | undefined;
   youtubeWebSubSecret: string | undefined;
+  youtubeWebSubPostRateLimit?: {
+    maxRequests?: number;
+    windowMs?: number;
+  };
   youtubeWebSubVerifyToken?: string | undefined;
 };
 
@@ -112,11 +119,28 @@ export function createProviderWebhookRouter({
   dispatcher,
   now,
   twitchEventSubSecret,
+  youtubeWebSubPostRateLimit,
   youtubeWebSubSecret,
   youtubeWebSubVerifyToken,
 }: CreateProviderWebhookRouterOptions): Router {
   const router = express.Router();
   const rawBodyParser = express.raw({ limit: "1mb", type: "*/*" });
+  const youtubeWebSubPostRateLimiter = rateLimit({
+    keyGenerator: (request) =>
+      `youtube:websub:post:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+    legacyHeaders: false,
+    limit:
+      youtubeWebSubPostRateLimit?.maxRequests ??
+      YOUTUBE_WEBSUB_POST_RATE_LIMIT_MAX_REQUESTS,
+    message: {
+      error: "rate_limit_exceeded",
+      message: "Too many YouTube WebSub webhook requests.",
+    },
+    standardHeaders: "draft-7",
+    windowMs:
+      youtubeWebSubPostRateLimit?.windowMs ??
+      YOUTUBE_WEBSUB_POST_RATE_LIMIT_WINDOW_MS,
+  });
 
   router.post(
     "/twitch/eventsub",
@@ -311,6 +335,7 @@ export function createProviderWebhookRouter({
 
   router.post(
     "/youtube/websub",
+    youtubeWebSubPostRateLimiter,
     rawBodyParser,
     async (request: Request, response: Response) => {
       if (!youtubeWebSubSecret) {
