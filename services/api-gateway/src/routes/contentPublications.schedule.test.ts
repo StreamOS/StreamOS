@@ -240,6 +240,8 @@ describe("content publications schedule routes", () => {
   });
 
   it("retries an identical publication replace without creating a second replacement row or audit event", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-22T12:00:00.000Z"));
     useSupabaseTestEnv();
     const requests: Array<{
       body: string | null;
@@ -512,6 +514,8 @@ describe("content publications schedule routes", () => {
   });
 
   it("retries an identical fanout replace without creating a second replacement row or audit event", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-22T12:00:00.000Z"));
     useSupabaseTestEnv();
     const requests: Array<{
       body: string | null;
