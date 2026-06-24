@@ -195,6 +195,10 @@ test("findForbiddenVercelEnvNames catches Railway-only names and prefixes", () =
     SB_SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
     SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
     TIKTOK_CLIENT_KEY: "tiktok-client-key",
+    TWITCH_CLIENT_ID: "twitch-client-id",
+    TWITCH_REDIRECT_URI:
+      "https://gateway.streamos.test/api/auth/twitch/callback",
+    TWITCH_SCOPES: "user:read:email",
     YOUTUBE_CLIENT_SECRET: "youtube-secret",
   });
 
@@ -207,6 +211,9 @@ test("findForbiddenVercelEnvNames catches Railway-only names and prefixes", () =
     "SB_SUPABASE_SERVICE_ROLE_KEY",
     "SUPABASE_SERVICE_ROLE_KEY",
     "TIKTOK_CLIENT_KEY",
+    "TWITCH_CLIENT_ID",
+    "TWITCH_REDIRECT_URI",
+    "TWITCH_SCOPES",
     "YOUTUBE_CLIENT_SECRET",
   ]);
   assert.match(
@@ -232,12 +239,16 @@ test("assertVercelEnvironment blocks Railway-only secrets and provider secrets",
           SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
           TIKTOK_CLIENT_KEY: "tiktok-client-key",
           TIKTOK_CLIENT_SECRET: "tiktok-secret",
+          TWITCH_CLIENT_ID: "twitch-client-id",
           TWITCH_CLIENT_SECRET: "twitch-secret",
+          TWITCH_REDIRECT_URI:
+            "https://gateway.streamos.test/api/auth/twitch/callback",
+          TWITCH_SCOPES: "user:read:email",
           YOUTUBE_CLIENT_SECRET: "youtube-client-secret",
         },
         { requireRequired: false, validatePublicUrls: false },
       ),
-    /APP_ENCRYPTION_KEY|CRON_SECRET|KICK_CLIENT_SECRET|KICK_WEBHOOK_SECRET|OPENAI_API_KEY|REDIS_URL|SB_POSTGRES_PASSWORD|SB_SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_URL|SUPABASE_SERVICE_ROLE_KEY|TIKTOK_CLIENT_KEY|TIKTOK_CLIENT_SECRET|TWITCH_CLIENT_SECRET|YOUTUBE_CLIENT_SECRET/,
+    /APP_ENCRYPTION_KEY|CRON_SECRET|KICK_CLIENT_SECRET|KICK_WEBHOOK_SECRET|OPENAI_API_KEY|REDIS_URL|SB_POSTGRES_PASSWORD|SB_SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_URL|SUPABASE_SERVICE_ROLE_KEY|TIKTOK_CLIENT_KEY|TIKTOK_CLIENT_SECRET|TWITCH_CLIENT_ID|TWITCH_CLIENT_SECRET|TWITCH_REDIRECT_URI|TWITCH_SCOPES|YOUTUBE_CLIENT_SECRET/,
   );
 });
 
@@ -336,19 +347,28 @@ test("collectUnexpectedVercelEnvNames returns unknown non-blocked names", () => 
     PATH: "/usr/bin",
     PNPM_SCRIPT_SRC_DIR: "C:/Dev/StreamOS",
     TURBO_HASH: "hash",
-    TWITCH_CLIENT_ID: "legacy-client-id",
   });
 
   assert.deepEqual(names, [
     "CUSTOM_DEBUG_FLAG",
     "NEXT_PUBLIC_SB_SUPABASE_PUBLISHABLE_KEY",
     "SB_SUPABASE_URL",
-    "TWITCH_CLIENT_ID",
   ]);
   assert.match(
     formatUnexpectedVercelEnvWarning(names, "apps/web Vercel build"),
-    /CUSTOM_DEBUG_FLAG[\s\S]*NEXT_PUBLIC_SB_SUPABASE_PUBLISHABLE_KEY[\s\S]*SB_SUPABASE_URL[\s\S]*TWITCH_CLIENT_ID/,
+    /CUSTOM_DEBUG_FLAG[\s\S]*NEXT_PUBLIC_SB_SUPABASE_PUBLISHABLE_KEY[\s\S]*SB_SUPABASE_URL/,
   );
+});
+
+test("parseArgs accepts development as a supported Vercel audit environment", () => {
+  const { parseArgs } = require("./validate-vercel-env.cjs");
+
+  assert.deepEqual(parseArgs(["--environment", "development"]), {
+    environment: "development",
+    envFile: undefined,
+    help: false,
+    vercelDir: ".vercel",
+  });
 });
 
 test("collectUnexpectedVercelEnvNames filters common local tooling noise", () => {
@@ -395,6 +415,109 @@ test("Vercel env runner accepts a valid pulled env file", () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Vercel preview environment audit passed/);
+});
+
+test("Vercel env runner accepts development env files with the same web policy", () => {
+  const tempDirectory = mkdtempSync(join(os.tmpdir(), "streamos-vercel-env-"));
+  const vercelDirectory = join(tempDirectory, ".vercel");
+  const envFile = join(vercelDirectory, ".env.development.local");
+  mkdirSync(vercelDirectory, { recursive: true });
+  writeFileSync(
+    envFile,
+    Object.entries(buildValidVercelEnv())
+      .map(([key, value]) => `${key}=${value}`)
+      .join("\n"),
+  );
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(__dirname, "validate-vercel-env.cjs"),
+      "--vercel-dir",
+      vercelDirectory,
+      "--environment",
+      "development",
+    ],
+    { encoding: "utf8" },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Vercel development environment audit passed/);
+});
+
+test("Vercel env runner blocks forbidden server-only keys in development", () => {
+  const tempDirectory = mkdtempSync(join(os.tmpdir(), "streamos-vercel-env-"));
+  const vercelDirectory = join(tempDirectory, ".vercel");
+  const envFile = join(vercelDirectory, ".env.development.local");
+  mkdirSync(vercelDirectory, { recursive: true });
+  writeFileSync(
+    envFile,
+    Object.entries(
+      buildValidVercelEnv({
+        APP_ENCRYPTION_KEY: `base64:${Buffer.alloc(32, 7).toString("base64")}`,
+        STREAM_EVENT_WEBHOOK_SECRET: "webhook-secret-placeholder",
+        TWITCH_CLIENT_SECRET: "twitch-secret-placeholder",
+      }),
+    )
+      .map(([key, value]) => `${key}=${value}`)
+      .join("\n"),
+  );
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(__dirname, "validate-vercel-env.cjs"),
+      "--vercel-dir",
+      vercelDirectory,
+      "--environment",
+      "development",
+    ],
+    { encoding: "utf8" },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(
+    `${result.stdout}${result.stderr}`,
+    /APP_ENCRYPTION_KEY[\s\S]*STREAM_EVENT_WEBHOOK_SECRET[\s\S]*TWITCH_CLIENT_SECRET/,
+  );
+});
+
+test("Vercel env runner blocks gateway-owned Twitch OAuth config in development", () => {
+  const tempDirectory = mkdtempSync(join(os.tmpdir(), "streamos-vercel-env-"));
+  const vercelDirectory = join(tempDirectory, ".vercel");
+  const envFile = join(vercelDirectory, ".env.development.local");
+  mkdirSync(vercelDirectory, { recursive: true });
+  writeFileSync(
+    envFile,
+    Object.entries(
+      buildValidVercelEnv({
+        TWITCH_CLIENT_ID: "twitch-client-id-placeholder",
+        TWITCH_REDIRECT_URI:
+          "https://gateway.streamos.test/api/auth/twitch/callback",
+        TWITCH_SCOPES: "user:read:email",
+      }),
+    )
+      .map(([key, value]) => `${key}=${value}`)
+      .join("\n"),
+  );
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(__dirname, "validate-vercel-env.cjs"),
+      "--vercel-dir",
+      vercelDirectory,
+      "--environment",
+      "development",
+    ],
+    { encoding: "utf8" },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(
+    `${result.stdout}${result.stderr}`,
+    /TWITCH_CLIENT_ID[\s\S]*TWITCH_REDIRECT_URI[\s\S]*TWITCH_SCOPES/,
+  );
 });
 
 test("Vercel env runner fails fast on forbidden NEXT_PUBLIC_OPENAI vars", () => {
@@ -461,6 +584,21 @@ test("next.config.ts fails fast on Railway-only secrets outside Vercel mode", ()
   assert.match(
     `${result.stdout}${result.stderr}`,
     /APP_ENCRYPTION_KEY[\s\S]*OPENAI_API_KEY[\s\S]*REDIS_URL[\s\S]*(belong|must not be configured)/i,
+  );
+});
+
+test("next.config.ts fails fast on gateway-owned Twitch OAuth config", () => {
+  const result = runNextConfigImport({
+    TWITCH_CLIENT_ID: "twitch-client-id-placeholder",
+    TWITCH_REDIRECT_URI:
+      "https://gateway.streamos.test/api/auth/twitch/callback",
+    TWITCH_SCOPES: "user:read:email",
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(
+    `${result.stdout}${result.stderr}`,
+    /TWITCH_CLIENT_ID[\s\S]*TWITCH_REDIRECT_URI[\s\S]*TWITCH_SCOPES[\s\S]*(belong|must not be configured)/i,
   );
 });
 

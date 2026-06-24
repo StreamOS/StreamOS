@@ -43,7 +43,7 @@ Create a Vercel project with this configuration:
 | Root Directory   | `apps/web`                                          |
 | Framework Preset | Next.js                                             |
 | Install Command  | `corepack enable && pnpm install --frozen-lockfile` |
-| Build Command    | `pnpm --filter @streamos/web build`                 |
+| Build Command    | `pnpm --filter @streamos/web... --if-present build` |
 
 If the web app fails locally or in a preview build with a stale Next.js
 artifact error such as `Cannot find module './7751.js'`, clear only the
@@ -79,16 +79,39 @@ secrets, provider webhook secrets, `STREAM_EVENT_WEBHOOK_SECRET`, or any
 `NEXT_PUBLIC_OPENAI*` variable in the Vercel browser-facing app.
 
 Twitch, YouTube, TikTok, and Kick OAuth are gateway-owned. Provider secrets and
-webhook secrets must be configured on the API gateway only. `API_GATEWAY_SECRET`
-is the only shared secret that remains in Vercel, and only for server-side
-handoff and app-facing gateway calls.
+webhook secrets must be configured on the API gateway only. Provider OAuth
+configuration names such as `TWITCH_CLIENT_ID`, `TWITCH_REDIRECT_URI`, and
+`TWITCH_SCOPES` are also not part of the `apps/web` contract and must stay with
+`services/api-gateway` on Railway. `API_GATEWAY_SECRET` is the only shared
+secret that remains in Vercel, and only for server-side handoff and app-facing
+gateway calls.
 
 Run `pnpm vercel:audit -- --vercel-dir .vercel --environment preview` or
-`pnpm vercel:audit -- --vercel-dir .vercel --environment production` after
+`pnpm vercel:audit -- --vercel-dir .vercel --environment production` or
+`pnpm vercel:audit -- --vercel-dir .vercel --environment development` after
 `vercel pull` and before `vercel build`, depending on the target deployment
 workflow. The same policy is enforced in `apps/web/next.config.ts` during
 Vercel builds and startup, so the web app fails fast if the pulled environment
-still contains Railway-only secrets or private Railway URLs.
+still contains Railway-only secrets, gateway-owned provider OAuth config, or
+private Railway URLs.
+
+Environment policy for `apps/web`:
+
+- `production`: only web-owned keys such as `APP_URL`, `NEXT_PUBLIC_APP_URL`,
+  `API_GATEWAY_URL`, `API_GATEWAY_SECRET`, `NEXT_PUBLIC_SUPABASE_*`,
+  `STREAMOS_DEMO_MODE`, and `APP_ENV`.
+- `preview`: same allowlist and denylist as `production`; no provider-specific
+  gateway keys, provider secrets, webhook secrets, or Railway-private values.
+- `development`: same allowlist and denylist as `preview` and `production`; no
+  server-only secrets may be parked in the Vercel web project.
+
+Project binding policy for `apps/web`:
+
+- `stream-os-web` is the default Vercel project for `apps/web`.
+- `stream-os-web_staging` is a separate operator context, not the default link
+  target and not the standard preview path.
+- `apps/web/.vercel/project.json` may stay committed as helper metadata, but
+  local `.vercel` mirrors are not the source of truth for live project state.
 
 `APP_URL` is the preferred server-side canonical origin for OAuth handoff
 redirects such as `/api/gateway-connect`. `NEXT_PUBLIC_APP_URL` remains an
