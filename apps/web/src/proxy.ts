@@ -18,7 +18,7 @@ const SESSION_COMPLETION_PATHS = new Set<string>([
   "/auth/verify-email",
 ]);
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isDashboardRoute =
     pathname === "/dashboard" || pathname.startsWith("/dashboard/");
