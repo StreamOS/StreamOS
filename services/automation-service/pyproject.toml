@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "FastAPI service for StreamOS clip generation and AI automation pipelines."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-  "fastapi>=0.115.0",
+  "fastapi>=0.138.0",
   "uvicorn[standard]>=0.30.0",
   "pydantic>=2.10.0",
   "httpx>=0.28.0"
