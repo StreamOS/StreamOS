@@ -3,7 +3,7 @@ import type { User } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
 import type { NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { config, middleware } from "./middleware";
+import { config, proxy } from "./proxy";
 import { getSupabaseConfig } from "@/lib/supabase/config";
 
 vi.mock("@/lib/supabase/config", () => ({
@@ -63,7 +63,7 @@ function mockAuthResult({
   }) as never);
 }
 
-describe("middleware auth guards", () => {
+describe("proxy auth guards", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
@@ -79,7 +79,7 @@ describe("middleware auth guards", () => {
   it("redirects unauthenticated dashboard requests to login with next path", async () => {
     mockAuthResult({ user: null });
 
-    const response = await middleware(
+    const response = await proxy(
       new NextRequest("http://localhost/dashboard/clips?status=failed"),
     );
 
@@ -92,7 +92,7 @@ describe("middleware auth guards", () => {
   it("redirects authenticated auth-page requests to dashboard", async () => {
     mockAuthResult({ user: testUser });
 
-    const response = await middleware(
+    const response = await proxy(
       new NextRequest("http://localhost/auth/login"),
     );
 
@@ -103,7 +103,7 @@ describe("middleware auth guards", () => {
   it("allows update-password for authenticated recovery sessions", async () => {
     mockAuthResult({ user: testUser });
 
-    const response = await middleware(
+    const response = await proxy(
       new NextRequest("http://localhost/auth/update-password"),
     );
 
@@ -114,7 +114,7 @@ describe("middleware auth guards", () => {
   it("allows verify-email for authenticated unconfirmed sessions", async () => {
     mockAuthResult({ user: testUser });
 
-    const response = await middleware(
+    const response = await proxy(
       new NextRequest("http://localhost/auth/verify-email"),
     );
 
@@ -137,9 +137,7 @@ describe("middleware auth guards", () => {
       user: testUser,
     });
 
-    const response = await middleware(
-      new NextRequest("http://localhost/dashboard"),
-    );
+    const response = await proxy(new NextRequest("http://localhost/dashboard"));
     const setCookieHeader = response.headers.get("set-cookie") ?? "";
 
     expect(response.headers.get("location")).toBeNull();
@@ -154,7 +152,7 @@ describe("middleware auth guards", () => {
       user: null,
     });
 
-    const response = await middleware(
+    const response = await proxy(
       new NextRequest("http://localhost/dashboard", {
         headers: {
           cookie: "sb-test-auth-token=stale-token; unrelated=value",
