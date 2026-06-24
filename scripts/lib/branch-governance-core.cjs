@@ -49,6 +49,8 @@ function isNamingCompliant(name) {
     return /^release\/[0-9A-Za-z][0-9A-Za-z._-]*$/.test(name);
   }
 
+  // Enforce lowercase kebab-case for the description segment (third path part):
+  // uppercase letters are intentionally disallowed by [a-z0-9][a-z0-9-]*.
   const match = /^(feature|fix|chore)\/([^/]+)\/([a-z0-9][a-z0-9-]*)$/.exec(
     name,
   );
@@ -153,6 +155,11 @@ function suggestBranchRename(name, subject = "") {
 
   let descriptionSource = "";
 
+  // Two cases:
+  // 1) Canonical branch format: <type>/<scope>/<description...>
+  //    When type is recognized and we have at least 3 segments, use everything after type+scope.
+  // 2) Non-canonical/malformed input: fall back to remaining segments (or first segment)
+  //    so we can still produce a best-effort rename suggestion.
   if (parts.length >= 3 && policy.allowedTypes.has(parts[0])) {
     descriptionSource = parts.slice(2).join("-");
   } else {
@@ -238,6 +245,11 @@ function normalizeYamlValue(value) {
 }
 
 function extractPushBranches(content) {
+  // Match the `push:` section and lazily capture its body until we hit:
+  // - another key at the same workflow-map indentation (`\n  <key>:`),
+  // - a top-level key (`\n<key>:`), or
+  // - end of file.
+  // This documents the stop-condition strategy for this lightweight YAML shape parsing.
   const pushBlockMatch = content.match(
     /push:\s*\n([\s\S]*?)(?:\n\s{2}[A-Za-z_][A-Za-z0-9_-]*:|\n[A-Za-z_][A-Za-z0-9_-]*:|$)/,
   );
@@ -256,9 +268,23 @@ function extractPushBranches(content) {
 
   return branchesBlockMatch[1]
     .split(/\r?\n/)
-    .map((line) => line.match(/-\s*("?)([^"\n]+)\1/))
+    .map((line) => {
+      const itemMatch = line.trim().match(/^-\s*(.+)$/);
+      if (!itemMatch) {
+        return null;
+      }
+
+      const rawValue = itemMatch[1].trim();
+      const quotedMatch = rawValue.match(/^"((?:\\.|[^"\\])*)"$/);
+      if (quotedMatch) {
+        return quotedMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+      }
+
+      const unquotedMatch = rawValue.match(/^([^\n#]+)$/);
+      return unquotedMatch ? unquotedMatch[1].trim() : null;
+    })
     .filter(Boolean)
-    .map((match) => normalizeYamlValue(match[2]));
+    .map((value) => normalizeYamlValue(value));
 }
 
 function extractWorkflowEnvironments(content) {
