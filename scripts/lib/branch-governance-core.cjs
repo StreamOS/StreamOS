@@ -153,6 +153,11 @@ function suggestBranchRename(name, subject = "") {
 
   let descriptionSource = "";
 
+  // Two cases:
+  // 1) Canonical branch format: <type>/<scope>/<description...>
+  //    When type is recognized and we have at least 3 segments, use everything after type+scope.
+  // 2) Non-canonical/malformed input: fall back to remaining segments (or first segment)
+  //    so we can still produce a best-effort rename suggestion.
   if (parts.length >= 3 && policy.allowedTypes.has(parts[0])) {
     descriptionSource = parts.slice(2).join("-");
   } else {
