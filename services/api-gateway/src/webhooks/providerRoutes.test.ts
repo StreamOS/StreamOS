@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
 import { InMemoryDeduplicationClient } from "../lib/deduplication.js";
+import { WEBHOOK_CHALLENGE_MAX_LENGTH } from "../lib/webhook-challenge.js";
 import { createTwitchWebhookRouter } from "../routes/webhooks/twitch.js";
 import { createYouTubeWebhookRouter } from "../routes/webhooks/youtube.js";
 import type { ProviderWebhookEvent } from "./providerEvents.js";
@@ -94,7 +95,9 @@ describe("provider webhook routes", () => {
         throw new Error("Expected TCP server address.");
       }
 
-      const body = JSON.stringify({ challenge: "top-level-twitch-challenge" });
+      const body = JSON.stringify({
+        challenge: "<top-level-twitch-challenge>",
+      });
       const response = await fetch(
         `http://127.0.0.1:${address.port}/webhooks/twitch`,
         {
@@ -114,7 +117,8 @@ describe("provider webhook routes", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/plain");
-      expect(text).toBe("top-level-twitch-challenge");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(text).toBe("<top-level-twitch-challenge>");
       expect(events).toEqual([]);
     } finally {
       server.close();
@@ -145,7 +149,7 @@ describe("provider webhook routes", () => {
         "hub.topic",
         "https://www.youtube.com/feeds/videos.xml?channel_id=youtube-channel-1",
       );
-      validUrl.searchParams.set("hub.challenge", "youtube-challenge-token");
+      validUrl.searchParams.set("hub.challenge", "<youtube-challenge-token>");
 
       const invalidUrl = new URL(
         `http://127.0.0.1:${address.port}/webhooks/youtube`,
@@ -157,12 +161,35 @@ describe("provider webhook routes", () => {
       );
       invalidUrl.searchParams.set("hub.challenge", "bad-topic");
 
+      const invalidChallengeUrl = new URL(
+        `http://127.0.0.1:${address.port}/webhooks/youtube`,
+      );
+      invalidChallengeUrl.searchParams.set("hub.mode", "subscribe");
+      invalidChallengeUrl.searchParams.set(
+        "hub.topic",
+        "https://www.youtube.com/feeds/videos.xml?channel_id=youtube-channel-1",
+      );
+      invalidChallengeUrl.searchParams.set(
+        "hub.challenge",
+        "x".repeat(WEBHOOK_CHALLENGE_MAX_LENGTH + 1),
+      );
+
       const validResponse = await fetch(validUrl);
       const invalidResponse = await fetch(invalidUrl);
+      const invalidChallengeResponse = await fetch(invalidChallengeUrl);
+      const invalidChallengePayload = await invalidChallengeResponse.json();
 
       expect(validResponse.status).toBe(200);
-      expect(await validResponse.text()).toBe("youtube-challenge-token");
+      expect(validResponse.headers.get("content-type")).toContain("text/plain");
+      expect(validResponse.headers.get("x-content-type-options")).toBe(
+        "nosniff",
+      );
+      expect(await validResponse.text()).toBe("<youtube-challenge-token>");
       expect(invalidResponse.status).toBe(400);
+      expect(invalidChallengeResponse.status).toBe(400);
+      expect(JSON.stringify(invalidChallengePayload)).not.toContain(
+        "x".repeat(32),
+      );
     } finally {
       server.close();
     }
@@ -172,7 +199,7 @@ describe("provider webhook routes", () => {
     const events: ProviderWebhookEvent[] = [];
 
     await withServer(events, async (baseUrl) => {
-      const body = JSON.stringify({ challenge: "twitch-challenge-token" });
+      const body = JSON.stringify({ challenge: "<twitch-challenge-token>" });
       const response = await fetch(`${baseUrl}/api/webhooks/twitch/eventsub`, {
         method: "POST",
         headers: {
@@ -188,7 +215,36 @@ describe("provider webhook routes", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/plain");
-      expect(text).toBe("twitch-challenge-token");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(text).toBe("<twitch-challenge-token>");
+      expect(events).toEqual([]);
+    });
+  });
+
+  it("rejects invalid Twitch EventSub verification challenges without reflecting them", async () => {
+    const events: ProviderWebhookEvent[] = [];
+
+    await withServer(events, async (baseUrl) => {
+      const body = JSON.stringify({
+        challenge: "x".repeat(WEBHOOK_CHALLENGE_MAX_LENGTH + 1),
+      });
+
+      const response = await fetch(`${baseUrl}/api/webhooks/twitch/eventsub`, {
+        body,
+        headers: {
+          "content-type": "application/json",
+          ...createTwitchEventSubHeaders({
+            body,
+            messageType: "webhook_callback_verification",
+          }),
+        },
+        method: "POST",
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(payload.error).toBe("invalid_twitch_eventsub_challenge");
+      expect(JSON.stringify(payload)).not.toContain("x".repeat(32));
       expect(events).toEqual([]);
     });
   });
@@ -352,6 +408,29 @@ describe("provider webhook routes", () => {
       expect(response.headers.get("content-type")).toContain("text/plain");
       expect(response.headers.get("x-content-type-options")).toBe("nosniff");
       expect(text).toBe("<youtube-challenge-token>");
+      expect(events).toEqual([]);
+    });
+  });
+
+  it("rejects invalid YouTube WebSub hub challenges without reflecting them", async () => {
+    const events: ProviderWebhookEvent[] = [];
+
+    await withServer(events, async (baseUrl) => {
+      const url = new URL(`${baseUrl}/api/webhooks/youtube/websub`);
+      url.searchParams.set("hub.mode", "subscribe");
+      url.searchParams.set(
+        "hub.topic",
+        "https://www.youtube.com/feeds/videos.xml?channel_id=youtube-channel-1",
+      );
+      url.searchParams.set("hub.challenge", "bad\r\nchallenge");
+      url.searchParams.set("hub.verify_token", "youtube-verify-token");
+
+      const response = await fetch(url);
+      const payload = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(payload.error).toBe("invalid_youtube_websub_challenge");
+      expect(JSON.stringify(payload)).not.toContain("bad");
       expect(events).toEqual([]);
     });
   });

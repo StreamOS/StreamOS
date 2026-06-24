@@ -3,6 +3,10 @@ import type { Request, Response, Router } from "express";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import type { StreamOSJob } from "@streamos/queue";
 
+import {
+  sendPlainTextWebhookChallenge,
+  validateWebhookChallenge,
+} from "../../lib/webhook-challenge.js";
 import { verifyYouTubeSignature } from "../../lib/webhook-signatures.js";
 import { getRawBody } from "../../middleware/raw-body.js";
 import {
@@ -140,7 +144,9 @@ export function createYouTubeWebhookRouter({
   router.get("/", (request: Request, response: Response) => {
     const mode = getQueryString(request.query["hub.mode"]);
     const topic = getQueryString(request.query["hub.topic"]);
-    const challenge = getQueryString(request.query["hub.challenge"]);
+    const challenge = validateWebhookChallenge(
+      getQueryString(request.query["hub.challenge"]),
+    );
 
     if (mode !== "subscribe" && mode !== "unsubscribe") {
       response.status(400).json({ error: "invalid_youtube_mode" });
@@ -152,7 +158,7 @@ export function createYouTubeWebhookRouter({
       return;
     }
 
-    response.status(200).type("text/plain").send(challenge);
+    sendPlainTextWebhookChallenge(response, challenge);
   });
 
   router.post(
