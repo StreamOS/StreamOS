@@ -256,9 +256,23 @@ function extractPushBranches(content) {
 
   return branchesBlockMatch[1]
     .split(/\r?\n/)
-    .map((line) => line.match(/-\s*("?)([^"\n]+)\1/))
+    .map((line) => {
+      const itemMatch = line.trim().match(/^-\s*(.+)$/);
+      if (!itemMatch) {
+        return null;
+      }
+
+      const rawValue = itemMatch[1].trim();
+      const quotedMatch = rawValue.match(/^"((?:\\.|[^"\\])*)"$/);
+      if (quotedMatch) {
+        return quotedMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+      }
+
+      const unquotedMatch = rawValue.match(/^([^\n#]+)$/);
+      return unquotedMatch ? unquotedMatch[1].trim() : null;
+    })
     .filter(Boolean)
-    .map((match) => normalizeYamlValue(match[2]));
+    .map((value) => normalizeYamlValue(value));
 }
 
 function extractWorkflowEnvironments(content) {
