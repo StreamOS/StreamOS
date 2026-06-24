@@ -345,9 +345,7 @@ export async function processPublicationExecutionJob(
         request_intent_hash: publication.request_intent_hash,
         target_platform: publication.target_platform,
       },
-      previousPublicationStatus: publishingStarted
-        ? "publishing"
-        : initialPublicationStatus,
+      previousPublicationStatus: "publishing",
       publicationId: publication.id,
       publicationStatus: "published",
       source: "publishing-worker",
