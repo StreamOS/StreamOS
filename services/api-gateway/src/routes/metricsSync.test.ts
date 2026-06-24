@@ -3,7 +3,7 @@ import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../app.js";
-import { encryptSecret } from "../oauth/encryption.js";
+import { decryptSecret, encryptSecret } from "../oauth/encryption.js";
 
 const API_SECRET = "test-api-gateway-secret-123";
 const APP_ENCRYPTION_KEY = `base64:${Buffer.alloc(32, 7).toString("base64")}`;
@@ -16,6 +16,7 @@ const USER_ID_SYNC = "66666666-6666-4666-8666-666666666666";
 const USER_ID_NO_CHANNEL = "77777777-7777-4777-8777-777777777777";
 const USER_ID_OTHER_TENANT = "88888888-8888-4888-8888-888888888888";
 const USER_ID_OTHER_TENANT_REQUEST = "99999999-9999-4999-8999-999999999999";
+const USER_ID_REFRESH_ROTATION = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CREATOR_ID = "44444444-4444-4444-8444-444444444444";
 const CHANNEL_ID = "55555555-5555-4555-8555-555555555555";
 const NOW = new Date("2026-06-22T10:15:00.000Z").getTime();
@@ -390,6 +391,83 @@ describe("POST /api/metrics/sync", () => {
       "user_id,platform,captured_hour",
     );
     expect(upsertCall?.headers.get("authorization")).toMatch(/^Bearer /);
+    expect(harness.patches).toHaveLength(0);
+    expect(
+      harness.calls.some(
+        (call) =>
+          call.url.hostname === "id.twitch.tv" &&
+          call.url.pathname === "/oauth2/token",
+      ),
+    ).toBe(false);
+  });
+
+  it("refreshes expired provider tokens in the gateway and persists rotation", async () => {
+    const rotatedAccessToken = "rotated-youtube-access-token";
+    const rotatedRefreshToken = "rotated-youtube-refresh-token";
+    const harness = createFetchHarness({
+      connections: [
+        createConnection({
+          expires_at: "2026-06-22T09:00:00.000Z",
+          id: "connection-youtube",
+          platform: "youtube",
+          provider_account_id: "youtube-channel-1",
+          user_id: USER_ID_REFRESH_ROTATION,
+        }),
+      ],
+      providerResponses: {
+        "youtube-channel": Response.json({
+          items: [
+            {
+              id: "youtube-channel-1",
+              statistics: {
+                subscriberCount: "456",
+                videoCount: "7",
+                viewCount: "12345",
+              },
+            },
+          ],
+        }),
+        "youtube-token": Response.json({
+          access_token: rotatedAccessToken,
+          expires_in: 3600,
+          refresh_token: rotatedRefreshToken,
+          scope: "https://www.googleapis.com/auth/youtube.readonly",
+        }),
+      },
+    });
+
+    const response = await postMetricsSync({
+      body: { providers: ["youtube"], user_id: USER_ID_REFRESH_ROTATION },
+      fetchImpl: harness.fetchImpl,
+    });
+    const serialized = JSON.stringify(response.body);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      failed: [],
+      synced: ["youtube"],
+    });
+    expect(harness.patches).toHaveLength(1);
+    expect(harness.upserts).toHaveLength(1);
+    expect(harness.patches[0]).toMatchObject({
+      scopes: ["https://www.googleapis.com/auth/youtube.readonly"],
+      status: "connected",
+    });
+    expect(
+      harness.calls.some(
+        (call) =>
+          call.url.hostname === "oauth2.googleapis.com" &&
+          call.url.pathname === "/token",
+      ),
+    ).toBe(true);
+    expect(
+      decryptSecret(String(harness.patches[0]?.access_token_ciphertext)),
+    ).toBe(rotatedAccessToken);
+    expect(
+      decryptSecret(String(harness.patches[0]?.refresh_token_ciphertext)),
+    ).toBe(rotatedRefreshToken);
+    expect(serialized).not.toContain(rotatedAccessToken);
+    expect(serialized).not.toContain(rotatedRefreshToken);
   });
 
   it("normalizes provider fetch failures without leaking token material", async () => {

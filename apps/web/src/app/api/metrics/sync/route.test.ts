@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -119,6 +121,17 @@ describe("POST /api/metrics/sync", () => {
     });
   });
 
+  it("keeps OAuth token lifecycle responsibility out of the web adapter", async () => {
+    const source = await readFile(
+      new URL("./route.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).not.toMatch(
+      /refresh[_-]?token|access_token_ciphertext|refresh_token_ciphertext|platform_connections|APP_ENCRYPTION_KEY|SUPABASE_SERVICE_ROLE_KEY|decryptSecret|encryptSecret|oauth2\.googleapis|id\.twitch\.tv|open\.tiktokapis|id\.kick\.com/i,
+    );
+  });
+
   it("preserves gateway multi-status responses", async () => {
     mocks.callApiGatewayJson.mockResolvedValue({
       data: {
@@ -145,6 +158,52 @@ describe("POST /api/metrics/sync", () => {
 
     expect(response.status).toBe(207);
     expect(payload.failed[0].code).toBe("CONNECTION_NOT_FOUND");
+  });
+
+  it("passes through safe gateway error responses without local token handling", async () => {
+    mocks.callApiGatewayJson.mockResolvedValue({
+      data: {
+        code: "GATEWAY_UNAVAILABLE",
+        error: "Metrics sync is temporarily unavailable.",
+      },
+      error: "Metrics sync is temporarily unavailable.",
+      ok: false,
+      status: 503,
+    });
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      createJsonRequest({
+        providers: ["twitch"],
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload).toEqual({
+      code: "GATEWAY_UNAVAILABLE",
+      error: "Metrics sync is temporarily unavailable.",
+    });
+  });
+
+  it("maps unreachable or unparsable gateway failures to a generic web error", async () => {
+    mocks.callApiGatewayJson.mockRejectedValue(
+      new SyntaxError("Unexpected end of JSON input"),
+    );
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      createJsonRequest({
+        providers: ["twitch"],
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(payload).toEqual({
+      code: "GATEWAY_SYNC_FAILED",
+      error: "Metrics sync could not be sent to the API gateway.",
+    });
   });
 });
 
