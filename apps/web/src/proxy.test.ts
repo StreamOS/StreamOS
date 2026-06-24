@@ -89,6 +89,32 @@ describe("proxy auth guards", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
+  it("redirects unauthenticated dashboard root requests to login", async () => {
+    mockAuthResult({ user: null });
+
+    const response = await proxy(new NextRequest("http://localhost/dashboard"));
+
+    expect(response.headers.get("location")).toBe(
+      "http://localhost/auth/login?error=unauthorized&next=%2Fdashboard",
+    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("does not let query parameters bypass dashboard protection", async () => {
+    mockAuthResult({ user: null });
+
+    const response = await proxy(
+      new NextRequest(
+        "http://localhost/dashboard?next=/auth/login&redirect=/auth/confirm",
+      ),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "http://localhost/auth/login?error=unauthorized&next=%2Fdashboard%3Fnext%3D%2Fauth%2Flogin%26redirect%3D%2Fauth%2Fconfirm",
+    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   it("redirects authenticated auth-page requests to dashboard", async () => {
     mockAuthResult({ user: testUser });
 
@@ -120,6 +146,32 @@ describe("proxy auth guards", () => {
 
     expect(response.headers.get("location")).toBeNull();
     expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("keeps auth callback reachable while refreshing Supabase session state", async () => {
+    mockAuthResult({ user: null });
+
+    const response = await proxy(
+      new NextRequest("http://localhost/auth/callback?code=auth-code"),
+    );
+
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(mockCreateServerClient).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps auth confirm reachable while refreshing Supabase session state", async () => {
+    mockAuthResult({ user: null });
+
+    const response = await proxy(
+      new NextRequest(
+        "http://localhost/auth/confirm?token_hash=token-hash&type=email",
+      ),
+    );
+
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(mockCreateServerClient).toHaveBeenCalledTimes(1);
   });
 
   it("sets refreshed Supabase session cookies with production-safe attributes", async () => {

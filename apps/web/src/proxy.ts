@@ -5,46 +5,33 @@ import {
   updateSession,
 } from "@/lib/supabase/middleware";
 
-const AUTH_PATHS = new Set<string>([
+const DASHBOARD_PATH = "/dashboard";
+
+const AUTH_REDIRECT_PATHS = new Set<string>([
   "/auth/login",
   "/auth/reset-password",
   "/auth/signup",
-  "/auth/update-password",
-  "/auth/verify-email",
 ]);
 
-const SESSION_COMPLETION_PATHS = new Set<string>([
-  "/auth/update-password",
-  "/auth/verify-email",
-]);
+type RoutePolicy = "auth-redirect" | "protected-dashboard" | "public";
 
 export async function proxy(request: NextRequest) {
-  const pathname = request.nextUrl.pathname;
-  const isDashboardRoute =
-    pathname === "/dashboard" || pathname.startsWith("/dashboard/");
-  const isAuthPage = AUTH_PATHS.has(pathname);
-  const isSessionCompletionPage = SESSION_COMPLETION_PATHS.has(pathname);
   const authCookieNames = getSupabaseAuthCookieNames(request);
   const { response, sessionError, user } = await updateSession(request);
+  const routePolicy = getRoutePolicy(request.nextUrl.pathname);
 
-  if (isDashboardRoute && !user) {
-    const loginUrl = new URL("/auth/login", request.url);
-    const nextPath = `${request.nextUrl.pathname}${request.nextUrl.search}`;
-
-    loginUrl.searchParams.set(
-      "error",
-      sessionError ? "session_expired" : "unauthorized",
+  if (!user) {
+    return (
+      createUnauthenticatedResponse({
+        authCookieNames,
+        request,
+        routePolicy,
+        sessionError,
+      }) ?? response
     );
-    loginUrl.searchParams.set("next", nextPath);
-
-    const redirectResponse = NextResponse.redirect(loginUrl);
-    redirectResponse.headers.set("Cache-Control", "private, no-store");
-    clearSupabaseAuthCookies(request, redirectResponse, authCookieNames);
-
-    return redirectResponse;
   }
 
-  if (isAuthPage && user && !isSessionCompletionPage) {
+  if (routePolicy === "auth-redirect") {
     const redirectResponse = NextResponse.redirect(
       new URL("/dashboard", request.url),
     );
@@ -54,6 +41,55 @@ export async function proxy(request: NextRequest) {
   }
 
   return response;
+}
+
+function getRoutePolicy(pathname: string): RoutePolicy {
+  if (isProtectedDashboardPath(pathname)) {
+    return "protected-dashboard";
+  }
+
+  if (AUTH_REDIRECT_PATHS.has(pathname)) {
+    return "auth-redirect";
+  }
+
+  return "public";
+}
+
+function isProtectedDashboardPath(pathname: string): boolean {
+  return (
+    pathname === DASHBOARD_PATH || pathname.startsWith(`${DASHBOARD_PATH}/`)
+  );
+}
+
+function createUnauthenticatedResponse({
+  authCookieNames,
+  request,
+  routePolicy,
+  sessionError,
+}: {
+  authCookieNames: string[];
+  request: NextRequest;
+  routePolicy: RoutePolicy;
+  sessionError: boolean;
+}): NextResponse | null {
+  if (routePolicy !== "protected-dashboard") {
+    return null;
+  }
+
+  const loginUrl = new URL("/auth/login", request.url);
+  const nextPath = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+
+  loginUrl.searchParams.set(
+    "error",
+    sessionError ? "session_expired" : "unauthorized",
+  );
+  loginUrl.searchParams.set("next", nextPath);
+
+  const redirectResponse = NextResponse.redirect(loginUrl);
+  redirectResponse.headers.set("Cache-Control", "private, no-store");
+  clearSupabaseAuthCookies(request, redirectResponse, authCookieNames);
+
+  return redirectResponse;
 }
 
 export const config = {
