@@ -1,8 +1,10 @@
 import { createHmac } from "node:crypto";
+import express from "express";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
 import type { ProviderWebhookEvent } from "./providerEvents.js";
+import { createProviderWebhookRouter } from "./providerRoutes.js";
 
 const NOW = new Date("2026-06-06T10:00:00.000Z");
 const STREAM_EVENT_WEBHOOK_SECRET = "test-stream-event-webhook-secret-123";
@@ -326,6 +328,86 @@ describe("provider webhook routes", () => {
         updatedAt: "2026-06-06T09:56:00+00:00",
       });
     });
+  });
+
+  it("rate limits signed YouTube WebSub Atom feed notifications at the route boundary", async () => {
+    const events: ProviderWebhookEvent[] = [];
+    const app = express();
+    app.set("trust proxy", 1);
+    app.use(
+      "/api/webhooks",
+      createProviderWebhookRouter({
+        dispatcher: async (event) => {
+          events.push(event);
+        },
+        now: () => NOW.getTime(),
+        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+        youtubeWebSubPostRateLimit: {
+          maxRequests: 1,
+          windowMs: 60_000,
+        },
+        youtubeWebSubSecret: YOUTUBE_WEBHOOK_SECRET,
+        youtubeWebSubVerifyToken: "youtube-verify-token",
+      }),
+    );
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const body = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>yt:video:youtube-video-1</id>
+    <yt:videoId>youtube-video-1</yt:videoId>
+    <yt:channelId>youtube-channel-1</yt:channelId>
+    <title>First Upload</title>
+    <published>2026-06-06T09:55:00+00:00</published>
+    <updated>2026-06-06T09:56:00+00:00</updated>
+  </entry>
+</feed>`;
+      const url = `http://127.0.0.1:${address.port}/api/webhooks/youtube/websub`;
+      const headers = {
+        "content-type": "application/atom+xml",
+        "x-hub-signature": createWebSubSignature(body),
+      };
+
+      const acceptedResponse = await fetch(url, {
+        body,
+        headers,
+        method: "POST",
+      });
+      const limitedResponse = await fetch(url, {
+        body,
+        headers,
+        method: "POST",
+      });
+      const acceptedPayload = await acceptedResponse.json();
+      const limitedPayload = await limitedResponse.json();
+      const serializedLimitPayload = JSON.stringify(limitedPayload);
+
+      expect(acceptedResponse.status).toBe(202);
+      expect(acceptedPayload).toEqual({
+        dispatched: true,
+        entries: 1,
+        received: true,
+      });
+      expect(limitedResponse.status).toBe(429);
+      expect(limitedResponse.headers.get("retry-after")).toBe("60");
+      expect(limitedPayload).toEqual({
+        error: "rate_limit_exceeded",
+        message: "Too many YouTube WebSub webhook requests.",
+      });
+      expect(serializedLimitPayload).not.toContain(YOUTUBE_WEBHOOK_SECRET);
+      expect(serializedLimitPayload).not.toContain("youtube-video-1");
+      expect(events).toHaveLength(1);
+    } finally {
+      server.close();
+    }
   });
 
   it("rejects YouTube WebSub notifications with invalid signatures", async () => {
