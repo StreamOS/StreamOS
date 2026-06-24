@@ -63,8 +63,10 @@ function parseArgs(argv) {
     throw new Error(`Unknown argument: ${arg}`);
   }
 
-  if (!["preview", "production"].includes(options.environment)) {
-    throw new Error("--environment must be either preview or production.");
+  if (!["preview", "production", "development"].includes(options.environment)) {
+    throw new Error(
+      "--environment must be one of: preview, production, development.",
+    );
   }
 
   return options;
@@ -76,10 +78,11 @@ function printHelp() {
 Usage:
   pnpm vercel:audit -- --environment preview
   pnpm vercel:audit -- --environment production
+  pnpm vercel:audit -- --environment development
   pnpm vercel:audit -- --env-file .vercel/.env.preview.local
 
 Options:
-  --environment ENV   Vercel environment to audit. Allowed values: preview, production. Default: ${DEFAULT_VERCEL_ENVIRONMENT}.
+  --environment ENV   Vercel environment to audit. Allowed values: preview, production, development. Default: ${DEFAULT_VERCEL_ENVIRONMENT}.
   --env-file PATH     Audit a specific env file instead of the default .vercel path.
   --vercel-dir PATH   Root directory that contains the pulled .vercel folder. Default: ${DEFAULT_VERCEL_DIR}.
 `);
