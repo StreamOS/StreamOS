@@ -49,6 +49,8 @@ function isNamingCompliant(name) {
     return /^release\/[0-9A-Za-z][0-9A-Za-z._-]*$/.test(name);
   }
 
+  // Enforce lowercase kebab-case for the description segment (third path part):
+  // uppercase letters are intentionally disallowed by [a-z0-9][a-z0-9-]*.
   const match = /^(feature|fix|chore)\/([^/]+)\/([a-z0-9][a-z0-9-]*)$/.exec(
     name,
   );
