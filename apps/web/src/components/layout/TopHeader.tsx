@@ -136,8 +136,6 @@ export function TopHeader({
   }, []);
 
   useEffect(() => {
-    try {
-      const supabase = createClient();
       const channel = supabase
         .channel(`notifications:${userId}`)
         .on("broadcast", { event: "notification" }, (payload) => {
@@ -150,14 +148,12 @@ export function TopHeader({
 
       return () => {
         void supabase.removeChannel(channel);
-      };
+      return () => {
     } catch {
       return () => {};
     }
-  }, [incrementNotificationCount, userId]);
+      return () => {};
 
-  function markAllRead() {
-    setNotifications((current) =>
       current.map((notification) => ({ ...notification, read: true })),
     );
     setNotificationCount(0);
