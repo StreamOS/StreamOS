@@ -389,7 +389,7 @@ function main() {
     ),
   ].filter(Boolean);
   const openPrState = options.prCheck
-    ? loadOpenPrsByBranch(options.cwd, options.remoteName)
+    ? loadOpenPrsByBranch(options.cwd)
     : {
         available: false,
         byBranch: new Map(),

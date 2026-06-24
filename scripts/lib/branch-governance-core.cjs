@@ -455,6 +455,13 @@ function formatLastCommit(branch) {
   return `${date} by ${author}`;
 }
 
+function escapeMarkdownTableCell(value) {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|")
+    .replace(/\r?\n/g, " ");
+}
+
 function buildRecommendedAction(branch, options = {}) {
   const hasReferences = branch.references.length > 0;
   const divergence = branch.divergence;
@@ -721,8 +728,12 @@ function formatMarkdownReport(report, options = {}) {
   ];
 
   for (const branch of report.branches) {
+    const workflowSensitive = branch.workflowSensitive
+      ? `yes (${branch.workflowSensitiveReasons.join("; ")})`
+      : "no";
+
     lines.push(
-      `| ${branch.name} | ${formatLastCommit(branch)} | ${branch.status} | ${branch.branchSafety.replace(/\|/g, "\\|")} | ${branch.workflowSensitive ? `yes (${branch.workflowSensitiveReasons.join("; ").replace(/\|/g, "\\|")})` : "no"} | ${branch.recommendedAction.replace(/\|/g, "\\|")} | ${branch.newName || ""} |`,
+      `| ${escapeMarkdownTableCell(branch.name)} | ${escapeMarkdownTableCell(formatLastCommit(branch))} | ${escapeMarkdownTableCell(branch.status)} | ${escapeMarkdownTableCell(branch.branchSafety)} | ${escapeMarkdownTableCell(workflowSensitive)} | ${escapeMarkdownTableCell(branch.recommendedAction)} | ${escapeMarkdownTableCell(branch.newName)} |`,
     );
   }
 
