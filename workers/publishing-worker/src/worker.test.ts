@@ -53,6 +53,7 @@ type PatchCall = {
 type EventCall = Parameters<PublicationStore["appendEvent"]>[0];
 
 type StoreOverrides = {
+  appendEventErrorAtCall?: number;
   contentJob?: PublicationContentJobRow | null;
   connection?: PublicationConnectionRow | null;
   patchPublicationErrorAtCall?: number;
@@ -61,6 +62,8 @@ type StoreOverrides = {
 };
 
 class FakePublicationStore implements PublicationStore {
+  appendEventCallCount = 0;
+  appendEventErrorAtCall: number | null;
   contentJob: PublicationContentJobRow | null;
   connection: PublicationConnectionRow | null;
   events: EventCall[] = [];
@@ -84,6 +87,7 @@ class FakePublicationStore implements PublicationStore {
   vodAsset: PublicationVodAssetRow | null;
 
   constructor(overrides: StoreOverrides = {}) {
+    this.appendEventErrorAtCall = overrides.appendEventErrorAtCall ?? null;
     this.publication =
       overrides.publication === undefined
         ? buildPublication()
@@ -103,6 +107,10 @@ class FakePublicationStore implements PublicationStore {
   }
 
   async appendEvent(input: EventCall): Promise<void> {
+    this.appendEventCallCount += 1;
+    if (this.appendEventCallCount === this.appendEventErrorAtCall) {
+      throw new Error("simulated publication event persistence failure");
+    }
     this.events.push(input);
   }
 
@@ -632,6 +640,72 @@ void test("publication.publish does not retry a fanout child after provider succ
   assert.equal(last(store.events).metadata.provider_write_completed, true);
   assert.equal(last(store.events).metadata.retryable, false);
   assert.equal(job.discarded, true);
+  assertNoSecrets(store.patchPublicationCalls);
+  assertNoSecrets(store.events);
+});
+
+void test("publication.publish keeps a fanout child published when only the published event write fails", async () => {
+  const store = new FakePublicationStore({
+    appendEventErrorAtCall: 2,
+    publication: buildPublication({ id: CHILD_PUBLICATION_ID }),
+  });
+  const fetchCalls: string[] = [];
+  const job = buildExecutionJob({
+    attempts: 3,
+    data: {
+      content_publication_id: CHILD_PUBLICATION_ID,
+      target_platform: "youtube",
+      user_id: USER_ID,
+    },
+    id: getFanoutChildQueueJobId(CHILD_PUBLICATION_ID),
+  });
+  let result: Awaited<
+    ReturnType<typeof processPublicationExecutionJob>
+  > | null = null;
+
+  const consoleErrors = await captureConsoleErrors(async () => {
+    result = await processPublicationExecutionJob(job, {
+      fetchFn: buildYouTubePublishFetch(fetchCalls),
+      publicationStore: store,
+      workerConfig: buildWorkerConfig(),
+    });
+  });
+
+  assert.deepEqual(result, {
+    externalPostId: "youtube-video-123",
+    externalUrl: "https://www.youtube.com/watch?v=youtube-video-123",
+  });
+  assert.deepEqual(fetchCalls, [
+    "https://93.184.216.34/videos/source.mp4",
+    "https://www.googleapis.com/upload/youtube/v3/videos?part=snippet%2Cstatus&uploadType=resumable",
+    "https://upload.youtube.test/session",
+  ]);
+  assert.equal(store.patchPublicationCalls.length, 2);
+  assert.equal(
+    store.patchPublicationCalls[1]?.payload.publication_status,
+    "published",
+  );
+  assert.equal(store.publication?.publication_status, "published");
+  assert.ok(
+    store.patchPublicationCalls.every(
+      (call) => call.payload.publication_status !== "failed_permanent",
+    ),
+  );
+  assert.equal(store.events.length, 1);
+  assert.equal(store.events[0]?.eventType, "publishing");
+  assert.equal(job.discarded, false);
+  assert.deepEqual(consoleErrors, [
+    [
+      "publication_published_event_write_failed",
+      {
+        error_name: "Error",
+        publication_id: CHILD_PUBLICATION_ID,
+        queue_job_id: getFanoutChildQueueJobId(CHILD_PUBLICATION_ID),
+        target_platform: "youtube",
+      },
+    ],
+  ]);
+  assertNoSecrets(consoleErrors);
   assertNoSecrets(store.patchPublicationCalls);
   assertNoSecrets(store.events);
 });
@@ -1474,6 +1548,24 @@ function failOnFetch(): typeof fetch {
   return (async (input) => {
     throw new Error(`Unexpected fetch URL ${input.toString()}`);
   }) as typeof fetch;
+}
+
+async function captureConsoleErrors(
+  callback: () => Promise<void>,
+): Promise<unknown[][]> {
+  const originalConsoleError = console.error;
+  const calls: unknown[][] = [];
+  console.error = (...args: unknown[]) => {
+    calls.push(args);
+  };
+
+  try {
+    await callback();
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  return calls;
 }
 
 function last<T>(values: T[]): T {

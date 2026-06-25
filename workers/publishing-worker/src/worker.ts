@@ -360,6 +360,15 @@ export async function processPublicationExecutionJob(
         publicationId: publication.id,
         userId: publication.user_id,
       });
+    } catch {
+      throw new ProviderSucceededPublicationPersistenceError({
+        externalPostId: result.externalPostId,
+        externalUrl: result.externalUrl,
+        publicationId: publication.id,
+      });
+    }
+
+    try {
       await publicationStore.appendEvent({
         actorId: publication.requested_by,
         eventType: "published",
@@ -378,11 +387,13 @@ export async function processPublicationExecutionJob(
         source: "publishing-worker",
         userId: publication.user_id,
       });
-    } catch {
-      throw new ProviderSucceededPublicationPersistenceError({
-        externalPostId: result.externalPostId,
-        externalUrl: result.externalUrl,
-        publicationId: publication.id,
+    } catch (eventError) {
+      console.error("publication_published_event_write_failed", {
+        error_name:
+          eventError instanceof Error ? eventError.name : "UnknownError",
+        publication_id: publication.id,
+        queue_job_id: job.id ?? getPublicationExecutionJobId(publication.id),
+        target_platform: publication.target_platform,
       });
     }
 
