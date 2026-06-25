@@ -1,4 +1,9 @@
 import type { Job } from "bullmq";
+import {
+  type PublicHttpsAssetResolver,
+  UnsafePublicHttpsAssetUrlError,
+  validatePublicHttpsAssetUrl,
+} from "@streamos/utils";
 
 import type { AutomationClipAnalysisResponse } from "./automationClient.js";
 import { clipGenerationJobDataSchema } from "./jobSchema.js";
@@ -13,18 +18,27 @@ export type ClipAutomationClient = {
 };
 
 export type ProcessClipGenerationJobOptions = {
+  assetUrlResolver?: PublicHttpsAssetResolver;
   automationClient: ClipAutomationClient;
   statusStore: JobStatusStore;
 };
 
 export async function processClipGenerationJob(
-  job: Pick<Job, "attemptsMade" | "data" | "id" | "opts">,
-  { automationClient, statusStore }: ProcessClipGenerationJobOptions,
+  job: Pick<Job, "attemptsMade" | "data" | "id" | "opts"> & {
+    discard?: () => Promise<void> | void;
+  },
+  {
+    assetUrlResolver,
+    automationClient,
+    statusStore,
+  }: ProcessClipGenerationJobOptions,
 ): Promise<AutomationClipAnalysisResponse> {
   const payload = clipGenerationJobDataSchema.parse(job.data);
   const jobId = String(job.id ?? `clip-generation-${payload.stream_id}`);
 
   try {
+    await validatePublicHttpsAssetUrl(payload.source_url, assetUrlResolver);
+
     await statusStore.update(jobId, payload, { status: "running" });
 
     const result = await automationClient.analyzeClip({
@@ -51,7 +65,13 @@ export async function processClipGenerationJob(
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
-    const hasRemainingAttempts = hasRemainingBullMqAttempts(job);
+    const isUnsafeAssetUrl = error instanceof UnsafePublicHttpsAssetUrlError;
+    if (isUnsafeAssetUrl) {
+      await job.discard?.();
+    }
+
+    const hasRemainingAttempts =
+      !isUnsafeAssetUrl && hasRemainingBullMqAttempts(job);
 
     await statusStore.update(jobId, payload, {
       error_message: errorMessage,

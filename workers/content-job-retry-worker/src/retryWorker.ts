@@ -1,4 +1,9 @@
 import { ZodError } from "zod";
+import {
+  type PublicHttpsAssetResolver,
+  UnsafePublicHttpsAssetUrlError,
+  validatePublicHttpsAssetUrl,
+} from "@streamos/utils";
 
 import type {
   ContentJobRetryStore,
@@ -19,6 +24,7 @@ import type {
 } from "./retryQueues.js";
 
 export type RetryFailedContentJobsOptions = {
+  assetUrlResolver?: PublicHttpsAssetResolver;
   bullMqAttempts: number;
   bullMqBackoffMs: number;
   now?: Date;
@@ -124,7 +130,37 @@ function buildRetryQueueJob(
   throw new Error(`content job type ${job.job_type} is not retryable yet.`);
 }
 
+async function validateRetryQueueJobAssetUrls(
+  retryQueueJob: RetryQueueJob,
+  resolver?: PublicHttpsAssetResolver,
+): Promise<void> {
+  const assetUrls = getRetryQueueJobAssetUrls(retryQueueJob);
+
+  for (const assetUrl of [...new Set(assetUrls)]) {
+    await validatePublicHttpsAssetUrl(assetUrl, resolver);
+  }
+}
+
+function getRetryQueueJobAssetUrls(retryQueueJob: RetryQueueJob): string[] {
+  if (retryQueueJob.queue === "clip_generation") {
+    return [retryQueueJob.data.source_url];
+  }
+
+  if (retryQueueJob.queue === "transcription") {
+    return [retryQueueJob.data.vod_asset_url];
+  }
+
+  return [
+    retryQueueJob.data.source_metadata.vod_asset_url,
+    retryQueueJob.data.asset_reference?.url,
+  ].filter((value): value is string => Boolean(value));
+}
+
 function getErrorMessage(error: unknown): string {
+  if (error instanceof UnsafePublicHttpsAssetUrlError) {
+    return `Unsafe content job asset URL: ${error.message}`;
+  }
+
   if (error instanceof ZodError) {
     return `Invalid content job retry payload: ${error.message}`;
   }
@@ -133,6 +169,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export async function retryFailedContentJobs({
+  assetUrlResolver,
   bullMqAttempts,
   bullMqBackoffMs,
   now = new Date(),
@@ -173,6 +210,7 @@ export async function retryFailedContentJobs({
 
     try {
       retryQueueJob = buildRetryQueueJob(job, queueJobId);
+      await validateRetryQueueJobAssetUrls(retryQueueJob, assetUrlResolver);
     } catch (error) {
       await store.markUnretryable({
         errorMessage: getErrorMessage(error),

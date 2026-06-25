@@ -39,6 +39,7 @@ class InMemoryDedupeQueue implements ClipGenerationQueue {
 }
 
 describe("clipGenerationQueue", () => {
+  const publicAssetResolver = () => ["93.184.216.34"];
   const basePayload = {
     creator_id: "22222222-2222-4222-8222-222222222222",
     requested_by: "11111111-1111-4111-8111-111111111111",
@@ -63,14 +64,22 @@ describe("clipGenerationQueue", () => {
   it("deduplicates clip generation by stream_id through BullMQ jobId", async () => {
     const queue = new InMemoryDedupeQueue();
 
-    const first = await enqueueClipGenerationJob(queue, {
-      ...basePayload,
-      stream_id: "33333333-3333-4333-8333-333333333333",
-    });
-    const second = await enqueueClipGenerationJob(queue, {
-      ...basePayload,
-      stream_id: "33333333-3333-4333-8333-333333333333",
-    });
+    const first = await enqueueClipGenerationJob(
+      queue,
+      {
+        ...basePayload,
+        stream_id: "33333333-3333-4333-8333-333333333333",
+      },
+      { assetUrlResolver: publicAssetResolver },
+    );
+    const second = await enqueueClipGenerationJob(
+      queue,
+      {
+        ...basePayload,
+        stream_id: "33333333-3333-4333-8333-333333333333",
+      },
+      { assetUrlResolver: publicAssetResolver },
+    );
 
     expect(first.jobId).toBe(second.jobId);
     expect(queue.jobs.size).toBe(1);
@@ -80,16 +89,70 @@ describe("clipGenerationQueue", () => {
   it("queues separate jobs for different stream_id values", async () => {
     const queue = new InMemoryDedupeQueue();
 
-    await enqueueClipGenerationJob(queue, {
-      ...basePayload,
-      stream_id: "33333333-3333-4333-8333-333333333333",
-    });
-    await enqueueClipGenerationJob(queue, {
-      ...basePayload,
-      source_url: "https://www.twitch.tv/videos/456",
-      stream_id: "44444444-4444-4444-8444-444444444444",
-    });
+    await enqueueClipGenerationJob(
+      queue,
+      {
+        ...basePayload,
+        stream_id: "33333333-3333-4333-8333-333333333333",
+      },
+      { assetUrlResolver: publicAssetResolver },
+    );
+    await enqueueClipGenerationJob(
+      queue,
+      {
+        ...basePayload,
+        source_url: "https://www.twitch.tv/videos/456",
+        stream_id: "44444444-4444-4444-8444-444444444444",
+      },
+      { assetUrlResolver: publicAssetResolver },
+    );
 
     expect(queue.jobs.size).toBe(2);
+  });
+
+  it.each([
+    ["HTTP scheme", "http://www.twitch.tv/videos/123"],
+    ["localhost", "https://localhost/videos/123"],
+    ["private IPv4", "https://10.0.0.5/videos/123"],
+    ["link-local IPv4", "https://169.254.169.254/latest/meta-data"],
+    ["reserved IPv4", "https://192.0.2.1/videos/123"],
+    ["credentials", "https://user:pass@www.twitch.tv/videos/123"],
+    ["non-default port", "https://www.twitch.tv:8443/videos/123"],
+  ])(
+    "rejects unsafe clip source URLs before queueing: %s",
+    async (_name, url) => {
+      const queue = new InMemoryDedupeQueue();
+
+      await expect(
+        enqueueClipGenerationJob(
+          queue,
+          {
+            ...basePayload,
+            source_url: url,
+            stream_id: "33333333-3333-4333-8333-333333333333",
+          },
+          { assetUrlResolver: publicAssetResolver },
+        ),
+      ).rejects.toThrow(/Asset URL/);
+
+      expect(queue.jobs.size).toBe(0);
+    },
+  );
+
+  it("rejects clip source URLs that resolve to private IPs before queueing", async () => {
+    const queue = new InMemoryDedupeQueue();
+
+    await expect(
+      enqueueClipGenerationJob(
+        queue,
+        {
+          ...basePayload,
+          stream_id: "33333333-3333-4333-8333-333333333333",
+        },
+        { assetUrlResolver: () => ["10.0.0.5"] },
+      ),
+    ).rejects.toThrow("Asset URL resolves to a non-public IP address.");
+
+    expect(queue.jobs.size).toBe(0);
   });
 });

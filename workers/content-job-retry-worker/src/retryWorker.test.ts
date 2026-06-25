@@ -12,6 +12,7 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 const STREAM_ID = "22222222-2222-4222-8222-222222222222";
 const JOB_ID = "33333333-3333-4333-8333-333333333333";
 const NOW = new Date("2026-06-01T12:00:00.000Z");
+const publicAssetResolver = () => ["93.184.216.34"];
 
 function createStore(jobs: RetryableContentJob[]): ContentJobRetryStore & {
   claimForRetry: ReturnType<typeof vi.fn>;
@@ -98,6 +99,51 @@ function createFailedRepurposingJob(
   };
 }
 
+function createFailedTranscriptionJob(
+  overrides: Partial<RetryableContentJob> = {},
+): RetryableContentJob {
+  return {
+    error_message: "previous failure",
+    id: JOB_ID,
+    job_type: "transcription",
+    max_retries: 3,
+    next_retry_at: null,
+    payload: {
+      user_id: USER_ID,
+      stream_id: STREAM_ID,
+      platform: "twitch",
+      creator_id: USER_ID,
+      vod_asset_url: "https://video.example.com/vod.mp4",
+      language: "en",
+      trigger: "stream_ended",
+    },
+    queue_job_id: "old-queue-job",
+    retry_count: 0,
+    status: "failed",
+    stream_id: STREAM_ID,
+    user_id: USER_ID,
+    ...overrides,
+  };
+}
+
+function withPayload(
+  job: RetryableContentJob,
+  payload: Record<string, unknown>,
+): RetryableContentJob {
+  return {
+    ...job,
+    payload,
+  };
+}
+
+function getPayload(job: RetryableContentJob): Record<string, unknown> {
+  if (typeof job.payload !== "object" || job.payload === null) {
+    throw new Error("Expected test content job payload to be an object.");
+  }
+
+  return job.payload as Record<string, unknown>;
+}
+
 describe("retryFailedContentJobs", () => {
   it("claims and requeues a failed clip_scoring content job", async () => {
     const store = createStore([createFailedClipJob()]);
@@ -105,6 +151,7 @@ describe("retryFailedContentJobs", () => {
 
     await expect(
       retryFailedContentJobs({
+        assetUrlResolver: publicAssetResolver,
         bullMqAttempts: 3,
         bullMqBackoffMs: 30_000,
         now: NOW,
@@ -142,6 +189,7 @@ describe("retryFailedContentJobs", () => {
 
     await expect(
       retryFailedContentJobs({
+        assetUrlResolver: publicAssetResolver,
         bullMqAttempts: 3,
         bullMqBackoffMs: 30_000,
         now: NOW,
@@ -185,6 +233,47 @@ describe("retryFailedContentJobs", () => {
     });
   });
 
+  it("claims and requeues a failed transcription content job", async () => {
+    const store = createStore([createFailedTranscriptionJob()]);
+    const queues = createQueues();
+
+    await expect(
+      retryFailedContentJobs({
+        assetUrlResolver: publicAssetResolver,
+        bullMqAttempts: 3,
+        bullMqBackoffMs: 30_000,
+        now: NOW,
+        queues,
+        store,
+      }),
+    ).resolves.toEqual({
+      claimed: 1,
+      exhausted: 0,
+      failed: 0,
+      requeued: 1,
+      scanned: 1,
+      skipped: 0,
+    });
+
+    expect(store.claimForRetry).toHaveBeenCalledWith({
+      job: expect.objectContaining({ id: JOB_ID }),
+      now: NOW,
+      queueJobId: `content-job-transcription-${JOB_ID}-retry-1`,
+      retryCount: 1,
+    });
+    expect(queues.add).toHaveBeenCalledWith({
+      backoffMs: 30_000,
+      bullMqAttempts: 3,
+      data: expect.objectContaining({
+        stream_id: STREAM_ID,
+        vod_asset_url: "https://video.example.com/vod.mp4",
+      }),
+      name: "transcription.trigger",
+      queue: "transcription",
+      queueJobId: `content-job-transcription-${JOB_ID}-retry-1`,
+    });
+  });
+
   it("marks repurposing jobs that require manual review as unretryable", async () => {
     const store = createStore([
       createFailedRepurposingJob({
@@ -201,6 +290,7 @@ describe("retryFailedContentJobs", () => {
 
     await expect(
       retryFailedContentJobs({
+        assetUrlResolver: publicAssetResolver,
         bullMqAttempts: 3,
         bullMqBackoffMs: 30_000,
         now: NOW,
@@ -234,6 +324,7 @@ describe("retryFailedContentJobs", () => {
     const queues = createQueues();
 
     await retryFailedContentJobs({
+      assetUrlResolver: publicAssetResolver,
       bullMqAttempts: 3,
       bullMqBackoffMs: 30_000,
       now: NOW,
@@ -257,6 +348,7 @@ describe("retryFailedContentJobs", () => {
 
     await expect(
       retryFailedContentJobs({
+        assetUrlResolver: publicAssetResolver,
         bullMqAttempts: 3,
         bullMqBackoffMs: 30_000,
         now: NOW,
@@ -281,6 +373,7 @@ describe("retryFailedContentJobs", () => {
 
     await expect(
       retryFailedContentJobs({
+        assetUrlResolver: publicAssetResolver,
         bullMqAttempts: 3,
         bullMqBackoffMs: 30_000,
         now: NOW,
@@ -304,5 +397,127 @@ describe("retryFailedContentJobs", () => {
         queueJobId: `content-job-clip_scoring-${JOB_ID}-retry-4`,
       }),
     );
+  });
+
+  it.each([
+    [
+      "clip http source URL",
+      withPayload(
+        createFailedClipJob(),
+        {
+          ...getPayload(createFailedClipJob()),
+          source_url: "http://video.example.com/vod.mp4",
+        },
+      ),
+    ],
+    [
+      "clip source URL with credentials",
+      withPayload(
+        createFailedClipJob(),
+        {
+          ...getPayload(createFailedClipJob()),
+          source_url: "https://user:pass@video.example.com/vod.mp4",
+        },
+      ),
+    ],
+    [
+      "transcription localhost VOD URL",
+      withPayload(
+        createFailedTranscriptionJob(),
+        {
+          ...getPayload(createFailedTranscriptionJob()),
+          vod_asset_url: "https://localhost/vod.mp4",
+        },
+      ),
+    ],
+    [
+      "transcription private VOD URL",
+      withPayload(
+        createFailedTranscriptionJob(),
+        {
+          ...getPayload(createFailedTranscriptionJob()),
+          vod_asset_url: "https://10.0.0.5/vod.mp4",
+        },
+      ),
+    ],
+    [
+      "repurposing link-local VOD URL",
+      withPayload(
+        createFailedRepurposingJob(),
+        {
+          ...getPayload(createFailedRepurposingJob()),
+          vod_asset_url: "https://169.254.169.254/latest/meta-data",
+        },
+      ),
+    ],
+    [
+      "repurposing reserved VOD URL",
+      withPayload(
+        createFailedRepurposingJob(),
+        {
+          ...getPayload(createFailedRepurposingJob()),
+          vod_asset_url: "https://192.0.2.1/vod.mp4",
+        },
+      ),
+    ],
+  ])("marks unsafe asset payloads unretryable before requeue: %s", async (
+    _name,
+    job,
+  ) => {
+    const store = createStore([job]);
+    const queues = createQueues();
+
+    await expect(
+      retryFailedContentJobs({
+        assetUrlResolver: publicAssetResolver,
+        bullMqAttempts: 3,
+        bullMqBackoffMs: 30_000,
+        now: NOW,
+        queues,
+        store,
+      }),
+    ).resolves.toMatchObject({
+      exhausted: 1,
+      requeued: 0,
+      scanned: 1,
+    });
+
+    expect(store.markUnretryable).toHaveBeenCalledWith({
+      errorMessage: expect.stringMatching(/^Unsafe content job asset URL:/),
+      job,
+      now: NOW,
+    });
+    expect(store.claimForRetry).not.toHaveBeenCalled();
+    expect(queues.add).not.toHaveBeenCalled();
+  });
+
+  it("marks payloads resolving to private IPs unretryable before requeue", async () => {
+    const job = createFailedClipJob();
+    const store = createStore([job]);
+    const queues = createQueues();
+
+    await expect(
+      retryFailedContentJobs({
+        assetUrlResolver: () => ["10.0.0.5"],
+        bullMqAttempts: 3,
+        bullMqBackoffMs: 30_000,
+        now: NOW,
+        queues,
+        store,
+      }),
+    ).resolves.toMatchObject({
+      exhausted: 1,
+      requeued: 0,
+      scanned: 1,
+    });
+
+    expect(store.markUnretryable).toHaveBeenCalledWith({
+      errorMessage:
+        "Unsafe content job asset URL: Asset URL resolves to a non-public IP address.",
+      job,
+      now: NOW,
+    });
+    expect(store.claimForRetry).not.toHaveBeenCalled();
+    expect(queues.add).not.toHaveBeenCalled();
   });
 });

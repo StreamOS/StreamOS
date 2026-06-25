@@ -3,6 +3,11 @@ import {
   type ClipGenerationJobData,
 } from "@streamos/types";
 import { getClipGenerationJobId } from "@streamos/queue";
+import {
+  type PublicHttpsAssetResolver,
+  UnsafePublicHttpsAssetUrlError,
+  validatePublicHttpsAssetUrl,
+} from "@streamos/utils";
 import type { Job, JobsOptions } from "bullmq";
 
 import { isAutomationServiceError } from "./automationClient.js";
@@ -23,6 +28,7 @@ export type TranscriptionAutomationClient = {
 };
 
 export type ProcessTranscriptionJobOptions = {
+  assetUrlResolver?: PublicHttpsAssetResolver;
   automationClient: TranscriptionAutomationClient;
   clipGenerationQueue?: TranscriptionClipGenerationQueue;
   statusStore: JobStatusStore;
@@ -52,8 +58,11 @@ const clipGenerationJobOptions: JobsOptions = {
 };
 
 export async function processTranscriptionJob(
-  job: Pick<Job, "attemptsMade" | "data" | "id" | "opts">,
+  job: Pick<Job, "attemptsMade" | "data" | "id" | "opts"> & {
+    discard?: () => Promise<void> | void;
+  },
   {
+    assetUrlResolver,
     automationClient,
     clipGenerationQueue,
     statusStore,
@@ -65,6 +74,8 @@ export async function processTranscriptionJob(
   let result: AutomationTranscriptionResponse;
 
   try {
+    await validatePublicHttpsAssetUrl(payload.vod_asset_url, assetUrlResolver);
+
     await statusStore.update(jobId, payload, {
       last_retried_at:
         job.attemptsMade > 0 ? new Date().toISOString() : undefined,
@@ -98,7 +109,13 @@ export async function processTranscriptionJob(
     });
   } catch (error) {
     const attemptNumber = job.attemptsMade + 1;
-    const hasRemainingAttempts = hasRemainingBullMqAttempts(job);
+    const isUnsafeAssetUrl = error instanceof UnsafePublicHttpsAssetUrlError;
+    if (isUnsafeAssetUrl) {
+      await job.discard?.();
+    }
+
+    const hasRemainingAttempts =
+      !isUnsafeAssetUrl && hasRemainingBullMqAttempts(job);
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
     const failureResult = buildFailureResult({

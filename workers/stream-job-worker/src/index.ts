@@ -19,6 +19,11 @@ import {
   type RepurposingPlanJobPayload,
   type SupportedProvider as SupportedMediaProvider,
 } from "@streamos/types/jobs";
+import {
+  type PublicHttpsAssetResolver,
+  UnsafePublicHttpsAssetUrlError,
+  validatePublicHttpsAssetUrl,
+} from "@streamos/utils";
 
 import { createRedisConnectionOptions } from "./redisConnection.js";
 
@@ -192,6 +197,7 @@ type RepurposingPlanQueue = {
 };
 
 type ProcessStreamJobDependencies = {
+  assetUrlResolver?: PublicHttpsAssetResolver;
   store: StreamJobStore;
   repurposingQueue: RepurposingPlanQueue;
   transcriptionQueue: TranscriptionQueue;
@@ -201,6 +207,21 @@ export class PermanentStreamJobError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "PermanentStreamJobError";
+  }
+}
+
+async function assertPublicAssetUrl(
+  rawUrl: string,
+  resolver?: PublicHttpsAssetResolver,
+): Promise<void> {
+  try {
+    await validatePublicHttpsAssetUrl(rawUrl, resolver);
+  } catch (error) {
+    if (error instanceof UnsafePublicHttpsAssetUrlError) {
+      throw new PermanentStreamJobError(error.message);
+    }
+
+    throw error;
   }
 }
 
@@ -884,7 +905,7 @@ async function handleStreamOnline(
 }
 
 async function handleStreamOffline(
-  { store, transcriptionQueue }: ProcessStreamJobDependencies,
+  { assetUrlResolver, store, transcriptionQueue }: ProcessStreamJobDependencies,
   event: StreamOSJob,
 ): Promise<void> {
   console.info("[stream-job-worker] stream.offline received", {
@@ -918,6 +939,8 @@ async function handleStreamOffline(
     });
     return;
   }
+
+  await assertPublicAssetUrl(event.vodAssetUrl, assetUrlResolver);
 
   const payload = buildTranscriptionTriggerPayload({
     channel: streamWithChannel.channel,
@@ -999,7 +1022,7 @@ async function handleStreamUpdate(
 }
 
 async function handleVideoPublished(
-  { repurposingQueue, store }: ProcessStreamJobDependencies,
+  { assetUrlResolver, repurposingQueue, store }: ProcessStreamJobDependencies,
   event: StreamOSJob,
 ): Promise<void> {
   const channel = await store.resolveChannelByExternalId({
@@ -1054,6 +1077,14 @@ async function handleVideoPublished(
     );
     return;
   }
+
+  if (!event.vodAssetUrl?.trim()) {
+    throw new PermanentStreamJobError(
+      "video.published requires vodAssetUrl when enrichmentStatus=asset_available.",
+    );
+  }
+
+  await assertPublicAssetUrl(event.vodAssetUrl, assetUrlResolver);
 
   const queueJobId = getRepurposingPlanJobId(stream.id);
   const contentJobPayload = buildRepurposingPlanPayload({
