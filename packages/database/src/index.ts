@@ -178,6 +178,25 @@ export type MonetizationEventStatus =
   | "refunded"
   | "failed";
 export type MonetizationSummaryPeriod = "daily" | "weekly";
+export type CreatorGrowthIntelligenceCategory =
+  | "channel_seo"
+  | "content_metadata"
+  | "publish_timing"
+  | "platform_fit"
+  | "engagement_opportunity";
+export type CreatorGrowthRecommendationType =
+  | "title"
+  | "description"
+  | "tags"
+  | "hashtags"
+  | "thumbnail_prompt"
+  | "schedule_hint"
+  | "platform_positioning";
+export type CreatorGrowthRecommendationStatus =
+  | "needs_review"
+  | "approved"
+  | "rejected"
+  | "needs_changes";
 
 export type Database = {
   public: {
@@ -741,6 +760,106 @@ export type Database = {
             foreignKeyName: "content_job_export_events_content_job_user_fkey";
             columns: ["content_job_id", "user_id"];
             referencedRelation: "content_jobs";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
+      };
+      creator_growth_intelligence: {
+        Row: {
+          id: string;
+          user_id: string;
+          creator_id: string | null;
+          channel_id: string | null;
+          platform: Database["public"]["Enums"]["stream_platform"] | null;
+          content_publication_id: string | null;
+          content_job_id: string | null;
+          metrics_snapshot_id: string | null;
+          intelligence_category: CreatorGrowthIntelligenceCategory;
+          recommendation_type: CreatorGrowthRecommendationType;
+          recommendation_status: CreatorGrowthRecommendationStatus;
+          title: string;
+          summary: string;
+          rationale: string | null;
+          score: number | null;
+          confidence: number | null;
+          evidence: Json;
+          metadata: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          creator_id?: string | null;
+          channel_id?: string | null;
+          platform?: Database["public"]["Enums"]["stream_platform"] | null;
+          content_publication_id?: string | null;
+          content_job_id?: string | null;
+          metrics_snapshot_id?: string | null;
+          intelligence_category: CreatorGrowthIntelligenceCategory;
+          recommendation_type: CreatorGrowthRecommendationType;
+          recommendation_status?: CreatorGrowthRecommendationStatus;
+          title: string;
+          summary: string;
+          rationale?: string | null;
+          score?: number | null;
+          confidence?: number | null;
+          evidence?: Json;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          creator_id?: string | null;
+          channel_id?: string | null;
+          platform?: Database["public"]["Enums"]["stream_platform"] | null;
+          content_publication_id?: string | null;
+          content_job_id?: string | null;
+          metrics_snapshot_id?: string | null;
+          intelligence_category?: CreatorGrowthIntelligenceCategory;
+          recommendation_type?: CreatorGrowthRecommendationType;
+          recommendation_status?: CreatorGrowthRecommendationStatus;
+          title?: string;
+          summary?: string;
+          rationale?: string | null;
+          score?: number | null;
+          confidence?: number | null;
+          evidence?: Json;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "creator_growth_intelligence_creator_user_fkey";
+            columns: ["creator_id", "user_id"];
+            referencedRelation: "creators";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "creator_growth_intelligence_channel_user_fkey";
+            columns: ["channel_id", "user_id"];
+            referencedRelation: "channels";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "creator_growth_intelligence_content_publication_user_fkey";
+            columns: ["content_publication_id", "user_id"];
+            referencedRelation: "content_publications";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "creator_growth_intelligence_content_job_user_fkey";
+            columns: ["content_job_id", "user_id"];
+            referencedRelation: "content_jobs";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "creator_growth_intelligence_metrics_snapshot_user_fkey";
+            columns: ["metrics_snapshot_id", "user_id"];
+            referencedRelation: "metrics_snapshots";
             referencedColumns: ["id", "user_id"];
           },
         ];

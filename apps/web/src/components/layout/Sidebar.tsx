@@ -11,7 +11,7 @@ import {
   Globe,
   Palette,
   RadioTower,
-  Search,
+  TrendingUp,
 } from "lucide-react";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils/cn";
@@ -21,11 +21,7 @@ const navItems = [
   { label: "Analytics", href: "/dashboard/analytics", icon: BarChart2 },
   { label: "Content", href: "/dashboard/content", icon: Clapperboard },
   { label: "Monetization", href: "/dashboard/monetization", icon: DollarSign },
-  {
-    label: "Discoverability",
-    href: "/dashboard/discoverability",
-    icon: Search,
-  },
+  { label: "Growth", href: "/dashboard/growth", icon: TrendingUp },
   { label: "Branding", href: "/dashboard/branding", icon: Palette },
   { label: "Platforms", href: "/dashboard/platforms", icon: Globe },
 ] as const;

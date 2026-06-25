@@ -743,6 +743,7 @@ export type ContentPublicationEvent = {
 
 export * from "./publications.js";
 export * from "./publication-scheduling.js";
+export * from "./creator-growth.js";
 import type {
   PublicationCanonicalDraft,
   PublicationProviderFailureCode,
