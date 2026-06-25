@@ -731,6 +731,14 @@ tokens for the audit run. The audit inventory now includes
 `publishing-scheduler-worker`; if any of those services is missing in the
 audited environment, the environment is not proof-ready.
 
+Use the generic [Live Environment Audit Runbook](operator-live-env-audit.md)
+to classify staging, production, and cross-environment evidence as `passed`,
+`passed_with_warnings`, `blocked`, or `incomplete`. That runbook is the
+operator-facing source for allowed evidence, forbidden evidence, blocker and
+warning catalogs, secret-safe reporting rules, Markdown/JSON audit consistency,
+and the compact evidence completion template. A local diagnostic remains
+troubleshooting evidence only and must not be used as production proof.
+
 For `publishing-worker`, the audit expects:
 
 - the service to be present in the Railway inventory
