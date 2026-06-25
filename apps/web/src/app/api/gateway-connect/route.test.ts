@@ -19,6 +19,7 @@ const API_GATEWAY_SECRET = "test-api-gateway-secret-123";
 const API_GATEWAY_URL = "https://gateway.streamos.test";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const CREATOR_ID = "22222222-2222-4222-8222-222222222222";
+const SENSITIVE_ERROR_TOKEN = "sensitive-handoff-token-value";
 
 describe("GET /api/gateway-connect", () => {
   const originalEnv = { ...process.env };
@@ -58,19 +59,41 @@ describe("GET /api/gateway-connect", () => {
     expect(payload).toMatchObject({
       connect_url: expect.any(String),
       gateway_url: API_GATEWAY_URL,
-      handoff_token: expect.any(String),
       provider: "kick",
     });
+    expect(payload).not.toHaveProperty("handoff_token");
     expect(connectUrl.origin).toBe(API_GATEWAY_URL);
     expect(connectUrl.pathname).toBe("/api/auth/kick/connect");
-    expect(handoffToken).toBe(payload.handoff_token);
-    expect(verifyHandoffToken(payload.handoff_token)).toMatchObject({
+    expect(handoffToken).toEqual(expect.any(String));
+    expect(verifyHandoffToken(handoffToken ?? "")).toMatchObject({
       creator_id: CREATOR_ID,
       exp: new Date("2026-06-08T10:01:00.000Z").getTime(),
       return_to: "https://app.streamos.test/dashboard/platforms",
       user_id: USER_ID,
     });
   });
+
+  it.each(["twitch", "youtube", "tiktok", "kick"] as const)(
+    "returns a minimized %s connect response",
+    async (provider) => {
+      const { GET } = await import("./route");
+      const response = await GET(createRequest(provider));
+      const payload = await response.json();
+      const connectUrl = new URL(payload.connect_url);
+
+      expect(response.status).toBe(200);
+      expect(payload).toEqual({
+        connect_url: expect.any(String),
+        gateway_url: API_GATEWAY_URL,
+        provider,
+      });
+      expect(connectUrl.origin).toBe(API_GATEWAY_URL);
+      expect(connectUrl.pathname).toBe(`/api/auth/${provider}/connect`);
+      expect(connectUrl.searchParams.get("handoff")).toEqual(
+        expect.any(String),
+      );
+    },
+  );
 
   it("defaults to YouTube when provider is omitted", async () => {
     const { GET } = await import("./route");
@@ -93,9 +116,28 @@ describe("GET /api/gateway-connect", () => {
       ),
     );
     const payload = await response.json();
+    const connectUrl = new URL(payload.connect_url);
+    const handoffToken = connectUrl.searchParams.get("handoff");
 
     expect(response.status).toBe(200);
-    expect(verifyHandoffToken(payload.handoff_token)).toMatchObject({
+    expect(payload).not.toHaveProperty("handoff_token");
+    expect(verifyHandoffToken(handoffToken ?? "")).toMatchObject({
+      return_to: "https://app.streamos.test/dashboard/platforms",
+    });
+  });
+
+  it("ignores unsafe external return_to query values", async () => {
+    const { GET } = await import("./route");
+    const response = await GET(
+      createRequest("kick", "https://evil.example/phish"),
+    );
+    const payload = await response.json();
+    const connectUrl = new URL(payload.connect_url);
+    const handoffToken = connectUrl.searchParams.get("handoff");
+
+    expect(response.status).toBe(200);
+    expect(payload).not.toHaveProperty("handoff_token");
+    expect(verifyHandoffToken(handoffToken ?? "")).toMatchObject({
       return_to: "https://app.streamos.test/dashboard/platforms",
     });
   });
@@ -110,6 +152,7 @@ describe("GET /api/gateway-connect", () => {
       code: "provider_not_supported",
       error: "Gateway OAuth provider is not supported.",
     });
+    expect(JSON.stringify(payload)).not.toContain("handoff");
     expect(mockCreateClient).not.toHaveBeenCalled();
     expect(mockEnsureCreatorForUser).not.toHaveBeenCalled();
   });
@@ -130,6 +173,7 @@ describe("GET /api/gateway-connect", () => {
       code: "unauthorized",
       error: "An authenticated Supabase session is required.",
     });
+    expect(JSON.stringify(payload)).not.toContain("handoff");
     expect(mockEnsureCreatorForUser).not.toHaveBeenCalled();
   });
 
@@ -145,14 +189,43 @@ describe("GET /api/gateway-connect", () => {
       code: "gateway_not_configured",
       error: "API_GATEWAY_URL is not configured.",
     });
+    expect(JSON.stringify(payload)).not.toContain("handoff");
+  });
+
+  it("does not reflect sensitive values from unexpected errors into responses or logs", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    mockEnsureCreatorForUser.mockRejectedValueOnce(
+      new Error(SENSITIVE_ERROR_TOKEN),
+    );
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      const { GET } = await import("./route");
+      const response = await GET(createRequest("kick"));
+      const payload = await response.json();
+      const logLines = consoleErrorSpy.mock.calls.map((call) => call.join(" "));
+
+      expect(response.status).toBe(500);
+      expect(JSON.stringify(payload)).not.toContain(SENSITIVE_ERROR_TOKEN);
+      expect(logLines.join("\n")).not.toContain(SENSITIVE_ERROR_TOKEN);
+      expect(logLines.join("\n")).not.toContain("handoff=");
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 });
 
-function createRequest(provider?: string): NextRequest {
+function createRequest(provider?: string, returnTo?: string): NextRequest {
   const url = new URL("https://app.streamos.test/api/gateway-connect");
 
   if (provider) {
     url.searchParams.set("provider", provider);
+  }
+
+  if (returnTo) {
+    url.searchParams.set("return_to", returnTo);
   }
 
   return new NextRequest(url);

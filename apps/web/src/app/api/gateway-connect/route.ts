@@ -89,7 +89,6 @@ export async function GET(request: NextRequest) {
     const response: GatewayConnectResponse = {
       connect_url: connectUrl.toString(),
       gateway_url: normalizedGatewayUrl,
-      handoff_token: handoffToken,
       provider,
     };
 
@@ -145,11 +144,12 @@ function logGatewayConnectError(error: unknown) {
     return;
   }
 
-  const message = error instanceof Error ? error.message : "Unknown error";
+  const errorName = error instanceof Error ? error.name : "UnknownError";
 
   console.error(
     JSON.stringify({
-      error: message,
+      error: "Gateway connect failed.",
+      error_name: errorName,
       event: "gateway_connect_failed",
       service: "web",
     }),
