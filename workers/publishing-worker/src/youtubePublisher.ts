@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+import {
+  fetchPublicHttpsAsset,
+  type PublicHttpsAssetResolver,
+  UnsafePublicHttpsAssetUrlError,
+} from "./publicHttpsAsset.js";
+
 const YOUTUBE_UPLOAD_INIT_URL =
   "https://www.googleapis.com/upload/youtube/v3/videos";
 const YOUTUBE_VIDEOS_LIST_URL = "https://www.googleapis.com/youtube/v3/videos";
@@ -73,9 +79,11 @@ export async function publishYouTubeVideo({
   signal,
   title,
   visibility,
+  assetUrlResolver,
 }: {
   accessToken: string;
   assetUrl: string;
+  assetUrlResolver?: PublicHttpsAssetResolver;
   description: string;
   fetchFn?: typeof fetch;
   hashtags: string[];
@@ -87,7 +95,29 @@ export async function publishYouTubeVideo({
   const normalizedDescription = description.trim();
   const normalizedHashtags = normalizeHashtags(hashtags);
   const normalizedVisibility = normalizeVisibility(visibility);
-  const assetResponse = await fetchFn(assetUrl, { signal });
+  let assetResponse: Response;
+  try {
+    assetResponse = await fetchPublicHttpsAsset({
+      fetchFn,
+      resolver: assetUrlResolver,
+      signal,
+      url: assetUrl,
+    });
+  } catch (error) {
+    if (error instanceof UnsafePublicHttpsAssetUrlError) {
+      throw new YouTubePublishError(
+        `YouTube publishable asset URL is not allowed: ${error.message}`,
+        {
+          code: "publishable_asset_url_unsafe",
+          httpStatus: 400,
+          retryable: false,
+          upstreamStatus: 0,
+        },
+      );
+    }
+
+    throw error;
+  }
 
   if (!assetResponse.ok) {
     throw buildYouTubeApiError({
