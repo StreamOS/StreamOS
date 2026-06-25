@@ -92,6 +92,7 @@ async function withProviderWebhookRouter<T>(
   app.use(
     "/api/webhooks",
     createProviderWebhookRouter({
+      deduplicationClient: new InMemoryDeduplicationClient(),
       now: () => NOW.getTime(),
       twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
       youtubeWebSubSecret: YOUTUBE_WEBHOOK_SECRET,
@@ -295,6 +296,7 @@ describe("provider webhook routes", () => {
     app.use(
       "/api/webhooks",
       createProviderWebhookRouter({
+        deduplicationClient: new InMemoryDeduplicationClient(),
         dispatcher: async (event) => {
           events.push(event);
         },
@@ -394,6 +396,139 @@ describe("provider webhook routes", () => {
         streamId: "twitch-stream-123",
         startedAt: "2026-06-06T09:59:00Z",
       });
+    });
+  });
+
+  it("deduplicates repeated Twitch EventSub notifications by message id", async () => {
+    const events: ProviderWebhookEvent[] = [];
+
+    await withServer(events, async (baseUrl) => {
+      const body = JSON.stringify({
+        subscription: { type: "stream.online" },
+        event: {
+          id: "twitch-stream-123",
+          broadcaster_user_id: "twitch-channel-1",
+          broadcaster_user_login: "streamer",
+          type: "live",
+          started_at: "2026-06-06T09:59:00Z",
+        },
+      });
+      const url = `${baseUrl}/api/webhooks/twitch/eventsub`;
+      const headers = {
+        "content-type": "application/json",
+        ...createTwitchEventSubHeaders({ body }),
+      };
+
+      const firstResponse = await fetch(url, {
+        method: "POST",
+        headers,
+        body,
+      });
+      const duplicateResponse = await fetch(url, {
+        method: "POST",
+        headers,
+        body,
+      });
+      const firstPayload = await firstResponse.json();
+      const duplicatePayload = await duplicateResponse.json();
+
+      expect(firstResponse.status).toBe(202);
+      expect(firstPayload).toMatchObject({
+        dispatched: true,
+        event_id: "eventsub-message-1",
+        event_type: "stream.online",
+        received: true,
+      });
+      expect(duplicateResponse.status).toBe(202);
+      expect(duplicatePayload).toEqual({
+        duplicate: true,
+        received: true,
+      });
+      expect(events).toHaveLength(1);
+    });
+  });
+
+  it("treats different Twitch EventSub message ids as distinct notifications", async () => {
+    const events: ProviderWebhookEvent[] = [];
+
+    await withServer(events, async (baseUrl) => {
+      const body = JSON.stringify({
+        subscription: { type: "stream.online" },
+        event: {
+          id: "twitch-stream-123",
+          broadcaster_user_id: "twitch-channel-1",
+          broadcaster_user_login: "streamer",
+          type: "live",
+          started_at: "2026-06-06T09:59:00Z",
+        },
+      });
+      const url = `${baseUrl}/api/webhooks/twitch/eventsub`;
+
+      const firstResponse = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...createTwitchEventSubHeaders({ body, messageId: "eventsub-1" }),
+        },
+        body,
+      });
+      const secondResponse = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...createTwitchEventSubHeaders({ body, messageId: "eventsub-2" }),
+        },
+        body,
+      });
+
+      expect(firstResponse.status).toBe(202);
+      expect(secondResponse.status).toBe(202);
+      expect(events).toHaveLength(2);
+      expect(events.map((event) => event.id)).toEqual([
+        "eventsub-1",
+        "eventsub-2",
+      ]);
+    });
+  });
+
+  it("does not let Twitch EventSub dedupe bypass signature validation", async () => {
+    const events: ProviderWebhookEvent[] = [];
+
+    await withServer(events, async (baseUrl) => {
+      const body = JSON.stringify({
+        subscription: { type: "stream.online" },
+        event: {
+          id: "twitch-stream-123",
+          broadcaster_user_id: "twitch-channel-1",
+        },
+      });
+      const url = `${baseUrl}/api/webhooks/twitch/eventsub`;
+
+      const firstResponse = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...createTwitchEventSubHeaders({ body }),
+        },
+        body,
+      });
+      const invalidReplayResponse = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...createTwitchEventSubHeaders({
+            body,
+            secret: "wrong-twitch-eventsub-secret",
+          }),
+        },
+        body,
+      });
+      const invalidPayload = await invalidReplayResponse.json();
+
+      expect(firstResponse.status).toBe(202);
+      expect(invalidReplayResponse.status).toBe(401);
+      expect(invalidPayload.error).toBe("invalid_twitch_eventsub_signature");
+      expect(events).toHaveLength(1);
     });
   });
 
@@ -566,6 +701,7 @@ describe("provider webhook routes", () => {
     app.use(
       "/api/webhooks",
       createProviderWebhookRouter({
+        deduplicationClient: new InMemoryDeduplicationClient(),
         dispatcher: async (event) => {
           events.push(event);
         },
@@ -660,6 +796,173 @@ describe("provider webhook routes", () => {
     });
   });
 
+  it("deduplicates repeated YouTube WebSub Atom feed notifications before dispatch", async () => {
+    const events: ProviderWebhookEvent[] = [];
+
+    await withServer(events, async (baseUrl) => {
+      const body = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>yt:video:youtube-video-1</id>
+    <yt:videoId>youtube-video-1</yt:videoId>
+    <yt:channelId>youtube-channel-1</yt:channelId>
+    <title>First Upload</title>
+    <published>2026-06-06T09:55:00+00:00</published>
+    <updated>2026-06-06T09:56:00+00:00</updated>
+  </entry>
+</feed>`;
+      const url = `${baseUrl}/api/webhooks/youtube/websub`;
+      const headers = {
+        "content-type": "application/atom+xml",
+        "x-hub-signature": createWebSubSignature(body),
+      };
+
+      const firstResponse = await fetch(url, {
+        method: "POST",
+        headers,
+        body,
+      });
+      const duplicateResponse = await fetch(url, {
+        method: "POST",
+        headers,
+        body,
+      });
+      const firstPayload = await firstResponse.json();
+      const duplicatePayload = await duplicateResponse.json();
+
+      expect(firstResponse.status).toBe(202);
+      expect(firstPayload).toEqual({
+        dispatched: true,
+        entries: 1,
+        received: true,
+      });
+      expect(duplicateResponse.status).toBe(202);
+      expect(duplicatePayload).toEqual({
+        dispatched: false,
+        duplicate: true,
+        entries: 1,
+        received: true,
+      });
+      expect(events).toHaveLength(1);
+    });
+  });
+
+  it("deduplicates YouTube WebSub notifications without updatedAt using stable fields", async () => {
+    const events: ProviderWebhookEvent[] = [];
+    let currentNow = NOW.getTime();
+
+    await withProviderWebhookRouter(
+      {
+        deduplicationClient: new InMemoryDeduplicationClient(),
+        dispatcher: async (event) => {
+          events.push(event);
+        },
+        now: () => currentNow,
+      },
+      async (baseUrl) => {
+        const body = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>yt:video:youtube-video-2</id>
+    <yt:videoId>youtube-video-2</yt:videoId>
+    <yt:channelId>youtube-channel-1</yt:channelId>
+    <title>Upload Without Updated</title>
+    <published>2026-06-06T09:55:00+00:00</published>
+  </entry>
+</feed>`;
+        const url = `${baseUrl}/api/webhooks/youtube/websub`;
+        const headers = {
+          "content-type": "application/atom+xml",
+          "x-hub-signature": createWebSubSignature(body),
+        };
+
+        const firstResponse = await fetch(url, {
+          method: "POST",
+          headers,
+          body,
+        });
+        currentNow = NOW.getTime() + 30_000;
+        const duplicateResponse = await fetch(url, {
+          method: "POST",
+          headers,
+          body,
+        });
+        const duplicatePayload = await duplicateResponse.json();
+
+        expect(firstResponse.status).toBe(202);
+        expect(duplicateResponse.status).toBe(202);
+        expect(duplicatePayload).toEqual({
+          dispatched: false,
+          duplicate: true,
+          entries: 1,
+          received: true,
+        });
+        expect(events).toHaveLength(1);
+        expect(events[0]?.id).toBe(
+          "youtube:youtube-channel-1:youtube-video-2:2026-06-06T10:00:00.000Z",
+        );
+      },
+    );
+  });
+
+  it("keeps provider webhook dedupe keys secret-safe", async () => {
+    const events: ProviderWebhookEvent[] = [];
+    const dedupeKeys: string[] = [];
+    const deduplicationClient = new InMemoryDeduplicationClient();
+
+    await withProviderWebhookRouter(
+      {
+        deduplicationClient: {
+          async set(key, value, mode, ttlMode, ttlSeconds) {
+            dedupeKeys.push(key);
+            return deduplicationClient.set(
+              key,
+              value,
+              mode,
+              ttlMode,
+              ttlSeconds,
+            );
+          },
+        },
+        dispatcher: async (event) => {
+          events.push(event);
+        },
+      },
+      async (baseUrl) => {
+        const body = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>yt:video:youtube-video-3</id>
+    <yt:videoId>youtube-video-3</yt:videoId>
+    <yt:channelId>youtube-channel-1</yt:channelId>
+    <title>https://private.example.test/watch?token=secret-token</title>
+    <published>2026-06-06T09:55:00+00:00</published>
+  </entry>
+</feed>`;
+        const signature = createWebSubSignature(body);
+
+        const response = await fetch(`${baseUrl}/api/webhooks/youtube/websub`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/atom+xml",
+            "x-hub-signature": signature,
+          },
+          body,
+        });
+
+        expect(response.status).toBe(202);
+        expect(dedupeKeys).toHaveLength(1);
+        expect(dedupeKeys[0]).toContain("youtube:websub:video.published");
+        expect(dedupeKeys[0]).not.toContain(signature);
+        expect(dedupeKeys[0]).not.toContain(YOUTUBE_WEBHOOK_SECRET);
+        expect(dedupeKeys[0]).not.toContain("https://");
+        expect(dedupeKeys[0]).not.toContain("secret-token");
+        expect(dedupeKeys[0]).not.toContain("<feed");
+        expect(events).toHaveLength(1);
+      },
+    );
+  });
+
   it("rate limits signed YouTube WebSub Atom feed notifications at the route boundary", async () => {
     const events: ProviderWebhookEvent[] = [];
     const app = express();
@@ -667,6 +970,7 @@ describe("provider webhook routes", () => {
     app.use(
       "/api/webhooks",
       createProviderWebhookRouter({
+        deduplicationClient: new InMemoryDeduplicationClient(),
         dispatcher: async (event) => {
           events.push(event);
         },

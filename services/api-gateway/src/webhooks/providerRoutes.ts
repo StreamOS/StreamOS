@@ -1,7 +1,12 @@
+import { createHash } from "node:crypto";
 import express from "express";
 import type { Request, Response, Router } from "express";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 
+import {
+  isMessageDuplicate,
+  type RedisDeduplicationClient,
+} from "../lib/deduplication.js";
 import {
   sendPlainTextWebhookChallenge,
   validateWebhookChallenge,
@@ -34,8 +39,10 @@ const YOUTUBE_WEBSUB_CHALLENGE_RATE_LIMIT_WINDOW_MS = 60_000;
 const YOUTUBE_WEBSUB_CHALLENGE_RATE_LIMIT_MAX_REQUESTS = 120;
 const YOUTUBE_WEBSUB_POST_RATE_LIMIT_WINDOW_MS = 60_000;
 const YOUTUBE_WEBSUB_POST_RATE_LIMIT_MAX_REQUESTS = 500;
+const PROVIDER_WEBHOOK_DEDUP_TTL_SECONDS = 600;
 
 type CreateProviderWebhookRouterOptions = {
+  deduplicationClient: RedisDeduplicationClient;
   dispatcher?: ProviderWebhookDispatcher;
   now: () => number;
   twitchEventSubRateLimit?: {
@@ -110,6 +117,52 @@ function validateYouTubeVerifyToken({
   return !expectedToken || receivedToken === expectedToken;
 }
 
+function createStableHash(value: unknown): string {
+  return createHash("sha256").update(stableStringify(value)).digest("hex");
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const entries = Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`);
+
+    return `{${entries.join(",")}}`;
+  }
+
+  return JSON.stringify(value) ?? "undefined";
+}
+
+function createYouTubeWebSubDedupeKey(
+  event: Parameters<ProviderWebhookDispatcher>[0],
+): string {
+  const fallbackHash = createStableHash(event.raw).slice(0, 32);
+  const stableEventComponent =
+    ("updatedAt" in event && typeof event.updatedAt === "string"
+      ? event.updatedAt
+      : undefined) ??
+    ("publishedAt" in event && typeof event.publishedAt === "string"
+      ? event.publishedAt
+      : undefined) ??
+    fallbackHash;
+
+  return [
+    "youtube",
+    "websub",
+    event.type,
+    event.channelId,
+    "videoId" in event && typeof event.videoId === "string"
+      ? event.videoId
+      : fallbackHash,
+    stableEventComponent,
+  ].join(":");
+}
+
 function getQueryString(value: unknown): string | null {
   if (typeof value === "string") {
     return value;
@@ -145,6 +198,7 @@ async function dispatchIfConfigured({
 }
 
 export function createProviderWebhookRouter({
+  deduplicationClient,
   dispatcher,
   now,
   twitchEventSubRateLimit,
@@ -309,6 +363,17 @@ export function createProviderWebhookRouter({
         return;
       }
 
+      const duplicate = await isMessageDuplicate(
+        deduplicationClient,
+        `twitch:eventsub:${messageId}`,
+        PROVIDER_WEBHOOK_DEDUP_TTL_SECONDS,
+      );
+
+      if (duplicate) {
+        response.status(202).json({ received: true, duplicate: true });
+        return;
+      }
+
       const event = (() => {
         try {
           return normalizeTwitchNotification({
@@ -466,15 +531,33 @@ export function createProviderWebhookRouter({
           receivedAt: getReceivedAt(now),
         }),
       );
+      let dispatchedCount = 0;
+      let duplicateCount = 0;
 
       for (const event of events) {
-        await dispatchIfConfigured({ dispatcher, event });
+        const duplicate = await isMessageDuplicate(
+          deduplicationClient,
+          createYouTubeWebSubDedupeKey(event),
+          PROVIDER_WEBHOOK_DEDUP_TTL_SECONDS,
+        );
+
+        if (duplicate) {
+          duplicateCount += 1;
+          continue;
+        }
+
+        if (await dispatchIfConfigured({ dispatcher, event })) {
+          dispatchedCount += 1;
+        }
       }
 
       response.status(202).json({
         received: true,
-        dispatched: Boolean(dispatcher),
+        dispatched: dispatchedCount > 0,
         entries: events.length,
+        ...(duplicateCount > 0
+          ? { duplicate: duplicateCount === events.length }
+          : {}),
       });
     },
   );

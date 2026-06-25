@@ -738,6 +738,7 @@ export function createApp(
   app.use(
     "/api/webhooks",
     createProviderWebhookRouter({
+      deduplicationClient,
       dispatcher: providerWebhookDispatcher,
       now: securityConfig.webhookNow,
       twitchEventSubSecret: securityConfig.twitchEventSubSecret,
