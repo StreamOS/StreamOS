@@ -16,6 +16,7 @@ const YOUTUBE_WEBHOOK_SECRET = "test-youtube-webhook-secret-123";
 const WEBHOOK_NOW = new Date("2026-06-06T10:00:00.000Z");
 const SUPABASE_URL = "https://supabase.streamos.test";
 const SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
+const publicAssetResolver = () => ["93.184.216.34"];
 const API_GATEWAY_PRODUCTION_ENV_KEYS = [
   "NODE_ENV",
   "API_GATEWAY_ALLOWED_ORIGINS",
@@ -527,6 +528,7 @@ describe("api-gateway", () => {
       return new Response("Unexpected URL", { status: 500 });
     };
     const app = createApp({
+      assetUrlResolver: publicAssetResolver,
       clipGenerationQueue,
       oauth: { fetchImpl },
     });
@@ -592,6 +594,7 @@ describe("api-gateway", () => {
     const jobIds = new Set<string>();
     const dispatchedEvents: StreamOSJob[] = [];
     const app = createApp({
+      assetUrlResolver: publicAssetResolver,
       oauth: {
         fetchImpl: async (input) => {
           const url = input.toString();
@@ -684,10 +687,68 @@ describe("api-gateway", () => {
     }
   });
 
+  it("rejects unsafe clip source URLs before content job upsert", async () => {
+    const restoreEnv = setSupabaseEnv();
+    const clipGenerationQueue = createClipGenerationQueue();
+    let contentJobUpserts = 0;
+    const app = createApp({
+      assetUrlResolver: publicAssetResolver,
+      clipGenerationQueue,
+      oauth: {
+        fetchImpl: async (input, init) => {
+          const url = input.toString();
+
+          if (
+            url.startsWith(`${SUPABASE_URL}/rest/v1/content_jobs`) &&
+            init?.method === "POST"
+          ) {
+            contentJobUpserts += 1;
+            return new Response(null, { status: 201 });
+          }
+
+          return new Response("Unexpected URL", { status: 500 });
+        },
+      },
+    });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/api/clips/generate`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            creator_id: CREATOR_ID,
+            requested_by: USER_ID,
+            source_platform: "twitch",
+            source_url: "https://127.0.0.1/videos/123",
+            stream_id: STREAM_ID,
+            transcript: "A clutch moment with a strong opening hook.",
+          }),
+        },
+      );
+      const responseBody = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(responseBody.error).toBe("unsafe_clip_asset_url");
+      expect(contentJobUpserts).toBe(0);
+    } finally {
+      restoreEnv();
+      server.close();
+    }
+  });
+
   it("rejects stream-ended webhooks when the internal stream_id does not exist", async () => {
     const restoreEnv = setSupabaseEnv();
     let dispatchCalls = 0;
     const app = createApp({
+      assetUrlResolver: publicAssetResolver,
       oauth: {
         fetchImpl: async (input) => {
           const url = input.toString();
@@ -740,6 +801,70 @@ describe("api-gateway", () => {
 
       expect(response.status).toBe(404);
       expect(responseBody.error).toBe("stream_not_found");
+      expect(dispatchCalls).toBe(0);
+    } finally {
+      restoreEnv();
+      server.close();
+    }
+  });
+
+  it("rejects unsafe stream-ended asset URLs before dispatch", async () => {
+    const restoreEnv = setSupabaseEnv();
+    let dispatchCalls = 0;
+    const app = createApp({
+      assetUrlResolver: publicAssetResolver,
+      oauth: {
+        fetchImpl: async (input) => {
+          const url = input.toString();
+
+          if (url.startsWith(`${SUPABASE_URL}/rest/v1/streams`)) {
+            return new Response(JSON.stringify([{ id: STREAM_ID }]), {
+              status: 200,
+            });
+          }
+
+          return new Response("Unexpected URL", { status: 500 });
+        },
+      },
+      providerWebhookDispatcher: async () => {
+        dispatchCalls += 1;
+      },
+      streamEventWebhookSecret: WEBHOOK_SECRET,
+      webhookNow: () => WEBHOOK_NOW.getTime(),
+    });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const body = JSON.stringify({
+        user_id: USER_ID,
+        stream_id: STREAM_ID,
+        platform: "twitch",
+        creator_id: CREATOR_ID,
+        vod_asset_url: "https://169.254.169.254/latest/meta-data",
+      });
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/api/webhooks/streams/ended`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...createSignedWebhookHeaders({
+              body,
+              eventId: "stream-ended-unsafe",
+            }),
+          },
+          body,
+        },
+      );
+      const responseBody = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(responseBody.error).toBe("unsafe_stream_asset_url");
       expect(dispatchCalls).toBe(0);
     } finally {
       restoreEnv();

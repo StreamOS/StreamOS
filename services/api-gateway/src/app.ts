@@ -10,6 +10,11 @@ import {
   type StreamOSJob,
 } from "@streamos/queue";
 import { assertRedisTls } from "@streamos/redis";
+import {
+  type PublicHttpsAssetResolver,
+  UnsafePublicHttpsAssetUrlError,
+  validatePublicHttpsAssetUrl,
+} from "@streamos/utils";
 import { ZodError } from "zod";
 
 import {
@@ -54,6 +59,7 @@ import type { ProviderWebhookDispatcher } from "./webhooks/providerEvents.js";
 type CreateAppOptions = {
   allowedOrigins?: string[];
   apiGatewaySecret?: string;
+  assetUrlResolver?: PublicHttpsAssetResolver;
   clipGenerationQueue?: ClipGenerationQueue;
   publicationExecutionQueue?: PublicationExecutionQueue;
   nodeEnv?: string;
@@ -871,6 +877,11 @@ export function createApp(
         const input = clipGenerationRequestSchema.parse(request.body);
         const payload = getClipQueuePayload(input);
         const queueJobId = getClipGenerationJobId(input.stream_id);
+        await validatePublicHttpsAssetUrl(
+          payload.source_url,
+          options.assetUrlResolver,
+        );
+
         const supabase = createSupabaseRestClient({
           fetchImpl: options.oauth?.fetchImpl,
         });
@@ -887,6 +898,7 @@ export function createApp(
         const job = await enqueueClipGenerationJob(
           options.clipGenerationQueue,
           payload,
+          { assetUrlResolver: options.assetUrlResolver },
         );
 
         response.status(202).json({
@@ -900,6 +912,14 @@ export function createApp(
           response.status(400).json({
             error: "invalid_clip_generation_payload",
             issues: error.issues,
+          });
+          return;
+        }
+
+        if (error instanceof UnsafePublicHttpsAssetUrlError) {
+          response.status(400).json({
+            error: "unsafe_clip_asset_url",
+            message: "Clip source URL is not allowed.",
           });
           return;
         }
@@ -940,6 +960,10 @@ export function createApp(
     async (request, response) => {
       try {
         const payload = streamEndedPayloadSchema.parse(request.body);
+        await validatePublicHttpsAssetUrl(
+          payload.vod_asset_url,
+          options.assetUrlResolver,
+        );
         await assertKnownStreamForTranscription({
           fetchImpl: options.oauth?.fetchImpl,
           streamId: payload.stream_id,
@@ -977,6 +1001,14 @@ export function createApp(
           response.status(400).json({
             error: "invalid_stream_ended_payload",
             issues: error.issues,
+          });
+          return;
+        }
+
+        if (error instanceof UnsafePublicHttpsAssetUrlError) {
+          response.status(400).json({
+            error: "unsafe_stream_asset_url",
+            message: "Stream VOD asset URL is not allowed.",
           });
           return;
         }

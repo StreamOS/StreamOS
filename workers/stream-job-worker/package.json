@@ -15,6 +15,7 @@
     "@streamos/queue": "workspace:*",
     "@streamos/types": "workspace:*",
     "@streamos/redis": "workspace:*",
+    "@streamos/utils": "workspace:*",
     "@supabase/supabase-js": "^2.49.4",
     "bullmq": "^5.77.7",
     "ioredis": "^5.8.2",

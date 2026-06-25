@@ -2,6 +2,10 @@ import type { TranscriptionTriggerJobData } from "@streamos/types";
 import type { JobsOptions } from "bullmq";
 import { Queue } from "bullmq";
 import { getTranscriptionTriggerJobId } from "@streamos/queue";
+import {
+  type PublicHttpsAssetResolver,
+  validatePublicHttpsAssetUrl,
+} from "@streamos/utils";
 import { z } from "zod";
 
 import { createRedisConnectionOptions } from "./redisConnection.js";
@@ -58,8 +62,16 @@ const transcriptionTriggerJobOptions: JobsOptions = {
 export async function enqueueTranscriptionTriggerJob(
   queue: TranscriptionQueue,
   payload: z.input<typeof streamEndedPayloadSchema>,
+  options?: {
+    assetUrlResolver?: PublicHttpsAssetResolver;
+  },
 ): Promise<EnqueuedTranscriptionTriggerJob> {
   const parsedPayload = streamEndedPayloadSchema.parse(payload);
+  await validatePublicHttpsAssetUrl(
+    parsedPayload.vod_asset_url,
+    options?.assetUrlResolver,
+  );
+
   const data: TranscriptionTriggerJobData = {
     ...parsedPayload,
     trigger: "stream_ended",

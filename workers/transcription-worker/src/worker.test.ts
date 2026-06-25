@@ -6,6 +6,7 @@ import { processTranscriptionJob } from "./worker.js";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const STREAM_ID = "22222222-2222-4222-8222-222222222222";
 const OTHER_STREAM_ID = "33333333-3333-4333-8333-333333333333";
+const publicAssetResolver = () => ["93.184.216.34"];
 
 function createJob({
   attempts = 1,
@@ -61,7 +62,11 @@ describe("processTranscriptionJob", () => {
             vod_asset_url: "https://cdn.example.com/audio.mp4",
           },
         }),
-        { automationClient, statusStore },
+        {
+          assetUrlResolver: publicAssetResolver,
+          automationClient,
+          statusStore,
+        },
       ),
     ).resolves.toMatchObject({
       transcript: "A clean transcript.",
@@ -129,7 +134,12 @@ describe("processTranscriptionJob", () => {
           vod_asset_url: "https://cdn.example.com/audio.mp4",
         },
       }),
-      { automationClient, clipGenerationQueue, statusStore },
+      {
+        assetUrlResolver: publicAssetResolver,
+        automationClient,
+        clipGenerationQueue,
+        statusStore,
+      },
     );
 
     expect(clipGenerationQueue.add).toHaveBeenCalledWith(
@@ -181,7 +191,11 @@ describe("processTranscriptionJob", () => {
             vod_asset_url: "https://cdn.example.com/audio.webm",
           },
         }),
-        { automationClient, statusStore },
+        {
+          assetUrlResolver: publicAssetResolver,
+          automationClient,
+          statusStore,
+        },
       ),
     ).rejects.toThrow("automation unavailable");
 
@@ -237,7 +251,11 @@ describe("processTranscriptionJob", () => {
             vod_asset_url: "https://cdn.example.com/audio.webm",
           },
         }),
-        { automationClient, statusStore },
+        {
+          assetUrlResolver: publicAssetResolver,
+          automationClient,
+          statusStore,
+        },
       ),
     ).rejects.toThrow("temporary automation failure");
 
@@ -303,7 +321,11 @@ describe("processTranscriptionJob", () => {
             vod_asset_url: "https://cdn.example.com/audio.webm",
           },
         }),
-        { automationClient, statusStore },
+        {
+          assetUrlResolver: publicAssetResolver,
+          automationClient,
+          statusStore,
+        },
       ),
     ).rejects.toThrow("provider_rate_limited");
 
@@ -334,5 +356,88 @@ describe("processTranscriptionJob", () => {
         status: "pending",
       },
     );
+  });
+
+  it.each([
+    ["HTTP scheme", "http://cdn.example.com/audio.mp4"],
+    ["localhost", "https://localhost/audio.mp4"],
+    ["private IPv4", "https://10.0.0.5/audio.mp4"],
+    ["link-local IPv4", "https://169.254.169.254/latest/meta-data"],
+    ["reserved IPv4", "https://192.0.2.1/audio.mp4"],
+    ["credentials", "https://user:pass@cdn.example.com/audio.mp4"],
+    ["non-default port", "https://cdn.example.com:8443/audio.mp4"],
+  ])(
+    "rejects unsafe VOD asset URLs before automation: %s",
+    async (_name, url) => {
+      const statusStore = {
+        update: vi.fn().mockResolvedValue(undefined),
+      };
+      const automationClient = {
+        processTranscription: vi.fn(),
+      };
+
+      await expect(
+        processTranscriptionJob(
+          createJob({
+            id: "job-unsafe",
+            data: {
+              user_id: USER_ID,
+              language: "en",
+              platform: "twitch",
+              stream_id: STREAM_ID,
+              trigger: "stream_ended",
+              vod_asset_url: url,
+            },
+          }),
+          {
+            assetUrlResolver: publicAssetResolver,
+            automationClient,
+            statusStore,
+          },
+        ),
+      ).rejects.toThrow(/Asset URL/);
+
+      expect(automationClient.processTranscription).not.toHaveBeenCalled();
+      expect(statusStore.update).toHaveBeenCalledWith(
+        "job-unsafe",
+        expect.objectContaining({ stream_id: STREAM_ID, user_id: USER_ID }),
+        expect.objectContaining({
+          error_message: expect.stringContaining("Asset URL"),
+          status: "failed",
+        }),
+      );
+    },
+  );
+
+  it("rejects VOD asset URLs that resolve to private IPs before automation", async () => {
+    const statusStore = {
+      update: vi.fn().mockResolvedValue(undefined),
+    };
+    const automationClient = {
+      processTranscription: vi.fn(),
+    };
+
+    await expect(
+      processTranscriptionJob(
+        createJob({
+          id: "job-private-dns",
+          data: {
+            user_id: USER_ID,
+            language: "en",
+            platform: "twitch",
+            stream_id: STREAM_ID,
+            trigger: "stream_ended",
+            vod_asset_url: "https://cdn.example.com/audio.mp4",
+          },
+        }),
+        {
+          assetUrlResolver: () => ["10.0.0.5"],
+          automationClient,
+          statusStore,
+        },
+      ),
+    ).rejects.toThrow("Asset URL resolves to a non-public IP address.");
+
+    expect(automationClient.processTranscription).not.toHaveBeenCalled();
   });
 });

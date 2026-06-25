@@ -4,7 +4,7 @@ import {
   fetchPublicHttpsAsset,
   type PublicHttpsAssetResolver,
   UnsafePublicHttpsAssetUrlError,
-} from "./publicHttpsAsset.js";
+} from "@streamos/utils";
 
 const YOUTUBE_UPLOAD_INIT_URL =
   "https://www.googleapis.com/upload/youtube/v3/videos";

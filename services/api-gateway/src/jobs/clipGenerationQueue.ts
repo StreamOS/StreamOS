@@ -2,6 +2,10 @@ import type { ClipGenerationJobData } from "@streamos/types";
 import type { JobsOptions } from "bullmq";
 import { Queue } from "bullmq";
 import { getClipGenerationJobId } from "@streamos/queue";
+import {
+  type PublicHttpsAssetResolver,
+  validatePublicHttpsAssetUrl,
+} from "@streamos/utils";
 import { z } from "zod";
 
 import { createRedisConnectionOptions } from "./redisConnection.js";
@@ -58,8 +62,13 @@ const clipGenerationJobOptions: JobsOptions = {
 export async function enqueueClipGenerationJob(
   queue: ClipGenerationQueue,
   payload: ClipGenerationJobData,
+  options?: {
+    assetUrlResolver?: PublicHttpsAssetResolver;
+  },
 ): Promise<EnqueuedClipGenerationJob> {
   const data = clipGenerationPayloadSchema.parse(payload);
+  await validatePublicHttpsAssetUrl(data.source_url, options?.assetUrlResolver);
+
   const jobId = getClipGenerationJobId(data.stream_id);
   const job = await queue.add(CLIP_GENERATION_JOB_NAME, data, {
     ...clipGenerationJobOptions,

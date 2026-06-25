@@ -18,6 +18,7 @@ const CHANNEL_ID = "11111111-1111-4111-8111-111111111111";
 const CREATOR_ID = "22222222-2222-4222-8222-222222222222";
 const STREAM_ID = "33333333-3333-4333-8333-333333333333";
 const USER_ID = "44444444-4444-4444-8444-444444444444";
+const publicAssetResolver = () => ["93.184.216.34"];
 
 function createChannel() {
   return {
@@ -135,6 +136,7 @@ function createDependencies(overrides: Record<string, unknown> = {}) {
   };
 
   return {
+    assetUrlResolver: publicAssetResolver,
     calls,
     repurposingQueue: {
       async add(
@@ -215,6 +217,32 @@ void test("stream.offline with vodAssetUrl upserts the canonical transcription j
     streamId: STREAM_ID,
     userId: USER_ID,
   });
+});
+
+void test("stream.offline rejects unsafe vodAssetUrl before persisting transcription work", async () => {
+  const { calls, store } = createStore();
+  const dependencies = createDependencies();
+  const event: StreamOSJob = {
+    id: "media-job-unsafe-vod",
+    type: "stream.offline",
+    provider: "twitch",
+    internalStreamId: STREAM_ID,
+    raw: { source: "ended-webhook" },
+    receivedAt: "2026-06-17T10:05:00.000Z",
+    userId: USER_ID,
+    vodAssetUrl: "https://10.0.0.5/vods/test.mp4",
+  };
+  const job = createJob(event);
+
+  await assert.rejects(
+    () => processStreamJob(job, { store, ...dependencies }),
+    /Asset URL resolves to a non-public IP address\./,
+  );
+
+  assert.equal(job.discardCount, 1);
+  assert.equal(calls.markStreamEnded.length, 1);
+  assert.equal(calls.upsertContentJob.length, 0);
+  assert.equal(dependencies.calls.transcriptionQueue.length, 0);
 });
 
 void test("stream.offline with missing internalStreamId fails permanently and does not fall back", async () => {
@@ -404,6 +432,42 @@ void test("video.published with asset_available and explicit repurposing opt-in 
     jobId: getRepurposingPlanJobId(STREAM_ID),
     name: REPURPOSING_PLAN_JOB_NAME,
   });
+});
+
+void test("video.published rejects unsafe vodAssetUrl before repurposing persistence", async () => {
+  const { calls, store } = createStore({
+    resolvePlatformConnectionByExternalId: async () =>
+      createPlatformConnection({
+        repurposing: {
+          auto_repurpose_enabled: true,
+          target_platforms: ["youtube"],
+        },
+      }),
+  });
+  const dependencies = createDependencies();
+  const event: StreamOSJob = {
+    id: "media-job-unsafe-published",
+    type: "video.published",
+    provider: "youtube",
+    channelId: "youtube-channel-1",
+    enrichmentStatus: "asset_available",
+    raw: { source: "youtube-websub" },
+    receivedAt: "2026-06-17T12:15:00.000Z",
+    title: "New VOD",
+    videoId: "video-123",
+    vodAssetUrl: "https://169.254.169.254/latest/meta-data",
+  };
+  const job = createJob(event);
+
+  await assert.rejects(
+    () => processStreamJob(job, { store, ...dependencies }),
+    /Asset URL resolves to a non-public IP address\./,
+  );
+
+  assert.equal(job.discardCount, 1);
+  assert.equal(calls.upsertStream.length, 1);
+  assert.equal(calls.upsertContentJob.length, 0);
+  assert.equal(dependencies.calls.repurposingQueue.length, 0);
 });
 
 void test("video.published repurposing plan queue id is deterministic across duplicate events", async () => {

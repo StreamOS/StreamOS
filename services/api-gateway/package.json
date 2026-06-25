@@ -17,6 +17,7 @@
     "@streamos/redis": "workspace:*",
     "@streamos/twitch-eventsub": "workspace:*",
     "@streamos/types": "workspace:*",
+    "@streamos/utils": "workspace:*",
     "@streamos/youtube-websub": "workspace:*",
     "bullmq": "^5.77.7",
     "express": "^4.21.2",
