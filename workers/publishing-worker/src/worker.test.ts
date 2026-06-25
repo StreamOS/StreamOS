@@ -1030,7 +1030,7 @@ function buildVodAsset(
 }
 
 function buildYouTubePublishFetch(calls: string[]): typeof fetch {
-  return (async (input, init) => {
+  return (async (input, _init) => {
     const url = input.toString();
     calls.push(url);
 
