@@ -1,11 +1,18 @@
 import asyncio
 import ipaddress
 import json
+from collections.abc import Callable
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
-from main import app, get_clip_analyzer, get_repurposing_planner, get_transcription_processor
+from main import (
+    app,
+    get_clip_analyzer,
+    get_repurposing_planner,
+    get_transcription_processor,
+)
 from openai_client import (
     OpenAIClipAnalyzer,
     OpenAITranscriptionProcessor,
@@ -19,6 +26,7 @@ from schemas import (
     TranscriptionProcessRequest,
     TranscriptionProcessResponse,
     TranscriptionSegment,
+    ensure_repurposing_plan_response_matches_request,
 )
 from settings import Settings, SettingsError, load_settings
 from ssrf import UnsafeAssetUrlError
@@ -31,6 +39,40 @@ async def post_json(path: str, payload: dict[str, object]) -> httpx.Response:
         base_url="http://testserver",
     ) as client:
         return await client.post(path, json=payload)
+
+
+def valid_repurposing_request_payload() -> dict[str, object]:
+    return {
+        "asset_reference": {
+            "kind": "vod",
+            "status": "asset_available",
+            "url": "https://cdn.example.com/vods/test.mp4",
+        },
+        "brand_context": {"brand_profile_id": "brand-1"},
+        "content_job_id": "job-123",
+        "content_policy_hints": {"content_policy_profile": "safe"},
+        "language": "en",
+        "locale": "en",
+        "manual_review_required": True,
+        "provider": "youtube",
+        "provider_video_id": "video-123",
+        "queue_job_id": "repurposing-plan-job-123",
+        "source_event_type": "video.published",
+        "source_metadata": {
+            "source_provider": "youtube",
+            "source_video_id": "video-123",
+            "stream_id": "stream-123",
+            "user_id": "11111111-1111-4111-8111-111111111111",
+            "vod_asset_url": "https://cdn.example.com/vods/test.mp4",
+            "workflow": "repurposing_plan",
+        },
+        "target_platforms": ["youtube", "tiktok"],
+        "transcript_reference": {
+            "stream_id": "stream-123",
+            "transcript_id": "transcript-1",
+        },
+        "user_id": "11111111-1111-4111-8111-111111111111",
+    }
 
 
 class StubClipAnalyzer:
@@ -88,6 +130,30 @@ class StubRepurposingPlanner:
         )
 
 
+class MismatchedContentJobRepurposingPlanner:
+    async def plan_repurposing(
+        self, payload: RepurposingPlanRequest
+    ) -> RepurposingPlanResponse:
+        return RepurposingPlanResponse.model_validate(
+            valid_repurposing_response_payload(
+                content_job_id="other-content-job",
+                queue_job_id=payload.queue_job_id,
+            )
+        )
+
+
+class MismatchedQueueJobRepurposingPlanner:
+    async def plan_repurposing(
+        self, payload: RepurposingPlanRequest
+    ) -> RepurposingPlanResponse:
+        return RepurposingPlanResponse.model_validate(
+            valid_repurposing_response_payload(
+                content_job_id=payload.content_job_id,
+                queue_job_id="other-queue-job",
+            )
+        )
+
+
 class UnsafeUrlTranscriptionProcessor:
     async def process_transcription(
         self, _payload: TranscriptionProcessRequest
@@ -115,6 +181,145 @@ class RateLimitedRepurposingPlanner:
             provider="openai",
             retry_after_seconds=30,
         )
+
+
+def valid_repurposing_response_payload(
+    *,
+    content_job_id: str = "job-123",
+    queue_job_id: str = "repurposing-plan-job-123",
+) -> dict[str, object]:
+    return {
+        "captions": ["Repurpose this moment."],
+        "confidence": 87,
+        "content_job_id": content_job_id,
+        "descriptions": ["Review-only description."],
+        "hashtag_sets": [["#streamos"]],
+        "hook_ideas": ["Open with the strongest beat."],
+        "manual_review_required": True,
+        "model": "gpt-4o",
+        "provider": "test",
+        "queue_job_id": queue_job_id,
+        "review_notes": ["Manual approval is required."],
+        "short_form_plan": "Draft a review-only repurposing plan.",
+        "title_suggestions": ["The moment everyone missed"],
+        "warnings": ["No automatic publishing."],
+    }
+
+
+def test_repurposing_response_contract_accepts_worker_valid_shape() -> None:
+    payload = valid_repurposing_response_payload()
+
+    result = RepurposingPlanResponse.model_validate(payload)
+
+    assert result.model_dump() == payload
+
+
+def test_repurposing_response_contract_accepts_matching_request_ids() -> None:
+    request = RepurposingPlanRequest.model_validate(valid_repurposing_request_payload())
+    response = RepurposingPlanResponse.model_validate(
+        valid_repurposing_response_payload(
+            content_job_id=request.content_job_id,
+            queue_job_id=request.queue_job_id,
+        )
+    )
+
+    assert (
+        ensure_repurposing_plan_response_matches_request(request, response) is response
+    )
+
+
+def test_repurposing_response_contract_trims_text_like_worker() -> None:
+    payload = {
+        **valid_repurposing_response_payload(),
+        "captions": [" Repurpose this moment. "],
+    }
+
+    result = RepurposingPlanResponse.model_validate(payload)
+
+    assert result.captions == ["Repurpose this moment."]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(
+            lambda: {
+                key: value
+                for key, value in valid_repurposing_response_payload().items()
+                if key != "short_form_plan"
+            },
+            id="missing required field",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "confidence": "87",
+            },
+            id="wrong field type",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "captions": [],
+            },
+            id="empty required array",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "captions": ["   "],
+            },
+            id="empty text item",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "hashtag_sets": [[]],
+            },
+            id="empty hashtag set",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "auto_publish": True,
+            },
+            id="unexpected top-level field",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "short_form_plan": "x" * 4_001,
+            },
+            id="oversized text field",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "captions": ['<script>alert("x")</script>'],
+            },
+            id="script-like content",
+        ),
+        pytest.param(
+            lambda: {
+                "content_job_id": "job-123",
+                "manual_review_required": True,
+                "queue_job_id": "repurposing-plan-job-123",
+                "short_form_plan": "Looks like a plan but lacks review fields.",
+            },
+            id="partial plausible data",
+        ),
+    ],
+)
+def test_repurposing_response_contract_rejects_worker_invalid_shapes(
+    payload: Callable[[], object],
+) -> None:
+    with pytest.raises(ValidationError):
+        RepurposingPlanResponse.model_validate(payload())
+
+
+def test_repurposing_response_contract_rejects_non_object_top_level_shape() -> None:
+    with pytest.raises(ValidationError):
+        RepurposingPlanResponse.model_validate([])
 
 
 def test_settings_reject_public_openai_keys() -> None:
@@ -212,37 +417,7 @@ def test_repurposing_endpoint_uses_server_side_planner() -> None:
         response = asyncio.run(
             post_json(
                 "/repurposing/plan",
-                {
-                    "asset_reference": {
-                        "kind": "vod",
-                        "status": "asset_available",
-                        "url": "https://cdn.example.com/vods/test.mp4",
-                    },
-                    "brand_context": {"brand_profile_id": "brand-1"},
-                    "content_job_id": "job-123",
-                    "content_policy_hints": {"content_policy_profile": "safe"},
-                    "language": "en",
-                    "locale": "en",
-                    "manual_review_required": True,
-                    "provider": "youtube",
-                    "provider_video_id": "video-123",
-                    "queue_job_id": "repurposing-plan-job-123",
-                    "source_event_type": "video.published",
-                    "source_metadata": {
-                        "source_provider": "youtube",
-                        "source_video_id": "video-123",
-                        "stream_id": "stream-123",
-                        "user_id": "11111111-1111-4111-8111-111111111111",
-                        "vod_asset_url": "https://cdn.example.com/vods/test.mp4",
-                        "workflow": "repurposing_plan",
-                    },
-                    "target_platforms": ["youtube", "tiktok"],
-                    "transcript_reference": {
-                        "stream_id": "stream-123",
-                        "transcript_id": "transcript-1",
-                    },
-                    "user_id": "11111111-1111-4111-8111-111111111111",
-                },
+                valid_repurposing_request_payload(),
             )
         )
     finally:
@@ -267,9 +442,40 @@ def test_repurposing_endpoint_uses_server_side_planner() -> None:
     }
 
 
-def test_repurposing_endpoint_returns_structured_503_for_provider_rate_limit() -> (
-    None
-):
+@pytest.mark.parametrize(
+    "planner",
+    [
+        pytest.param(
+            MismatchedContentJobRepurposingPlanner,
+            id="content_job_id mismatch",
+        ),
+        pytest.param(
+            MismatchedQueueJobRepurposingPlanner,
+            id="queue_job_id mismatch",
+        ),
+    ],
+)
+def test_repurposing_endpoint_rejects_mismatched_response_ids(
+    planner: type[object],
+) -> None:
+    app.dependency_overrides[get_repurposing_planner] = planner
+
+    try:
+        response = asyncio.run(
+            post_json(
+                "/repurposing/plan",
+                valid_repurposing_request_payload(),
+            )
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "OpenAI repurposing failed."}
+    assert "other-" not in response.text
+
+
+def test_repurposing_endpoint_returns_structured_503_for_provider_rate_limit() -> None:
     app.dependency_overrides[get_repurposing_planner] = RateLimitedRepurposingPlanner
 
     try:

@@ -9,14 +9,22 @@ import httpx
 from schemas import (
     ClipAnalysisRequest,
     ClipAnalysisResponse,
+    MAX_REPURPOSING_TEXT_LENGTH,
     RepurposingPlanRequest,
     RepurposingPlanResponse,
     TranscriptionProcessRequest,
     TranscriptionProcessResponse,
     TranscriptionSegment,
+    ensure_repurposing_plan_response_matches_request,
 )
 from settings import Settings
 from ssrf import HostnameResolver, UnsafeAssetUrlError, validate_public_https_url
+
+REPURPOSING_TEXT_SCHEMA = {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": MAX_REPURPOSING_TEXT_LENGTH,
+}
 
 
 class ProviderRateLimitError(Exception):
@@ -243,19 +251,19 @@ class OpenAIRepurposingPlanner:
                                     "type": "array",
                                     "minItems": 1,
                                     "maxItems": 10,
-                                    "items": {"type": "string"},
+                                    "items": REPURPOSING_TEXT_SCHEMA,
                                 },
                                 "confidence": {
                                     "type": "integer",
                                     "minimum": 1,
                                     "maximum": 100,
                                 },
-                                "content_job_id": {"type": "string"},
+                                "content_job_id": REPURPOSING_TEXT_SCHEMA,
                                 "descriptions": {
                                     "type": "array",
                                     "minItems": 1,
                                     "maxItems": 10,
-                                    "items": {"type": "string"},
+                                    "items": REPURPOSING_TEXT_SCHEMA,
                                 },
                                 "hashtag_sets": {
                                     "type": "array",
@@ -265,40 +273,40 @@ class OpenAIRepurposingPlanner:
                                         "type": "array",
                                         "minItems": 1,
                                         "maxItems": 12,
-                                        "items": {"type": "string"},
+                                        "items": REPURPOSING_TEXT_SCHEMA,
                                     },
                                 },
                                 "hook_ideas": {
                                     "type": "array",
                                     "minItems": 1,
                                     "maxItems": 10,
-                                    "items": {"type": "string"},
+                                    "items": REPURPOSING_TEXT_SCHEMA,
                                 },
                                 "manual_review_required": {
                                     "const": True,
                                     "type": "boolean",
                                 },
-                                "model": {"type": "string"},
-                                "provider": {"type": "string"},
-                                "queue_job_id": {"type": "string"},
+                                "model": REPURPOSING_TEXT_SCHEMA,
+                                "provider": REPURPOSING_TEXT_SCHEMA,
+                                "queue_job_id": REPURPOSING_TEXT_SCHEMA,
                                 "review_notes": {
                                     "type": "array",
                                     "minItems": 1,
                                     "maxItems": 10,
-                                    "items": {"type": "string"},
+                                    "items": REPURPOSING_TEXT_SCHEMA,
                                 },
-                                "short_form_plan": {"type": "string"},
+                                "short_form_plan": REPURPOSING_TEXT_SCHEMA,
                                 "title_suggestions": {
                                     "type": "array",
                                     "minItems": 1,
                                     "maxItems": 10,
-                                    "items": {"type": "string"},
+                                    "items": REPURPOSING_TEXT_SCHEMA,
                                 },
                                 "warnings": {
                                     "type": "array",
                                     "minItems": 0,
                                     "maxItems": 10,
-                                    "items": {"type": "string"},
+                                    "items": REPURPOSING_TEXT_SCHEMA,
                                 },
                             },
                         },
@@ -318,8 +326,9 @@ class OpenAIRepurposingPlanner:
 
         response.raise_for_status()
         plan = json.loads(_extract_output_text(response.json()))
+        validated_plan = RepurposingPlanResponse.model_validate(plan)
 
-        return RepurposingPlanResponse.model_validate(plan)
+        return ensure_repurposing_plan_response_matches_request(payload, validated_plan)
 
     async def aclose(self) -> None:
         if self._owns_client:
