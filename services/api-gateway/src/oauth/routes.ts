@@ -1,6 +1,6 @@
 import type { Request, Response, Router } from "express";
 import express from "express";
-import { ipKeyGenerator, rateLimit } from "express-rate-limit";
+import { rateLimit } from "express-rate-limit";
 import type {
   OAuthErrorCode,
   OAuthProvider,
@@ -9,6 +9,7 @@ import type {
 import { subscribe } from "@streamos/youtube-websub";
 
 import { assertEncryptionConfigured, encryptSecret } from "./encryption.js";
+import { createRateLimitKey } from "../lib/rate-limit-keys.js";
 import { verifyOAuthHandoffToken } from "./handoff.js";
 import {
   createOAuthState,
@@ -296,7 +297,12 @@ export function createOAuthRouter({
   const oauthStateStore = stateStore ?? createDefaultOAuthStateStore(now);
   const oauthConnectRateLimiter = rateLimit({
     keyGenerator: (request) =>
-      `oauth:connect:${getRouteParam(request.params.provider)}:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+      createRateLimitKey(
+        request,
+        "oauth",
+        "connect",
+        getRouteParam(request.params.provider),
+      ),
     legacyHeaders: false,
     limit:
       routeRateLimit?.connectMaxRequests ??
@@ -311,7 +317,12 @@ export function createOAuthRouter({
   });
   const oauthCallbackRateLimiter = rateLimit({
     keyGenerator: (request) =>
-      `oauth:callback:${getRouteParam(request.params.provider)}:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+      createRateLimitKey(
+        request,
+        "oauth",
+        "callback",
+        getRouteParam(request.params.provider),
+      ),
     legacyHeaders: false,
     limit:
       routeRateLimit?.callbackMaxRequests ??

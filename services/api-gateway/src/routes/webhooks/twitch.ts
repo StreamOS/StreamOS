@@ -1,8 +1,9 @@
 import express from "express";
 import type { Request, Response, Router } from "express";
-import { ipKeyGenerator, rateLimit } from "express-rate-limit";
+import { rateLimit } from "express-rate-limit";
 import type { StreamOSJob } from "@streamos/queue";
 
+import { createRateLimitKey } from "../../lib/rate-limit-keys.js";
 import {
   isMessageDuplicate,
   type RedisDeduplicationClient,
@@ -293,7 +294,7 @@ export function createTwitchWebhookRouter({
   const router = express.Router();
   const twitchWebhookRateLimiter = rateLimit({
     keyGenerator: (request) =>
-      `legacy:twitch:webhook:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+      createRateLimitKey(request, "legacy", "twitch", "webhook"),
     legacyHeaders: false,
     limit:
       routeRateLimit?.maxRequests ?? TWITCH_WEBHOOK_RATE_LIMIT_MAX_REQUESTS,

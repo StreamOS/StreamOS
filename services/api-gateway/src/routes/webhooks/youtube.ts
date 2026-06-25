@@ -1,8 +1,9 @@
 import express from "express";
 import type { Request, Response, Router } from "express";
-import { ipKeyGenerator, rateLimit } from "express-rate-limit";
+import { rateLimit } from "express-rate-limit";
 import type { StreamOSJob } from "@streamos/queue";
 
+import { createRateLimitKey } from "../../lib/rate-limit-keys.js";
 import {
   sendPlainTextWebhookChallenge,
   validateWebhookChallenge,
@@ -129,7 +130,7 @@ export function createYouTubeWebhookRouter({
   const router = express.Router();
   const youtubeWebhookRateLimiter = rateLimit({
     keyGenerator: (request) =>
-      `legacy:youtube:webhook:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+      createRateLimitKey(request, "legacy", "youtube", "webhook"),
     legacyHeaders: false,
     limit:
       routeRateLimit?.maxRequests ?? YOUTUBE_WEBHOOK_RATE_LIMIT_MAX_REQUESTS,

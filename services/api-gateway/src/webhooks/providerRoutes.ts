@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import express from "express";
 import type { Request, Response, Router } from "express";
-import { ipKeyGenerator, rateLimit } from "express-rate-limit";
+import { rateLimit } from "express-rate-limit";
 
 import {
   isMessageDuplicate,
   type RedisDeduplicationClient,
 } from "../lib/deduplication.js";
+import { createRateLimitKey } from "../lib/rate-limit-keys.js";
 import {
   sendPlainTextWebhookChallenge,
   validateWebhookChallenge,
@@ -213,7 +214,7 @@ export function createProviderWebhookRouter({
   const rawBodyParser = express.raw({ limit: "1mb", type: "*/*" });
   const twitchEventSubRateLimiter = rateLimit({
     keyGenerator: (request) =>
-      `twitch:eventsub:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+      createRateLimitKey(request, "twitch", "eventsub"),
     legacyHeaders: false,
     limit:
       twitchEventSubRateLimit?.maxRequests ??
@@ -228,7 +229,7 @@ export function createProviderWebhookRouter({
   });
   const youtubeWebSubChallengeRateLimiter = rateLimit({
     keyGenerator: (request) =>
-      `youtube:websub:challenge:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+      createRateLimitKey(request, "youtube", "websub", "challenge"),
     legacyHeaders: false,
     limit:
       youtubeWebSubChallengeRateLimit?.maxRequests ??
@@ -244,7 +245,7 @@ export function createProviderWebhookRouter({
   });
   const youtubeWebSubPostRateLimiter = rateLimit({
     keyGenerator: (request) =>
-      `youtube:websub:post:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+      createRateLimitKey(request, "youtube", "websub", "post"),
     legacyHeaders: false,
     limit:
       youtubeWebSubPostRateLimit?.maxRequests ??

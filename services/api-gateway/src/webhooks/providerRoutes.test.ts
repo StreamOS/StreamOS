@@ -752,6 +752,64 @@ describe("provider webhook routes", () => {
     }
   });
 
+  it("keeps the provider webhook rate-limit key stable for rotating spoofed X-Forwarded-For", async () => {
+    const events: ProviderWebhookEvent[] = [];
+    const app = express();
+    app.set("trust proxy", 1);
+    app.use(
+      "/api/webhooks",
+      createProviderWebhookRouter({
+        deduplicationClient: new InMemoryDeduplicationClient(),
+        dispatcher: async (event) => {
+          events.push(event);
+        },
+        now: () => NOW.getTime(),
+        twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+        youtubeWebSubChallengeRateLimit: {
+          maxRequests: 1,
+          windowMs: 60_000,
+        },
+        youtubeWebSubSecret: YOUTUBE_WEBHOOK_SECRET,
+        youtubeWebSubVerifyToken: "youtube-verify-token",
+      }),
+    );
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const url = new URL(
+        `http://127.0.0.1:${address.port}/api/webhooks/youtube/websub`,
+      );
+      url.searchParams.set("hub.mode", "subscribe");
+      url.searchParams.set("hub.topic", ALLOWED_YOUTUBE_TOPIC);
+      url.searchParams.set("hub.challenge", "youtube-challenge-token");
+      url.searchParams.set("hub.verify_token", "youtube-verify-token");
+
+      const acceptedResponse = await fetch(url, {
+        headers: { "x-forwarded-for": "198.51.100.10" },
+      });
+      const limitedResponse = await fetch(url, {
+        headers: { "x-forwarded-for": "198.51.100.11" },
+      });
+      const limitedPayload = await limitedResponse.json();
+
+      expect(acceptedResponse.status).toBe(200);
+      expect(limitedResponse.status).toBe(429);
+      expect(limitedPayload).toEqual({
+        error: "rate_limit_exceeded",
+        message: "Too many YouTube WebSub challenge requests.",
+      });
+      expect(events).toEqual([]);
+    } finally {
+      server.close();
+    }
+  });
+
   it("dispatches signed YouTube WebSub Atom feed notifications", async () => {
     const events: ProviderWebhookEvent[] = [];
 

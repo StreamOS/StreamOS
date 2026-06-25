@@ -280,6 +280,53 @@ describe("Kick OAuth gateway routes", () => {
     }
   });
 
+  it("keeps the OAuth connect rate-limit key stable for rotating spoofed X-Forwarded-For", async () => {
+    const repository = new RecordingOAuthRepository();
+    const stateStore = new RecordingOAuthStateStore();
+    const { fetchImpl } = createSuccessfulProviderFetch();
+    const app = createApp({
+      apiGatewaySecret: API_SECRET,
+      oauth: {
+        fetchImpl,
+        repository,
+        routeRateLimit: {
+          callbackMaxRequests: 10,
+          connectMaxRequests: 1,
+          windowMs: 60_000,
+        },
+        stateStore,
+      },
+      webhookNow: () => NOW,
+    });
+    const server = createServer(app);
+
+    try {
+      const connectUrl = server.url(
+        `/api/auth/kick/connect?handoff=${encodeURIComponent(createHandoffToken())}`,
+      );
+      const connectResponse = await fetch(connectUrl, {
+        headers: { "x-forwarded-for": "198.51.100.10" },
+        redirect: "manual",
+      });
+      const limitedConnectResponse = await fetch(connectUrl, {
+        headers: { "x-forwarded-for": "198.51.100.11" },
+        redirect: "manual",
+      });
+      const limitedConnectPayload = await limitedConnectResponse.json();
+
+      expect(connectResponse.status).toBe(302);
+      expect(limitedConnectResponse.status).toBe(429);
+      expect(limitedConnectPayload).toEqual({
+        error: "rate_limit_exceeded",
+        message: "Too many OAuth connect requests.",
+      });
+      expect(JSON.stringify(limitedConnectPayload)).not.toContain(API_SECRET);
+      expect(stateStore.saved).toHaveLength(1);
+    } finally {
+      server.close();
+    }
+  });
+
   it("rejects connect requests with missing or expired handoff tokens", async () => {
     const app = createApp({
       apiGatewaySecret: API_SECRET,
