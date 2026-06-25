@@ -3,6 +3,7 @@ import type { Router } from "express";
 import { z } from "zod";
 import type { OAuthProvider } from "@streamos/types";
 
+import { sanitizeErrorForLog } from "../lib/log-sanitizer.js";
 import {
   createSupabaseRestClient,
   patchSupabaseRows,
@@ -152,10 +153,13 @@ async function disconnectProvider({
       },
       table: "youtube_websub_subscriptions",
     }).catch((error) => {
-      console.error("YouTube WebSub tracking disconnect update failed.", {
-        connectionId: connection.id,
-        error,
-        userId,
+      console.error("youtube_websub_disconnect_tracking_failed", {
+        error: sanitizeErrorForLog(error),
+        hasConnectionId: connection.id.length > 0,
+        hasUserId: userId.length > 0,
+        provider: "youtube",
+        reason: "disconnect_tracking_failed",
+        route: "platform_disconnect",
       });
     });
   }
