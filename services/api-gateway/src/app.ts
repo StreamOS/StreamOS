@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import express from "express";
 import type { Express, NextFunction, Request, Response } from "express";
-import { ipKeyGenerator, rateLimit } from "express-rate-limit";
+import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
 import { Redis } from "ioredis";
 import {
@@ -27,6 +27,7 @@ import {
   InMemoryDeduplicationClient,
   type RedisDeduplicationClient,
 } from "./lib/deduplication.js";
+import { createRateLimitKey } from "./lib/rate-limit-keys.js";
 import { attachRawBodyMiddleware } from "./middleware/raw-body.js";
 import { createAuthHandoffRouter } from "./routes/auth/handoff.js";
 import { createAutomationCallbackRouter } from "./routes/callbacks/automation.js";
@@ -526,7 +527,11 @@ function createRateLimitMiddleware(config: RateLimitConfig) {
     }
 
     const now = Date.now();
-    const key = `${request.ip}:${request.method}:${getRequestPath(request)}`;
+    const key = createRateLimitKey(
+      request,
+      request.method,
+      getRequestPath(request),
+    );
     const existingBucket = buckets.get(key);
     const bucket =
       existingBucket && existingBucket.resetAt > now
@@ -675,7 +680,7 @@ export function createApp(
     options.providerWebhookDispatcher ?? dispatchStreamOSJob;
   const streamEndedWebhookRateLimiter = rateLimit({
     keyGenerator: (request) =>
-      `webhook:streams-ended:${ipKeyGenerator(request.ip ?? "0.0.0.0")}`,
+      createRateLimitKey(request, "webhook", "streams-ended"),
     legacyHeaders: false,
     limit:
       options.routeRateLimits?.streamEndedWebhook?.maxRequests ??
