@@ -28,5 +28,6 @@
   "TWITCH_CLIENT_ID": "staging-twitch-client-id",
   "TWITCH_CLIENT_SECRET": "staging-twitch-client-secret",
   "TWITCH_EVENTSUB_SECRET": "staging-twitch-eventsub-secret",
-  "YOUTUBE_WEBHOOK_SECRET": "staging-youtube-webhook-secret"
+  "YOUTUBE_WEBHOOK_SECRET": "staging-youtube-webhook-secret",
+  "YOUTUBE_WEBSUB_VERIFY_TOKEN": "present"
 }

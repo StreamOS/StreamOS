@@ -3,7 +3,10 @@ const assert = require("node:assert/strict");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 const whitelist = require("./config/railway-env-whitelist.cjs");
-const { buildServiceConfigIndex } = require("./audit-railway-env.cjs");
+const {
+  buildServiceConfigIndex,
+  selectWindowsCommandCandidate,
+} = require("./audit-railway-env.cjs");
 
 const expectedServices = Object.keys(whitelist.services);
 const privateServices = expectedServices.filter(
@@ -228,6 +231,7 @@ test("audit CLI renders api-gateway Twitch and YouTube ownership in markdown out
   assert.match(apiGatewaySection, /YOUTUBE_CLIENT_ID/);
   assert.match(apiGatewaySection, /YOUTUBE_CLIENT_SECRET/);
   assert.match(apiGatewaySection, /YOUTUBE_WEBHOOK_SECRET/);
+  assert.match(apiGatewaySection, /YOUTUBE_WEBSUB_VERIFY_TOKEN/);
   assert.doesNotMatch(apiGatewaySection, /KICK_WEBHOOK_SECRET/);
   assert.doesNotMatch(apiGatewaySection, /CLIP_WORKER_CONCURRENCY/);
 });
@@ -291,6 +295,22 @@ test("buildServiceConfigIndex indexes Railway service configs by id and name", (
 
   assert.equal(index.get("svc-publishing-production"), serviceConfig);
   assert.equal(index.get("publishing-worker"), serviceConfig);
+});
+
+test("selectWindowsCommandCandidate prefers executable Railway shims", () => {
+  const selected = selectWindowsCommandCandidate(
+    [
+      "C:\\Users\\dorts\\AppData\\Roaming\\npm\\railway",
+      "C:\\Users\\dorts\\AppData\\Roaming\\npm\\railway.cmd",
+      "C:\\Users\\dorts\\AppData\\Roaming\\npm\\railway.ps1",
+    ].join("\r\n"),
+    "railway",
+  );
+
+  assert.equal(
+    selected,
+    "C:\\Users\\dorts\\AppData\\Roaming\\npm\\railway.cmd",
+  );
 });
 
 test("audit CLI blocks strict pre-merge output when publishing-worker is missing in production", () => {
