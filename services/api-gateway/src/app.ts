@@ -258,6 +258,10 @@ function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
     throw new Error("YOUTUBE_WEBHOOK_SECRET is required in production.");
   }
 
+  if (isProduction(nodeEnv) && !youtubeWebSubVerifyToken) {
+    throw new Error("YOUTUBE_WEBSUB_VERIFY_TOKEN is required in production.");
+  }
+
   if (
     isProduction(nodeEnv) &&
     apiGatewaySecret &&

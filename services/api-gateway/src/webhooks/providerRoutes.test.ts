@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import express from "express";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../app.js";
 import { InMemoryDeduplicationClient } from "../lib/deduplication.js";
@@ -14,6 +14,15 @@ const NOW = new Date("2026-06-06T10:00:00.000Z");
 const STREAM_EVENT_WEBHOOK_SECRET = "test-stream-event-webhook-secret-123";
 const TWITCH_EVENTSUB_SECRET = "test-twitch-eventsub-secret-123";
 const YOUTUBE_WEBHOOK_SECRET = "test-youtube-webhook-secret-123";
+const ALLOWED_YOUTUBE_TOPIC =
+  "https://www.youtube.com/feeds/videos.xml?channel_id=youtube-channel-1";
+
+type ProviderWebhookRouterOptions = Parameters<
+  typeof createProviderWebhookRouter
+>[0];
+type YouTubeWebSubChallengeTracker = NonNullable<
+  ProviderWebhookRouterOptions["youtubeWebSubChallengeTracker"]
+>;
 
 function createTwitchEventSubHeaders({
   body,
@@ -59,6 +68,36 @@ async function withServer<T>(
     youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
     youtubeWebSubVerifyToken: "youtube-verify-token",
   });
+  const server = app.listen(0);
+
+  try {
+    const address = server.address();
+
+    if (!address || typeof address === "string") {
+      throw new Error("Expected TCP server address.");
+    }
+
+    return await run(`http://127.0.0.1:${address.port}`);
+  } finally {
+    server.close();
+  }
+}
+
+async function withProviderWebhookRouter<T>(
+  options: Partial<ProviderWebhookRouterOptions>,
+  run: (baseUrl: string) => Promise<T>,
+): Promise<T> {
+  const app = express();
+  app.set("trust proxy", 1);
+  app.use(
+    "/api/webhooks",
+    createProviderWebhookRouter({
+      now: () => NOW.getTime(),
+      twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+      youtubeWebSubSecret: YOUTUBE_WEBHOOK_SECRET,
+      ...options,
+    }),
+  );
   const server = app.listen(0);
 
   try {
@@ -394,10 +433,7 @@ describe("provider webhook routes", () => {
     await withServer(events, async (baseUrl) => {
       const url = new URL(`${baseUrl}/api/webhooks/youtube/websub`);
       url.searchParams.set("hub.mode", "subscribe");
-      url.searchParams.set(
-        "hub.topic",
-        "https://www.youtube.com/feeds/videos.xml?channel_id=youtube-channel-1",
-      );
+      url.searchParams.set("hub.topic", ALLOWED_YOUTUBE_TOPIC);
       url.searchParams.set("hub.challenge", "<youtube-challenge-token>");
       url.searchParams.set("hub.verify_token", "youtube-verify-token");
 
@@ -418,10 +454,7 @@ describe("provider webhook routes", () => {
     await withServer(events, async (baseUrl) => {
       const url = new URL(`${baseUrl}/api/webhooks/youtube/websub`);
       url.searchParams.set("hub.mode", "subscribe");
-      url.searchParams.set(
-        "hub.topic",
-        "https://www.youtube.com/feeds/videos.xml?channel_id=youtube-channel-1",
-      );
+      url.searchParams.set("hub.topic", ALLOWED_YOUTUBE_TOPIC);
       url.searchParams.set("hub.challenge", "bad\r\nchallenge");
       url.searchParams.set("hub.verify_token", "youtube-verify-token");
 
@@ -433,6 +466,97 @@ describe("provider webhook routes", () => {
       expect(JSON.stringify(payload)).not.toContain("bad");
       expect(events).toEqual([]);
     });
+  });
+
+  it("rejects YouTube WebSub hub challenges for non-allowlisted topics without tracking", async () => {
+    const tracker = vi.fn<YouTubeWebSubChallengeTracker>(async () => undefined);
+
+    await withProviderWebhookRouter(
+      {
+        youtubeWebSubChallengeTracker: tracker,
+        youtubeWebSubVerifyToken: "youtube-verify-token",
+      },
+      async (baseUrl) => {
+        const url = new URL(`${baseUrl}/api/webhooks/youtube/websub`);
+        url.searchParams.set("hub.mode", "subscribe");
+        url.searchParams.set(
+          "hub.topic",
+          "https://www.example.com/feeds/videos.xml?channel_id=youtube-channel-1",
+        );
+        url.searchParams.set("hub.challenge", "<youtube-challenge-token>");
+        url.searchParams.set("hub.verify_token", "youtube-verify-token");
+
+        const response = await fetch(url);
+        const payload = await response.json();
+        const serializedPayload = JSON.stringify(payload);
+
+        expect(response.status).toBe(400);
+        expect(payload.error).toBe("invalid_youtube_websub_topic");
+        expect(serializedPayload).not.toContain("<youtube-challenge-token>");
+        expect(serializedPayload).not.toContain("example.com");
+        expect(tracker).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  it("tracks YouTube WebSub hub challenges only after an allowlisted topic passes validation", async () => {
+    const tracker = vi.fn<YouTubeWebSubChallengeTracker>(async () => undefined);
+
+    await withProviderWebhookRouter(
+      {
+        youtubeWebSubChallengeTracker: tracker,
+        youtubeWebSubVerifyToken: "youtube-verify-token",
+      },
+      async (baseUrl) => {
+        const url = new URL(`${baseUrl}/api/webhooks/youtube/websub`);
+        url.searchParams.set("hub.mode", "subscribe");
+        url.searchParams.set("hub.topic", ALLOWED_YOUTUBE_TOPIC);
+        url.searchParams.set("hub.challenge", "<youtube-challenge-token>");
+        url.searchParams.set("hub.verify_token", "youtube-verify-token");
+        url.searchParams.set("hub.lease_seconds", "1234");
+
+        const response = await fetch(url);
+        const text = await response.text();
+
+        expect(response.status).toBe(200);
+        expect(text).toBe("<youtube-challenge-token>");
+        expect(tracker).toHaveBeenCalledTimes(1);
+        expect(tracker).toHaveBeenCalledWith({
+          leaseSeconds: 1234,
+          mode: "subscribe",
+          now: expect.any(Function),
+          topic: ALLOWED_YOUTUBE_TOPIC,
+        });
+      },
+    );
+  });
+
+  it("rejects YouTube WebSub hub challenges with verify-token mismatch without tracking", async () => {
+    const tracker = vi.fn<YouTubeWebSubChallengeTracker>(async () => undefined);
+
+    await withProviderWebhookRouter(
+      {
+        youtubeWebSubChallengeTracker: tracker,
+        youtubeWebSubVerifyToken: "youtube-verify-token",
+      },
+      async (baseUrl) => {
+        const url = new URL(`${baseUrl}/api/webhooks/youtube/websub`);
+        url.searchParams.set("hub.mode", "subscribe");
+        url.searchParams.set("hub.topic", ALLOWED_YOUTUBE_TOPIC);
+        url.searchParams.set("hub.challenge", "<youtube-challenge-token>");
+        url.searchParams.set("hub.verify_token", "wrong-verify-token");
+
+        const response = await fetch(url);
+        const payload = await response.json();
+        const serializedPayload = JSON.stringify(payload);
+
+        expect(response.status).toBe(403);
+        expect(payload.error).toBe("invalid_youtube_websub_verify_token");
+        expect(serializedPayload).not.toContain("<youtube-challenge-token>");
+        expect(serializedPayload).not.toContain("wrong-verify-token");
+        expect(tracker).not.toHaveBeenCalled();
+      },
+    );
   });
 
   it("rate limits YouTube WebSub challenge requests at the provider webhook boundary", async () => {
@@ -468,10 +592,7 @@ describe("provider webhook routes", () => {
         `http://127.0.0.1:${address.port}/api/webhooks/youtube/websub`,
       );
       url.searchParams.set("hub.mode", "subscribe");
-      url.searchParams.set(
-        "hub.topic",
-        "https://www.youtube.com/feeds/videos.xml?channel_id=youtube-channel-1",
-      );
+      url.searchParams.set("hub.topic", ALLOWED_YOUTUBE_TOPIC);
       url.searchParams.set("hub.challenge", "youtube-challenge-token");
       url.searchParams.set("hub.verify_token", "youtube-verify-token");
 
