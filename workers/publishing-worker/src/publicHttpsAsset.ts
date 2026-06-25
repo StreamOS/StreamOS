@@ -68,7 +68,7 @@ export async function validatePublicHttpsAssetUrl(
   let url: URL;
   try {
     url = new URL(rawUrl);
-  } catch (error) {
+  } catch (_error) {
     throw new UnsafePublicHttpsAssetUrlError("Asset URL is invalid.");
   }
 
@@ -124,7 +124,7 @@ async function resolveHostname(hostname: string): Promise<string[]> {
       verbatim: true,
     });
     return [...new Set(records.map((record) => record.address))];
-  } catch (error) {
+  } catch (_error) {
     throw new UnsafePublicHttpsAssetUrlError(
       "Asset URL hostname could not be resolved.",
     );
