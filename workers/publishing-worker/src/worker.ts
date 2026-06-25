@@ -152,6 +152,28 @@ export class PermanentPublicationExecutionError extends Error {
   }
 }
 
+class ProviderSucceededPublicationPersistenceError extends PermanentPublicationExecutionError {
+  readonly externalPostId: string;
+  readonly externalUrl: string | null;
+
+  constructor({
+    externalPostId,
+    externalUrl,
+    publicationId,
+  }: {
+    externalPostId: string;
+    externalUrl: string | null;
+    publicationId: string;
+  }) {
+    super(
+      `Publication ${publicationId} was published by the provider, but StreamOS could not persist the published state.`,
+    );
+    this.name = "ProviderSucceededPublicationPersistenceError";
+    this.externalPostId = externalPostId;
+    this.externalUrl = externalUrl;
+  }
+}
+
 export async function processPublicationExecutionJob(
   job: Pick<Job, "attemptsMade" | "data" | "discard" | "id" | "opts">,
   {
@@ -321,44 +343,70 @@ export async function processPublicationExecutionJob(
             visibility: draft.visibility,
           });
 
-    await publicationStore.patchPublicationById({
-      payload: {
-        external_post_id: result.externalPostId,
-        external_url: result.externalUrl,
-        max_retries: maxRetries,
-        next_retry_at: null,
-        publication_status: "published",
-        provider_failure_code: null,
-        provider_failure_metadata: {},
-        provider_failure_reason: null,
-        reconciliation_status: "idle",
-        retry_count: job.attemptsMade,
-      },
-      publicationId: publication.id,
-      userId: publication.user_id,
-    });
-    await publicationStore.appendEvent({
-      actorId: publication.requested_by,
-      eventType: "published",
-      metadata: {
-        content_job_id: publication.content_job_id,
-        external_post_id: result.externalPostId,
-        external_url: result.externalUrl,
+    try {
+      await publicationStore.patchPublicationById({
+        payload: {
+          external_post_id: result.externalPostId,
+          external_url: result.externalUrl,
+          max_retries: maxRetries,
+          next_retry_at: null,
+          publication_status: "published",
+          provider_failure_code: null,
+          provider_failure_metadata: {},
+          provider_failure_reason: null,
+          reconciliation_status: "idle",
+          retry_count: job.attemptsMade,
+        },
+        publicationId: publication.id,
+        userId: publication.user_id,
+      });
+    } catch {
+      throw new ProviderSucceededPublicationPersistenceError({
+        externalPostId: result.externalPostId,
+        externalUrl: result.externalUrl,
+        publicationId: publication.id,
+      });
+    }
+
+    try {
+      await publicationStore.appendEvent({
+        actorId: publication.requested_by,
+        eventType: "published",
+        metadata: {
+          content_job_id: publication.content_job_id,
+          external_post_id: result.externalPostId,
+          external_url: result.externalUrl,
+          queue_job_id: job.id ?? getPublicationExecutionJobId(publication.id),
+          publication_snapshot_hash: publication.snapshot_hash,
+          request_intent_hash: publication.request_intent_hash,
+          target_platform: publication.target_platform,
+        },
+        previousPublicationStatus: "publishing",
+        publicationId: publication.id,
+        publicationStatus: "published",
+        source: "publishing-worker",
+        userId: publication.user_id,
+      });
+    } catch (eventError) {
+      console.error("publication_published_event_write_failed", {
+        error_name:
+          eventError instanceof Error ? eventError.name : "UnknownError",
+        publication_id: publication.id,
         queue_job_id: job.id ?? getPublicationExecutionJobId(publication.id),
-        publication_snapshot_hash: publication.snapshot_hash,
-        request_intent_hash: publication.request_intent_hash,
         target_platform: publication.target_platform,
-      },
-      previousPublicationStatus: "publishing",
-      publicationId: publication.id,
-      publicationStatus: "published",
-      source: "publishing-worker",
-      userId: publication.user_id,
-    });
+      });
+    }
 
     return result;
   } catch (error) {
     const classification = classifyExecutionFailure(error);
+    const providerSucceededFailure =
+      error instanceof ProviderSucceededPublicationPersistenceError
+        ? {
+            externalPostId: error.externalPostId,
+            externalUrl: error.externalUrl,
+          }
+        : null;
     const hasRemainingAttempts = hasRemainingBullMqAttempts(job);
     const retryable = classification.retryable && hasRemainingAttempts;
     const failureStatus = retryable ? "failed_retryable" : "failed_permanent";
@@ -369,6 +417,12 @@ export async function processPublicationExecutionJob(
 
     await publicationStore.patchPublicationById({
       payload: {
+        ...(providerSucceededFailure
+          ? {
+              external_post_id: providerSucceededFailure.externalPostId,
+              external_url: providerSucceededFailure.externalUrl,
+            }
+          : {}),
         max_retries: maxRetries,
         next_retry_at: retryable
           ? new Date(now.getTime() + (nextAttemptInMs ?? 0)).toISOString()
@@ -378,6 +432,7 @@ export async function processPublicationExecutionJob(
           error_message:
             error instanceof Error ? error.message : "Unknown publish error.",
           next_attempt_in_ms: nextAttemptInMs,
+          provider_write_completed: Boolean(providerSucceededFailure),
           retry_after_seconds: classification.retryAfterSeconds ?? null,
           retryable,
           upstream_status: classification.upstreamStatus ?? null,
@@ -399,6 +454,13 @@ export async function processPublicationExecutionJob(
         error_code: classification.code,
         error_message:
           error instanceof Error ? error.message : "Unknown publish error.",
+        ...(providerSucceededFailure
+          ? {
+              external_post_id: providerSucceededFailure.externalPostId,
+              external_url: providerSucceededFailure.externalUrl,
+              provider_write_completed: true,
+            }
+          : {}),
         next_attempt_in_ms: nextAttemptInMs,
         queue_job_id: job.id ?? getPublicationExecutionJobId(publication.id),
         retry_after_seconds: classification.retryAfterSeconds ?? null,
@@ -815,6 +877,13 @@ function classifyExecutionFailure(error: unknown): {
       retryAfterSeconds: error.retryAfterSeconds,
       retryable: error.retryable,
       upstreamStatus: error.upstreamStatus,
+    };
+  }
+
+  if (error instanceof ProviderSucceededPublicationPersistenceError) {
+    return {
+      code: "publication_execution_failed",
+      retryable: false,
     };
   }
 
