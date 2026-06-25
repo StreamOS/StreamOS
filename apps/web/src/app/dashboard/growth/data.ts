@@ -1,4 +1,8 @@
 import type { Tables } from "@streamos/database";
+import {
+  CREATOR_GROWTH_INTELLIGENCE_FEED_LIMIT,
+  type CreatorGrowthIntelligenceLookupIssue,
+} from "@streamos/types";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -61,7 +65,7 @@ export async function getCreatorGrowthIntelligenceDashboardData(): Promise<Creat
     )
     .eq("user_id", userData.user.id)
     .order("created_at", { ascending: false })
-    .limit(12);
+    .limit(CREATOR_GROWTH_INTELLIGENCE_FEED_LIMIT + 1);
 
   if (mainResult.error) {
     return createEmptyCreatorGrowthIntelligenceDashboardModel(
@@ -71,17 +75,31 @@ export async function getCreatorGrowthIntelligenceDashboardData(): Promise<Creat
   }
 
   const rows = (mainResult.data ?? []) as GrowthIntelligenceRow[];
+  const hasMore = rows.length > CREATOR_GROWTH_INTELLIGENCE_FEED_LIMIT;
+  const visibleRows = rows.slice(0, CREATOR_GROWTH_INTELLIGENCE_FEED_LIMIT);
 
-  if (rows.length === 0) {
+  if (visibleRows.length === 0) {
     return createEmptyCreatorGrowthIntelligenceDashboardModel(userData.user.id);
   }
 
-  const normalizedItems = rows.map(normalizeCreatorGrowthIntelligenceRow);
-  const lookupTables = await loadLookupTables(supabase, userData.user.id, rows);
+  const normalizedItems = visibleRows.map(
+    normalizeCreatorGrowthIntelligenceRow,
+  );
+  const { issues: lookupIssues, tables: lookupTables } = await loadLookupTables(
+    supabase,
+    userData.user.id,
+    visibleRows,
+  );
 
   return buildCreatorGrowthIntelligenceDashboardModel({
     error: null,
+    feed: {
+      hasMore,
+      limit: CREATOR_GROWTH_INTELLIGENCE_FEED_LIMIT,
+      returnedCount: visibleRows.length,
+    },
     items: normalizedItems,
+    lookupIssues,
     lookups: lookupTables,
     userId: userData.user.id,
   });
@@ -91,7 +109,10 @@ async function loadLookupTables(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
   rows: GrowthIntelligenceRow[],
-): Promise<CreatorGrowthIntelligenceLookupTables> {
+): Promise<{
+  issues: CreatorGrowthIntelligenceLookupIssue[];
+  tables: CreatorGrowthIntelligenceLookupTables;
+}> {
   const creatorIds = uniqueIds(rows.map((row) => row.creator_id));
   const channelIds = uniqueIds(rows.map((row) => row.channel_id));
   const contentJobIds = uniqueIds(rows.map((row) => row.content_job_id));
@@ -150,12 +171,35 @@ async function loadLookupTables(
       : emptyResult<MetricSnapshotRow>(),
   ]);
 
+  const creators = sanitizeLookupRows(creatorsResult, "creators");
+  const channels = sanitizeLookupRows(channelsResult, "channels");
+  const contentJobs = sanitizeLookupRows(contentJobsResult, "contentJobs");
+  const contentPublications = sanitizeLookupRows(
+    publicationsResult,
+    "contentPublications",
+  );
+  const metricsSnapshots = sanitizeLookupRows(
+    metricsSnapshotsResult,
+    "metricsSnapshots",
+  );
+
   return {
-    channels: sanitizeLookupRows(channelsResult, []),
-    contentJobs: sanitizeLookupRows(contentJobsResult, []),
-    contentPublications: sanitizeLookupRows(publicationsResult, []),
-    creators: sanitizeLookupRows(creatorsResult, []),
-    metricsSnapshots: sanitizeLookupRows(metricsSnapshotsResult, []),
+    issues: [
+      creators.issue,
+      channels.issue,
+      contentJobs.issue,
+      contentPublications.issue,
+      metricsSnapshots.issue,
+    ].filter(
+      (issue): issue is CreatorGrowthIntelligenceLookupIssue => issue !== null,
+    ),
+    tables: {
+      channels: channels.rows,
+      contentJobs: contentJobs.rows,
+      contentPublications: contentPublications.rows,
+      creators: creators.rows,
+      metricsSnapshots: metricsSnapshots.rows,
+    },
   };
 }
 
@@ -174,13 +218,25 @@ function sanitizeLookupRows<T>(
     data: T[] | null;
     error: unknown;
   },
-  fallback: T[],
-): T[] {
+  source: CreatorGrowthIntelligenceLookupIssue["source"],
+): {
+  issue: CreatorGrowthIntelligenceLookupIssue | null;
+  rows: T[];
+} {
   if (result.error || !result.data) {
-    return fallback;
+    return {
+      issue: {
+        code: "load-failed",
+        source,
+      },
+      rows: [],
+    };
   }
 
-  return result.data;
+  return {
+    issue: null,
+    rows: result.data,
+  };
 }
 
 function uniqueIds(values: Array<string | null>): string[] {

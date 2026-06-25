@@ -1,13 +1,16 @@
 import type { Tables } from "@streamos/database";
-import type {
-  CreatorGrowthIntelligence,
-  CreatorGrowthIntelligenceCoverage,
-  CreatorGrowthIntelligenceReadModel,
-  CreatorGrowthIntelligenceSummary,
-  CreatorGrowthIntelligenceCategory,
-  CreatorGrowthRecommendationStatus,
-  CreatorGrowthRecommendationType,
-  StreamPlatform,
+import {
+  CREATOR_GROWTH_INTELLIGENCE_FEED_LIMIT,
+  type CreatorGrowthIntelligence,
+  type CreatorGrowthIntelligenceCoverage,
+  type CreatorGrowthIntelligenceFeedMetadata,
+  type CreatorGrowthIntelligenceLookupIssue,
+  type CreatorGrowthIntelligenceReadModel,
+  type CreatorGrowthIntelligenceSummary,
+  type CreatorGrowthIntelligenceCategory,
+  type CreatorGrowthRecommendationStatus,
+  type CreatorGrowthRecommendationType,
+  type StreamPlatform,
 } from "@streamos/types";
 
 type CreatorRow = Pick<
@@ -121,12 +124,16 @@ const platformLabels: Record<StreamPlatform, string> = {
 
 export function buildCreatorGrowthIntelligenceDashboardModel({
   error,
+  feed,
   items,
+  lookupIssues,
   lookups,
   userId,
 }: {
   error: "load-failed" | null;
+  feed: CreatorGrowthIntelligenceFeedMetadata;
   items: CreatorGrowthIntelligence[];
+  lookupIssues: CreatorGrowthIntelligenceLookupIssue[];
   lookups: CreatorGrowthIntelligenceLookupTables;
   userId: string | null;
 }): CreatorGrowthIntelligenceDashboardModel {
@@ -146,8 +153,7 @@ export function buildCreatorGrowthIntelligenceDashboardModel({
       item.intelligenceCategory === "engagement_opportunity",
   ).length;
   const platformFitCount = items.filter(
-    (item) =>
-      item.intelligenceCategory === "platform_fit" || item.platform !== null,
+    (item) => item.intelligenceCategory === "platform_fit",
   ).length;
   const reviewQueueCount = items.filter(
     (item) => item.recommendationStatus === "needs_review",
@@ -168,7 +174,9 @@ export function buildCreatorGrowthIntelligenceDashboardModel({
   return {
     coverage: signalCoverage,
     error,
+    feed,
     items,
+    lookupIssues,
     signals: items.map((item) =>
       buildDashboardSignal(item, lookupMaps, {
         categoryLabel: categoryLabels[item.intelligenceCategory],
@@ -223,7 +231,13 @@ export function createEmptyCreatorGrowthIntelligenceDashboardModel(
       metricsSnapshots: 0,
     },
     error,
+    feed: {
+      hasMore: false,
+      limit: CREATOR_GROWTH_INTELLIGENCE_FEED_LIMIT,
+      returnedCount: 0,
+    },
     items: [],
+    lookupIssues: [],
     signals: [],
     summary: {
       averageConfidence: null,

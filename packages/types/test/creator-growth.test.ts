@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  CREATOR_GROWTH_INTELLIGENCE_FEED_LIMIT,
   CREATOR_GROWTH_INTELLIGENCE_CATEGORIES,
   CREATOR_GROWTH_RECOMMENDATION_STATUSES,
   CREATOR_GROWTH_RECOMMENDATION_TYPES,
@@ -45,7 +46,13 @@ const sampleReadModel = {
     creators: 1,
     metricsSnapshots: 1,
   },
+  feed: {
+    hasMore: false,
+    limit: CREATOR_GROWTH_INTELLIGENCE_FEED_LIMIT,
+    returnedCount: 1,
+  },
   items: [sampleIntelligence],
+  lookupIssues: [],
   summary: {
     averageConfidence: 87,
     averageScore: 84,
@@ -89,6 +96,9 @@ void test("creator growth intelligence read model remains tenant scoped and revi
     sampleIntelligence.userId,
     "11111111-1111-4111-8111-111111111111",
   );
+  assert.equal(CREATOR_GROWTH_INTELLIGENCE_FEED_LIMIT, 12);
+  assert.equal(sampleReadModel.feed.limit, 12);
+  assert.equal(sampleReadModel.lookupIssues.length, 0);
   assert.equal(sampleIntelligence.recommendationStatus, "needs_review");
   assert.equal(sampleIntelligence.score, 84);
   assert.equal(sampleReadModel.summary.reviewQueueCount, 1);

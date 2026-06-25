@@ -28,9 +28,15 @@ type CreatorGrowthIntelligenceConsoleProps = {
 export function CreatorGrowthIntelligenceConsole({
   model,
 }: CreatorGrowthIntelligenceConsoleProps) {
+  const hasLookupIssues = model.lookupIssues.length > 0;
+
   return (
     <div className="space-y-6">
       {model.error === "load-failed" && <GrowthLoadNotice />}
+
+      {model.feed.hasMore && <FeedScopeNotice feed={model.feed} />}
+
+      {hasLookupIssues && <LookupIssueNotice />}
 
       <header className="grid gap-6 rounded-lg border border-white/10 bg-surface-900/85 p-6 shadow-[0_22px_70px_rgba(0,0,0,0.42)] xl:grid-cols-[minmax(0,1fr)_380px]">
         <div>
@@ -126,6 +132,10 @@ export function CreatorGrowthIntelligenceConsole({
                 <SignalCard key={signal.id} signal={signal} />
               ))}
             </div>
+          ) : model.error === "load-failed" ? (
+            <LoadFailedState />
+          ) : hasLookupIssues ? (
+            <PartialLoadState />
           ) : (
             <EmptySignalState />
           )}
@@ -270,11 +280,91 @@ function EmptySignalState() {
   );
 }
 
+function LoadFailedState() {
+  return (
+    <section className="rounded-lg border border-signal-red/30 bg-signal-red/10 p-5">
+      <div className="flex items-start gap-3">
+        <span className="rounded-lg border border-signal-red/30 bg-signal-red/10 p-2 text-signal-red">
+          <TriangleAlert className="h-4 w-4" aria-hidden="true" />
+        </span>
+        <div>
+          <h3 className="text-lg font-semibold text-white">
+            SEO Intelligence konnte nicht geladen werden
+          </h3>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+            Die Datenquelle hat keine verwertbaren Signale geliefert. Die
+            Oberflaeche bleibt read-only und zeigt erst wieder Inhalte, wenn die
+            Abfrage erfolgreich ist.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PartialLoadState() {
+  return (
+    <section className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-5">
+      <div className="flex items-start gap-3">
+        <span className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-2 text-amber-200">
+          <TriangleAlert className="h-4 w-4" aria-hidden="true" />
+        </span>
+        <div>
+          <h3 className="text-lg font-semibold text-white">
+            Teilweise geladene Creator-Growth-Daten
+          </h3>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+            Einige verknuepfte Lookup-Daten konnten nicht geladen werden. Die
+            Ansicht ist deshalb leer oder nur teilweise belastbar, und die
+            Abdeckung kann unvollstaendig sein.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FeedScopeNotice({
+  feed,
+}: {
+  feed: CreatorGrowthIntelligenceDashboardModel["feed"];
+}) {
+  return (
+    <section className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
+      <div className="flex items-start gap-3">
+        <span className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-2 text-amber-200">
+          <TriangleAlert className="h-4 w-4" aria-hidden="true" />
+        </span>
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-amber-50">
+            Neueste {feed.limit} Signale
+          </h3>
+          <p className="mt-2 max-w-3xl leading-6 text-amber-100/85">
+            Diese Ansicht zeigt die neuesten {feed.returnedCount} geladenen
+            Eintraege. Die Kennzahlen und die Abdeckung darunter sind auf diese
+            Stichprobe begrenzt.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LookupIssueNotice() {
+  return (
+    <section className="rounded-lg border border-signal-red/30 bg-signal-red/10 p-4 text-sm text-signal-red">
+      Einige verknuepfte Lookup-Daten konnten nicht geladen werden. Die
+      angezeigten Signale bleiben verfuegbar, aber die Abdeckung kann
+      unvollstaendig sein.
+    </section>
+  );
+}
+
 function GrowthLoadNotice() {
   return (
     <section className="rounded-lg border border-signal-red/30 bg-signal-red/10 p-4 text-sm text-signal-red">
-      SEO Intelligence konnte nicht geladen werden. Interne Supabase-Details
-      wurden nicht angezeigt.
+      SEO Intelligence konnte nicht geladen werden. Die Liste bleibt deshalb
+      leer.
     </section>
   );
 }

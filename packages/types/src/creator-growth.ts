@@ -77,8 +77,34 @@ export type CreatorGrowthIntelligenceSummary = {
   sourceLinkedCount: number;
 };
 
+export const CREATOR_GROWTH_INTELLIGENCE_FEED_LIMIT = 12;
+
+export const CREATOR_GROWTH_LOOKUP_SOURCES = [
+  "channels",
+  "contentJobs",
+  "contentPublications",
+  "creators",
+  "metricsSnapshots",
+] as const;
+
+export type CreatorGrowthIntelligenceLookupSource =
+  (typeof CREATOR_GROWTH_LOOKUP_SOURCES)[number];
+
+export type CreatorGrowthIntelligenceLookupIssue = {
+  code: "load-failed";
+  source: CreatorGrowthIntelligenceLookupSource;
+};
+
+export type CreatorGrowthIntelligenceFeedMetadata = {
+  hasMore: boolean;
+  limit: number;
+  returnedCount: number;
+};
+
 export type CreatorGrowthIntelligenceReadModel = {
   coverage: CreatorGrowthIntelligenceCoverage;
+  feed: CreatorGrowthIntelligenceFeedMetadata;
+  lookupIssues: CreatorGrowthIntelligenceLookupIssue[];
   items: CreatorGrowthIntelligence[];
   summary: CreatorGrowthIntelligenceSummary;
 };

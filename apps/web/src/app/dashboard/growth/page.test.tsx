@@ -40,6 +40,11 @@ describe("GrowthPage", () => {
   it("renders reviewable signals with linked source context", async () => {
     const model = buildCreatorGrowthIntelligenceDashboardModel({
       error: null,
+      feed: {
+        hasMore: true,
+        limit: 12,
+        returnedCount: 1,
+      },
       userId: "11111111-1111-4111-8111-111111111111",
       items: [
         {
@@ -72,6 +77,7 @@ describe("GrowthPage", () => {
           userId: "11111111-1111-4111-8111-111111111111",
         },
       ],
+      lookupIssues: [],
       lookups: {
         channels: [
           {
@@ -127,5 +133,109 @@ describe("GrowthPage", () => {
     expect(html).toContain("84/100");
     expect(html).toContain("Review Queue");
     expect(html).toContain("Contract Coverage");
+    expect(html).toContain("Neueste 12 Signale");
+    expect(html).toContain("Stichprobe begrenzt");
+  });
+
+  it("renders a partial-load state when lookup data fails", async () => {
+    const model = buildCreatorGrowthIntelligenceDashboardModel({
+      error: null,
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 0,
+      },
+      userId: "11111111-1111-4111-8111-111111111111",
+      items: [],
+      lookupIssues: [
+        {
+          code: "load-failed",
+          source: "creators",
+        },
+      ],
+      lookups: {
+        channels: [],
+        contentJobs: [],
+        contentPublications: [],
+        creators: [],
+        metricsSnapshots: [],
+      },
+    });
+
+    mocks.getCreatorGrowthIntelligenceDashboardData.mockResolvedValue(model);
+
+    const html = renderToStaticMarkup(await GrowthPage());
+
+    expect(html).toContain("Teilweise geladene Creator-Growth-Daten");
+    expect(html).toContain("Lookup-Daten konnten nicht geladen werden");
+    expect(html).not.toContain("Noch keine SEO Intelligence Records");
+  });
+
+  it("counts only platform_fit entries in the platform fit summary", () => {
+    const model = buildCreatorGrowthIntelligenceDashboardModel({
+      error: null,
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 2,
+      },
+      userId: "11111111-1111-4111-8111-111111111111",
+      items: [
+        {
+          channelId: null,
+          confidence: 90,
+          contentJobId: null,
+          contentPublicationId: null,
+          createdAt: "2026-06-25T10:00:00.000Z",
+          creatorId: null,
+          evidence: {},
+          id: "44444444-4444-4444-8444-444444444444",
+          intelligenceCategory: "platform_fit",
+          metadata: {},
+          metricsSnapshotId: null,
+          platform: "youtube",
+          rationale: null,
+          recommendationStatus: "needs_review",
+          recommendationType: "platform_positioning",
+          score: 80,
+          summary: "Explicit platform fit signal.",
+          title: "Platform fit target",
+          updatedAt: "2026-06-25T10:01:00.000Z",
+          userId: "11111111-1111-4111-8111-111111111111",
+        },
+        {
+          channelId: null,
+          confidence: 75,
+          contentJobId: null,
+          contentPublicationId: null,
+          createdAt: "2026-06-25T10:02:00.000Z",
+          creatorId: null,
+          evidence: {},
+          id: "55555555-5555-4555-8555-555555555555",
+          intelligenceCategory: "channel_seo",
+          metadata: {},
+          metricsSnapshotId: null,
+          platform: "twitch",
+          rationale: null,
+          recommendationStatus: "needs_review",
+          recommendationType: "title",
+          score: 70,
+          summary: "Non-platform-fit signal with a platform set.",
+          title: "SEO signal with platform context",
+          updatedAt: "2026-06-25T10:03:00.000Z",
+          userId: "11111111-1111-4111-8111-111111111111",
+        },
+      ],
+      lookupIssues: [],
+      lookups: {
+        channels: [],
+        contentJobs: [],
+        contentPublications: [],
+        creators: [],
+        metricsSnapshots: [],
+      },
+    });
+
+    expect(model.summary.platformFitCount).toBe(1);
   });
 });
