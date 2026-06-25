@@ -238,6 +238,10 @@ export async function processPublicationExecutionJob(
         `Publication ${publication.id} references a missing platform connection.`,
       );
     }
+    validateProviderConnectionForPublication({
+      connection: loadedConnection,
+      targetPlatform: publication.target_platform,
+    });
 
     const vodAsset = await loadVodAsset({
       publicationStore,
@@ -492,6 +496,10 @@ export async function processPublicationReconciliationJob(
         `Publication ${publication.id} references a missing platform connection.`,
       );
     }
+    validateProviderConnectionForReconciliation({
+      connection: loadedConnection,
+      targetPlatform: publication.target_platform,
+    });
 
     const accessToken = await resolveProviderAccessToken({
       connection: loadedConnection,
@@ -720,6 +728,76 @@ function validatePublicationContract({
       `Publication ${publication.id} snapshot review status is not approved.`,
     );
   }
+}
+
+function validateProviderConnectionForPublication({
+  connection,
+  targetPlatform,
+}: {
+  connection: PublicationConnectionRow;
+  targetPlatform: "tiktok" | "youtube";
+}): void {
+  if (
+    connection.platform !== targetPlatform ||
+    !isRefreshableConnectionStatus(connection.status)
+  ) {
+    throw new PermanentPublicationExecutionError(
+      "Platform connection is not valid for publication execution.",
+    );
+  }
+
+  if (
+    targetPlatform === "youtube" &&
+    !hasAnyScope(connection.scopes, [
+      "youtube.upload",
+      "https://www.googleapis.com/auth/youtube.upload",
+    ])
+  ) {
+    throw new PermanentPublicationExecutionError(
+      "Platform connection is missing the required publication scope.",
+    );
+  }
+
+  if (
+    targetPlatform === "tiktok" &&
+    !hasAnyScope(connection.scopes, [
+      "video.publish",
+      "video.upload",
+      "tiktok.video.publish",
+    ])
+  ) {
+    throw new PermanentPublicationExecutionError(
+      "Platform connection is missing the required publication scope.",
+    );
+  }
+}
+
+function validateProviderConnectionForReconciliation({
+  connection,
+  targetPlatform,
+}: {
+  connection: PublicationConnectionRow;
+  targetPlatform: "tiktok" | "youtube";
+}): void {
+  if (
+    connection.platform !== targetPlatform ||
+    !isRefreshableConnectionStatus(connection.status)
+  ) {
+    throw new PermanentPublicationReconciliationError(
+      "Platform connection is not valid for publication reconciliation.",
+    );
+  }
+}
+
+function hasAnyScope(scopes: string[], acceptedScopes: string[]): boolean {
+  const normalizedScopes = new Set(scopes.map((scope) => scope.trim()));
+  return acceptedScopes.some((scope) => normalizedScopes.has(scope));
+}
+
+function isRefreshableConnectionStatus(
+  status: PublicationConnectionRow["status"],
+): boolean {
+  return status === "connected" || status === "expired";
 }
 
 function classifyExecutionFailure(error: unknown): {
