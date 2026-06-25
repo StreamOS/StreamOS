@@ -11,6 +11,7 @@ const YOUTUBE_UPLOAD_INIT_URL =
 const YOUTUBE_VIDEOS_LIST_URL = "https://www.googleapis.com/youtube/v3/videos";
 const YOUTUBE_VIDEO_URL = "https://www.youtube.com/watch?v=";
 const DEFAULT_YOUTUBE_VISIBILITY = "private";
+const MAX_PUBLISHABLE_ASSET_BYTES = 512 * 1024 * 1024;
 
 const youtubeUploadSessionResponseSchema = z.object({
   id: z.string().trim().min(1),
@@ -80,8 +81,12 @@ export async function publishYouTubeVideo({
   title,
   visibility,
   assetUrlResolver,
+  assetFetchTimeoutMs,
+  assetMaxBytes = MAX_PUBLISHABLE_ASSET_BYTES,
 }: {
   accessToken: string;
+  assetFetchTimeoutMs?: number;
+  assetMaxBytes?: number;
   assetUrl: string;
   assetUrlResolver?: PublicHttpsAssetResolver;
   description: string;
@@ -95,9 +100,10 @@ export async function publishYouTubeVideo({
   const normalizedDescription = description.trim();
   const normalizedHashtags = normalizeHashtags(hashtags);
   const normalizedVisibility = normalizeVisibility(visibility);
-  let assetResponse: Response;
+  let assetFetchResult: Awaited<ReturnType<typeof fetchPublicHttpsAsset>>;
   try {
-    assetResponse = await fetchPublicHttpsAsset({
+    assetFetchResult = await fetchPublicHttpsAsset({
+      fetchTimeoutMs: assetFetchTimeoutMs,
       fetchFn,
       resolver: assetUrlResolver,
       signal,
@@ -119,18 +125,48 @@ export async function publishYouTubeVideo({
     throw error;
   }
 
-  if (!assetResponse.ok) {
-    throw buildYouTubeApiError({
-      context: "publishable asset fetch",
-      defaultCode: "publishable_asset_missing",
-      response: assetResponse,
-    });
+  let assetBytes: Uint8Array;
+  let contentType: string;
+  try {
+    if (!assetFetchResult.response.ok) {
+      throw buildYouTubeApiError({
+        context: "publishable asset fetch",
+        defaultCode: "publishable_asset_missing",
+        response: assetFetchResult.response,
+      });
+    }
+
+    try {
+      assetBytes = await readAssetBytes(assetFetchResult.response, {
+        didTimeout: assetFetchResult.didTimeout,
+        maxBytes: assetMaxBytes,
+        signal: assetFetchResult.signal,
+      });
+    } catch (error) {
+      if (error instanceof UnsafePublicHttpsAssetUrlError) {
+        throw new YouTubePublishError(
+          `YouTube publishable asset URL is not allowed: ${error.message}`,
+          {
+            code: "publishable_asset_url_unsafe",
+            httpStatus: 400,
+            retryable: false,
+            upstreamStatus: 0,
+          },
+        );
+      }
+
+      throw error;
+    }
+
+    contentType =
+      assetFetchResult.response.headers
+        .get("content-type")
+        ?.split(";")[0]
+        ?.trim() || "video/mp4";
+  } finally {
+    assetFetchResult.cleanup();
   }
 
-  const assetBytes = new Uint8Array(await assetResponse.arrayBuffer());
-  const contentType =
-    assetResponse.headers.get("content-type")?.split(";")[0]?.trim() ||
-    "video/mp4";
   const initUrl = new URL(YOUTUBE_UPLOAD_INIT_URL);
   initUrl.searchParams.set("part", "snippet,status");
   initUrl.searchParams.set("uploadType", "resumable");
@@ -204,6 +240,172 @@ export async function publishYouTubeVideo({
     externalPostId: payload.id,
     externalUrl: `${YOUTUBE_VIDEO_URL}${payload.id}`,
   };
+}
+
+async function readAssetBytes(
+  response: Response,
+  {
+    didTimeout,
+    maxBytes,
+    signal,
+  }: {
+    didTimeout: () => boolean;
+    maxBytes: number;
+    signal?: AbortSignal;
+  },
+): Promise<Uint8Array> {
+  validateAssetMaxBytes(maxBytes);
+  validateAssetContentLength(response.headers, maxBytes);
+
+  if (!response.body) {
+    const assetBytes = new Uint8Array(
+      await readWithAssetTimeout(response.arrayBuffer(), {
+        didTimeout,
+        signal,
+      }),
+    );
+    validateAssetByteLength(assetBytes.byteLength, maxBytes);
+    return assetBytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await readWithAssetTimeout(reader.read(), {
+        didTimeout,
+        signal,
+      });
+      if (done) {
+        break;
+      }
+
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+        throwAssetTooLarge();
+      }
+
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+
+  const assetBytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    assetBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return assetBytes;
+}
+
+async function readWithAssetTimeout<T>(
+  operation: Promise<T>,
+  {
+    didTimeout,
+    signal,
+  }: {
+    didTimeout: () => boolean;
+    signal?: AbortSignal;
+  },
+): Promise<T> {
+  if (!signal) {
+    return operation;
+  }
+
+  if (signal.aborted) {
+    throwAssetAbortError(didTimeout);
+  }
+
+  let abortHandler: (() => void) | undefined;
+  const abortPromise = new Promise<T>((_resolve, reject) => {
+    abortHandler = () => {
+      reject(buildAssetAbortError(didTimeout));
+    };
+    signal.addEventListener("abort", abortHandler, { once: true });
+  });
+
+  try {
+    return await Promise.race([operation, abortPromise]);
+  } finally {
+    if (abortHandler) {
+      signal.removeEventListener("abort", abortHandler);
+    }
+  }
+}
+
+function buildAssetAbortError(
+  didTimeout: () => boolean,
+): UnsafePublicHttpsAssetUrlError {
+  return new UnsafePublicHttpsAssetUrlError(
+    didTimeout() ? "Asset fetch timed out." : "Asset fetch aborted.",
+  );
+}
+
+function throwAssetAbortError(didTimeout: () => boolean): never {
+  throw buildAssetAbortError(didTimeout);
+}
+
+function validateAssetMaxBytes(maxBytes: number): void {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+    throw new YouTubePublishError(
+      "YouTube publishable asset has an invalid worker size limit.",
+      {
+        code: "publishable_asset_invalid_size",
+        httpStatus: 500,
+        retryable: false,
+        upstreamStatus: 0,
+      },
+    );
+  }
+}
+
+function validateAssetContentLength(headers: Headers, maxBytes: number): void {
+  const contentLength = headers.get("content-length");
+  if (!contentLength) {
+    return;
+  }
+
+  const parsed = Number(contentLength);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new YouTubePublishError(
+      "YouTube publishable asset returned an invalid content length.",
+      {
+        code: "publishable_asset_invalid_size",
+        httpStatus: 400,
+        retryable: false,
+        upstreamStatus: 0,
+      },
+    );
+  }
+
+  validateAssetByteLength(parsed, maxBytes);
+}
+
+function validateAssetByteLength(byteLength: number, maxBytes: number): void {
+  if (byteLength > maxBytes) {
+    throwAssetTooLarge();
+  }
+}
+
+function throwAssetTooLarge(): never {
+  throw new YouTubePublishError(
+    "YouTube publishable asset exceeds the configured worker size limit.",
+    {
+      code: "publishable_asset_too_large",
+      httpStatus: 413,
+      retryable: false,
+      upstreamStatus: 0,
+    },
+  );
 }
 
 export async function fetchYouTubePublicationState({
