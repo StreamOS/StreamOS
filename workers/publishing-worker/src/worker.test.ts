@@ -22,6 +22,8 @@ import {
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const REQUESTED_BY = "22222222-2222-4222-8222-222222222222";
 const PUBLICATION_ID = "33333333-3333-4333-8333-333333333333";
+const FANOUT_ID = "88888888-8888-4888-8888-888888888888";
+const CHILD_PUBLICATION_ID = "99999999-9999-4999-8999-999999999999";
 const CONTENT_JOB_ID = "44444444-4444-4444-8444-444444444444";
 const CONNECTION_ID = "55555555-5555-4555-8555-555555555555";
 const STREAM_ID = "66666666-6666-4666-8666-666666666666";
@@ -53,6 +55,7 @@ type EventCall = Parameters<PublicationStore["appendEvent"]>[0];
 type StoreOverrides = {
   contentJob?: PublicationContentJobRow | null;
   connection?: PublicationConnectionRow | null;
+  patchPublicationErrorAtCall?: number;
   publication?: PublicationRow | null;
   vodAsset?: PublicationVodAssetRow | null;
 };
@@ -61,6 +64,18 @@ class FakePublicationStore implements PublicationStore {
   contentJob: PublicationContentJobRow | null;
   connection: PublicationConnectionRow | null;
   events: EventCall[] = [];
+  loadContentJobCalls: Parameters<PublicationStore["loadContentJobById"]>[0][] =
+    [];
+  loadConnectionCalls: Parameters<
+    PublicationStore["loadPlatformConnectionById"]
+  >[0][] = [];
+  loadPublicationCalls: Parameters<
+    PublicationStore["loadPublicationById"]
+  >[0][] = [];
+  loadVodAssetCalls: Parameters<
+    PublicationStore["loadVodAssetByStreamId"]
+  >[0][] = [];
+  patchPublicationErrorAtCall: number | null;
   patchConnectionCalls: Parameters<
     PublicationStore["patchPlatformConnection"]
   >[0][] = [];
@@ -83,25 +98,39 @@ class FakePublicationStore implements PublicationStore {
         : overrides.connection;
     this.vodAsset =
       overrides.vodAsset === undefined ? buildVodAsset() : overrides.vodAsset;
+    this.patchPublicationErrorAtCall =
+      overrides.patchPublicationErrorAtCall ?? null;
   }
 
   async appendEvent(input: EventCall): Promise<void> {
     this.events.push(input);
   }
 
-  async loadContentJobById(): Promise<PublicationContentJobRow | null> {
+  async loadContentJobById(
+    input: Parameters<PublicationStore["loadContentJobById"]>[0],
+  ): Promise<PublicationContentJobRow | null> {
+    this.loadContentJobCalls.push(input);
     return this.contentJob;
   }
 
-  async loadPlatformConnectionById(): Promise<PublicationConnectionRow | null> {
+  async loadPlatformConnectionById(
+    input: Parameters<PublicationStore["loadPlatformConnectionById"]>[0],
+  ): Promise<PublicationConnectionRow | null> {
+    this.loadConnectionCalls.push(input);
     return this.connection;
   }
 
-  async loadPublicationById(): Promise<PublicationRow | null> {
+  async loadPublicationById(
+    input: Parameters<PublicationStore["loadPublicationById"]>[0],
+  ): Promise<PublicationRow | null> {
+    this.loadPublicationCalls.push(input);
     return this.publication;
   }
 
-  async loadVodAssetByStreamId(): Promise<PublicationVodAssetRow | null> {
+  async loadVodAssetByStreamId(
+    input: Parameters<PublicationStore["loadVodAssetByStreamId"]>[0],
+  ): Promise<PublicationVodAssetRow | null> {
+    this.loadVodAssetCalls.push(input);
     return this.vodAsset;
   }
 
@@ -113,6 +142,11 @@ class FakePublicationStore implements PublicationStore {
 
   async patchPublicationById(input: PatchCall): Promise<void> {
     this.patchPublicationCalls.push(input);
+    if (
+      this.patchPublicationCalls.length === this.patchPublicationErrorAtCall
+    ) {
+      throw new Error("simulated publication persistence failure");
+    }
     if (this.publication) {
       this.publication = {
         ...this.publication,
@@ -293,6 +327,355 @@ void test("publication.publish is idempotent when already published", async () =
   assert.equal(store.patchPublicationCalls.length, 0);
   assert.equal(store.events.length, 0);
   assert.equal(job.discarded, false);
+});
+
+void test("publication.publish executes a fanout child using the queued child publication id", async () => {
+  const store = new FakePublicationStore({
+    publication: buildPublication({ id: CHILD_PUBLICATION_ID }),
+  });
+  const fetchCalls: string[] = [];
+  const job = buildExecutionJob({
+    data: {
+      content_publication_id: CHILD_PUBLICATION_ID,
+      target_platform: "youtube",
+      user_id: USER_ID,
+    },
+    id: getFanoutChildQueueJobId(CHILD_PUBLICATION_ID),
+  });
+
+  const result = await processPublicationExecutionJob(job, {
+    fetchFn: buildYouTubePublishFetch(fetchCalls),
+    publicationStore: store,
+    workerConfig: buildWorkerConfig(),
+  });
+
+  assert.equal(result.externalPostId, "youtube-video-123");
+  assert.deepEqual(store.loadPublicationCalls, [
+    {
+      publicationId: CHILD_PUBLICATION_ID,
+      userId: USER_ID,
+    },
+  ]);
+  assert.deepEqual(
+    store.patchPublicationCalls.map((call) => call.publicationId),
+    [CHILD_PUBLICATION_ID, CHILD_PUBLICATION_ID],
+  );
+  assert.deepEqual(
+    store.events.map((event) => event.publicationId),
+    [CHILD_PUBLICATION_ID, CHILD_PUBLICATION_ID],
+  );
+  assert.ok(
+    store.patchPublicationCalls.every(
+      (call) => call.publicationId !== FANOUT_ID,
+    ),
+  );
+  assert.ok(store.events.every((event) => event.publicationId !== FANOUT_ID));
+  assert.equal(job.discarded, false);
+  assertNoSecrets(store.patchPublicationCalls);
+  assertNoSecrets(store.events);
+});
+
+void test("publication.publish treats duplicate fanout child jobs as idempotent after child publish", async () => {
+  const store = new FakePublicationStore({
+    publication: buildPublication({
+      external_post_id: "existing-child-video-id",
+      external_url: "https://www.youtube.com/watch?v=existing-child-video-id",
+      id: CHILD_PUBLICATION_ID,
+      publication_status: "published",
+    }),
+  });
+  const job = buildExecutionJob({
+    data: {
+      content_publication_id: CHILD_PUBLICATION_ID,
+      target_platform: "youtube",
+      user_id: USER_ID,
+    },
+    id: getFanoutChildQueueJobId(CHILD_PUBLICATION_ID),
+  });
+
+  const result = await processPublicationExecutionJob(job, {
+    fetchFn: failOnFetch(),
+    publicationStore: store,
+    workerConfig: buildWorkerConfig(),
+  });
+
+  assert.deepEqual(result, {
+    externalPostId: "existing-child-video-id",
+    externalUrl: "https://www.youtube.com/watch?v=existing-child-video-id",
+  });
+  assert.deepEqual(store.loadPublicationCalls, [
+    {
+      publicationId: CHILD_PUBLICATION_ID,
+      userId: USER_ID,
+    },
+  ]);
+  assert.equal(store.patchPublicationCalls.length, 0);
+  assert.equal(store.events.length, 0);
+  assert.equal(job.discarded, false);
+});
+
+void test("publication.publish does not call providers for stale final fanout child statuses", async (t) => {
+  for (const status of ["failed_permanent", "canceled", "rejected"] as const) {
+    await t.test(status, async () => {
+      const store = new FakePublicationStore({
+        publication: buildPublication({
+          id: CHILD_PUBLICATION_ID,
+          publication_status: status,
+        }),
+      });
+      const job = buildExecutionJob({
+        data: {
+          content_publication_id: CHILD_PUBLICATION_ID,
+          target_platform: "youtube",
+          user_id: USER_ID,
+        },
+        id: getFanoutChildQueueJobId(CHILD_PUBLICATION_ID),
+      });
+
+      await assert.rejects(
+        () =>
+          processPublicationExecutionJob(job, {
+            fetchFn: failOnFetch(),
+            publicationStore: store,
+            workerConfig: buildWorkerConfig(),
+          }),
+        PermanentPublicationExecutionError,
+      );
+
+      assert.equal(
+        last(store.patchPublicationCalls).payload.publication_status,
+        "failed_permanent",
+      );
+      assert.equal(
+        last(store.patchPublicationCalls).payload.provider_failure_code,
+        "publication_not_ready",
+      );
+      assert.equal(last(store.events).publicationId, CHILD_PUBLICATION_ID);
+      assert.equal(job.discarded, true);
+      assertNoSecrets(store.patchPublicationCalls);
+      assertNoSecrets(store.events);
+    });
+  }
+});
+
+void test("publication.publish fails a fanout child permanently when its connection is disconnected", async () => {
+  const store = new FakePublicationStore({
+    connection: buildConnection({ status: "disconnected" }),
+    publication: buildPublication({ id: CHILD_PUBLICATION_ID }),
+  });
+  const job = buildExecutionJob({
+    data: {
+      content_publication_id: CHILD_PUBLICATION_ID,
+      target_platform: "youtube",
+      user_id: USER_ID,
+    },
+    id: getFanoutChildQueueJobId(CHILD_PUBLICATION_ID),
+  });
+
+  await assert.rejects(
+    () =>
+      processPublicationExecutionJob(job, {
+        fetchFn: failOnFetch(),
+        publicationStore: store,
+        workerConfig: buildWorkerConfig(),
+      }),
+    /Platform connection is not valid for publication execution/,
+  );
+
+  assert.equal(
+    last(store.patchPublicationCalls).payload.publication_status,
+    "failed_permanent",
+  );
+  assert.equal(
+    last(store.patchPublicationCalls).payload.provider_failure_code,
+    "publication_not_ready",
+  );
+  assert.deepEqual(store.loadConnectionCalls, [
+    {
+      connectionId: CONNECTION_ID,
+      userId: USER_ID,
+    },
+  ]);
+  assert.equal(job.discarded, true);
+  assertNoSecrets(store.patchPublicationCalls);
+  assertNoSecrets(store.events);
+});
+
+void test("publication.publish rejects fanout child jobs whose queued target platform does not match the child", async () => {
+  const store = new FakePublicationStore({
+    publication: buildPublication({ id: CHILD_PUBLICATION_ID }),
+  });
+  const job = buildExecutionJob({
+    data: {
+      content_publication_id: CHILD_PUBLICATION_ID,
+      target_platform: "tiktok",
+      user_id: USER_ID,
+    },
+    id: getFanoutChildQueueJobId(CHILD_PUBLICATION_ID),
+  });
+
+  await assert.rejects(
+    () =>
+      processPublicationExecutionJob(job, {
+        fetchFn: failOnFetch(),
+        publicationStore: store,
+        workerConfig: buildWorkerConfig(),
+      }),
+    /does not match the queued execution job/,
+  );
+
+  assert.equal(
+    last(store.patchPublicationCalls).payload.publication_status,
+    "failed_permanent",
+  );
+  assert.equal(job.discarded, true);
+  assert.deepEqual(
+    store.patchPublicationCalls.map((call) => call.publicationId),
+    [CHILD_PUBLICATION_ID],
+  );
+  assertNoSecrets(store.patchPublicationCalls);
+  assertNoSecrets(store.events);
+});
+
+void test("publication.publish isolates retryable provider failures to the queued fanout child", async () => {
+  const store = new FakePublicationStore({
+    publication: buildPublication({ id: CHILD_PUBLICATION_ID }),
+  });
+  const job = buildExecutionJob({
+    attempts: 3,
+    data: {
+      content_publication_id: CHILD_PUBLICATION_ID,
+      target_platform: "youtube",
+      user_id: USER_ID,
+    },
+    id: getFanoutChildQueueJobId(CHILD_PUBLICATION_ID),
+  });
+
+  await assert.rejects(() =>
+    processPublicationExecutionJob(job, {
+      fetchFn: buildFailingYouTubeUploadInitFetch(503),
+      publicationStore: store,
+      workerConfig: buildWorkerConfig(),
+    }),
+  );
+
+  const failurePatch = last(store.patchPublicationCalls);
+  assert.equal(failurePatch.publicationId, CHILD_PUBLICATION_ID);
+  assert.equal(failurePatch.payload.publication_status, "failed_retryable");
+  assert.equal(
+    failurePatch.payload.provider_failure_code,
+    "upload_initiation_failed_retryable",
+  );
+  assert.equal(last(store.events).publicationId, CHILD_PUBLICATION_ID);
+  assert.equal(last(store.events).metadata.retryable, true);
+  assert.equal(job.discarded, false);
+  assert.ok(
+    store.patchPublicationCalls.every(
+      (call) => call.publicationId !== FANOUT_ID,
+    ),
+  );
+  assertNoSecrets(store.patchPublicationCalls);
+  assertNoSecrets(store.events);
+});
+
+void test("publication.publish does not retry a fanout child after provider success when published-state persistence fails", async () => {
+  const store = new FakePublicationStore({
+    patchPublicationErrorAtCall: 2,
+    publication: buildPublication({ id: CHILD_PUBLICATION_ID }),
+  });
+  const fetchCalls: string[] = [];
+  const job = buildExecutionJob({
+    attempts: 3,
+    data: {
+      content_publication_id: CHILD_PUBLICATION_ID,
+      target_platform: "youtube",
+      user_id: USER_ID,
+    },
+    id: getFanoutChildQueueJobId(CHILD_PUBLICATION_ID),
+  });
+
+  await assert.rejects(
+    () =>
+      processPublicationExecutionJob(job, {
+        fetchFn: buildYouTubePublishFetch(fetchCalls),
+        publicationStore: store,
+        workerConfig: buildWorkerConfig(),
+      }),
+    /published by the provider, but StreamOS could not persist/,
+  );
+
+  assert.deepEqual(fetchCalls, [
+    "https://93.184.216.34/videos/source.mp4",
+    "https://www.googleapis.com/upload/youtube/v3/videos?part=snippet%2Cstatus&uploadType=resumable",
+    "https://upload.youtube.test/session",
+  ]);
+  assert.equal(store.patchPublicationCalls.length, 3);
+  assert.equal(
+    store.patchPublicationCalls[1]?.payload.publication_status,
+    "published",
+  );
+  const failurePatch = last(store.patchPublicationCalls);
+  assert.equal(failurePatch.publicationId, CHILD_PUBLICATION_ID);
+  assert.equal(failurePatch.payload.publication_status, "failed_permanent");
+  assert.equal(
+    failurePatch.payload.provider_failure_code,
+    "publication_execution_failed",
+  );
+  assert.equal(failurePatch.payload.external_post_id, "youtube-video-123");
+  assert.equal(
+    (failurePatch.payload.provider_failure_metadata as Record<string, unknown>)
+      .provider_write_completed,
+    true,
+  );
+  assert.equal(last(store.events).publicationId, CHILD_PUBLICATION_ID);
+  assert.equal(last(store.events).eventType, "failed_permanent");
+  assert.equal(last(store.events).metadata.provider_write_completed, true);
+  assert.equal(last(store.events).metadata.retryable, false);
+  assert.equal(job.discarded, true);
+  assertNoSecrets(store.patchPublicationCalls);
+  assertNoSecrets(store.events);
+});
+
+void test("publication.publish fails non-retryable fanout child contract mismatches before provider execution", async () => {
+  const store = new FakePublicationStore({
+    publication: buildPublication({
+      id: CHILD_PUBLICATION_ID,
+      snapshot: {
+        ...buildSnapshot(),
+        targetPlatform: "tiktok",
+      },
+    }),
+  });
+  const job = buildExecutionJob({
+    data: {
+      content_publication_id: CHILD_PUBLICATION_ID,
+      target_platform: "youtube",
+      user_id: USER_ID,
+    },
+    id: getFanoutChildQueueJobId(CHILD_PUBLICATION_ID),
+  });
+
+  await assert.rejects(
+    () =>
+      processPublicationExecutionJob(job, {
+        fetchFn: failOnFetch(),
+        publicationStore: store,
+        workerConfig: buildWorkerConfig(),
+      }),
+    /snapshot target platform is unsupported/,
+  );
+
+  assert.equal(
+    last(store.patchPublicationCalls).payload.publication_status,
+    "failed_permanent",
+  );
+  assert.equal(
+    last(store.patchPublicationCalls).payload.provider_failure_code,
+    "publication_not_ready",
+  );
+  assert.equal(job.discarded, true);
+  assertNoSecrets(store.patchPublicationCalls);
+  assertNoSecrets(store.events);
 });
 
 void test("publication.publish fails permanently when publishable asset is missing", async () => {
@@ -848,7 +1231,12 @@ function buildWorkerConfig(): PublishingWorkerConfig {
 }
 
 function buildExecutionJob(
-  options: { attempts?: number; attemptsMade?: number; data?: unknown } = {},
+  options: {
+    attempts?: number;
+    attemptsMade?: number;
+    data?: unknown;
+    id?: string;
+  } = {},
 ): FakeJob {
   return {
     attemptsMade: options.attemptsMade ?? 0,
@@ -861,12 +1249,16 @@ function buildExecutionJob(
       this.discarded = true;
     },
     discarded: false,
-    id: `publish:${PUBLICATION_ID}`,
+    id: options.id ?? `publish:${PUBLICATION_ID}`,
     opts: {
       attempts: options.attempts ?? 1,
       backoff: { delay: 1_000, type: "fixed" },
     },
   };
+}
+
+function getFanoutChildQueueJobId(childPublicationId: string): string {
+  return `publish:${childPublicationId}`;
 }
 
 function buildReconciliationJob(
