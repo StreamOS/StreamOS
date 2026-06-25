@@ -61,6 +61,23 @@ exposed credential according to the incident process, and classify the audit as
 
 ## Required Evidence Areas
 
+### Repo Validation vs Hosted Proof
+
+Keep these evidence classes separate:
+
+- Repo validation proves the checked-in contract. Examples:
+  `pnpm db:validate-security`, package tests, migration review, and CI status.
+- Local diagnostic proves a local setup can exercise part of the contract. It
+  can explain failures, but it is not hosted staging or production evidence.
+- Hosted staging audit proves the live staging environment matches the repo
+  contract for service inventory, env ownership, Supabase schema/RLS/storage,
+  and Vercel policy.
+- Hosted production audit proves the live production environment matches the
+  same contract. It is required separately from CI and local diagnostics.
+
+CI and local tests can support the evidence package, but they must not be
+classified as hosted drift proof or production proof.
+
 ### Railway Service Inventory
 
 Confirm that every expected Railway service exists in the audited environment:
@@ -154,6 +171,80 @@ pnpm railway:audit --environments staging,production --format json
 Do not commit generated live audit reports unless a release process explicitly
 asks for a redacted artifact. Never paste secret values into reports.
 
+## Hosted Drift Audit Matrix
+
+Use these matrices after the generic environment inventory has been collected.
+Record only names, presence, ownership, policy status, and non-secret
+identifiers. Missing hosted evidence is `incomplete`, not `passed`.
+
+### Branding
+
+Repo contract:
+
+- `brand_assets` stores tenant-owned brand metadata.
+- The `brand-assets` Supabase Storage bucket is private.
+- Object paths start with the owning user id.
+- Authenticated storage policies allow only owner-scoped select, insert, and
+  delete.
+- Update/upsert remains disabled until replace semantics are explicitly
+  specified.
+- Runtime preview uses short-lived server-created signed URLs.
+- Durable `public_url` dependence is not part of the MVP contract.
+- SVG and other script-capable upload types remain blocked unless a future safe
+  sanitizing flow is explicitly added.
+
+| Evidence item        | Secret-safe evidence                                  | `passed` requirement                                                                              | Blocker if                                                                                              | Warning if                                                                 |
+| -------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `brand_assets` table | Table name, column presence, migration/version marker | Hosted table is present and compatible with repo columns used by the web runtime                  | Table is missing or incompatible while a live branding route is active                                  | Branding route is not active and table provisioning is explicitly deferred |
+| Tenant scope         | `user_id` column and RLS policy names/status          | `user_id` exists and RLS is enabled with tenant-safe predicates                                   | RLS is disabled or cross-tenant read/write is possible                                                  | Evidence is partial and no live route depends on it                        |
+| Storage bucket       | Bucket name and public/private status                 | `brand-assets` exists and is private when upload runtime is active                                | Bucket is public, wrong bucket is used, or public URLs are required                                     | Bucket not provisioned yet and no live upload flow is enabled              |
+| Storage policies     | Policy names and owner-path predicate presence        | Authenticated users can only select, insert, and delete first path segment matching their user id | Policy allows anon access, cross-tenant access, or update/upsert without an approved replace flow       | Operator hardening remains but owner access is safe                        |
+| Preview flow         | Route/server action names and status                  | Signed preview URL creation stays server-side and short-lived                                     | Browser receives storage metadata sufficient to bypass tenant checks or relies on permanent public URLs | Preview route not active yet but contract is documented                    |
+| `public_url` use     | Column/read-model presence and selected fields        | Runtime does not persist or depend on durable `public_url` for private brand assets               | Hosted flow requires public URLs for private assets                                                     | Legacy nullable column exists but is not read as success                   |
+| Upload type safety   | Allowed MIME/type list and UI/runtime status          | SVG/script-capable types are blocked or explicitly marked not released                            | SVG upload is accepted without a sanitizing flow                                                        | Upload runtime is disabled and future type policy remains TODO             |
+
+### Monetization
+
+Repo contract:
+
+- `monetization_events` and `monetization_summaries` are tenant-owned.
+- Authenticated users may read their own rows.
+- Ingestion, event writes, and summary materialization stay service-side or
+  service-role-owned.
+- Provider event idempotency stays tenant-scoped with leading `user_id`.
+- Dashboard reads must not treat missing hosted data as proof that hosted state
+  is correct.
+
+| Evidence item                  | Secret-safe evidence                                  | `passed` requirement                                                       | Blocker if                                                                    | Warning if                                                         |
+| ------------------------------ | ----------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `monetization_events` table    | Table name, column presence, migration/version marker | Hosted table is present and compatible with repo read model                | Table missing while live monetization read flow is active                     | UI is read-only and feature is explicitly not active in target env |
+| `monetization_summaries` table | Table name, column presence, migration/version marker | Hosted summary table is present and compatible with dashboard read model   | Table missing while dashboard reads summaries                                 | Hosted data is empty but table/RLS contract is correct             |
+| Tenant-safe reads              | RLS status, grants, policy names                      | Authenticated reads are scoped to `user_id`                                | Cross-tenant read is possible or RLS is disabled                              | Evidence names are present but policy text needs manual review     |
+| Service-side writes            | Grants and write-policy status                        | Authenticated insert/update/delete are not granted for monetization tables | Client/authenticated writes are allowed without server-side mediation         | No ingestion runtime is active but write owner is documented       |
+| Provider idempotency           | Index name and leading columns                        | Provider event unique index is tenant-scoped by leading `user_id`          | Global provider event uniqueness can collide across tenants                   | No provider ingestion active yet and drift is documented           |
+| Secret ownership               | Vercel/Railway env name inventory only                | Payment/provider secrets are absent from `apps/web` and Vercel             | Provider/payment/service-role secrets appear in Vercel or browser env         | Optional provider config is absent because ingestion is not active |
+| Empty hosted state             | Dashboard state and table presence                    | Empty data is displayed as empty state, not proof of schema correctness    | Tests or audit mark empty hosted data as `passed` without schema/RLS evidence | Empty data is expected and schema/RLS evidence is complete         |
+
+### Tests and CI
+
+Repo contract:
+
+- CI validates the repository contract and uses fixtures, not live secrets.
+- Pull request tests must not require hosted Supabase, Railway, Vercel, provider
+  accounts, private URLs, or real credentials.
+- Hosted drift is a separate operator audit step.
+- Production proof requires the production gate from a proof-capable Railway
+  runtime, not CI alone.
+
+| Evidence item       | Secret-safe evidence                              | `passed` requirement                                                             | Blocker if                                                                | Warning if                                                                 |
+| ------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| CI status           | Check names and conclusions                       | Required CI checks pass without live credentials                                 | CI requires live secrets or hosted state for pull requests                | Optional visual/UI checks are absent but contract/security tests exist     |
+| Test fixtures       | Fixture names and host class                      | Fixtures contain no private URLs, credentials, tokens, or real provider payloads | Fixture includes a real secret, tokenized URL, private URL, or credential | Fixture uses documented public non-sensitive media for local/e2e proof     |
+| Database validation | `pnpm db:validate-security` status                | Repo migrations pass local security validation                                   | Validator fails or is bypassed while claiming hosted safety               | Validator passes but hosted audit is still pending                         |
+| Vercel policy       | `pnpm test:vercel-audit` and env inventory status | Vercel policy blocks server-only keys and provider-owned config                  | Vercel contains server-only/provider secrets or private Railway URLs      | Unexpected non-blocked Vercel keys need operator review                    |
+| Railway audit       | Audit command and artifact status                 | Hosted audit is collected for target env and classified separately from CI       | Hosted drift is marked `passed` only because local tests are green        | Hosted audit unavailable and release decision remains `incomplete`         |
+| Production proof    | Gate command and proof marker status              | Production proof marker is verified from `release-gate-runner`                   | CI status is used as production proof                                     | Production proof not needed for a non-production documentation-only review |
+
 ## Final Decision States
 
 Use exactly one final decision:
@@ -191,6 +282,14 @@ Classify the audit as `blocked` when any item below is true:
 - Hosted drift touches required envs, service presence, worker privacy, schema,
   queue contracts, or runtime provenance.
 - A report, screenshot, or log contains secret values or provider tokens.
+- Branding Storage is public, cross-tenant, or dependent on permanent public
+  URLs for private assets.
+- Hosted `brand_assets`, `monetization_events`, or `monetization_summaries`
+  schema is incompatible with active live routes.
+- Monetization RLS/grants allow cross-tenant reads or client-side writes.
+- CI or fixtures require live secrets, private URLs, hosted state, or real
+  provider/payment credentials for pull-request validation.
+- Local-only tests or CI are used as hosted drift proof.
 
 ## Warning Catalog
 
@@ -204,6 +303,14 @@ warning is documented:
   diagnostic only. This cannot be used to waive production proof.
 - Informational audit extras or unknown optional env names are reviewed and
   accepted as non-owning or local-only.
+- Branding upload runtime is not active yet, but the private storage contract is
+  documented and repo validation is green.
+- Monetization dashboard data is empty while hosted tables, RLS, and grants are
+  compatible.
+- `brand-assets` bucket provisioning is deferred only because no live upload
+  route is enabled in the target environment.
+- Optional visual/UI checks are absent while security, RLS, storage, env, and
+  contract checks are present.
 
 If a warning is not understood, classify the audit as `incomplete` until an
 operator records why it is non-blocking.
@@ -224,6 +331,9 @@ support a decision:
 - Markdown audit output exists but JSON was required for the release process and
   was not collected, or the reverse is true.
 - Evidence was collected from the wrong environment.
+- Hosted branding storage bucket or policies were not checked.
+- Hosted monetization table, RLS, or grant state was not checked.
+- CI/test fixture secret-safety was assumed but not reviewed.
 
 ## Evidence Completion Template
 
@@ -286,8 +396,18 @@ raw payloads, or screenshots that contain credentials.
 
 - Queue names aligned:
 - Schema readiness:
+- Branding schema/storage readiness:
+- Monetization schema/RLS readiness:
 - Protected observability route status:
 - Raw payloads omitted:
+
+## Tests / CI Drift Result
+
+- CI status:
+- `pnpm db:validate-security` result:
+- Fixture secret-safety result:
+- Hosted drift represented as separate audit step:
+- Local tests used only as repo validation: yes / no
 
 ## Runtime Provenance / Gate Result
 
