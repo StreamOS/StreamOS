@@ -9,6 +9,7 @@ import type {
 import { subscribe } from "@streamos/youtube-websub";
 
 import { assertEncryptionConfigured, encryptSecret } from "./encryption.js";
+import { sanitizeErrorForLog } from "../lib/log-sanitizer.js";
 import { createRateLimitKey } from "../lib/rate-limit-keys.js";
 import { verifyOAuthHandoffToken } from "./handoff.js";
 import {
@@ -613,10 +614,13 @@ async function registerInitialYouTubeWebSub({
       youtubeChannelId: channelId,
     });
   } catch (error) {
-    console.error("YouTube WebSub registration failed after OAuth connect.", {
-      channelId,
-      error,
-      userId,
+    console.error("youtube_websub_registration_failed", {
+      error: sanitizeErrorForLog(error),
+      hasChannelId: channelId.length > 0,
+      hasUserId: userId.length > 0,
+      provider: "youtube",
+      reason: "registration_failed",
+      route: "oauth_connect",
     });
   }
 }

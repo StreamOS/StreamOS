@@ -7,6 +7,10 @@ import {
   isMessageDuplicate,
   type RedisDeduplicationClient,
 } from "../lib/deduplication.js";
+import {
+  sanitizeErrorForLog,
+  sanitizeUrlForLog,
+} from "../lib/log-sanitizer.js";
 import { createRateLimitKey } from "../lib/rate-limit-keys.js";
 import {
   sendPlainTextWebhookChallenge,
@@ -627,9 +631,12 @@ async function updateYouTubeWebSubChallengeTracking({
       ),
     );
   } catch (error) {
-    console.error("YouTube WebSub challenge tracking update failed.", {
-      error,
-      topic,
+    console.error("youtube_websub_tracking_failed", {
+      error: sanitizeErrorForLog(error),
+      provider: "youtube",
+      reason: "tracking_failed",
+      route: "websub_challenge",
+      topic: sanitizeUrlForLog(topic),
     });
   }
 }
