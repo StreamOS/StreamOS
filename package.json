@@ -33,12 +33,13 @@
     "test:fastapi": "node scripts/with-python-312.cjs python -m pytest services/automation-service",
     "test:railway-audit": "node --test scripts/private-automation-url.test.cjs scripts/e2e-transcription-job.test.cjs scripts/railway-audit-core.test.cjs scripts/audit-railway-env.test.cjs scripts/operator-cli.test.cjs scripts/deploy-production-workflow.test.cjs scripts/production-gate-proof.test.cjs",
     "test:branch-audit": "node --test scripts/branch-governance.test.cjs",
+    "test:turbo-env-policy": "node --test scripts/turbo-env-policy.test.cjs",
     "test:vercel-audit": "node --test scripts/vercel-env-policy.test.cjs",
     "test:e2e": "playwright test",
     "test:automation": "pnpm test:fastapi",
     "typecheck": "turbo typecheck",
-    "validate": "pnpm lint && pnpm test:railway-audit && pnpm test:branch-audit && pnpm test:vercel-audit && pnpm turbo run lint typecheck test build && pnpm db:validate-security && pnpm test:fastapi",
-    "validate:ci": "pnpm lint && pnpm test:railway-audit && pnpm test:branch-audit && pnpm test:vercel-audit && pnpm -r --if-present run lint && pnpm -r --if-present run typecheck && pnpm -r --if-present run build && pnpm -r --if-present run test && pnpm db:validate-security && pnpm test:fastapi",
+    "validate": "pnpm lint && pnpm test:railway-audit && pnpm test:branch-audit && pnpm test:turbo-env-policy && pnpm test:vercel-audit && pnpm turbo run lint typecheck test build && pnpm db:validate-security && pnpm test:fastapi",
+    "validate:ci": "pnpm lint && pnpm test:railway-audit && pnpm test:branch-audit && pnpm test:turbo-env-policy && pnpm test:vercel-audit && pnpm -r --if-present run lint && pnpm -r --if-present run typecheck && pnpm -r --if-present run build && pnpm -r --if-present run test && pnpm db:validate-security && pnpm test:fastapi",
     "format": "prettier --check \"*.{json,md,yml,yaml}\" \"apps/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"docs/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"e2e/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"packages/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"scripts/**/*.{ts,tsx,js,cjs,json,md,yml,yaml}\" \"services/api-gateway/**/*.{ts,tsx,js,json,md,yml,yaml}\" \"workers/**/*.{ts,tsx,js,json,md,yml,yaml}\""
   },
   "lint-staged": {
