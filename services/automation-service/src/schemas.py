@@ -1,6 +1,39 @@
-from typing import Literal
+import re
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field
+
+MAX_REPURPOSING_TEXT_LENGTH = 4_000
+UNSAFE_REPURPOSING_TEXT_PATTERN = re.compile(
+    r"<\s*/?\s*script\b|javascript\s*:|on(?:error|load|click|mouseover|focus)\s*=",
+    re.IGNORECASE,
+)
+
+
+def _strip_repurposing_text(value: object) -> object:
+    if isinstance(value, str):
+        return value.strip()
+
+    return value
+
+
+def _reject_unsafe_repurposing_text(value: str) -> str:
+    if UNSAFE_REPURPOSING_TEXT_PATTERN.search(value):
+        raise ValueError("contains unsafe script-like content")
+
+    return value
+
+
+RepurposingText = Annotated[
+    str,
+    BeforeValidator(_strip_repurposing_text),
+    Field(min_length=1, max_length=MAX_REPURPOSING_TEXT_LENGTH),
+    AfterValidator(_reject_unsafe_repurposing_text),
+]
+RepurposingHashtagSet = Annotated[
+    list[RepurposingText],
+    Field(min_length=1, max_length=12),
+]
 
 
 class ClipAnalysisRequest(BaseModel):
@@ -78,17 +111,21 @@ class RepurposingPlanRequest(BaseModel):
 
 
 class RepurposingPlanResponse(BaseModel):
-    captions: list[str] = Field(default_factory=list, max_length=10)
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    captions: list[RepurposingText] = Field(min_length=1, max_length=10)
     confidence: int = Field(ge=1, le=100)
-    content_job_id: str = Field(min_length=1)
-    descriptions: list[str] = Field(default_factory=list, max_length=10)
-    hashtag_sets: list[list[str]] = Field(default_factory=list, max_length=8)
-    hook_ideas: list[str] = Field(default_factory=list, max_length=10)
+    content_job_id: RepurposingText
+    descriptions: list[RepurposingText] = Field(min_length=1, max_length=10)
+    hashtag_sets: list[RepurposingHashtagSet] = Field(
+        default_factory=list, max_length=8
+    )
+    hook_ideas: list[RepurposingText] = Field(min_length=1, max_length=10)
     manual_review_required: Literal[True]
-    model: str = Field(min_length=1)
-    provider: str = Field(min_length=1)
-    queue_job_id: str = Field(min_length=1)
-    review_notes: list[str] = Field(default_factory=list, max_length=10)
-    short_form_plan: str = Field(min_length=1)
-    title_suggestions: list[str] = Field(default_factory=list, max_length=10)
-    warnings: list[str] = Field(default_factory=list, max_length=10)
+    model: RepurposingText
+    provider: RepurposingText
+    queue_job_id: RepurposingText
+    review_notes: list[RepurposingText] = Field(min_length=1, max_length=10)
+    short_form_plan: RepurposingText
+    title_suggestions: list[RepurposingText] = Field(min_length=1, max_length=10)
+    warnings: list[RepurposingText] = Field(default_factory=list, max_length=10)

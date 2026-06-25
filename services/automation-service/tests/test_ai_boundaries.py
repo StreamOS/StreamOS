@@ -1,11 +1,18 @@
 import asyncio
 import ipaddress
 import json
+from collections.abc import Callable
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
-from main import app, get_clip_analyzer, get_repurposing_planner, get_transcription_processor
+from main import (
+    app,
+    get_clip_analyzer,
+    get_repurposing_planner,
+    get_transcription_processor,
+)
 from openai_client import (
     OpenAIClipAnalyzer,
     OpenAITranscriptionProcessor,
@@ -115,6 +122,127 @@ class RateLimitedRepurposingPlanner:
             provider="openai",
             retry_after_seconds=30,
         )
+
+
+def valid_repurposing_response_payload() -> dict[str, object]:
+    return {
+        "captions": ["Repurpose this moment."],
+        "confidence": 87,
+        "content_job_id": "job-123",
+        "descriptions": ["Review-only description."],
+        "hashtag_sets": [["#streamos"]],
+        "hook_ideas": ["Open with the strongest beat."],
+        "manual_review_required": True,
+        "model": "gpt-4o",
+        "provider": "test",
+        "queue_job_id": "repurposing-plan-job-123",
+        "review_notes": ["Manual approval is required."],
+        "short_form_plan": "Draft a review-only repurposing plan.",
+        "title_suggestions": ["The moment everyone missed"],
+        "warnings": ["No automatic publishing."],
+    }
+
+
+def test_repurposing_response_contract_accepts_worker_valid_shape() -> None:
+    payload = valid_repurposing_response_payload()
+
+    result = RepurposingPlanResponse.model_validate(payload)
+
+    assert result.model_dump() == payload
+
+
+def test_repurposing_response_contract_trims_text_like_worker() -> None:
+    payload = {
+        **valid_repurposing_response_payload(),
+        "captions": [" Repurpose this moment. "],
+    }
+
+    result = RepurposingPlanResponse.model_validate(payload)
+
+    assert result.captions == ["Repurpose this moment."]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(
+            lambda: {
+                key: value
+                for key, value in valid_repurposing_response_payload().items()
+                if key != "short_form_plan"
+            },
+            id="missing required field",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "confidence": "87",
+            },
+            id="wrong field type",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "captions": [],
+            },
+            id="empty required array",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "captions": ["   "],
+            },
+            id="empty text item",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "hashtag_sets": [[]],
+            },
+            id="empty hashtag set",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "auto_publish": True,
+            },
+            id="unexpected top-level field",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "short_form_plan": "x" * 4_001,
+            },
+            id="oversized text field",
+        ),
+        pytest.param(
+            lambda: {
+                **valid_repurposing_response_payload(),
+                "captions": ['<script>alert("x")</script>'],
+            },
+            id="script-like content",
+        ),
+        pytest.param(
+            lambda: {
+                "content_job_id": "job-123",
+                "manual_review_required": True,
+                "queue_job_id": "repurposing-plan-job-123",
+                "short_form_plan": "Looks like a plan but lacks review fields.",
+            },
+            id="partial plausible data",
+        ),
+    ],
+)
+def test_repurposing_response_contract_rejects_worker_invalid_shapes(
+    payload: Callable[[], object],
+) -> None:
+    with pytest.raises(ValidationError):
+        RepurposingPlanResponse.model_validate(payload())
+
+
+def test_repurposing_response_contract_rejects_non_object_top_level_shape() -> None:
+    with pytest.raises(ValidationError):
+        RepurposingPlanResponse.model_validate([])
 
 
 def test_settings_reject_public_openai_keys() -> None:
@@ -267,9 +395,7 @@ def test_repurposing_endpoint_uses_server_side_planner() -> None:
     }
 
 
-def test_repurposing_endpoint_returns_structured_503_for_provider_rate_limit() -> (
-    None
-):
+def test_repurposing_endpoint_returns_structured_503_for_provider_rate_limit() -> None:
     app.dependency_overrides[get_repurposing_planner] = RateLimitedRepurposingPlanner
 
     try:
