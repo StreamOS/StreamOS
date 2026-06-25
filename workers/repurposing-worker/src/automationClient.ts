@@ -49,28 +49,41 @@ export type RepurposingPlanAutomationResponse = {
   warnings: string[];
 };
 
-const automationPlanResponseSchema = z.object({
-  captions: z.array(z.string().trim().min(1)).max(10),
-  confidence: z.number().int().min(1).max(100),
-  content_job_id: z.string().trim().min(1),
-  descriptions: z.array(z.string().trim().min(1)).max(10),
-  hashtag_sets: z
-    .array(z.array(z.string().trim().min(1)).min(1).max(12))
-    .max(8),
-  hook_ideas: z.array(z.string().trim().min(1)).max(10),
-  manual_review_required: z.literal(true),
-  model: z.string().trim().min(1),
-  provider: z.string().trim().min(1),
-  queue_job_id: z.string().trim().min(1),
-  review_notes: z.array(z.string().trim().min(1)).max(10),
-  short_form_plan: z.string().trim().min(1),
-  title_suggestions: z.array(z.string().trim().min(1)).max(10),
-  warnings: z.array(z.string().trim().min(1)).max(10),
-}) satisfies z.ZodType<
+const MAX_REPURPOSING_TEXT_LENGTH = 4_000;
+const UNSAFE_REPURPOSING_TEXT_PATTERN =
+  /<\s*\/?\s*script\b|javascript\s*:|on(?:error|load|click|mouseover|focus)\s*=/i;
+
+const repurposingTextSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_REPURPOSING_TEXT_LENGTH)
+  .refine((value) => !UNSAFE_REPURPOSING_TEXT_PATTERN.test(value), {
+    message: "contains unsafe script-like content",
+  });
+
+const automationPlanResponseSchema: z.ZodType<
   RepurposingPlanAutomationResponse,
   z.ZodTypeDef,
   unknown
->;
+> = z
+  .object({
+    captions: z.array(repurposingTextSchema).min(1).max(10),
+    confidence: z.number().int().min(1).max(100),
+    content_job_id: repurposingTextSchema,
+    descriptions: z.array(repurposingTextSchema).min(1).max(10),
+    hashtag_sets: z.array(z.array(repurposingTextSchema).min(1).max(12)).max(8),
+    hook_ideas: z.array(repurposingTextSchema).min(1).max(10),
+    manual_review_required: z.literal(true),
+    model: repurposingTextSchema,
+    provider: repurposingTextSchema,
+    queue_job_id: repurposingTextSchema,
+    review_notes: z.array(repurposingTextSchema).min(1).max(10),
+    short_form_plan: repurposingTextSchema,
+    title_suggestions: z.array(repurposingTextSchema).min(1).max(10),
+    warnings: z.array(repurposingTextSchema).max(10),
+  })
+  .strict();
 
 const automationServiceStructuredErrorSchema = z.object({
   code: z.string().trim().min(1),
@@ -161,6 +174,17 @@ export class ProviderModelUnavailableError extends Error {
   }
 }
 
+function createInvalidRepurposingOutputError(): AutomationServiceError {
+  return new AutomationServiceError(
+    "automation-service returned invalid repurposing output.",
+    {
+      code: "invalid_output",
+      httpStatus: 200,
+      retryable: false,
+    },
+  );
+}
+
 export function isAutomationServiceError(
   value: unknown,
 ): value is AutomationServiceError {
@@ -227,7 +251,7 @@ function parseAutomationServiceError(
     });
   } catch {
     return new AutomationServiceError(
-      `automation-service repurposing failed with ${httpStatus}: ${rawBody}`,
+      `automation-service repurposing failed with ${httpStatus}.`,
       {
         code:
           httpStatus >= 500
@@ -315,7 +339,27 @@ export function createAutomationClient({
         throw parseAutomationServiceError(response.status, errorBody);
       }
 
-      return automationPlanResponseSchema.parse(await response.json());
+      let responsePayload: unknown;
+      try {
+        responsePayload = await response.json();
+      } catch {
+        throw createInvalidRepurposingOutputError();
+      }
+
+      const parsedResponse =
+        automationPlanResponseSchema.safeParse(responsePayload);
+      if (!parsedResponse.success) {
+        throw createInvalidRepurposingOutputError();
+      }
+
+      if (
+        parsedResponse.data.content_job_id !== payload.content_job_id ||
+        parsedResponse.data.queue_job_id !== payload.queue_job_id
+      ) {
+        throw createInvalidRepurposingOutputError();
+      }
+
+      return parsedResponse.data;
     },
   };
 }

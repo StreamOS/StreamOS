@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { RepurposingPlanAutomationRequest } from "./automationClient.js";
-import { ProviderRateLimitError } from "./automationClient.js";
+import {
+  ProviderRateLimitError,
+  createAutomationClient,
+} from "./automationClient.js";
 import { processRepurposingPlanJob } from "./worker.js";
 import type { RepurposingPlanContentJobStore } from "./contentJobStore.js";
 
@@ -217,5 +220,71 @@ void test("processRepurposingPlanJob fails permanently when manual review is mis
     (store.calls[0]?.patch.result as Record<string, unknown> | undefined)
       ?.retry_owner,
     "manual",
+  );
+});
+
+void test("processRepurposingPlanJob does not persist schema-drifted automation output as done", async () => {
+  const store = createStore();
+  const job = createJob({
+    content_job_id: CONTENT_JOB_ID,
+    manual_review_required: true,
+    provider: "youtube",
+    queue_job_id: QUEUE_JOB_ID,
+    source_event_type: "video.published",
+    source_metadata: {},
+    user_id: USER_ID,
+  });
+
+  await assert.rejects(
+    () =>
+      processRepurposingPlanJob(job, {
+        automationClient: createAutomationClient({
+          automationServiceUrl:
+            "http://automation-service.railway.internal:8000",
+          fetchFn: async () =>
+            new Response(
+              JSON.stringify({
+                captions: ['<script>alert("x")</script>'],
+                confidence: 90,
+                content_job_id: CONTENT_JOB_ID,
+                descriptions: ["Description"],
+                hashtag_sets: [["#streamos"]],
+                hook_ideas: ["Hook"],
+                manual_review_required: true,
+                model: "gpt-4o",
+                provider: "openai",
+                queue_job_id: QUEUE_JOB_ID,
+                review_notes: ["Manual review required."],
+                short_form_plan: "Plan",
+                title_suggestions: ["Title"],
+                warnings: [],
+              }),
+              { status: 200 },
+            ),
+        }),
+        statusStore: store,
+      }),
+    /invalid repurposing output/,
+  );
+
+  assert.equal(job.discardCount, 1);
+  assert.equal(store.calls.length, 2);
+  assert.equal(store.calls[0]?.patch.status, "processing");
+  assert.equal(store.calls[1]?.patch.status, "failed");
+  assert.notEqual(store.calls[1]?.patch.status, "done");
+  assert.equal(
+    (store.calls[1]?.patch.result as Record<string, unknown> | undefined)
+      ?.error_code,
+    "invalid_output",
+  );
+  assert.equal(
+    (store.calls[1]?.patch.result as Record<string, unknown> | undefined)
+      ?.retryable,
+    false,
+  );
+  assert.equal(
+    (store.calls[1]?.patch.result as Record<string, unknown> | undefined)
+      ?.error,
+    "automation-service returned invalid repurposing output.",
   );
 });
