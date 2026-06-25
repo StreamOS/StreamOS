@@ -37,13 +37,16 @@ export default async function DashboardPage({
             Aus deinem Stream wird ein kompletter Content- und Umsatz-Funnel.
           </h1>
           <p className="mt-4 max-w-2xl text-base leading-7 text-slate-400">
-            StreamOS buendelt Discoverability, Clip-Automatisierung,
+            StreamOS buendelt Creator Growth Intelligence, Clip-Automatisierung,
             Monetarisierung, Branding, Multi-Plattform-Management und Analytics
             in einer operativen Creator-Oberflaeche.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <a href="/dashboard/clips" className="btn-primary">
               VOD analysieren
+            </a>
+            <a href="/dashboard/growth" className="btn-ghost">
+              Growth pruefen
             </a>
             <a href="/dashboard/analytics" className="btn-ghost">
               Analytics pruefen

@@ -14,8 +14,8 @@ import {
   LogOut,
   Menu,
   Palette,
-  Search,
   Settings,
+  TrendingUp,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DarkModeToggle } from "@/components/layout/DarkModeToggle";
@@ -27,11 +27,7 @@ const pageLabels = [
   { href: "/dashboard/analytics", label: "Analytics", icon: BarChart2 },
   { href: "/dashboard/content", label: "Content", icon: Clapperboard },
   { href: "/dashboard/monetization", label: "Monetization", icon: DollarSign },
-  {
-    href: "/dashboard/discoverability",
-    label: "Discoverability",
-    icon: Search,
-  },
+  { href: "/dashboard/growth", label: "Growth", icon: TrendingUp },
   { href: "/dashboard/branding", label: "Branding", icon: Palette },
   { href: "/dashboard/platforms", label: "Platforms", icon: Globe },
 ] as const;

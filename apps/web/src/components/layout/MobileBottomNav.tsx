@@ -7,7 +7,7 @@ import {
   Clapperboard,
   DollarSign,
   Palette,
-  Search,
+  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -15,11 +15,7 @@ const mobileNavItems = [
   { href: "/dashboard/analytics", label: "Analytics", icon: BarChart2 },
   { href: "/dashboard/content", label: "Content", icon: Clapperboard },
   { href: "/dashboard/monetization", label: "Monetization", icon: DollarSign },
-  {
-    href: "/dashboard/discoverability",
-    label: "Discoverability",
-    icon: Search,
-  },
+  { href: "/dashboard/growth", label: "Growth", icon: TrendingUp },
   { href: "/dashboard/branding", label: "Branding", icon: Palette },
 ] as const;
 
