@@ -12,7 +12,7 @@ import type {
   OAuthConnectionRepository,
   PersistOAuthConnectionInput,
 } from "./repository.js";
-import type { OAuthStateStore, StoredOAuthState } from "./stateStore.js";
+import type { OAuthStateStore } from "./stateStore.js";
 import { KICK_CHANNELS_URL, KICK_TOKEN_URL } from "./providers/kick.js";
 import { TIKTOK_TOKEN_URL, TIKTOK_USER_INFO_URL } from "./providers/tiktok.js";
 import { TWITCH_TOKEN_URL, TWITCH_USERS_URL } from "./providers/twitch.js";
@@ -61,23 +61,6 @@ class RecordingOAuthRepository implements OAuthConnectionRepository {
       profile: input.profile,
       scopes: input.scopes,
     };
-  }
-}
-
-class RecordingOAuthStateStore implements OAuthStateStore {
-  readonly saved: StoredOAuthState[] = [];
-  private readonly states = new Map<string, StoredOAuthState>();
-
-  async save(state: StoredOAuthState): Promise<void> {
-    this.saved.push(state);
-    this.states.set(state.state, state);
-  }
-
-  async consume(state: string): Promise<StoredOAuthState | null> {
-    const storedState = this.states.get(state) ?? null;
-    this.states.delete(state);
-
-    return storedState;
   }
 }
 
@@ -182,7 +165,7 @@ function getErrorRedirect(provider: RegressionProvider): string {
 function createSuccessfulProviderFetch(
   provider: RegressionProvider,
 ): typeof fetch {
-  return async (input, init) => {
+  return async (input) => {
     const url = input.toString();
 
     if (isTokenUrl(provider, url)) {
