@@ -494,6 +494,8 @@ module.exports = {
     },
     "release-gate-runner": {
       optional: [
+        "API_GATEWAY_URL",
+        "AUTOMATION_SERVICE_URL",
         "STREAMOS_RC_COMMIT_SHA",
         "SUPABASE_SERVICE_ROLE_KEY",
         "SUPABASE_URL",

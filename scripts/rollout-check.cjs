@@ -66,6 +66,8 @@ const PROOF_SNAPSHOT_REQUIRED_PATHS = [
   "scripts/rollout-check.cjs",
   "scripts/check-deployment.cjs",
   "scripts/e2e-transcription-job.cjs",
+  "scripts/write-production-gate-proof.cjs",
+  "scripts/verify-production-gate-proof.cjs",
   "services/api-gateway",
   "workers/stream-job-worker",
   "workers/transcription-worker",

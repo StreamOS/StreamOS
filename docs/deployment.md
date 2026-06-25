@@ -655,12 +655,13 @@ inside the same environment as the deployed services.
 
 The runner is proof-only, not a product service. It may have only the env names
 that the production gate needs to prove the hosted flow from inside Railway:
-`STREAMOS_RC_COMMIT_SHA`, `TRANSCRIPTION_E2E_FIXTURE_ASSET_URL`,
-`SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`. The Supabase values are used by
-the hosted transcription E2E to seed/read durable proof rows and must never be
-printed in logs, reports, screenshots, or runbook output. Provider webhook
-secrets such as `STREAM_EVENT_WEBHOOK_SECRET` remain owned by `api-gateway` and
-must not be configured on `release-gate-runner`.
+`API_GATEWAY_URL`, `AUTOMATION_SERVICE_URL`, `STREAMOS_RC_COMMIT_SHA`,
+`TRANSCRIPTION_E2E_FIXTURE_ASSET_URL`, `SUPABASE_URL`, and
+`SUPABASE_SERVICE_ROLE_KEY`. The Supabase values are used by the hosted
+transcription E2E to seed/read durable proof rows and must never be printed in
+logs, reports, screenshots, or runbook output. Provider webhook secrets such as
+`STREAM_EVENT_WEBHOOK_SECRET` remain owned by `api-gateway` and must not be
+configured on `release-gate-runner`.
 
 ## Production Checks
 
@@ -1232,6 +1233,27 @@ Do not promote when the production gate fails. Successful package tests, builds,
 or a green local diagnostic are not enough on their own. The transcription E2E
 over the real Media -> Transcription path remains mandatory for promotion.
 
+The manual production deployment workflow is split into three semantic phases:
+
+1. Release-candidate deployment: Railway services, `release-gate-runner`, the
+   Vercel production candidate, and optional Supabase migrations are applied so
+   the exact candidate can be tested.
+2. Production gate proof: GitHub Actions connects to the deployed
+   `release-gate-runner` and runs `pnpm rollout:check:production` from that
+   Railway-internal runtime with the same release-candidate commit. The runner
+   emits a non-sensitive proof marker only after the production gate command
+   exits successfully; GitHub Actions validates that marker before any release
+   signalling can run.
+3. Release signalling: the GitHub release and success notification run only
+   after the production gate succeeds. If the gate fails, the workflow writes a
+   blocked summary and final release signalling remains blocked.
+
+Candidate deployment may include hard-to-revert production mutations such as
+Railway service deploys, Vercel production deploys, and Supabase migrations.
+Operators must treat a red production gate as a blocked release requiring
+rollback or remediation according to the incident/runbook process, not as a
+successful promotion.
+
 Before running the gate, verify these provenance points from the runner itself:
 
 - the Railway service name is exactly `release-gate-runner`
@@ -1246,9 +1268,26 @@ Before running the gate, verify these provenance points from the runner itself:
   expected commit plus gate-contract hash for this runner deploy
 - `package.json` still exposes `rollout:check:production`
 - `scripts/rollout-check.cjs`, `scripts/check-deployment.cjs`,
-  `scripts/e2e-transcription-job.cjs`, `services/api-gateway`,
+  `scripts/e2e-transcription-job.cjs`,
+  `scripts/write-production-gate-proof.cjs`,
+  `scripts/verify-production-gate-proof.cjs`, `services/api-gateway`,
   `workers/stream-job-worker`, `workers/transcription-worker`, and
   `packages/queue` are present inside the runner snapshot
+
+The proof marker is intentionally small and non-sensitive. It is bound to the
+release-candidate SHA, Railway environment, `release-gate-runner` service name,
+GitHub run ID, and GitHub run attempt. A missing marker, malformed marker,
+environment mismatch, service mismatch, or RC-SHA mismatch must fail the
+`production-gate` job. The workflow uses `RAILWAY_TOKEN_PRODUCTION` as the
+canonical Railway production token secret; do not add a parallel Railway
+production token path unless a future migration explicitly documents it as a
+breaking operator change.
+
+After repo changes to this workflow, operators must re-check the live GitHub
+`production` environment protection settings: required reviewers, branch
+policy, wait timer, admin bypass, and `prevent_self_review`. Set
+`prevent_self_review=true` when a strict four-eyes production approval is
+required.
 
 If any of those checks fail, the runner is not proof-capable and the release
 must remain blocked.

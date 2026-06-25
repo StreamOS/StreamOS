@@ -77,6 +77,11 @@ jobs:
             exit 1
           fi
 
+          if [ "${DEPLOY_BACKEND_SERVICES}" != "true" ]; then
+            echo "::error::deploy_backend_services=true is required so release-gate-runner can prove the same release-candidate commit."
+            exit 1
+          fi
+
           if [ "${APPLY_DATABASE_MIGRATIONS}" = "true" ] && [ "${DEPLOY_FRONTEND}" != "true" ]; then
             echo "::error::Production database migrations require deploy_frontend=true in this workflow."
             exit 1
@@ -107,114 +112,6 @@ jobs:
             echo "- Repair migration history: ${REPAIR_SUPABASE_MIGRATION_HISTORY}"
             echo "- Commit: ${GITHUB_SHA::7}"
           } >> "${GITHUB_STEP_SUMMARY}"
-
-  release:
-    name: Create GitHub release
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs:
-      - ci
-      - production-approval
-    if: ${{ needs.production-approval.result == 'success' }}
-    outputs:
-      tag: ${{ steps.release.outputs.tag }}
-      url: ${{ steps.release.outputs.url }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Create release from Conventional Commits
-        id: release
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const { execSync } = require("node:child_process");
-
-            function run(command) {
-              return execSync(command, { encoding: "utf8" }).trim();
-            }
-
-            let previousTag = "";
-            try {
-              previousTag = run("git describe --tags --abbrev=0");
-            } catch {
-              core.info("No previous release tag found; generating changelog from all commits.");
-            }
-
-            const range = previousTag ? `${previousTag}..HEAD` : "HEAD";
-            const rawSubjects = run(`git log ${range} --pretty=format:%s`);
-            const subjects = rawSubjects ? rawSubjects.split("\n").filter(Boolean) : [];
-
-            const groups = {
-              feat: [],
-              fix: [],
-              refactor: [],
-              perf: [],
-              security: [],
-              docs: [],
-              chore: [],
-              other: [],
-            };
-
-            for (const subject of subjects) {
-              const match = subject.match(/^([a-z]+)(?:\([^)]+\))?!?:\s+(.+)$/);
-              const type = match?.[1] ?? "other";
-              const text = match?.[2] ?? subject;
-              const key = Object.hasOwn(groups, type) ? type : "other";
-              groups[key].push(text);
-            }
-
-            const shortSha = context.sha.slice(0, 7);
-            const date = new Date().toISOString().slice(0, 10);
-            const runAttempt = process.env.GITHUB_RUN_ATTEMPT ?? "1";
-            const tag = `v${date}.${context.runNumber}.${runAttempt}`;
-            const title = `StreamOS ${tag}`;
-            const sections = [
-              ["Features", groups.feat],
-              ["Fixes", groups.fix],
-              ["Performance", groups.perf],
-              ["Security", groups.security],
-              ["Refactors", groups.refactor],
-              ["Documentation", groups.docs],
-              ["Maintenance", groups.chore],
-              ["Other Changes", groups.other],
-            ];
-            const body = [
-              `Automated production release for commit \`${shortSha}\`.`,
-              "",
-              previousTag ? `Changes since \`${previousTag}\`.` : "Initial release changelog.",
-              "",
-              ...sections.flatMap(([heading, entries]) =>
-                entries.length > 0
-                  ? [`## ${heading}`, "", ...entries.map((entry) => `- ${entry}`), ""]
-                  : [],
-              ),
-            ].join("\n");
-
-            await github.rest.git.createRef({
-              owner,
-              repo,
-              ref: `refs/tags/${tag}`,
-              sha: context.sha,
-            });
-
-            const { data: release } = await github.rest.repos.createRelease({
-              owner,
-              repo,
-              tag_name: tag,
-              name: title,
-              body,
-              draft: false,
-              prerelease: false,
-              target_commitish: context.sha,
-            });
-
-            core.setOutput("tag", tag);
-            core.setOutput("url", release.html_url);
 
   deploy-railway:
     name: Deploy ${{ matrix.service }} to Railway production
@@ -473,9 +370,8 @@ jobs:
     needs:
       - ci
       - production-approval
-      - release
       - deploy-railway
-    if: ${{ always() && inputs.deploy_frontend && needs.ci.result == 'success' && needs.production-approval.result == 'success' && needs.release.result == 'success' && (needs.deploy-railway.result == 'success' || needs.deploy-railway.result == 'skipped') }}
+    if: ${{ always() && inputs.deploy_frontend && needs.ci.result == 'success' && needs.production-approval.result == 'success' && needs.deploy-railway.result == 'success' }}
     environment:
       name: production
       url: ${{ steps.deploy.outputs.url }}
@@ -635,9 +531,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs:
-      - release
       - deploy-web
-    if: ${{ always() && inputs.deploy_frontend && needs.release.result == 'success' && needs.deploy-web.result == 'success' }}
+    if: ${{ always() && inputs.deploy_frontend && needs.deploy-web.result == 'success' }}
     environment:
       name: production
 
@@ -682,18 +577,220 @@ jobs:
 
           echo "${DEPLOYMENT_URL}/dashboard returned ${status}"
 
+  production-gate:
+    name: Production gate proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs:
+      - production-approval
+      - deploy-railway
+      - deploy-web
+      - migrate-supabase
+      - smoke-production
+    if: ${{ always() && needs.production-approval.result == 'success' && needs.deploy-railway.result == 'success' && (!inputs.deploy_frontend || (needs.deploy-web.result == 'success' && needs.smoke-production.result == 'success')) && (!inputs.apply_database_migrations || needs.migrate-supabase.result == 'success') }}
+    environment:
+      name: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Railway CLI
+        run: npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
+
+      - name: Run production gate from release-gate-runner
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_SSH_PRIVATE_KEY: ${{ secrets.RAILWAY_SSH_PRIVATE_KEY_PRODUCTION }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RAILWAY_PROJECT_ID}" ]; then
+            echo "::error::RAILWAY_PROJECT_ID is required for the production gate."
+            exit 1
+          fi
+
+          if [ -z "${RAILWAY_SSH_PRIVATE_KEY}" ]; then
+            echo "::error::RAILWAY_SSH_PRIVATE_KEY_PRODUCTION is required to execute the gate inside release-gate-runner."
+            exit 1
+          fi
+
+          key_path="${RUNNER_TEMP}/railway-production-gate-key"
+          printf '%s\n' "${RAILWAY_SSH_PRIVATE_KEY}" > "${key_path}"
+          chmod 600 "${key_path}"
+
+          ssh_output_path="${RUNNER_TEMP}/production-gate-ssh-output.txt"
+
+          set +e
+          railway ssh \
+            --project "${RAILWAY_PROJECT_ID}" \
+            --environment "${RAILWAY_ENVIRONMENT}" \
+            --service release-gate-runner \
+            --identity-file "${key_path}" \
+            -- sh -lc "cd /app && pnpm rollout:check:production -- --expected-runner-commit '${GITHUB_SHA}' >/tmp/streamos-production-gate.log 2>&1 && node scripts/write-production-gate-proof.cjs --rc-sha '${GITHUB_SHA}' --environment '${RAILWAY_ENVIRONMENT}' --service release-gate-runner --run-id '${GITHUB_RUN_ID}' --run-attempt '${GITHUB_RUN_ATTEMPT}'" \
+            >"${ssh_output_path}" 2>&1
+          ssh_status=$?
+          set -e
+
+          if [ "${ssh_status}" -ne 0 ]; then
+            echo "::error::Remote production gate execution failed in release-gate-runner."
+            exit 1
+          fi
+
+          proof_line="$(
+            grep '^STREAMOS_PRODUCTION_GATE_PROOF=' "${ssh_output_path}" | tail -n 1 || true
+          )"
+
+          if [ -z "${proof_line}" ]; then
+            echo "::error::Remote production gate did not return a verifiable proof marker."
+            exit 1
+          fi
+
+          node scripts/verify-production-gate-proof.cjs \
+            --proof-line "${proof_line}" \
+            --expected-rc-sha "${GITHUB_SHA}" \
+            --expected-environment "${RAILWAY_ENVIRONMENT}" \
+            --expected-service release-gate-runner \
+            --expected-run-id "${GITHUB_RUN_ID}" \
+            --expected-run-attempt "${GITHUB_RUN_ATTEMPT}"
+
+      - name: Record production gate proof
+        shell: bash
+        run: |
+          {
+            echo "## StreamOS Production Gate"
+            echo ""
+            echo "- Gate command: \`pnpm rollout:check:production\`"
+            echo "- Proof runtime: \`release-gate-runner\`"
+            echo "- Environment: ${RAILWAY_ENVIRONMENT}"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Result: passed"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - ci
+      - production-approval
+      - production-gate
+    if: ${{ needs.production-gate.result == 'success' }}
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      url: ${{ steps.release.outputs.url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create release from Conventional Commits
+        id: release
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { execSync } = require("node:child_process");
+
+            function run(command) {
+              return execSync(command, { encoding: "utf8" }).trim();
+            }
+
+            let previousTag = "";
+            try {
+              previousTag = run("git describe --tags --abbrev=0");
+            } catch {
+              core.info("No previous release tag found; generating changelog from all commits.");
+            }
+
+            const range = previousTag ? `${previousTag}..HEAD` : "HEAD";
+            const rawSubjects = run(`git log ${range} --pretty=format:%s`);
+            const subjects = rawSubjects ? rawSubjects.split("\n").filter(Boolean) : [];
+
+            const groups = {
+              feat: [],
+              fix: [],
+              refactor: [],
+              perf: [],
+              security: [],
+              docs: [],
+              chore: [],
+              other: [],
+            };
+
+            for (const subject of subjects) {
+              const match = subject.match(/^([a-z]+)(?:\([^)]+\))?!?:\s+(.+)$/);
+              const type = match?.[1] ?? "other";
+              const text = match?.[2] ?? subject;
+              const key = Object.hasOwn(groups, type) ? type : "other";
+              groups[key].push(text);
+            }
+
+            const shortSha = context.sha.slice(0, 7);
+            const date = new Date().toISOString().slice(0, 10);
+            const runAttempt = process.env.GITHUB_RUN_ATTEMPT ?? "1";
+            const tag = `v${date}.${context.runNumber}.${runAttempt}`;
+            const title = `StreamOS ${tag}`;
+            const sections = [
+              ["Features", groups.feat],
+              ["Fixes", groups.fix],
+              ["Performance", groups.perf],
+              ["Security", groups.security],
+              ["Refactors", groups.refactor],
+              ["Documentation", groups.docs],
+              ["Maintenance", groups.chore],
+              ["Other Changes", groups.other],
+            ];
+            const body = [
+              `Automated production release for commit \`${shortSha}\` after a successful production gate.`,
+              "",
+              previousTag ? `Changes since \`${previousTag}\`.` : "Initial release changelog.",
+              "",
+              ...sections.flatMap(([heading, entries]) =>
+                entries.length > 0
+                  ? [`## ${heading}`, "", ...entries.map((entry) => `- ${entry}`), ""]
+                  : [],
+              ),
+            ].join("\n");
+
+            await github.rest.git.createRef({
+              owner,
+              repo,
+              ref: `refs/tags/${tag}`,
+              sha: context.sha,
+            });
+
+            const { data: release } = await github.rest.repos.createRelease({
+              owner,
+              repo,
+              tag_name: tag,
+              name: title,
+              body,
+              draft: false,
+              prerelease: false,
+              target_commitish: context.sha,
+            });
+
+            core.setOutput("tag", tag);
+            core.setOutput("url", release.html_url);
+
   notify:
     name: Deployment notification
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs:
       - production-approval
+      - production-gate
       - release
       - deploy-web
       - deploy-railway
       - migrate-supabase
       - smoke-production
-    if: ${{ always() && needs.production-approval.result == 'success' && (!inputs.deploy_frontend || needs.smoke-production.result == 'success') }}
+    if: ${{ always() && needs.production-approval.result == 'success' && needs.production-gate.result == 'success' && needs.release.result == 'success' && (!inputs.deploy_frontend || needs.smoke-production.result == 'success') }}
 
     steps:
       - name: Write GitHub deployment summary
@@ -705,15 +802,14 @@ jobs:
           MIGRATION_RESULT: ${{ needs.migrate-supabase.result }}
         run: |
           {
-            echo "## StreamOS Production Deployment"
+            echo "## StreamOS Production Release"
             echo ""
             echo "- Release: [${RELEASE_TAG}](${RELEASE_URL})"
             echo "- Frontend: ${WEB_URL}"
             echo "- Railway services: ${RAILWAY_RESULT}"
             echo "- Supabase migrations: ${MIGRATION_RESULT}"
             echo "- Commit: ${GITHUB_SHA::7}"
-            echo "- Release gate runner: release-gate-runner must exist in this production environment and be used for the promotable production-gate"
-            echo "- Promotion remains blocked until production-gate passes from release-gate-runner with the same release-candidate commit"
+            echo "- Production gate: passed from release-gate-runner"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Send Discord notification
@@ -733,10 +829,48 @@ jobs:
             --arg release_url "${RELEASE_URL}" \
             --arg web_url "${WEB_URL}" \
             --arg sha "${GITHUB_SHA::7}" \
-            '{content: ("StreamOS production deployed: " + $tag + "\nRelease: " + $release_url + "\nFrontend: " + $web_url + "\nCommit: `" + $sha + "`")}' \
+            '{content: ("StreamOS production released after gate: " + $tag + "\nRelease: " + $release_url + "\nFrontend: " + $web_url + "\nCommit: `" + $sha + "`")}' \
           )"
 
           curl --fail --silent --show-error \
             -H "Content-Type: application/json" \
             -d "${payload}" \
             "${DISCORD_WEBHOOK_URL}"
+
+  notify-blocked:
+    name: Production gate blocked notification
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - production-approval
+      - deploy-railway
+      - deploy-web
+      - migrate-supabase
+      - smoke-production
+      - production-gate
+      - release
+    if: ${{ always() && needs.production-approval.result == 'success' && needs.production-gate.result != 'success' }}
+
+    steps:
+      - name: Write blocked deployment summary
+        env:
+          DEPLOY_WEB_RESULT: ${{ needs.deploy-web.result }}
+          MIGRATION_RESULT: ${{ needs.migrate-supabase.result }}
+          PRODUCTION_GATE_RESULT: ${{ needs.production-gate.result }}
+          RAILWAY_RESULT: ${{ needs.deploy-railway.result }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          SMOKE_RESULT: ${{ needs.smoke-production.result }}
+        shell: bash
+        run: |
+          {
+            echo "## StreamOS Production Release Blocked"
+            echo ""
+            echo "- Production gate: ${PRODUCTION_GATE_RESULT}"
+            echo "- Release: ${RELEASE_RESULT}"
+            echo "- Railway candidate deploy: ${RAILWAY_RESULT}"
+            echo "- Frontend candidate deploy: ${DEPLOY_WEB_RESULT}"
+            echo "- Supabase migrations: ${MIGRATION_RESULT}"
+            echo "- Frontend smoke: ${SMOKE_RESULT}"
+            echo "- Commit: ${GITHUB_SHA::7}"
+            echo "- Final release and success notification remain blocked until production-gate passes from release-gate-runner."
+          } >> "${GITHUB_STEP_SUMMARY}"
