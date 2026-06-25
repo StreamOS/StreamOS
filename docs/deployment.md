@@ -121,6 +121,33 @@ and `APP_URL` takes precedence when both values are present.
 
 `API_GATEWAY_URL` must be public because Vercel functions are outside the Railway private network. The Automation Service remains private and is reached by Railway workers, not by Vercel.
 
+## Turborepo environment scope
+
+Turbo runs in strict env mode by default. Keep `turbo.json` focused on
+build/cache inputs, not runtime secret ownership. Runtime secrets stay in
+Vercel, Railway, Supabase, or GitHub Environment secret stores and should not be
+declared as broad Turbo `globalEnv` inputs.
+
+Current policy:
+
+- `globalEnv` is intentionally empty. No Redis URL, Supabase service-role key,
+  provider secret, OpenAI/Replicate credential, webhook secret, Railway token,
+  Vercel deploy token, or production gate key should invalidate every package
+  task.
+- `@streamos/web#build` lists only web-owned values that can affect the web
+  build output: `APP_ENV`, `NEXT_PUBLIC_APP_URL`,
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
+  `NEXT_PUBLIC_SUPABASE_URL`, and `STREAMOS_DEMO_MODE`.
+- Server-side web runtime values such as `API_GATEWAY_URL`,
+  `API_GATEWAY_SECRET`, and `APP_URL` remain Vercel runtime configuration; they
+  are not global Turbo cache inputs.
+- Gateway, automation, worker, CI, deploy, and production-gate variables belong
+  to their owning runtime or workflow and must not be added to generic Turbo
+  `build`, `lint`, `test`, or `typecheck` env arrays.
+
+Run `pnpm test:turbo-env-policy` after changing `turbo.json` or env ownership
+docs. The test checks names only and never requires or prints secret values.
+
 ## Railway: `services/api-gateway`
 
 Use the repository root as the Railway build context so workspace packages resolve correctly.

@@ -1,25 +1,22 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalEnv": [
-    "REDIS_URL",
-    "STREAM_JOB_QUEUE_NAME",
-    "SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "STREAMOS_PUBLIC_URL",
-    "TWITCH_CLIENT_ID",
-    "TWITCH_CLIENT_SECRET",
-    "TWITCH_EVENTSUB_SECRET",
-    "TWITCH_WEBHOOK_SECRET",
-    "YOUTUBE_CLIENT_ID",
-    "YOUTUBE_CLIENT_SECRET",
-    "YOUTUBE_WEBSUB_SECRET",
-    "YOUTUBE_WEBSUB_VERIFY_TOKEN",
-    "CRON_SECRET"
-  ],
+  "globalEnv": [],
   "tasks": {
     "dev": {
       "cache": false,
       "persistent": true
+    },
+    "@streamos/web#build": {
+      "dependsOn": ["^build", "lint", "typecheck"],
+      "env": [
+        "APP_ENV",
+        "NEXT_PUBLIC_APP_URL",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "STREAMOS_DEMO_MODE"
+      ],
+      "outputs": [".next/**", "dist/**", "build/**", "!**/.next/cache/**"]
     },
     "build": {
       "dependsOn": ["^build", "lint", "typecheck"],
