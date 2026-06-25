@@ -6,6 +6,7 @@ import {
   sendPlainTextWebhookChallenge,
   validateWebhookChallenge,
 } from "../lib/webhook-challenge.js";
+import { isAllowedYouTubeTopic } from "../routes/webhooks/shared.js";
 import {
   normalizeTwitchNotification,
   normalizeYouTubeAtomEntry,
@@ -51,8 +52,20 @@ type CreateProviderWebhookRouterOptions = {
     maxRequests?: number;
     windowMs?: number;
   };
+  youtubeWebSubChallengeTracker?: YouTubeWebSubChallengeTracker;
   youtubeWebSubVerifyToken?: string | undefined;
 };
+
+type YouTubeWebSubChallengeTrackingInput = {
+  leaseSeconds: number | null;
+  mode: "subscribe" | "unsubscribe";
+  now: () => number;
+  topic: string;
+};
+
+type YouTubeWebSubChallengeTracker = (
+  input: YouTubeWebSubChallengeTrackingInput,
+) => Promise<void>;
 
 function getHeaderValue(
   value: string | string[] | undefined,
@@ -137,6 +150,7 @@ export function createProviderWebhookRouter({
   twitchEventSubRateLimit,
   twitchEventSubSecret,
   youtubeWebSubChallengeRateLimit,
+  youtubeWebSubChallengeTracker = updateYouTubeWebSubChallengeTracking,
   youtubeWebSubPostRateLimit,
   youtubeWebSubSecret,
   youtubeWebSubVerifyToken,
@@ -364,6 +378,14 @@ export function createProviderWebhookRouter({
         return;
       }
 
+      if (!isAllowedYouTubeTopic(topic)) {
+        response.status(400).json({
+          error: "invalid_youtube_websub_topic",
+          message: "YouTube WebSub topic is not allowed.",
+        });
+        return;
+      }
+
       if (
         !validateYouTubeVerifyToken({
           expectedToken: youtubeWebSubVerifyToken,
@@ -379,7 +401,7 @@ export function createProviderWebhookRouter({
 
       sendPlainTextWebhookChallenge(response, challenge);
 
-      void updateYouTubeWebSubChallengeTracking({
+      void youtubeWebSubChallengeTracker({
         leaseSeconds,
         mode,
         now,
@@ -465,12 +487,7 @@ async function updateYouTubeWebSubChallengeTracking({
   mode,
   now,
   topic,
-}: {
-  leaseSeconds: number | null;
-  mode: "subscribe" | "unsubscribe";
-  now: () => number;
-  topic: string;
-}): Promise<void> {
+}: YouTubeWebSubChallengeTrackingInput): Promise<void> {
   const supabaseUrl =
     process.env.SUPABASE_URL?.trim() ??
     process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();

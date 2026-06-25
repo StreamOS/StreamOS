@@ -294,6 +294,23 @@ describe("api-gateway", () => {
         },
       });
 
+      expectProductionStartupError({
+        envOverrides: {
+          YOUTUBE_WEBSUB_VERIFY_TOKEN: undefined,
+        },
+        expectedMessage:
+          "YOUTUBE_WEBSUB_VERIFY_TOKEN is required in production.",
+        options: {
+          allowedOrigins: ["https://app.streamos.test"],
+          apiGatewaySecret: API_SECRET,
+          clipGenerationQueue: createClipGenerationQueue(),
+          nodeEnv: "production",
+          streamEventWebhookSecret: WEBHOOK_SECRET,
+          twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+          youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+        },
+      });
+
       expect(() =>
         createApp({
           allowedOrigins: ["https://app.streamos.test"],
