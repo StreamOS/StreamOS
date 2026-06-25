@@ -16,7 +16,7 @@ const publicCdnResolver = (hostname: string): readonly string[] => {
   return ["93.184.216.34"];
 };
 
-test("publishYouTubeVideo downloads allowed public CDN asset URLs before upload", async () => {
+void test("publishYouTubeVideo downloads allowed public CDN asset URLs before upload", async () => {
   const calls: FetchCall[] = [];
   const fetchFn: typeof fetch = async (input, init) => {
     const url = input.toString();
@@ -63,7 +63,7 @@ test("publishYouTubeVideo downloads allowed public CDN asset URLs before upload"
   assert.equal(calls.length, 3);
 });
 
-test("publishYouTubeVideo rejects direct private publishable asset URLs before download", async () => {
+void test("publishYouTubeVideo rejects direct private publishable asset URLs before download", async () => {
   const calls: FetchCall[] = [];
   const fetchFn: typeof fetch = async (input, init) => {
     calls.push({ init, url: input.toString() });
@@ -90,7 +90,7 @@ test("publishYouTubeVideo rejects direct private publishable asset URLs before d
   assert.deepEqual(calls, []);
 });
 
-test("publishYouTubeVideo rejects redirects to private publishable asset URLs", async () => {
+void test("publishYouTubeVideo rejects redirects to private publishable asset URLs", async () => {
   const calls: FetchCall[] = [];
   const fetchFn: typeof fetch = async (input, init) => {
     const url = input.toString();
