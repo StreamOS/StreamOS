@@ -129,3 +129,16 @@ class RepurposingPlanResponse(BaseModel):
     short_form_plan: RepurposingText
     title_suggestions: list[RepurposingText] = Field(min_length=1, max_length=10)
     warnings: list[RepurposingText] = Field(default_factory=list, max_length=10)
+
+
+def ensure_repurposing_plan_response_matches_request(
+    request: RepurposingPlanRequest,
+    response: RepurposingPlanResponse,
+) -> RepurposingPlanResponse:
+    if (
+        response.content_job_id != request.content_job_id
+        or response.queue_job_id != request.queue_job_id
+    ):
+        raise ValueError("Repurposing plan response identifiers do not match request.")
+
+    return response

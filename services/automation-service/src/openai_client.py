@@ -15,6 +15,7 @@ from schemas import (
     TranscriptionProcessRequest,
     TranscriptionProcessResponse,
     TranscriptionSegment,
+    ensure_repurposing_plan_response_matches_request,
 )
 from settings import Settings
 from ssrf import HostnameResolver, UnsafeAssetUrlError, validate_public_https_url
@@ -325,8 +326,9 @@ class OpenAIRepurposingPlanner:
 
         response.raise_for_status()
         plan = json.loads(_extract_output_text(response.json()))
+        validated_plan = RepurposingPlanResponse.model_validate(plan)
 
-        return RepurposingPlanResponse.model_validate(plan)
+        return ensure_repurposing_plan_response_matches_request(payload, validated_plan)
 
     async def aclose(self) -> None:
         if self._owns_client:

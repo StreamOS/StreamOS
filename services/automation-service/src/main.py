@@ -19,6 +19,7 @@ from schemas import (
     TranscriptionProcessRequest,
     TranscriptionProcessResponse,
     TranscriptionSegment,
+    ensure_repurposing_plan_response_matches_request,
 )
 from settings import SettingsError, load_settings
 from ssrf import UnsafeAssetUrlError
@@ -26,7 +27,9 @@ from ssrf import UnsafeAssetUrlError
 app = FastAPI(title="StreamOS Automation Service", version="0.1.0")
 
 
-def build_provider_rate_limit_detail(error: ProviderRateLimitError) -> dict[str, object]:
+def build_provider_rate_limit_detail(
+    error: ProviderRateLimitError,
+) -> dict[str, object]:
     return {
         "code": "provider_rate_limited",
         "message": error.message,
@@ -245,7 +248,8 @@ async def plan_repurposing(
     planner: Annotated[RepurposingPlanner, Depends(get_repurposing_planner)],
 ) -> RepurposingPlanResponse:
     try:
-        return await planner.plan_repurposing(payload)
+        response = await planner.plan_repurposing(payload)
+        return ensure_repurposing_plan_response_matches_request(payload, response)
     except ProviderRateLimitError as error:
         raise HTTPException(
             status_code=503,
@@ -257,7 +261,9 @@ async def plan_repurposing(
             detail=f"Repurposing request failed with status {error.response.status_code}.",
         ) from error
     except (httpx.HTTPError, ValueError, KeyError, ValidationError) as error:
-        raise HTTPException(status_code=502, detail="OpenAI repurposing failed.") from error
+        raise HTTPException(
+            status_code=502, detail="OpenAI repurposing failed."
+        ) from error
 
 
 @app.post("/transcriptions/process", response_model=TranscriptionProcessResponse)
