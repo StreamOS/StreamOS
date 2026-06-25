@@ -371,6 +371,8 @@ test("rollout snapshot check reports missing gate files clearly", () => {
   assert.deepEqual(snapshot.issues, [
     "missing scripts/rollout-check.cjs",
     "missing scripts/e2e-transcription-job.cjs",
+    "missing scripts/write-production-gate-proof.cjs",
+    "missing scripts/verify-production-gate-proof.cjs",
     "missing packages/redis",
     "missing packages/youtube-websub",
   ]);

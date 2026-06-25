@@ -817,7 +817,7 @@ test("buildAuditReport requires REPURPOSING_QUEUE_NAME for content-job-retry-wor
   assert.match(repurposingQueueRow.summary, /Required variable is not set/);
 });
 
-test("buildAuditReport keeps AUTOMATION_SERVICE_URL on the workers that actually need it", () => {
+test("buildAuditReport keeps AUTOMATION_SERVICE_URL on runtimes that actually need it", () => {
   const report = buildAuditReport({
     project: whitelist.project,
     rawEnvironments: {
@@ -829,6 +829,7 @@ test("buildAuditReport keeps AUTOMATION_SERVICE_URL on the workers that actually
 
   for (const serviceName of [
     "clip-worker",
+    "release-gate-runner",
     "repurposing-worker",
     "transcription-worker",
   ]) {
@@ -836,14 +837,13 @@ test("buildAuditReport keeps AUTOMATION_SERVICE_URL on the workers that actually
       report.environments.production.services[serviceName].variables.some(
         (row) => row.variable === "AUTOMATION_SERVICE_URL",
       ),
-      `${serviceName} should own AUTOMATION_SERVICE_URL`,
+      `${serviceName} should model AUTOMATION_SERVICE_URL`,
     );
   }
 
   for (const serviceName of [
     "content-job-retry-worker",
     "publishing-worker",
-    "release-gate-runner",
     "stream-job-worker",
   ]) {
     assert.equal(
@@ -954,7 +954,6 @@ test("buildAuditReport keeps worker-owned secrets and provider secrets scoped to
     ],
     "release-gate-runner": [
       "APP_ENCRYPTION_KEY",
-      "AUTOMATION_SERVICE_URL",
       "TWITCH_CLIENT_SECRET",
       "YOUTUBE_CLIENT_SECRET",
     ],

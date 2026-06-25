@@ -237,6 +237,7 @@ VERCEL_PROJECT_ID=
 RAILWAY_PROJECT_ID=
 RAILWAY_TOKEN_STAGING=
 RAILWAY_TOKEN_PRODUCTION=
+RAILWAY_SSH_PRIVATE_KEY_PRODUCTION=
 SUPABASE_DB_URL_STAGING=
 SUPABASE_DB_URL_PRODUCTION=
 DISCORD_WEBHOOK_URL=
@@ -244,6 +245,10 @@ DISCORD_WEBHOOK_URL=
 
 `DISCORD_WEBHOOK_URL` is optional; when it is not configured, production
 deployment notifications are still written to the GitHub Actions job summary.
+`RAILWAY_TOKEN_PRODUCTION` and `RAILWAY_SSH_PRIVATE_KEY_PRODUCTION` are used only
+by the production deployment workflow to execute the promotable gate inside
+`release-gate-runner`; register the matching public SSH key with Railway and do
+not print the token or private key in logs, reports, or runbooks.
 Use GitHub Environments named `staging` and `production` for environment-scoped
 secrets and enable required reviewers on `production` to enforce manual approval
 before production deploy and migration jobs run.
