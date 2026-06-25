@@ -28,5 +28,6 @@
   "TWITCH_CLIENT_ID": "production-twitch-client-id",
   "TWITCH_CLIENT_SECRET": "production-twitch-client-secret",
   "TWITCH_EVENTSUB_SECRET": "production-twitch-eventsub-secret",
-  "YOUTUBE_WEBHOOK_SECRET": "production-youtube-webhook-secret"
+  "YOUTUBE_WEBHOOK_SECRET": "production-youtube-webhook-secret",
+  "YOUTUBE_WEBSUB_VERIFY_TOKEN": "present"
 }

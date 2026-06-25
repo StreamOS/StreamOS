@@ -359,6 +359,49 @@ test("buildAuditReport treats gateway-owned Twitch and YouTube secrets as Railwa
   );
 });
 
+test("buildAuditReport requires the api-gateway YouTube WebSub verify token in staging and production", () => {
+  const production = cloneEnvironment(loadEnvironment("production"));
+  const staging = cloneEnvironment(loadEnvironment("staging"));
+  delete production.serviceVariables["api-gateway"].YOUTUBE_WEBSUB_VERIFY_TOKEN;
+  delete staging.serviceVariables["api-gateway"].YOUTUBE_WEBSUB_VERIFY_TOKEN;
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+      staging,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  for (const environmentName of ["staging", "production"]) {
+    const row = report.environments[environmentName].services[
+      "api-gateway"
+    ].variables.find(
+      (entry) => entry.variable === "YOUTUBE_WEBSUB_VERIFY_TOKEN",
+    );
+
+    assert.ok(row, `${environmentName} should model the verify token`);
+    assert.equal(row.required, true);
+    assert.equal(row.status, CROSS);
+    assert.match(row.summary, /Required variable is not set/);
+    assert.ok(row.checks.includes("required"));
+    assert.ok(
+      report.environments[environmentName].prioritizedFixes.some(
+        (finding) =>
+          finding.service === "api-gateway" &&
+          finding.variable === "YOUTUBE_WEBSUB_VERIFY_TOKEN" &&
+          finding.flag === "MISSING" &&
+          finding.priority ===
+            (environmentName === "production" ? "CRITICAL" : "HIGH"),
+      ),
+    );
+  }
+
+  assert.equal(hasBlockingFindings(report), true);
+});
+
 test("buildAuditReport keeps publishing-worker happy-path fixtures clean in staging and production", () => {
   const report = buildAuditReport({
     project: whitelist.project,

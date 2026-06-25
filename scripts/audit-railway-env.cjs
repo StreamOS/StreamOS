@@ -299,14 +299,19 @@ function runCommand(
     process.platform === "win32"
       ? resolveWindowsCommand(command, env)
       : command;
-  const needsWindowsShell =
+  const needsWindowsCommandProcessor =
     process.platform === "win32" && /\.(?:cmd|bat)$/i.test(resolvedCommand);
-  const result = spawnSync(resolvedCommand, args, {
+  const executable = needsWindowsCommandProcessor
+    ? process.env.ComSpec || "cmd.exe"
+    : resolvedCommand;
+  const executableArgs = needsWindowsCommandProcessor
+    ? ["/d", "/s", "/c", resolvedCommand, ...args]
+    : args;
+  const result = spawnSync(executable, executableArgs, {
     cwd,
     encoding: "utf8",
     env,
     input,
-    shell: needsWindowsShell,
     stdio: "pipe",
   });
 
@@ -353,12 +358,19 @@ function resolveWindowsCommand(command, env) {
     return command;
   }
 
-  return (
-    lookup.stdout
-      .split(/\r?\n/)
-      .map((entry) => entry.trim())
-      .find(Boolean) ?? command
+  return selectWindowsCommandCandidate(lookup.stdout, command);
+}
+
+function selectWindowsCommandCandidate(output, fallbackCommand) {
+  const candidates = output
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const executableCandidate = candidates.find((entry) =>
+    /\.(?:cmd|exe|bat)$/i.test(entry),
   );
+
+  return executableCandidate ?? candidates[0] ?? fallbackCommand;
 }
 
 function parseJsonOutput(output, description) {
@@ -1173,4 +1185,5 @@ module.exports = {
   printHelp,
   resolveProject,
   resolveRailwayToken,
+  selectWindowsCommandCandidate,
 };

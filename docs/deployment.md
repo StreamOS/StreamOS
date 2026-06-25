@@ -178,6 +178,7 @@ TWITCH_EVENTSUB_SECRET=
 YOUTUBE_CLIENT_ID=
 YOUTUBE_CLIENT_SECRET=
 YOUTUBE_WEBHOOK_SECRET=
+YOUTUBE_WEBSUB_VERIFY_TOKEN=
 TIKTOK_CLIENT_KEY=
 TIKTOK_CLIENT_SECRET=
 KICK_CLIENT_ID=
@@ -211,6 +212,8 @@ RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 
 `TWITCH_EVENTSUB_SECRET` accepts the compatibility alias `TWITCH_WEBHOOK_SECRET`.
 `YOUTUBE_WEBHOOK_SECRET` accepts the compatibility alias `YOUTUBE_WEBSUB_SECRET`.
+`YOUTUBE_WEBSUB_VERIFY_TOKEN` is required only on `api-gateway` for YouTube
+WebSub challenge verification.
 
 `REDIS_URL` is mandatory in production for the API gateway because
 observability, distributed rate limiting, and webhook replay protection must
@@ -234,6 +237,8 @@ Security model:
   secrets must stay in Railway, and provider tokens must never be proxied
   through browser code.
 - `API_GATEWAY_SECRET` and `STREAM_EVENT_WEBHOOK_SECRET` are mandatory when `NODE_ENV=production`; the service fails during startup if either is missing.
+- `YOUTUBE_WEBSUB_VERIFY_TOKEN` is mandatory when `NODE_ENV=production`; the
+  service fails during startup if it is missing.
 - `REDIS_URL` is mandatory when `NODE_ENV=production`; the gateway fails during startup if it is missing so observability, rate limiting, and replay protection cannot silently fall back to in-memory.
 - CORS allows only `API_GATEWAY_ALLOWED_ORIGINS`; server-to-server calls without an `Origin` header are allowed.
 - Rate limits are fixed-window per client IP, method, and URL. Start with `120` requests per `60000` ms and tighten per endpoint once production traffic is measured.
