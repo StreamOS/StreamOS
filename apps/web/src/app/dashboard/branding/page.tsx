@@ -5,10 +5,12 @@ import {
   type BrandingDashboardConsoleView,
 } from "@/components/modules/BrandingDashboardConsole";
 import {
+  BRANDING_DASHBOARD_ASSET_TYPE_OPTIONS,
   BRANDING_DASHBOARD_MAX_WINDOWS,
   BRANDING_DASHBOARD_METADATA_FILTERS,
   BRANDING_DASHBOARD_PREVIEW_FILTERS,
   BRANDING_DASHBOARD_SORT_OPTIONS,
+  BRANDING_DASHBOARD_STATUS_OPTIONS,
   buildBrandingDashboardViewModel,
   decodeBrandingDashboardCursorToken,
   type BrandingDashboardMetadataFilter,
@@ -27,8 +29,12 @@ export default async function BrandingPage({
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const parsedView = parseBrandingDashboardView(resolvedSearchParams);
   const model = await getBrandingDashboardData({
+    assetType: parsedView.assetType,
     cursor: parsedView.loadMoreCursor,
+    cursorServerFilters: parsedView.cursorServerFilters,
     cursorServerSort: parsedView.cursorServerSort,
+    serverSort: parsedView.sort,
+    status: parsedView.status,
     windowCount: parsedView.windowCount,
   });
   const uploadFeedback = resolveBrandingUploadFeedback(resolvedSearchParams);
@@ -52,7 +58,8 @@ function parseBrandingDashboardView(
   const windowCount = parseBrandingWindowCount(searchParams?.window);
 
   return {
-    assetType: readSingleSearchParam(searchParams?.assetType),
+    assetType: parseBrandingAssetType(searchParams?.assetType),
+    cursorServerFilters: decodedCursor.serverFilters,
     cursorServerSort: decodedCursor.serverSort,
     cursorToken: decodedCursor.cursor ? cursorToken : null,
     detailAssetId: readSingleSearchParam(searchParams?.asset),
@@ -60,7 +67,7 @@ function parseBrandingDashboardView(
     metadata: parseBrandingMetadataFilter(searchParams?.metadata),
     preview: parseBrandingPreviewFilter(searchParams?.preview),
     sort: parseBrandingSort(searchParams?.sort),
-    status: readSingleSearchParam(searchParams?.statusFilter),
+    status: parseBrandingStatus(searchParams?.statusFilter),
     windowCount: decodedCursor.cursor ? windowCount : 1,
   };
 }
@@ -204,4 +211,24 @@ function parseBrandingWindowCount(
   }
 
   return Math.min(parsed, BRANDING_DASHBOARD_MAX_WINDOWS);
+}
+
+function parseBrandingAssetType(
+  value: string | string[] | undefined,
+): string | null {
+  const candidate = readSingleSearchParam(value);
+
+  return BRANDING_DASHBOARD_ASSET_TYPE_OPTIONS.includes(candidate as never)
+    ? candidate
+    : null;
+}
+
+function parseBrandingStatus(
+  value: string | string[] | undefined,
+): string | null {
+  const candidate = readSingleSearchParam(value);
+
+  return BRANDING_DASHBOARD_STATUS_OPTIONS.includes(candidate as never)
+    ? candidate
+    : null;
 }

@@ -137,49 +137,38 @@ describe("BrandingPage", () => {
 
   it("applies read-only filters and detail selection from search params", async () => {
     mocks.getBrandingDashboardData.mockResolvedValue(
-      createReadyModel([
-        createAsset({
-          assetType: "logo",
-          createdAt: "2026-06-26T07:00:00.000Z",
-          id: "asset-1",
-          name: "Neon Logo",
-          preview: {
-            expiresAt: "2026-06-26T10:01:00.000Z",
-            reason: null,
-            status: "available",
-            url: "https://assets.local/preview-logo",
+      createReadyModel(
+        [
+          createAsset({
+            assetType: "logo",
+            createdAt: "2026-06-26T07:00:00.000Z",
+            id: "asset-1",
+            name: "Neon Logo",
+            preview: {
+              expiresAt: "2026-06-26T10:01:00.000Z",
+              reason: null,
+              status: "available",
+              url: "https://assets.local/preview-logo",
+            },
+            updatedAt: "2026-06-26T10:00:00.000Z",
+            uploadMetadata: {
+              contentType: "image/png",
+              fileExtension: "png",
+              fileSizeBytes: 1024,
+              status: "available",
+              storedFilename: "neon-logo.png",
+            },
+          }),
+        ],
+        [],
+        {
+          serverFilters: {
+            assetType: "logo",
+            status: "active",
           },
-          updatedAt: "2026-06-26T10:00:00.000Z",
-          uploadMetadata: {
-            contentType: "image/png",
-            fileExtension: "png",
-            fileSizeBytes: 1024,
-            status: "available",
-            storedFilename: "neon-logo.png",
-          },
-        }),
-        createAsset({
-          assetType: "overlay",
-          createdAt: "2026-06-26T09:00:00.000Z",
-          id: "asset-2",
-          name: "Fallback Overlay",
-          preview: {
-            expiresAt: null,
-            reason: "signing_failed",
-            status: "failed",
-            url: null,
-          },
-          status: "draft",
-          updatedAt: "2026-06-26T11:00:00.000Z",
-          uploadMetadata: {
-            contentType: "image/webp",
-            fileExtension: "webp",
-            fileSizeBytes: 4096,
-            status: "available",
-            storedFilename: "fallback-overlay.webp",
-          },
-        }),
-      ]),
+          serverSort: "created_desc",
+        },
+      ),
     );
 
     const html = renderToStaticMarkup(
@@ -199,14 +188,22 @@ describe("BrandingPage", () => {
       'Sortierung: <span class="font-semibold text-white">Zuletzt erstellt</span>',
     );
     expect(html).toContain(
-      'Zeige <span class="font-semibold text-white">1</span> von 2 Assets im Feed',
+      'Zeige <span class="font-semibold text-white">1</span> von 1 Assets im Feed',
     );
     expect(html).toContain("Neon Logo");
     expect(html).toContain('alt="Neon Logo preview"');
-    expect(html).not.toContain('alt="Fallback Overlay preview"');
     expect(html).not.toContain(
       "Passe Asset Type, Status, Preview oder Metadata-Filter an",
     );
+    expect(mocks.getBrandingDashboardData).toHaveBeenCalledWith({
+      assetType: "logo",
+      cursor: null,
+      cursorServerFilters: null,
+      cursorServerSort: null,
+      serverSort: "created_desc",
+      status: "active",
+      windowCount: 1,
+    });
   });
 
   it("renders a filtered empty state when the current feed has no matching assets", async () => {
@@ -246,6 +243,28 @@ describe("BrandingPage", () => {
     expect(html).toContain("Kein Detail verfuegbar");
   });
 
+  it("keeps a server-filtered empty state separate from the true empty dashboard state", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel([], [], {
+        serverFilters: {
+          assetType: "logo",
+          status: null,
+        },
+      }),
+    );
+
+    const html = renderToStaticMarkup(
+      await BrandingPage({
+        searchParams: Promise.resolve({
+          assetType: "logo",
+        }),
+      }),
+    );
+
+    expect(html).toContain("Keine Assets fuer aktuelle Filter");
+    expect(html).not.toContain("Noch keine Brand Assets");
+  });
+
   it("communicates loaded-sample scope when more assets exist outside the current feed window", async () => {
     mocks.getBrandingDashboardData.mockResolvedValue(
       createReadyModel(
@@ -260,10 +279,17 @@ describe("BrandingPage", () => {
           hasMore: true,
           limit: 12,
           nextCursor: {
+            assetType: null,
+            createdAt: null,
             id: "asset-1",
+            status: null,
             updatedAt: "2026-06-26T10:00:00.000Z",
           },
           returnedCount: 1,
+          serverFilters: {
+            assetType: null,
+            status: null,
+          },
           scope: "loaded_sample",
           serverSort: "updated_desc",
         },
@@ -274,10 +300,10 @@ describe("BrandingPage", () => {
 
     expect(html).toContain("Geladene Stichprobe");
     expect(html).toContain(
-      "Filter und Sortierung wirken aktuell nur auf 1 geladene Brand Assets",
+      "Serverseitige Asset-Type-/Status-Filter und die Sortierung Zuletzt aktualisiert wirken auf das aktuelle Query-Fenster mit 1 geladenen Brand Assets",
     );
     expect(html).toContain(
-      "Weitere Assets sind vorhanden; Explorer-Filter und Sortierung decken den Gesamtbestand noch nicht vollstaendig ab",
+      "Weitere Assets im selben Query-Kontext sind vorhanden und koennen ueber `Mehr laden` schrittweise nachgeladen werden",
     );
   });
 
@@ -309,10 +335,17 @@ describe("BrandingPage", () => {
           hasMore: true,
           limit: 12,
           nextCursor: {
+            assetType: null,
+            createdAt: null,
             id: "asset-12",
+            status: null,
             updatedAt: "2026-06-26T10:00:00.000Z",
           },
           returnedCount: 12,
+          serverFilters: {
+            assetType: null,
+            status: null,
+          },
           scope: "loaded_sample",
           serverSort: "updated_desc",
         },
@@ -388,8 +421,12 @@ describe("BrandingPage", () => {
       html.indexOf("Beta Asset"),
     );
     expect(mocks.getBrandingDashboardData).toHaveBeenCalledWith({
+      assetType: null,
       cursor: null,
+      cursorServerFilters: null,
       cursorServerSort: null,
+      serverSort: "updated_desc",
+      status: null,
       windowCount: 1,
     });
   });
@@ -415,8 +452,12 @@ describe("BrandingPage", () => {
 
     expect(html).toContain("Alpha Asset");
     expect(mocks.getBrandingDashboardData).toHaveBeenCalledWith({
+      assetType: null,
       cursor: null,
+      cursorServerFilters: null,
       cursorServerSort: null,
+      serverSort: "updated_desc",
+      status: null,
       windowCount: 1,
     });
     expect(html).not.toContain("window=99");
@@ -429,12 +470,6 @@ describe("BrandingPage", () => {
           assetType: "logo",
           id: "asset-1",
           name: "Visible Logo",
-        }),
-        createAsset({
-          assetType: "overlay",
-          id: "asset-2",
-          name: "Hidden Overlay",
-          status: "draft",
         }),
       ]),
     );
@@ -452,6 +487,15 @@ describe("BrandingPage", () => {
       "Das angeforderte Asset liegt nicht mehr im aktuell sichtbaren Feed",
     );
     expect(html).toContain("Visible Logo");
+    expect(mocks.getBrandingDashboardData).toHaveBeenCalledWith({
+      assetType: "logo",
+      cursor: null,
+      cursorServerFilters: null,
+      cursorServerSort: null,
+      serverSort: "updated_desc",
+      status: null,
+      windowCount: 1,
+    });
   });
 
   it("renders upload error feedback without exposing raw storage details", async () => {
@@ -644,6 +688,10 @@ function createReadyModel(
       limit: 12,
       nextCursor: null,
       returnedCount: items.length,
+      serverFilters: {
+        assetType: null,
+        status: null,
+      },
       scope: "full_result",
       serverSort: "updated_desc",
       ...feedOverrides,

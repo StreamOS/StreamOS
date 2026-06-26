@@ -34,7 +34,23 @@ export const BRANDING_DASHBOARD_FEED_SCOPES = [
   "full_result",
   "loaded_sample",
 ] as const;
-export const BRANDING_DASHBOARD_FEED_SERVER_SORTS = ["updated_desc"] as const;
+export const BRANDING_DASHBOARD_FEED_SERVER_SORTS = [
+  "updated_desc",
+  "created_desc",
+  "asset_type",
+  "status",
+] as const;
+export const BRANDING_DASHBOARD_PREVIEW_FILTERS = [
+  "all",
+  "available",
+  "unavailable",
+] as const;
+export const BRANDING_DASHBOARD_METADATA_FILTERS = [
+  "all",
+  "available",
+  "invalid",
+  "unavailable",
+] as const;
 
 export type BrandingDashboardLookupSource =
   (typeof BRANDING_DASHBOARD_LOOKUP_SOURCES)[number];
@@ -42,6 +58,10 @@ export type BrandingDashboardFeedScope =
   (typeof BRANDING_DASHBOARD_FEED_SCOPES)[number];
 export type BrandingDashboardFeedServerSort =
   (typeof BRANDING_DASHBOARD_FEED_SERVER_SORTS)[number];
+export type BrandingDashboardPreviewFilter =
+  (typeof BRANDING_DASHBOARD_PREVIEW_FILTERS)[number];
+export type BrandingDashboardMetadataFilter =
+  (typeof BRANDING_DASHBOARD_METADATA_FILTERS)[number];
 
 export type BrandingDashboardLookupIssue = {
   code: "load-failed";
@@ -119,8 +139,16 @@ export type BrandingDashboardDistributionItem = {
 };
 
 export type BrandingDashboardFeedCursor = {
+  assetType: string | null;
+  createdAt: string | null;
   id: string;
-  updatedAt: string;
+  status: string | null;
+  updatedAt: string | null;
+};
+
+export type BrandingDashboardFeedServerFilters = {
+  assetType: BrandAssetType | string | null;
+  status: BrandAssetStatus | string | null;
 };
 
 export type BrandingDashboardFeedMetadata = {
@@ -128,6 +156,7 @@ export type BrandingDashboardFeedMetadata = {
   limit: number;
   nextCursor: BrandingDashboardFeedCursor | null;
   returnedCount: number;
+  serverFilters: BrandingDashboardFeedServerFilters;
   scope: BrandingDashboardFeedScope;
   serverSort: BrandingDashboardFeedServerSort;
 };

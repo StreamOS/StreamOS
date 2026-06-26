@@ -1,8 +1,11 @@
 import type { Tables } from "@streamos/database";
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
+  type BrandAssetStatus,
+  type BrandAssetType,
   type BrandingDashboardAsset,
   type BrandingDashboardFeedCursor,
+  type BrandingDashboardFeedServerFilters,
   type BrandingDashboardFeedServerSort,
   type BrandingDashboardFeedMetadata,
   type BrandingDashboardLookupIssue,
@@ -44,14 +47,27 @@ type BrandAssetRow = Omit<
 type BrandingDashboardBaseAsset = Omit<BrandingDashboardAsset, "futureActions">;
 
 type ChannelRow = Pick<Tables<"channels">, "display_name" | "id" | "platform">;
+type BrandingDashboardServerQuery = {
+  assetType: BrandAssetType | null;
+  sort: BrandingDashboardFeedServerSort;
+  status: BrandAssetStatus | null;
+};
 
 export async function getBrandingDashboardData({
+  assetType = null,
   cursor = null,
+  cursorServerFilters = null,
   cursorServerSort = null,
+  serverSort = BRANDING_DASHBOARD_DEFAULT_SERVER_SORT,
+  status = null,
   windowCount = 1,
 }: {
+  assetType?: string | null;
   cursor?: BrandingDashboardFeedCursor | null;
+  cursorServerFilters?: BrandingDashboardFeedServerFilters | null;
   cursorServerSort?: BrandingDashboardFeedServerSort | null;
+  serverSort?: BrandingDashboardFeedServerSort;
+  status?: string | null;
   windowCount?: number;
 } = {}): Promise<BrandingDashboardModel> {
   if (!isSupabaseConfigured()) {
@@ -69,8 +85,14 @@ export async function getBrandingDashboardData({
   }
 
   const loadedWindows = await loadBrandingAssetWindows({
+    cursorServerFilters,
     cursor,
     cursorServerSort,
+    query: {
+      assetType: assetType as BrandAssetType | null,
+      sort: serverSort,
+      status: status as BrandAssetStatus | null,
+    },
     supabase,
     userId: userData.user.id,
     windowCount,
@@ -83,7 +105,14 @@ export async function getBrandingDashboardData({
   const visibleRows = loadedWindows.items;
 
   if (visibleRows.length === 0) {
-    return createEmptyBrandingDashboardModel(userData.user.id, "ready");
+    return createEmptyBrandingDashboardModel(userData.user.id, "ready", [], {
+      serverFilters: buildBrandingServerFilters({
+        assetType: assetType as BrandAssetType | null,
+        sort: serverSort,
+        status: status as BrandAssetStatus | null,
+      }),
+      serverSort,
+    });
   }
 
   const { channelsById, issues } = await loadChannels({
@@ -114,6 +143,7 @@ export async function getBrandingDashboardData({
       hasMore: loadedWindows.hasMore,
       lastVisibleRow: loadedWindows.lastVisibleRow,
       loadedCount: visibleRows.length,
+      query: loadedWindows.query,
     }),
     items: visibleRows.map((row) =>
       normalizeBrandAsset(
@@ -134,14 +164,18 @@ export async function getBrandingDashboardData({
 }
 
 async function loadBrandingAssetWindows({
+  cursorServerFilters,
   cursor,
   cursorServerSort,
+  query,
   supabase,
   userId,
   windowCount,
 }: {
+  cursorServerFilters: BrandingDashboardFeedServerFilters | null;
   cursor: BrandingDashboardFeedCursor | null;
   cursorServerSort: BrandingDashboardFeedServerSort | null;
+  query: BrandingDashboardServerQuery;
   supabase: Awaited<ReturnType<typeof createClient>>;
   userId: string;
   windowCount: number;
@@ -150,6 +184,7 @@ async function loadBrandingAssetWindows({
       hasMore: boolean;
       items: BrandAssetRow[];
       lastVisibleRow: BrandAssetRow | null;
+      query: BrandingDashboardServerQuery;
       state: "ready";
     }
   | {
@@ -157,7 +192,13 @@ async function loadBrandingAssetWindows({
     }
 > {
   const effectiveWindowCount =
-    cursor && cursorServerSort === BRANDING_DASHBOARD_DEFAULT_SERVER_SORT
+    cursor &&
+    isValidBrandingCursorForSort(cursor, query.sort) &&
+    cursorServerSort === query.sort &&
+    brandingServerFiltersEqual(
+      cursorServerFilters,
+      buildBrandingServerFilters(query),
+    )
       ? clampBrandingWindowCount(windowCount)
       : 1;
   const loadedRows: BrandAssetRow[] = [];
@@ -169,6 +210,7 @@ async function loadBrandingAssetWindows({
   while (currentWindow <= effectiveWindowCount) {
     lastWindow = await fetchBrandingAssetWindow({
       cursor: currentCursor,
+      query,
       supabase,
       userId,
     });
@@ -188,6 +230,7 @@ async function loadBrandingAssetWindows({
         hasMore: lastWindow.hasMore,
         items: loadedRows,
         lastVisibleRow: lastWindow.lastVisibleRow,
+        query,
         state: "ready",
       };
     }
@@ -197,8 +240,10 @@ async function loadBrandingAssetWindows({
       !brandingCursorEquals(lastWindow.nextCursor, cursor)
     ) {
       return await loadBrandingAssetWindows({
+        cursorServerFilters: null,
         cursor: null,
         cursorServerSort: null,
+        query,
         supabase,
         userId,
         windowCount: 1,
@@ -213,16 +258,19 @@ async function loadBrandingAssetWindows({
     hasMore: lastWindow?.hasMore ?? false,
     items: loadedRows,
     lastVisibleRow: lastWindow?.lastVisibleRow ?? null,
+    query,
     state: "ready",
   };
 }
 
 async function fetchBrandingAssetWindow({
   cursor,
+  query,
   supabase,
   userId,
 }: {
   cursor: BrandingDashboardFeedCursor | null;
+  query: BrandingDashboardServerQuery;
   supabase: Awaited<ReturnType<typeof createClient>>;
   userId: string;
 }): Promise<
@@ -237,22 +285,30 @@ async function fetchBrandingAssetWindow({
       state: "load-failed";
     }
 > {
-  let query = supabase
+  let request = supabase
     .from("brand_assets")
     .select(
       "asset_type,channel_id,created_at,description,id,metadata,name,status,storage_bucket,storage_path,updated_at",
     )
-    .eq("user_id", userId)
-    .order("updated_at", { ascending: false })
-    .order("id", { ascending: false });
+    .eq("user_id", userId);
 
-  if (cursor) {
-    query = query.or(
-      `updated_at.lt.${cursor.updatedAt},and(updated_at.eq.${cursor.updatedAt},id.lt.${cursor.id})`,
-    );
+  if (query.assetType) {
+    request = request.eq("asset_type", query.assetType);
   }
 
-  const { data, error } = await query.limit(BRANDING_DASHBOARD_ASSET_LIMIT + 1);
+  if (query.status) {
+    request = request.eq("status", query.status);
+  }
+
+  request = applyBrandingSortOrders(request, query.sort);
+
+  if (cursor && isValidBrandingCursorForSort(cursor, query.sort)) {
+    request = request.or(buildBrandingCursorFilter(cursor, query.sort));
+  }
+
+  const { data, error } = await request.limit(
+    BRANDING_DASHBOARD_ASSET_LIMIT + 1,
+  );
 
   if (error || !data) {
     return {
@@ -269,13 +325,9 @@ async function fetchBrandingAssetWindow({
     hasMore,
     items,
     lastVisibleRow,
-    nextCursor:
-      hasMore && lastVisibleRow
-        ? {
-            id: lastVisibleRow.id,
-            updatedAt: lastVisibleRow.updated_at,
-          }
-        : null,
+    nextCursor: hasMore
+      ? buildBrandingFeedCursor(lastVisibleRow, query.sort)
+      : null,
     state: "ready",
   };
 }
@@ -329,24 +381,23 @@ function buildBrandingDashboardFeedMetadata({
   hasMore,
   lastVisibleRow,
   loadedCount,
+  query,
 }: {
   hasMore: boolean;
   lastVisibleRow: BrandAssetRow | null;
   loadedCount: number;
+  query: BrandingDashboardServerQuery;
 }): BrandingDashboardFeedMetadata {
   return {
     hasMore,
     limit: BRANDING_DASHBOARD_ASSET_LIMIT,
-    nextCursor:
-      hasMore && lastVisibleRow
-        ? {
-            id: lastVisibleRow.id,
-            updatedAt: lastVisibleRow.updated_at,
-          }
-        : null,
+    nextCursor: hasMore
+      ? buildBrandingFeedCursor(lastVisibleRow, query.sort)
+      : null,
     returnedCount: loadedCount,
+    serverFilters: buildBrandingServerFilters(query),
     scope: hasMore ? "loaded_sample" : "full_result",
-    serverSort: "updated_desc" as const,
+    serverSort: query.sort,
   };
 }
 
@@ -354,7 +405,13 @@ function brandingCursorEquals(
   left: BrandingDashboardFeedCursor,
   right: BrandingDashboardFeedCursor,
 ): boolean {
-  return left.id === right.id && left.updatedAt === right.updatedAt;
+  return (
+    left.assetType === right.assetType &&
+    left.createdAt === right.createdAt &&
+    left.id === right.id &&
+    left.status === right.status &&
+    left.updatedAt === right.updatedAt
+  );
 }
 
 function clampBrandingWindowCount(value: number): number {
@@ -363,6 +420,109 @@ function clampBrandingWindowCount(value: number): number {
   }
 
   return Math.min(value, BRANDING_DASHBOARD_MAX_WINDOWS);
+}
+
+function buildBrandingServerFilters(
+  query: BrandingDashboardServerQuery,
+): BrandingDashboardFeedServerFilters {
+  return {
+    assetType: query.assetType,
+    status: query.status,
+  };
+}
+
+function brandingServerFiltersEqual(
+  left: BrandingDashboardFeedServerFilters | null,
+  right: BrandingDashboardFeedServerFilters,
+): boolean {
+  return (
+    (left?.assetType ?? null) === right.assetType &&
+    (left?.status ?? null) === right.status
+  );
+}
+
+function buildBrandingFeedCursor(
+  row: BrandAssetRow | null,
+  sort: BrandingDashboardFeedServerSort,
+): BrandingDashboardFeedCursor | null {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    assetType: sort === "asset_type" ? row.asset_type : null,
+    createdAt: sort === "created_desc" ? row.created_at : null,
+    id: row.id,
+    status: sort === "status" ? row.status : null,
+    updatedAt:
+      sort === "updated_desc" || sort === "asset_type" || sort === "status"
+        ? row.updated_at
+        : null,
+  };
+}
+
+function applyBrandingSortOrders<
+  TQuery extends {
+    order: (
+      column: string,
+      options?: {
+        ascending?: boolean;
+      },
+    ) => TQuery;
+  },
+>(request: TQuery, sort: BrandingDashboardFeedServerSort): TQuery {
+  switch (sort) {
+    case "asset_type":
+      return request
+        .order("asset_type", { ascending: true })
+        .order("updated_at", { ascending: false })
+        .order("id", { ascending: true });
+    case "created_desc":
+      return request
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true });
+    case "status":
+      return request
+        .order("status", { ascending: true })
+        .order("updated_at", { ascending: false })
+        .order("id", { ascending: true });
+    case "updated_desc":
+      return request
+        .order("updated_at", { ascending: false })
+        .order("id", { ascending: true });
+  }
+}
+
+function buildBrandingCursorFilter(
+  cursor: BrandingDashboardFeedCursor,
+  sort: BrandingDashboardFeedServerSort,
+): string {
+  switch (sort) {
+    case "asset_type":
+      return `asset_type.gt.${cursor.assetType},and(asset_type.eq.${cursor.assetType},updated_at.lt.${cursor.updatedAt}),and(asset_type.eq.${cursor.assetType},updated_at.eq.${cursor.updatedAt},id.gt.${cursor.id})`;
+    case "created_desc":
+      return `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.gt.${cursor.id})`;
+    case "status":
+      return `status.gt.${cursor.status},and(status.eq.${cursor.status},updated_at.lt.${cursor.updatedAt}),and(status.eq.${cursor.status},updated_at.eq.${cursor.updatedAt},id.gt.${cursor.id})`;
+    case "updated_desc":
+      return `updated_at.lt.${cursor.updatedAt},and(updated_at.eq.${cursor.updatedAt},id.gt.${cursor.id})`;
+  }
+}
+
+function isValidBrandingCursorForSort(
+  cursor: BrandingDashboardFeedCursor,
+  sort: BrandingDashboardFeedServerSort,
+): boolean {
+  switch (sort) {
+    case "asset_type":
+      return cursor.assetType !== null && cursor.updatedAt !== null;
+    case "created_desc":
+      return cursor.createdAt !== null;
+    case "status":
+      return cursor.status !== null && cursor.updatedAt !== null;
+    case "updated_desc":
+      return cursor.updatedAt !== null;
+  }
 }
 
 function normalizeBrandAsset(

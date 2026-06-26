@@ -53,6 +53,8 @@ export function BrandingDashboardConsole({
   const showPartialNotice = model.state === "ready" && hasLookupIssues;
   const hasData = model.items.length > 0;
   const hasVisibleItems = view.items.length > 0;
+  const hasAnyExplorerFilters =
+    view.feed.hasActiveClientFilters || view.feed.hasActiveServerFilters;
   const previewReadyCount = model.items.filter(
     (item) => item.preview.status === "available",
   ).length;
@@ -387,7 +389,7 @@ export function BrandingDashboardConsole({
             <p>
               Sortierung:{" "}
               <span className="font-semibold text-white">
-                {formatBrandingDashboardSortLabel(view.feed.activeSort)}
+                {formatBrandingDashboardSortLabel(view.feed.serverSort)}
               </span>
             </p>
             <p>
@@ -428,14 +430,23 @@ export function BrandingDashboardConsole({
               <EmptyState
                 title="Keine Assets fuer aktuelle Filter"
                 body={
-                  view.feed.scope === "loaded_sample"
-                    ? "Die aktuellen Filter wirken nur auf die geladene Branding-Stichprobe. Passe Filter an oder beachte, dass weitere aeltere Assets ausserhalb dieses Feed-Fensters existieren koennen."
-                    : "Passe Asset Type, Status, Preview oder Metadata-Filter an, um wieder Ergebnisse zu sehen."
+                  view.feed.hasActiveClientFilters
+                    ? "Preview- und Metadata-Filter wirken weiter nur auf das geladene Feed-Fenster. Passe diese Filter an oder lade weitere Assets nach."
+                    : "Passe Asset Type oder Status an, um wieder Ergebnisse zu sehen."
                 }
               />
             )
           ) : model.state !== "ready" ? (
             <StateEmptyState state={model.state} />
+          ) : hasAnyExplorerFilters ? (
+            <EmptyState
+              title="Keine Assets fuer aktuelle Filter"
+              body={
+                view.feed.hasActiveClientFilters
+                  ? "Die aktuellen Preview- oder Metadata-Filter wirken weiter auf das geladene Feed-Fenster. Loese diese Filter oder passe Asset Type bzw. Status an."
+                  : "Fuer die aktuelle serverseitige Asset-Type-/Status-Kombination sind keine Brand Assets vorhanden."
+              }
+            />
           ) : hasLookupIssues ? (
             <EmptyState
               title="Teilweise geladene Brand Assets"
@@ -494,22 +505,25 @@ function getTrustedUploadMetadataFields(
 }
 
 function ExplorerFeedNotice({ view }: { view: BrandingDashboardConsoleView }) {
-  const activeFilterSummary = formatBrandingActiveFilterSummary(view);
+  const serverFilterSummary = formatBrandingServerFilterSummary(view);
+  const clientFilterSummary = formatBrandingClientFilterSummary(view);
 
   return (
     <section className="rounded-lg border border-white/10 bg-surface-950/70 p-4 text-sm leading-6 text-slate-300">
       <p>
         {view.feed.scope === "loaded_sample"
-          ? `Filter und Sortierung wirken aktuell nur auf ${view.feed.returnedCount} geladene Brand Assets aus dem neuesten Feed-Fenster mit Limit ${view.feed.limit}.`
-          : `Filter und Sortierung wirken auf den aktuell vollstaendig geladenen Branding-Feed mit ${view.feed.returnedCount} Assets.`}
+          ? `Serverseitige Asset-Type-/Status-Filter und die Sortierung ${formatBrandingDashboardSortLabel(view.feed.serverSort)} wirken auf das aktuelle Query-Fenster mit ${view.feed.returnedCount} geladenen Brand Assets bei Limit ${view.feed.limit}.`
+          : `Serverseitige Asset-Type-/Status-Filter und die Sortierung ${formatBrandingDashboardSortLabel(view.feed.serverSort)} wirken auf den aktuell vollstaendig geladenen Branding-Feed mit ${view.feed.returnedCount} Assets.`}
       </p>
-      <p className="mt-2 text-xs text-slate-500">{activeFilterSummary}</p>
+      <p className="mt-2 text-xs text-slate-500">{serverFilterSummary}</p>
+      <p className="mt-2 text-xs text-slate-500">{clientFilterSummary}</p>
       <p className="mt-2 text-xs text-slate-500">
-        Serverseitig geladen wird aktuell nur die Sortierung{" "}
-        {formatBrandingDashboardSortLabel(view.feed.serverSort)}.
+        {view.feed.hasActiveClientFilters
+          ? "Preview- und Metadata-Filter bleiben clientseitige Fensterfilter und aendern den serverseitigen Cursor-Query nicht."
+          : "Alle aktuell aktiven Explorer-Filter werden serverseitig vom Cursor-Query respektiert."}
         {view.feed.scope === "loaded_sample" && view.feed.hasMore
-          ? " Weitere Assets existieren bereits; ueber den Cursor-Contract kann das Feed-Fenster schrittweise erweitert werden."
-          : " Zusaetzliche Explorer-Filter bleiben clientseitig und read-only."}
+          ? " Weitere Assets aus demselben serverseitigen Query-Kontext koennen schrittweise nachgeladen werden."
+          : ""}
       </p>
     </section>
   );
@@ -976,9 +990,9 @@ function FeedScopeNotice({ model }: { model: BrandingDashboardModel }) {
   return (
     <section className="rounded-lg border border-brand-500/20 bg-brand-500/10 p-4 text-sm text-brand-500">
       Diese Surface zeigt aktuell {model.feed.returnedCount} geladene Brand
-      Assets aus dem neuesten Feed-Fenster mit Limit {model.feed.limit}. Weitere
-      Assets sind vorhanden; Explorer-Filter und Sortierung decken den
-      Gesamtbestand noch nicht vollstaendig ab.
+      Assets aus dem aktiven serverseitigen Query-Fenster mit Limit{" "}
+      {model.feed.limit}. Weitere Assets im selben Query-Kontext sind vorhanden
+      und koennen ueber `Mehr laden` schrittweise nachgeladen werden.
     </section>
   );
 }
@@ -1143,6 +1157,7 @@ function buildBrandingLoadMoreHref(view: BrandingDashboardConsoleView): string {
     "cursor",
     encodeBrandingDashboardCursorToken({
       cursor: view.feed.nextCursor,
+      serverFilters: view.feed.serverFilters,
       serverSort: view.feed.serverSort,
     }),
   );
@@ -1191,27 +1206,40 @@ function appendBrandingExplorerParams(
   }
 }
 
-function formatBrandingActiveFilterSummary(
+function formatBrandingServerFilterSummary(
   view: BrandingDashboardConsoleView,
 ): string {
-  if (!view.feed.hasActiveFilters) {
-    return "Aktive Explorer-Filter: keine";
+  if (!view.feed.hasActiveServerFilters) {
+    return "Serverseitige Explorer-Filter: keine";
   }
 
   const entries = [
-    view.feed.activeFilters.assetType
-      ? `Asset Type ${formatBrandingAssetTypeLabel(view.feed.activeFilters.assetType)}`
+    view.feed.serverFilters.assetType
+      ? `Asset Type ${formatBrandingAssetTypeLabel(view.feed.serverFilters.assetType)}`
       : null,
-    view.feed.activeFilters.status
-      ? `Status ${formatBrandingAssetStatusLabel(view.feed.activeFilters.status)}`
-      : null,
-    view.feed.activeFilters.preview !== "all"
-      ? `Preview ${formatBrandingPreviewFilterLabel(view.feed.activeFilters.preview)}`
-      : null,
-    view.feed.activeFilters.metadata !== "all"
-      ? `Metadata ${formatBrandingMetadataFilterLabel(view.feed.activeFilters.metadata)}`
+    view.feed.serverFilters.status
+      ? `Status ${formatBrandingAssetStatusLabel(view.feed.serverFilters.status)}`
       : null,
   ].filter((entry): entry is string => entry !== null);
 
-  return `Aktive Explorer-Filter: ${entries.join(", ")}`;
+  return `Serverseitige Explorer-Filter: ${entries.join(", ")}`;
+}
+
+function formatBrandingClientFilterSummary(
+  view: BrandingDashboardConsoleView,
+): string {
+  if (!view.feed.hasActiveClientFilters) {
+    return "Clientseitige Fensterfilter: keine";
+  }
+
+  const entries = [
+    view.feed.clientFilters.preview !== "all"
+      ? formatBrandingPreviewFilterLabel(view.feed.clientFilters.preview)
+      : null,
+    view.feed.clientFilters.metadata !== "all"
+      ? formatBrandingMetadataFilterLabel(view.feed.clientFilters.metadata)
+      : null,
+  ].filter((entry): entry is string => entry !== null);
+
+  return `Clientseitige Fensterfilter: ${entries.join(", ")}`;
 }

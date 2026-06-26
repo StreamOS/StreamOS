@@ -6,9 +6,11 @@ import {
   BRANDING_DASHBOARD_FEED_SCOPES,
   BRANDING_DASHBOARD_FEED_SERVER_SORTS,
   BRANDING_DASHBOARD_LOOKUP_SOURCES,
+  BRANDING_DASHBOARD_METADATA_FILTERS,
   BRANDING_DASHBOARD_MUTATION_ACTIONS,
   BRANDING_DASHBOARD_MUTATION_BLOCK_REASONS,
   BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS,
+  BRANDING_DASHBOARD_PREVIEW_FILTERS,
   BRANDING_DASHBOARD_UPLOAD_ALLOWED_EXTENSIONS,
   BRANDING_DASHBOARD_UPLOAD_ALLOWED_MIME_TYPES,
   BRANDING_DASHBOARD_UPLOAD_MAX_FILE_SIZE_BYTES,
@@ -28,6 +30,10 @@ const sampleReadModel = {
     limit: BRANDING_DASHBOARD_ASSET_LIMIT,
     nextCursor: null,
     returnedCount: 2,
+    serverFilters: {
+      assetType: null,
+      status: null,
+    },
     scope: "full_result",
     serverSort: "updated_desc",
   },
@@ -178,7 +184,23 @@ void test("branding dashboard contract keeps the feed and lookup enums stable", 
     "full_result",
     "loaded_sample",
   ]);
-  assert.deepEqual(BRANDING_DASHBOARD_FEED_SERVER_SORTS, ["updated_desc"]);
+  assert.deepEqual(BRANDING_DASHBOARD_FEED_SERVER_SORTS, [
+    "updated_desc",
+    "created_desc",
+    "asset_type",
+    "status",
+  ]);
+  assert.deepEqual(BRANDING_DASHBOARD_PREVIEW_FILTERS, [
+    "all",
+    "available",
+    "unavailable",
+  ]);
+  assert.deepEqual(BRANDING_DASHBOARD_METADATA_FILTERS, [
+    "all",
+    "available",
+    "invalid",
+    "unavailable",
+  ]);
 });
 
 void test("branding dashboard read model stays read-only and tolerant of unknown asset types", () => {
@@ -186,6 +208,10 @@ void test("branding dashboard read model stays read-only and tolerant of unknown
   assert.equal(sampleReadModel.feed.scope, "full_result");
   assert.equal(sampleReadModel.feed.serverSort, "updated_desc");
   assert.equal(sampleReadModel.feed.nextCursor, null);
+  assert.deepEqual(sampleReadModel.feed.serverFilters, {
+    assetType: null,
+    status: null,
+  });
   assert.equal(sampleReadModel.items[0]?.storageState, "attached");
   assert.equal(sampleReadModel.items[0]?.futureActions[0]?.available, false);
   assert.equal(sampleReadModel.items[0]?.preview.status, "available");
