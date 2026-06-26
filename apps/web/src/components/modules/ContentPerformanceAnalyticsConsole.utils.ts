@@ -55,25 +55,32 @@ export type ContentPerformanceAnalyticsLookupTables = {
   platformConnections: PlatformConnectionRow[];
 };
 
+export type ContentPerformanceAnalyticsDashboardState =
+  | "auth-failed"
+  | "disabled"
+  | "load-failed"
+  | "ready"
+  | "unauthorized";
+
 export type ContentPerformanceAnalyticsDashboardModel =
   ContentPerformanceReadModel & {
-    error: "load-failed" | null;
+    state: ContentPerformanceAnalyticsDashboardState;
     userId: string | null;
   };
 
 export function buildContentPerformanceAnalyticsDashboardModel({
-  error,
   feed,
   lookupIssues,
   lookups,
   publications,
+  state,
   userId,
 }: {
-  error: "load-failed" | null;
   feed: Omit<ContentPerformanceFeedMetadata, "returnedCount">;
   lookupIssues: ContentPerformanceLookupIssue[];
   lookups: ContentPerformanceAnalyticsLookupTables;
   publications: PublicationRow[];
+  state: ContentPerformanceAnalyticsDashboardState;
   userId: string | null;
 }): ContentPerformanceAnalyticsDashboardModel {
   const channelsById = new Map(lookups.channels.map((row) => [row.id, row]));
@@ -147,7 +154,6 @@ export function buildContentPerformanceAnalyticsDashboardModel({
 
   return {
     coverage,
-    error,
     feed: {
       ...feed,
       hasMore,
@@ -156,6 +162,7 @@ export function buildContentPerformanceAnalyticsDashboardModel({
     items,
     lookupIssues,
     platformComparison,
+    state,
     summary,
     userId,
   };
@@ -163,7 +170,7 @@ export function buildContentPerformanceAnalyticsDashboardModel({
 
 export function createEmptyContentPerformanceAnalyticsDashboardModel(
   userId: string | null,
-  error: "load-failed" | null = null,
+  state: ContentPerformanceAnalyticsDashboardState = "ready",
   lookupIssues: ContentPerformanceLookupIssue[] = [],
 ): ContentPerformanceAnalyticsDashboardModel {
   return {
@@ -177,7 +184,6 @@ export function createEmptyContentPerformanceAnalyticsDashboardModel(
       publishedPublications: 0,
       scheduledPublications: 0,
     },
-    error,
     feed: {
       hasMore: false,
       limit: CONTENT_PERFORMANCE_ANALYTICS_FEED_LIMIT,
@@ -186,6 +192,7 @@ export function createEmptyContentPerformanceAnalyticsDashboardModel(
     items: [],
     lookupIssues,
     platformComparison: [],
+    state,
     summary: {
       averageEngagementRate: unavailableMetric(),
       itemCount: 0,
@@ -450,12 +457,7 @@ function buildPlatformComparison(
         platformItems.map((item) => item.watchTimeMinutes),
       ),
     }))
-    .sort((left, right) =>
-      compareDescending(
-        left.latestSnapshotAt ?? left.platform,
-        right.latestSnapshotAt ?? right.platform,
-      ),
-    );
+    .sort(comparePlatformComparison);
 }
 
 function buildCoverage(
@@ -621,6 +623,25 @@ function compareDescending(left: string, right: string): number {
   }
 
   return rightTime - leftTime;
+}
+
+function comparePlatformComparison(
+  left: ContentPerformancePlatformComparison,
+  right: ContentPerformancePlatformComparison,
+): number {
+  if (left.latestSnapshotAt && right.latestSnapshotAt) {
+    return compareDescending(left.latestSnapshotAt, right.latestSnapshotAt);
+  }
+
+  if (left.latestSnapshotAt) {
+    return -1;
+  }
+
+  if (right.latestSnapshotAt) {
+    return 1;
+  }
+
+  return left.platform.localeCompare(right.platform);
 }
 
 function countUnique(values: Array<string | StreamPlatform | null>): number {

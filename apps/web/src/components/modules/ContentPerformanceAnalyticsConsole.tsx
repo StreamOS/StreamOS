@@ -28,12 +28,16 @@ export function ContentPerformanceAnalyticsConsole({
 }: ContentPerformanceAnalyticsConsoleProps) {
   const hasLookupIssues = model.lookupIssues.length > 0;
   const hasData = model.items.length > 0 || model.platformComparison.length > 0;
+  const showPartialLoadNotice = model.state === "ready" && hasLookupIssues;
 
   return (
     <div className="space-y-6">
-      {model.error === "load-failed" && <LoadFailedNotice />}
+      {model.state === "disabled" && <SurfaceDisabledNotice />}
+      {model.state === "unauthorized" && <UnauthorizedNotice />}
+      {model.state === "auth-failed" && <AuthFailedNotice />}
+      {model.state === "load-failed" && <LoadFailedNotice />}
       {model.feed.hasMore && <FeedScopeNotice model={model} />}
-      {hasLookupIssues && <PartialLoadNotice />}
+      {showPartialLoadNotice && <PartialLoadNotice />}
 
       <header className="grid gap-6 rounded-lg border border-white/10 bg-surface-900/85 p-6 shadow-[0_22px_70px_rgba(0,0,0,0.42)] xl:grid-cols-[minmax(0,1fr)_360px]">
         <div>
@@ -126,34 +130,32 @@ export function ContentPerformanceAnalyticsConsole({
         />
       </section>
 
-      {model.summary.averageEngagementRate.availability === "available" && (
-        <section className="grid gap-4 md:grid-cols-3">
-          <StatCard
-            icon={BarChart3}
-            label="Average Engagement"
-            tone="emerald"
-            trend="sample average"
-            value={formatContentPerformanceMetric(
-              model.summary.averageEngagementRate,
-              "percent",
-            )}
-          />
-          <StatCard
-            icon={Layers3}
-            label="Publication Only"
-            tone="violet"
-            trend="ohne Metrics-Match"
-            value={String(model.summary.publicationOnlyCount)}
-          />
-          <StatCard
-            icon={RadioTower}
-            label="Metrics Only"
-            tone="amber"
-            trend="ohne Publication-Link"
-            value={String(model.summary.metricsOnlyCount)}
-          />
-        </section>
-      )}
+      <section className="grid gap-4 md:grid-cols-3">
+        <StatCard
+          icon={BarChart3}
+          label="Average Engagement"
+          tone="emerald"
+          trend="sample average"
+          value={formatContentPerformanceMetric(
+            model.summary.averageEngagementRate,
+            "percent",
+          )}
+        />
+        <StatCard
+          icon={Layers3}
+          label="Publication Only"
+          tone="violet"
+          trend="ohne Metrics-Match"
+          value={String(model.summary.publicationOnlyCount)}
+        />
+        <StatCard
+          icon={RadioTower}
+          label="Metrics Only"
+          tone="amber"
+          trend="ohne Publication-Link"
+          value={String(model.summary.metricsOnlyCount)}
+        />
+      </section>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.3fr)]">
         <article className="card space-y-4">
@@ -220,6 +222,8 @@ export function ContentPerformanceAnalyticsConsole({
                 </article>
               ))}
             </div>
+          ) : model.state !== "ready" ? (
+            <StateEmptyState state={model.state} />
           ) : hasLookupIssues ? (
             <PartialState />
           ) : (
@@ -315,6 +319,8 @@ export function ContentPerformanceAnalyticsConsole({
                 </article>
               ))}
             </div>
+          ) : model.state !== "ready" ? (
+            <StateEmptyState state={model.state} />
           ) : hasLookupIssues ? (
             <PartialState />
           ) : hasData ? null : (
@@ -379,6 +385,33 @@ function PartialLoadNotice() {
   );
 }
 
+function SurfaceDisabledNotice() {
+  return (
+    <section className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
+      Diese Analytics-Surface ist in dieser Laufzeit deaktiviert, weil die
+      Supabase-Konfiguration nicht verfuegbar ist.
+    </section>
+  );
+}
+
+function UnauthorizedNotice() {
+  return (
+    <section className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
+      Melde dich mit einer gueltigen Dashboard-Session an, bevor du
+      Content-Performance-Analytics laedst.
+    </section>
+  );
+}
+
+function AuthFailedNotice() {
+  return (
+    <section className="rounded-lg border border-signal-red/30 bg-signal-red/10 p-4 text-sm text-signal-red">
+      Die Dashboard-Session konnte nicht geladen werden. Analytics bleiben
+      deshalb leer, bis die Auth-Abfrage wieder erfolgreich ist.
+    </section>
+  );
+}
+
 function LoadFailedNotice() {
   return (
     <section className="rounded-lg border border-signal-red/30 bg-signal-red/10 p-4 text-sm text-signal-red">
@@ -386,6 +419,50 @@ function LoadFailedNotice() {
       Analytics-Surface bleibt read-only und zeigt keine irrefuehrenden
       Fallback-Daten.
     </section>
+  );
+}
+
+function StateEmptyState({
+  state,
+}: {
+  state: ContentPerformanceAnalyticsDashboardModel["state"];
+}) {
+  if (state === "disabled") {
+    return (
+      <EmptyState
+        title="Analytics-Surface ist deaktiviert"
+        body="Die erforderliche Supabase-Konfiguration fehlt in dieser Laufzeit. StreamOS zeigt deshalb bewusst keinen normalen Empty State."
+        tone="warning"
+      />
+    );
+  }
+
+  if (state === "unauthorized") {
+    return (
+      <EmptyState
+        title="Dashboard-Session erforderlich"
+        body="Diese read-only Surface rendert nur fuer angemeldete Nutzerinnen und Nutzer. Ohne Session werden keine Content-Performance-Daten geladen."
+        tone="warning"
+      />
+    );
+  }
+
+  if (state === "auth-failed") {
+    return (
+      <EmptyState
+        title="Session konnte nicht geladen werden"
+        body="Die Auth-Pruefung ist fehlgeschlagen. Die Surface bleibt konservativ leer, statt einen erfolgreichen Datenabruf vorzutaeuschen."
+        tone="warning"
+      />
+    );
+  }
+
+  return (
+    <EmptyState
+      title="Content-Performance konnte nicht geladen werden"
+      body="Publications und Metrics-Snapshots haben keine belastbaren Daten geliefert. Die Surface ersetzt diesen Totalausfall nicht durch einen stillen Empty State."
+      tone="warning"
+    />
   );
 }
 

@@ -7,7 +7,6 @@ import {
 describe("ContentPerformanceAnalyticsConsole.utils", () => {
   it("builds linked publication performance with platform comparison", () => {
     const model = buildContentPerformanceAnalyticsDashboardModel({
-      error: null,
       feed: {
         hasMore: false,
         limit: 12,
@@ -77,6 +76,7 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
           updated_at: "2026-06-25T10:05:00.000Z",
         },
       ],
+      state: "ready",
       userId: "user-1",
     });
 
@@ -92,7 +92,6 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
 
   it("keeps publications without metrics explicit instead of fabricating performance", () => {
     const model = buildContentPerformanceAnalyticsDashboardModel({
-      error: null,
       feed: {
         hasMore: false,
         limit: 12,
@@ -119,6 +118,7 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
           updated_at: "2026-06-25T11:05:00.000Z",
         },
       ],
+      state: "ready",
       userId: "user-2",
     });
 
@@ -132,7 +132,6 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
 
   it("keeps metrics without publication links visible as metrics-only rows", () => {
     const model = buildContentPerformanceAnalyticsDashboardModel({
-      error: null,
       feed: {
         hasMore: false,
         limit: 12,
@@ -161,6 +160,7 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
         platformConnections: [],
       },
       publications: [],
+      state: "ready",
       userId: "user-3",
     });
 
@@ -175,7 +175,7 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
   it("preserves partial-load metadata on an empty model", () => {
     const model = createEmptyContentPerformanceAnalyticsDashboardModel(
       "user-4",
-      null,
+      "ready",
       [
         {
           code: "load-failed",
@@ -184,7 +184,7 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
       ],
     );
 
-    expect(model.error).toBeNull();
+    expect(model.state).toBe("ready");
     expect(model.items).toHaveLength(0);
     expect(model.lookupIssues).toHaveLength(1);
     expect(model.lookupIssues[0]?.source).toBe("metricsSnapshots");
@@ -202,7 +202,6 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
     }));
 
     const model = buildContentPerformanceAnalyticsDashboardModel({
-      error: null,
       feed: {
         hasMore: false,
         limit: 12,
@@ -215,11 +214,100 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
         platformConnections: [],
       },
       publications: [],
+      state: "ready",
       userId: "user-5",
     });
 
     expect(model.feed.hasMore).toBe(true);
     expect(model.feed.returnedCount).toBe(12);
     expect(model.items).toHaveLength(12);
+  });
+
+  it("sorts platform comparison with dated snapshots first and undated platforms alphabetically", () => {
+    const model = buildContentPerformanceAnalyticsDashboardModel({
+      feed: {
+        hasMore: false,
+        limit: 12,
+      },
+      lookupIssues: [],
+      lookups: {
+        channels: [
+          {
+            display_name: "NovaPlays Live",
+            id: "channel-1",
+            platform: "youtube",
+          },
+        ],
+        contentJobs: [],
+        metricsSnapshots: [
+          {
+            captured_at: "2026-06-25T12:00:00.000Z",
+            channel_id: "channel-1",
+            engagement_rate: 4.2,
+            id: "metric-1",
+            platform: "youtube",
+            viewer_count: 8000,
+            watch_time_minutes: 300,
+          },
+        ],
+        platformConnections: [
+          {
+            channel_id: "channel-1",
+            id: "connection-1",
+            platform: "youtube",
+            status: "connected",
+          },
+        ],
+      },
+      publications: [
+        {
+          content_job_id: null,
+          created_at: "2026-06-25T10:00:00.000Z",
+          id: "publication-1",
+          platform_connection_id: null,
+          publication_status: "queued",
+          published_at: null,
+          requested_at: "2026-06-25T10:00:00.000Z",
+          schedule_status: null,
+          scheduled_at_utc: null,
+          target_platform: "kick",
+          updated_at: "2026-06-25T10:05:00.000Z",
+        },
+        {
+          content_job_id: null,
+          created_at: "2026-06-25T09:00:00.000Z",
+          id: "publication-2",
+          platform_connection_id: null,
+          publication_status: "queued",
+          published_at: null,
+          requested_at: "2026-06-25T09:00:00.000Z",
+          schedule_status: null,
+          scheduled_at_utc: null,
+          target_platform: "tiktok",
+          updated_at: "2026-06-25T09:05:00.000Z",
+        },
+        {
+          content_job_id: null,
+          created_at: "2026-06-25T11:30:00.000Z",
+          id: "publication-3",
+          platform_connection_id: "connection-1",
+          publication_status: "published",
+          published_at: "2026-06-25T11:00:00.000Z",
+          requested_at: "2026-06-25T10:30:00.000Z",
+          schedule_status: "completed",
+          scheduled_at_utc: null,
+          target_platform: "youtube",
+          updated_at: "2026-06-25T11:05:00.000Z",
+        },
+      ],
+      state: "ready",
+      userId: "user-6",
+    });
+
+    expect(model.platformComparison.map((item) => item.platform)).toEqual([
+      "youtube",
+      "kick",
+      "tiktok",
+    ]);
   });
 });

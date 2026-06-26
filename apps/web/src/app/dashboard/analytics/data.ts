@@ -37,14 +37,20 @@ type PlatformConnectionRow =
 
 export async function getContentPerformanceAnalyticsDashboardData(): Promise<ContentPerformanceAnalyticsDashboardModel> {
   if (!isSupabaseConfigured()) {
-    return createEmptyContentPerformanceAnalyticsDashboardModel(null);
+    return createEmptyContentPerformanceAnalyticsDashboardModel(
+      null,
+      "disabled",
+    );
   }
 
   const supabase = await createClient();
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
   if (userError || !userData.user) {
-    return createEmptyContentPerformanceAnalyticsDashboardModel(null);
+    return createEmptyContentPerformanceAnalyticsDashboardModel(
+      null,
+      userError ? "auth-failed" : "unauthorized",
+    );
   }
 
   const [publicationsResult, metricsSnapshotsResult] = await Promise.all([
@@ -98,7 +104,6 @@ export async function getContentPerformanceAnalyticsDashboardData(): Promise<Con
   });
 
   return buildContentPerformanceAnalyticsDashboardModel({
-    error: null,
     feed: {
       hasMore:
         publications.rows.length > CONTENT_PERFORMANCE_ANALYTICS_FEED_LIMIT ||
@@ -108,6 +113,7 @@ export async function getContentPerformanceAnalyticsDashboardData(): Promise<Con
     lookupIssues: [...lookupIssues, ...lookups.issues],
     lookups: lookups.tables,
     publications: publications.rows,
+    state: "ready",
     userId: userData.user.id,
   });
 }

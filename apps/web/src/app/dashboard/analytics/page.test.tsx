@@ -36,7 +36,6 @@ describe("AnalyticsPage", () => {
 
   it("renders linked analytics items and partial-load warnings together", async () => {
     const model = buildContentPerformanceAnalyticsDashboardModel({
-      error: null,
       feed: {
         hasMore: true,
         limit: 12,
@@ -111,6 +110,7 @@ describe("AnalyticsPage", () => {
           updated_at: "2026-06-25T10:05:00.000Z",
         },
       ],
+      state: "ready",
       userId: "user-1",
     });
 
@@ -127,5 +127,88 @@ describe("AnalyticsPage", () => {
     expect(html).toContain("Published");
     expect(html).toContain("18.400");
     expect(html).toContain("7,8%");
+  });
+
+  it("renders a hard load failure without the partial-load notice", async () => {
+    mocks.getContentPerformanceAnalyticsDashboardData.mockResolvedValue(
+      createEmptyContentPerformanceAnalyticsDashboardModel(
+        "user-2",
+        "load-failed",
+        [
+          {
+            code: "load-failed",
+            source: "publications",
+          },
+        ],
+      ),
+    );
+
+    const html = renderToStaticMarkup(await AnalyticsPage());
+
+    expect(html).toContain(
+      "Publications und Metrics-Snapshots konnten nicht geladen werden",
+    );
+    expect(html).toContain("Content-Performance konnte nicht geladen werden");
+    expect(html).not.toContain(
+      "Einige Read- oder Lookup-Quellen konnten nicht geladen werden",
+    );
+  });
+
+  it("keeps the coverage stats visible when engagement is unavailable", async () => {
+    const model = buildContentPerformanceAnalyticsDashboardModel({
+      feed: {
+        hasMore: false,
+        limit: 12,
+      },
+      lookupIssues: [],
+      lookups: {
+        channels: [
+          {
+            display_name: "NightShift",
+            id: "channel-2",
+            platform: "twitch",
+          },
+        ],
+        contentJobs: [],
+        metricsSnapshots: [
+          {
+            captured_at: "2026-06-25T08:00:00.000Z",
+            channel_id: "channel-2",
+            engagement_rate: null,
+            id: "metric-2",
+            platform: "twitch",
+            viewer_count: 3400,
+            watch_time_minutes: 1250,
+          },
+        ],
+        platformConnections: [],
+      },
+      publications: [],
+      state: "ready",
+      userId: "user-3",
+    });
+
+    mocks.getContentPerformanceAnalyticsDashboardData.mockResolvedValue(model);
+
+    const html = renderToStaticMarkup(await AnalyticsPage());
+
+    expect(html).toContain("Average Engagement");
+    expect(html).toContain("Unavailable");
+    expect(html).toContain("Publication Only");
+    expect(html).toContain("Metrics Only");
+  });
+
+  it("renders a distinct unauthorized state instead of the generic empty state", async () => {
+    mocks.getContentPerformanceAnalyticsDashboardData.mockResolvedValue(
+      createEmptyContentPerformanceAnalyticsDashboardModel(
+        null,
+        "unauthorized",
+      ),
+    );
+
+    const html = renderToStaticMarkup(await AnalyticsPage());
+
+    expect(html).toContain("Dashboard-Session erforderlich");
+    expect(html).not.toContain("Noch keine Content-Performance-Daten");
   });
 });
