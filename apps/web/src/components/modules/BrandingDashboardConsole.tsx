@@ -791,6 +791,7 @@ function AssetDetailPanel({
         </p>
         {item.preview.status === "available" && item.preview.url ? (
           <div className="mt-3 space-y-3">
+            {/* eslint-disable-next-line @next/next/no-img-element -- signed preview URLs are short-lived and intentionally bypass image optimization */}
             <img
               alt={`${item.name} preview`}
               className="max-h-80 w-full rounded-lg border border-white/10 bg-surface-950 object-contain"
