@@ -7,18 +7,20 @@
 Der Branding MVP kann repo-seitig geschlossen werden. Die aktive Route
 `/dashboard/branding` nutzt den aktuellen Read-/Preview-/Upload-/Explorer-
 Contract, Delete/Replace/Orphan Cleanup bleiben deaktivierte Future-Contracts,
-und die lokalen Branding-Regressionen sind ueber Types-, Data-, Actions- und
-Page-Tests abgesichert.
+und die finalen Branding-Regressionen aus P5.10 sind ueber Types-, Data-,
+Actions-, Page- und Utils-Tests abgesichert. P5.10 erweitert den Explorer um
+serverseitige DB-basierte Filter-/Sort-Pagination; nur `preview` und
+`metadata` bleiben bewusst clientseitige Fensterfilter.
 
 Dieser Closeout ist reine Repo- und lokale Test-Evidence. Es wurden keine neuen
-Features, keine Code-Fixes, keine Mutationen, keine Storage-/Policy-/DB-
-Aenderungen, keine Deployments und keine Secret-Aenderungen ausgefuehrt.
+Mutationen, keine Storage-/Policy-/DB-Aenderungen, keine Deployments und keine
+Secret-Aenderungen ausgefuehrt.
 
 ## 2. Repo-Status
 
 - Branch: `codex/p5-5-branding-metadata-hardening`
-- HEAD SHA: `7902e679fbffeaee6c54beee6a8ad60584dfca6a`
-- Worktree clean vor Report-Erstellung: ja
+- HEAD SHA: `9d218d274c14a3963253cab25ca4ee81830e17a8`
+- Worktree clean vor Report-Aktualisierung: ja
 - Report-Diff: nur diese Dokumentationsdatei
 - Empfehlung: Branding MVP kann mit dokumentierten Warnings geschlossen werden
 
@@ -85,13 +87,24 @@ Aenderungen, keine Deployments und keine Secret-Aenderungen ausgefuehrt.
 - Filter, Sortierung und Detailpanel sind aktiv
 - Detail-Fallback bleibt stabil, wenn das angeforderte Asset nicht im
   sichtbaren Feed liegt
+- Explorer-Card-Highlight folgt dem tatsaechlich ausgewaehlten Detail-Asset
 - Metadata, Preview und Future-Actions werden explizit angezeigt
+
+### P5.10 Server-Side Filter / Sort Pagination
+
+- serverseitige Filter: `assetType`, `status`
+- serverseitige Sortierungen: `updated_desc`, `created_desc`, `asset_type`,
+  `status`
+- Cursor ist an `serverFilters` und `serverSort` gebunden
+- ungueltige oder unpassende Cursor fallen sicher auf Fenster 1 zurueck
+- `preview` und `metadata` bleiben bewusst clientseitige Fensterfilter
 
 ### Feed Scope / Cursor / Load More
 
-- Feed-Contract mit `scope`, `hasMore`, `nextCursor`, `serverSort`
+- Feed-Contract mit `scope`, `hasMore`, `nextCursor`, `serverFilters`,
+  `serverSort`
 - SSR-`Mehr laden` ueber cursor-basiertes Feed-Fenster
-- Cursor bleibt secret-safe und sortierungsgebunden
+- Cursor bleibt secret-safe, sortierungs- und filtergebunden
 - Geladene Fenster werden kumulativ erweitert, ohne Duplikate
 
 ## 4. Aktive Datenquellen und Contracts
@@ -109,7 +122,8 @@ Aenderungen, keine Deployments und keine Secret-Aenderungen ausgefuehrt.
 - Preview metadata:
   `status`, `reason`, `expiresAt`, `url`
 - Feed metadata:
-  `limit`, `returnedCount`, `hasMore`, `scope`, `nextCursor`, `serverSort`
+  `limit`, `returnedCount`, `hasMore`, `scope`, `nextCursor`,
+  `serverFilters`, `serverSort`
 - Mutation future contract:
   `replace`, `delete`, `orphan_cleanup`
 
@@ -145,8 +159,8 @@ Aenderungen, keine Deployments und keine Secret-Aenderungen ausgefuehrt.
 - Empty-/Load-Failed-/Auth-/Partial-States sind getrennt
 - `Mehr laden` ist vorhanden, wenn `hasMore` und `nextCursor` vorliegen
 - Sample-/loaded-window-Copy macht den begrenzten Feed-Scope explizit
-- Filter und alternative Sortierungen wirken weiter auf das geladene Fenster,
-  nicht auf den Gesamtbestand
+- DB-basierte Filter und Sortierungen wirken serverseitig auf den Feed-Query
+- nur `preview` und `metadata` bleiben fensterlokale Client-Filter
 
 ## 7. Test- und Contract-Evidence
 
@@ -166,9 +180,11 @@ Diese Tests decken insbesondere ab:
 - fehlende `public_url`-Nutzung
 - tenant-sichere Storage-Handhabung
 - disabled Future-Actions
-- Feed-Scope und Cursor-Metadaten
+- Feed-Scope, `serverFilters`, `serverSort` und Cursor-Metadaten
 - `Mehr laden`-UX und Cursor-Normalisierung
 - fehlende Duplikate bei cursor-basierter Fenstererweiterung
+- URL-getriebenen Filter-/Sort-State auch in Empty/Error/Auth-Modellen
+- Explorer-Highlight fuer das tatsaechlich ausgewaehlte Detail-Asset
 
 ## 8. Validierung
 
@@ -176,28 +192,26 @@ Ausgefuehrte lokale Validierung:
 
 - `pnpm --filter @streamos/types test` - passed
 - `pnpm --filter @streamos/types build` - passed
-- `pnpm --filter @streamos/web test` - passed, 34 Testdateien / 200 Tests
+- `pnpm --filter @streamos/web test` - passed, 35 Testdateien / 213 Tests
 - `pnpm --filter @streamos/web build` - passed
+- `coderabbit review --agent --base main -c AGENTS.md` - passed, `0 issues`
 
 Optional nicht ausgefuehrt:
 
-- `coderabbit review --agent --base main -c AGENTS.md`
 - `pnpm validate`
 
 Begruendung:
 
 - Der Closeout-Slice fuehrt nur eine Dokumentationsdatei ein.
-- Die Mindestvalidierung fuer die aktive Branding-Surface ist ausreichend.
-- Ein letzter CodeRabbit-Review fuer den P5.8-Code-Diff vor diesem Report ergab
-  `0 issues`; fuer die reine Report-Datei war kein neuer Review noetig.
+- Die Produktcode-Validierung fuer den aktuellen P5.10-Stand ist bereits gruen.
+- Fuer die reine Report-Datei war kein erneuter Build- oder Testlauf noetig.
 
 ## 9. Akzeptierte Restrisiken
 
 - `accepted`
   Load More ist auf 5 Feed-Fenster begrenzt
 - `accepted`
-  Filter und alternative Sortierungen wirken auf das geladene Fenster, nicht auf
-  den gesamten Bestand
+  `preview` und `metadata` wirken weiter nur auf das geladene Fenster
 - `accepted`
   Delete/Replace/Orphan Cleanup bleiben reine Future-Contracts
 - `accepted`
@@ -208,23 +222,20 @@ Begruendung:
 - `accepted`
   SVG-Sanitizing ist nicht Teil des MVP
 - `accepted`
-  Es gibt keine serverseitige Volltextsuche fuer Brand Assets
-- `accepted`
   Dieser Report enthaelt keine Production-/Storage-Live-Proofs
 
 ## 10. Empfohlene naechste Slices
 
-1. serverseitige Filter-/Sort-Pagination auf Basis des bestehenden Cursor-
-   Contracts
-2. Branding Closeout Docs / Roadmap Update
-3. Brand Kit Structure Read Model fuer hoehere semantische Vollstaendigkeit im
+1. Preview/Metadata Server-Queryable Fields Contract fuer vollstaendig
+   serverseitige Explorer-Filterung
+2. Brand Kit Structure Read Model fuer hoehere semantische Vollstaendigkeit im
    Dashboard
 
 ## 11. Schlussentscheidung
 
 `P5 branding closeout: passed_with_warnings`
 
-Der Branding-MVP-Umfang aus P5.1 bis P5.8 ist repo-seitig vorhanden,
+Der Branding-MVP-Umfang aus P5.1 bis P5.10 ist repo-seitig vorhanden,
 architektonisch konsistent und lokal validierbar. Verbleibende Punkte sind
 bewusst akzeptierte Produktgrenzen oder klar getrennte Follow-up-Slices, keine
 Blocker fuer den Closeout.
