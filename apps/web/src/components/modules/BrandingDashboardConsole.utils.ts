@@ -1,5 +1,10 @@
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
+  BRANDING_DASHBOARD_METADATA_FILTERS,
+  BRANDING_DASHBOARD_PREVIEW_FILTERS,
+  type BrandingDashboardFeedCursor,
+  type BrandingDashboardFeedServerFilters,
+  type BrandingDashboardFeedServerSort,
   type BrandingDashboardFutureAction,
   type BrandingDashboardMutationBlockReason,
   type BrandingDashboardMutationContract,
@@ -8,9 +13,12 @@ import {
   type BrandingDashboardDistributionItem,
   type BrandingDashboardFeedMetadata,
   type BrandingDashboardLookupIssue,
+  type BrandingDashboardMetadataFilter as SharedBrandingDashboardMetadataFilter,
+  type BrandingDashboardPreviewFilter as SharedBrandingDashboardPreviewFilter,
   type BrandingDashboardPreviewReason,
   type BrandingDashboardPreviewStatus,
   type BrandingDashboardReadModel,
+  type BrandingDashboardUploadMetadata,
   type StreamPlatform,
 } from "@streamos/types";
 
@@ -26,6 +34,82 @@ export type BrandingDashboardModel = BrandingDashboardReadModel & {
   userId: string | null;
 };
 type BrandingDashboardBaseAsset = Omit<BrandingDashboardAsset, "futureActions">;
+
+export const BRANDING_DASHBOARD_SORT_OPTIONS = [
+  "updated_desc",
+  "created_desc",
+  "asset_type",
+  "status",
+] as const;
+export const BRANDING_DASHBOARD_MAX_WINDOWS = 5;
+export {
+  BRANDING_DASHBOARD_METADATA_FILTERS,
+  BRANDING_DASHBOARD_PREVIEW_FILTERS,
+};
+export const BRANDING_DASHBOARD_ASSET_TYPE_OPTIONS = [
+  "logo",
+  "overlay",
+  "banner",
+  "panel",
+  "alert",
+  "scene",
+  "emote",
+  "color_palette",
+  "typography",
+] as const;
+export const BRANDING_DASHBOARD_STATUS_OPTIONS = [
+  "active",
+  "draft",
+  "archived",
+] as const;
+
+export type BrandingDashboardSortOption =
+  (typeof BRANDING_DASHBOARD_SORT_OPTIONS)[number];
+export type BrandingDashboardPreviewFilter =
+  SharedBrandingDashboardPreviewFilter;
+export type BrandingDashboardMetadataFilter =
+  SharedBrandingDashboardMetadataFilter;
+
+export type BrandingDashboardViewInput = {
+  assetType: string | null;
+  cursorToken: string | null;
+  detailAssetId: string | null;
+  metadata: BrandingDashboardMetadataFilter;
+  preview: BrandingDashboardPreviewFilter;
+  sort: BrandingDashboardSortOption;
+  status: string | null;
+  windowCount: number;
+};
+
+export type BrandingDashboardViewModel = {
+  assetTypeOptions: string[];
+  detailAssetId: string | null;
+  detailSelection: {
+    fellBackToVisibleItem: boolean;
+    requestedAssetId: string | null;
+  };
+  feed: BrandingDashboardModel["feed"] & {
+    clientFilters: {
+      metadata: BrandingDashboardMetadataFilter;
+      preview: BrandingDashboardPreviewFilter;
+    };
+    cursorToken: string | null;
+    hasActiveClientFilters: boolean;
+    hasActiveServerFilters: boolean;
+    visibleCount: number;
+    windowCount: number;
+  };
+  filters: {
+    assetType: string | null;
+    metadata: BrandingDashboardMetadataFilter;
+    preview: BrandingDashboardPreviewFilter;
+    status: string | null;
+  };
+  items: BrandingDashboardAsset[];
+  selectedAsset: BrandingDashboardAsset | null;
+  sort: BrandingDashboardSortOption;
+  statusOptions: string[];
+};
 
 const knownAssetTypeLabels: Record<string, string> = {
   alert: "Alert",
@@ -117,6 +201,7 @@ export function createEmptyBrandingDashboardModel(
   userId: string | null,
   state: BrandingDashboardState = "ready",
   lookupIssues: BrandingDashboardLookupIssue[] = [],
+  feedOverrides: Partial<BrandingDashboardFeedMetadata> = {},
 ): BrandingDashboardModel {
   return {
     coverage: {
@@ -129,7 +214,15 @@ export function createEmptyBrandingDashboardModel(
     feed: {
       hasMore: false,
       limit: BRANDING_DASHBOARD_ASSET_LIMIT,
+      nextCursor: null,
       returnedCount: 0,
+      serverFilters: {
+        assetType: null,
+        status: null,
+      },
+      scope: "full_result",
+      serverSort: "updated_desc",
+      ...feedOverrides,
     },
     items: [],
     lookupIssues,
@@ -147,6 +240,171 @@ export function createEmptyBrandingDashboardModel(
     typeDistribution: [],
     userId,
   };
+}
+
+export function buildBrandingDashboardViewModel(
+  model: BrandingDashboardModel,
+  input: BrandingDashboardViewInput,
+): BrandingDashboardViewModel {
+  const assetTypeOptions = [
+    ...new Set([
+      ...BRANDING_DASHBOARD_ASSET_TYPE_OPTIONS,
+      ...model.items.map((item) => item.assetType),
+    ]),
+  ].sort((left, right) => left.localeCompare(right));
+  const statusOptions = [
+    ...new Set([
+      ...BRANDING_DASHBOARD_STATUS_OPTIONS,
+      ...model.items.map((item) => item.status),
+    ]),
+  ].sort((left, right) => left.localeCompare(right));
+  const items = [...model.items]
+    .filter((item) =>
+      input.preview === "available"
+        ? item.preview.status === "available"
+        : input.preview === "unavailable"
+          ? item.preview.status !== "available"
+          : true,
+    )
+    .filter((item) =>
+      input.metadata === "all"
+        ? true
+        : item.uploadMetadata.status === input.metadata,
+    );
+  const selectedAsset =
+    items.find((item) => item.id === input.detailAssetId) ?? items[0] ?? null;
+  const fellBackToVisibleItem =
+    input.detailAssetId !== null &&
+    selectedAsset !== null &&
+    selectedAsset.id !== input.detailAssetId;
+
+  return {
+    assetTypeOptions,
+    detailAssetId: selectedAsset?.id ?? null,
+    detailSelection: {
+      fellBackToVisibleItem,
+      requestedAssetId: input.detailAssetId,
+    },
+    feed: {
+      ...model.feed,
+      clientFilters: {
+        metadata: input.metadata,
+        preview: input.preview,
+      },
+      cursorToken: input.cursorToken,
+      hasActiveClientFilters:
+        input.preview !== "all" || input.metadata !== "all",
+      hasActiveServerFilters: input.assetType !== null || input.status !== null,
+      serverFilters: {
+        assetType: input.assetType,
+        status: input.status,
+      },
+      serverSort: input.sort,
+      visibleCount: items.length,
+      windowCount: input.windowCount,
+    },
+    filters: {
+      assetType: input.assetType,
+      metadata: input.metadata,
+      preview: input.preview,
+      status: input.status,
+    },
+    items,
+    selectedAsset,
+    sort: input.sort,
+    statusOptions,
+  };
+}
+
+export function encodeBrandingDashboardCursorToken(input: {
+  cursor: BrandingDashboardFeedCursor;
+  serverFilters: BrandingDashboardFeedServerFilters;
+  serverSort: BrandingDashboardFeedServerSort;
+}): string {
+  return Buffer.from(JSON.stringify(input), "utf8").toString("base64url");
+}
+
+export function decodeBrandingDashboardCursorToken(value: string | null): {
+  cursor: BrandingDashboardFeedCursor | null;
+  serverFilters: BrandingDashboardFeedServerFilters | null;
+  serverSort: BrandingDashboardFeedServerSort | null;
+} {
+  if (!value) {
+    return {
+      cursor: null,
+      serverFilters: null,
+      serverSort: null,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as {
+      cursor?: {
+        assetType?: unknown;
+        createdAt?: unknown;
+        id?: unknown;
+        status?: unknown;
+        updatedAt?: unknown;
+      };
+      serverFilters?: {
+        assetType?: unknown;
+        status?: unknown;
+      };
+      serverSort?: unknown;
+    };
+
+    if (
+      !parsed.cursor ||
+      typeof parsed.cursor.id !== "string" ||
+      !isNullableString(parsed.cursor.assetType) ||
+      !isNullableString(parsed.cursor.createdAt) ||
+      !isNullableString(parsed.cursor.status) ||
+      !isNullableString(parsed.cursor.updatedAt) ||
+      !isNullableString(parsed.serverFilters?.assetType) ||
+      !isNullableString(parsed.serverFilters?.status) ||
+      !isValidCursorDate(parsed.cursor.createdAt) ||
+      !isValidCursorDate(parsed.cursor.updatedAt) ||
+      !BRANDING_DASHBOARD_SORT_OPTIONS.includes(parsed.serverSort as never) ||
+      !isValidCursorForServerSort(
+        parsed.cursor as {
+          assetType?: string | null;
+          createdAt?: string | null;
+          status?: string | null;
+          updatedAt?: string | null;
+        },
+        parsed.serverSort as BrandingDashboardFeedServerSort,
+      )
+    ) {
+      return {
+        cursor: null,
+        serverFilters: null,
+        serverSort: null,
+      };
+    }
+
+    return {
+      cursor: {
+        assetType: parsed.cursor.assetType ?? null,
+        createdAt: parsed.cursor.createdAt ?? null,
+        id: parsed.cursor.id,
+        status: parsed.cursor.status ?? null,
+        updatedAt: parsed.cursor.updatedAt ?? null,
+      },
+      serverFilters: {
+        assetType: parsed.serverFilters?.assetType ?? null,
+        status: parsed.serverFilters?.status ?? null,
+      },
+      serverSort: parsed.serverSort as BrandingDashboardFeedServerSort,
+    };
+  } catch {
+    return {
+      cursor: null,
+      serverFilters: null,
+      serverSort: null,
+    };
+  }
 }
 
 export function formatBrandingAssetTypeLabel(value: string): string {
@@ -249,6 +507,49 @@ export function formatBrandingPreviewReasonLabel(
   }
 }
 
+export function formatBrandingUploadMetadataStatusLabel(
+  metadata: BrandingDashboardUploadMetadata,
+): string {
+  switch (metadata.status) {
+    case "available":
+      return "Metadata verfuegbar";
+    case "invalid":
+      return "Metadata ungueltig";
+    case "unavailable":
+      return "Metadata nicht verfuegbar";
+  }
+}
+
+export function formatBrandingUploadMetadataTypeLabel(
+  metadata: BrandingDashboardUploadMetadata,
+): string {
+  if (
+    metadata.status !== "available" ||
+    !metadata.contentType ||
+    !metadata.fileExtension
+  ) {
+    return formatBrandingUploadMetadataStatusLabel(metadata);
+  }
+
+  return `${metadata.fileExtension.toUpperCase()} (${metadata.contentType})`;
+}
+
+export function formatBrandingFileSizeLabel(value: number | null): string {
+  if (value === null) {
+    return "Nicht verfuegbar";
+  }
+
+  if (value < 1024) {
+    return `${value} B`;
+  }
+
+  if (value < 1024 * 1024) {
+    return `${formatBrandingFileSizeUnit(value / 1024)} KB`;
+  }
+
+  return `${formatBrandingFileSizeUnit(value / (1024 * 1024))} MB`;
+}
+
 export function formatBrandingFutureActionLabel(
   action: BrandingDashboardFutureAction["action"],
 ): string {
@@ -259,6 +560,32 @@ export function formatBrandingFutureActionLabel(
       return "Orphan Cleanup";
     case "replace":
       return "Replace";
+  }
+}
+
+export function formatBrandingDashboardSortLabel(
+  sort: BrandingDashboardSortOption,
+): string {
+  switch (sort) {
+    case "asset_type":
+      return "Asset-Typ";
+    case "created_desc":
+      return "Zuletzt erstellt";
+    case "status":
+      return "Status";
+    case "updated_desc":
+      return "Zuletzt aktualisiert";
+  }
+}
+
+export function formatBrandingDashboardFeedScopeLabel(
+  scope: BrandingDashboardModel["feed"]["scope"],
+): string {
+  switch (scope) {
+    case "full_result":
+      return "Vollstaendiger Feed";
+    case "loaded_sample":
+      return "Geladene Stichprobe";
   }
 }
 
@@ -327,4 +654,44 @@ function isKnownAssetType(value: string): boolean {
 
 function buildBrandingAssetFutureActions(): BrandingDashboardFutureAction[] {
   return [mutationContract.replace, mutationContract.delete];
+}
+
+function formatBrandingFileSizeUnit(value: number): string {
+  const rounded = value >= 10 ? value.toFixed(0) : value.toFixed(1);
+  return rounded.endsWith(".0") ? rounded.slice(0, -2) : rounded;
+}
+
+function isNullableString(value: unknown): value is string | null | undefined {
+  return value == null || typeof value === "string";
+}
+
+function isValidCursorDate(value: string | null | undefined): boolean {
+  return value == null || !Number.isNaN(new Date(value).getTime());
+}
+
+function isValidCursorForServerSort(
+  cursor: {
+    assetType?: string | null;
+    createdAt?: string | null;
+    status?: string | null;
+    updatedAt?: string | null;
+  },
+  sort: BrandingDashboardFeedServerSort,
+): boolean {
+  switch (sort) {
+    case "asset_type":
+      return (
+        typeof cursor.assetType === "string" &&
+        typeof cursor.updatedAt === "string"
+      );
+    case "created_desc":
+      return typeof cursor.createdAt === "string";
+    case "status":
+      return (
+        typeof cursor.status === "string" &&
+        typeof cursor.updatedAt === "string"
+      );
+    case "updated_desc":
+      return typeof cursor.updatedAt === "string";
+  }
 }

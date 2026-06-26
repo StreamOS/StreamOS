@@ -30,9 +30,38 @@ export const BRANDING_DASHBOARD_MUTATION_BLOCK_REASONS = [
 ] as const;
 
 export const BRANDING_DASHBOARD_LOOKUP_SOURCES = ["channels"] as const;
+export const BRANDING_DASHBOARD_FEED_SCOPES = [
+  "full_result",
+  "loaded_sample",
+] as const;
+export const BRANDING_DASHBOARD_FEED_SERVER_SORTS = [
+  "updated_desc",
+  "created_desc",
+  "asset_type",
+  "status",
+] as const;
+export const BRANDING_DASHBOARD_PREVIEW_FILTERS = [
+  "all",
+  "available",
+  "unavailable",
+] as const;
+export const BRANDING_DASHBOARD_METADATA_FILTERS = [
+  "all",
+  "available",
+  "invalid",
+  "unavailable",
+] as const;
 
 export type BrandingDashboardLookupSource =
   (typeof BRANDING_DASHBOARD_LOOKUP_SOURCES)[number];
+export type BrandingDashboardFeedScope =
+  (typeof BRANDING_DASHBOARD_FEED_SCOPES)[number];
+export type BrandingDashboardFeedServerSort =
+  (typeof BRANDING_DASHBOARD_FEED_SERVER_SORTS)[number];
+export type BrandingDashboardPreviewFilter =
+  (typeof BRANDING_DASHBOARD_PREVIEW_FILTERS)[number];
+export type BrandingDashboardMetadataFilter =
+  (typeof BRANDING_DASHBOARD_METADATA_FILTERS)[number];
 
 export type BrandingDashboardLookupIssue = {
   code: "load-failed";
@@ -74,6 +103,19 @@ export type BrandingDashboardPreview = {
   url: string | null;
 };
 
+export type BrandingDashboardUploadMetadataStatus =
+  | "available"
+  | "invalid"
+  | "unavailable";
+
+export type BrandingDashboardUploadMetadata = {
+  contentType: string | null;
+  fileExtension: string | null;
+  fileSizeBytes: number | null;
+  status: BrandingDashboardUploadMetadataStatus;
+  storedFilename: string | null;
+};
+
 export type BrandingDashboardAsset = {
   assetType: BrandAssetType | string;
   channelId: string | null;
@@ -86,6 +128,7 @@ export type BrandingDashboardAsset = {
   preview: BrandingDashboardPreview;
   status: BrandAssetStatus | string;
   storageState: BrandingDashboardStorageState;
+  uploadMetadata: BrandingDashboardUploadMetadata;
   updatedAt: string;
   usageContext: string | null;
 };
@@ -95,10 +138,27 @@ export type BrandingDashboardDistributionItem = {
   key: string;
 };
 
+export type BrandingDashboardFeedCursor = {
+  assetType: string | null;
+  createdAt: string | null;
+  id: string;
+  status: string | null;
+  updatedAt: string | null;
+};
+
+export type BrandingDashboardFeedServerFilters = {
+  assetType: BrandAssetType | string | null;
+  status: BrandAssetStatus | string | null;
+};
+
 export type BrandingDashboardFeedMetadata = {
   hasMore: boolean;
   limit: number;
+  nextCursor: BrandingDashboardFeedCursor | null;
   returnedCount: number;
+  serverFilters: BrandingDashboardFeedServerFilters;
+  scope: BrandingDashboardFeedScope;
+  serverSort: BrandingDashboardFeedServerSort;
 };
 
 export type BrandingDashboardCoverage = {
