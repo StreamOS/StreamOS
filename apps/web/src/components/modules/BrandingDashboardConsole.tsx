@@ -467,7 +467,7 @@ export function BrandingDashboardConsole({
           />
 
           {view.detailSelection.fellBackToVisibleItem ? (
-            <DetailSelectionNotice view={view} />
+            <DetailSelectionNotice />
           ) : null}
 
           {view.selectedAsset ? (
@@ -567,11 +567,7 @@ function LoadMoreSection({ view }: { view: BrandingDashboardConsoleView }) {
   );
 }
 
-function DetailSelectionNotice({
-  view,
-}: {
-  view: BrandingDashboardConsoleView;
-}) {
+function DetailSelectionNotice() {
   return (
     <section className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
       Das angeforderte Asset liegt nicht mehr im aktuell sichtbaren Feed.

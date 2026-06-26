@@ -1,9 +1,11 @@
 import {
-  BRANDING_DASHBOARD_UPLOAD_ALLOWED_EXTENSIONS,
-  BRANDING_DASHBOARD_UPLOAD_ALLOWED_MIME_TYPES,
   BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS,
   type BrandingDashboardPreview,
   type BrandingDashboardUploadMetadata,
+} from "@streamos/types";
+import type {
+  BRANDING_DASHBOARD_UPLOAD_ALLOWED_EXTENSIONS,
+  BRANDING_DASHBOARD_UPLOAD_ALLOWED_MIME_TYPES,
 } from "@streamos/types";
 import type { createClient } from "@/lib/supabase/server";
 import {

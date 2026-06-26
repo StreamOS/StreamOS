@@ -1154,12 +1154,14 @@ function parseBrandingCursorDefinition(
       return null;
     }
 
+    const [, updatedAt, , id] = match as [string, string, string, string];
+
     return {
       assetType: null,
       createdAt: null,
-      id: match[3],
+      id,
       status: null,
-      updatedAt: match[1],
+      updatedAt,
     };
   }
 
@@ -1172,10 +1174,12 @@ function parseBrandingCursorDefinition(
       return null;
     }
 
+    const [, createdAt, , id] = match as [string, string, string, string];
+
     return {
       assetType: null,
-      createdAt: match[1],
-      id: match[3],
+      createdAt,
+      id,
       status: null,
       updatedAt: null,
     };
@@ -1195,12 +1199,22 @@ function parseBrandingCursorDefinition(
       return null;
     }
 
+    const [, assetType, , updatedAt, , , id] = match as [
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+    ];
+
     return {
-      assetType: match[1],
+      assetType,
       createdAt: null,
-      id: match[6],
+      id,
       status: null,
-      updatedAt: match[3],
+      updatedAt,
     };
   }
 
@@ -1218,12 +1232,22 @@ function parseBrandingCursorDefinition(
       return null;
     }
 
+    const [, status, , updatedAt, , , id] = match as [
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+    ];
+
     return {
       assetType: null,
       createdAt: null,
-      id: match[6],
-      status: match[1],
-      updatedAt: match[3],
+      id,
+      status,
+      updatedAt,
     };
   }
 
