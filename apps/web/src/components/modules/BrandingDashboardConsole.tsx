@@ -398,74 +398,12 @@ export function BrandingDashboardConsole({
             hasVisibleItems ? (
               <div className="space-y-3">
                 {view.items.map((item) => (
-                  <article
+                  <AssetExplorerCard
+                    isSelected={view.detailAssetId === item.id}
+                    item={item}
+                    view={view}
                     key={item.id}
-                    className={`rounded-lg border p-4 ${
-                      view.detailAssetId === item.id
-                        ? "border-brand-500/40 bg-brand-500/10"
-                        : "border-white/10 bg-white/5"
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Pill tone="emerald">
-                            {formatBrandingAssetTypeLabel(item.assetType)}
-                          </Pill>
-                          <Pill tone="violet">
-                            {formatBrandingAssetStatusLabel(item.status)}
-                          </Pill>
-                          <Pill tone="slate">
-                            {formatBrandingPreviewStatusLabel(
-                              item.preview.status,
-                            )}
-                          </Pill>
-                          <Pill tone="amber">
-                            {formatBrandingUploadMetadataStatusLabel(
-                              item.uploadMetadata,
-                            )}
-                          </Pill>
-                        </div>
-                        <h3 className="text-lg font-semibold text-white">
-                          {item.name}
-                        </h3>
-                        <p className="text-sm leading-6 text-slate-400">
-                          {item.description ??
-                            "Keine Asset-Beschreibung vorhanden."}
-                        </p>
-                      </div>
-
-                      <Link
-                        className="rounded-full border border-white/10 bg-surface-950/70 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:border-brand-500/40 hover:text-white"
-                        href={buildBrandingViewHref(view, item.id)}
-                      >
-                        Details ansehen
-                      </Link>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      <InfoTile
-                        label="Dateityp"
-                        value={formatBrandingUploadMetadataTypeLabel(
-                          item.uploadMetadata,
-                        )}
-                      />
-                      <InfoTile
-                        label="Dateigroesse"
-                        value={formatBrandingFileSizeLabel(
-                          item.uploadMetadata.fileSizeBytes,
-                        )}
-                      />
-                      <InfoTile
-                        label="Updated"
-                        value={formatBrandingDateTime(item.updatedAt)}
-                      />
-                      <InfoTile
-                        label="Platform"
-                        value={formatBrandingPlatformLabel(item.platform)}
-                      />
-                    </div>
-                  </article>
+                  />
                 ))}
               </div>
             ) : (
@@ -507,6 +445,26 @@ export function BrandingDashboardConsole({
       </section>
     </div>
   );
+}
+
+function getTrustedUploadMetadataFields(
+  uploadMetadata: BrandingDashboardViewModel["items"][number]["uploadMetadata"],
+) {
+  if (uploadMetadata.status !== "available") {
+    return {
+      contentType: null,
+      fileExtension: null,
+      fileSizeBytes: null,
+      storedFilename: null,
+    };
+  }
+
+  return {
+    contentType: uploadMetadata.contentType,
+    fileExtension: uploadMetadata.fileExtension,
+    fileSizeBytes: uploadMetadata.fileSizeBytes,
+    storedFilename: uploadMetadata.storedFilename,
+  };
 }
 
 function BrandingFilterForm({ view }: { view: BrandingDashboardConsoleView }) {
@@ -604,6 +562,77 @@ function BrandingFilterForm({ view }: { view: BrandingDashboardConsoleView }) {
   );
 }
 
+function AssetExplorerCard({
+  isSelected,
+  item,
+  view,
+}: {
+  isSelected: boolean;
+  item: BrandingDashboardViewModel["items"][number];
+  view: BrandingDashboardConsoleView;
+}) {
+  const trustedMetadata = getTrustedUploadMetadataFields(item.uploadMetadata);
+
+  return (
+    <article
+      className={`rounded-lg border p-4 ${
+        isSelected
+          ? "border-brand-500/40 bg-brand-500/10"
+          : "border-white/10 bg-white/5"
+      }`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Pill tone="emerald">
+              {formatBrandingAssetTypeLabel(item.assetType)}
+            </Pill>
+            <Pill tone="violet">
+              {formatBrandingAssetStatusLabel(item.status)}
+            </Pill>
+            <Pill tone="slate">
+              {formatBrandingPreviewStatusLabel(item.preview.status)}
+            </Pill>
+            <Pill tone="amber">
+              {formatBrandingUploadMetadataStatusLabel(item.uploadMetadata)}
+            </Pill>
+          </div>
+          <h3 className="text-lg font-semibold text-white">{item.name}</h3>
+          <p className="text-sm leading-6 text-slate-400">
+            {item.description ?? "Keine Asset-Beschreibung vorhanden."}
+          </p>
+        </div>
+
+        <Link
+          className="rounded-full border border-white/10 bg-surface-950/70 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:border-brand-500/40 hover:text-white"
+          href={buildBrandingViewHref(view, item.id)}
+        >
+          Details ansehen
+        </Link>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <InfoTile
+          label="Dateityp"
+          value={formatBrandingUploadMetadataTypeLabel(item.uploadMetadata)}
+        />
+        <InfoTile
+          label="Dateigroesse"
+          value={formatBrandingFileSizeLabel(trustedMetadata.fileSizeBytes)}
+        />
+        <InfoTile
+          label="Updated"
+          value={formatBrandingDateTime(item.updatedAt)}
+        />
+        <InfoTile
+          label="Platform"
+          value={formatBrandingPlatformLabel(item.platform)}
+        />
+      </div>
+    </article>
+  );
+}
+
 function AssetDetailPanel({
   item,
 }: {
@@ -612,6 +641,8 @@ function AssetDetailPanel({
   if (!item) {
     return null;
   }
+
+  const trustedMetadata = getTrustedUploadMetadataFields(item.uploadMetadata);
 
   return (
     <div className="space-y-4">
@@ -698,22 +729,21 @@ function AssetDetailPanel({
         />
         <InfoTile
           label="Content Type"
-          value={item.uploadMetadata.contentType ?? "Nicht verfuegbar"}
+          value={trustedMetadata.contentType ?? "Nicht verfuegbar"}
         />
         <InfoTile
           label="File Extension"
           value={
-            item.uploadMetadata.fileExtension?.toUpperCase() ??
-            "Nicht verfuegbar"
+            trustedMetadata.fileExtension?.toUpperCase() ?? "Nicht verfuegbar"
           }
         />
         <InfoTile
           label="File Size"
-          value={formatBrandingFileSizeLabel(item.uploadMetadata.fileSizeBytes)}
+          value={formatBrandingFileSizeLabel(trustedMetadata.fileSizeBytes)}
         />
         <InfoTile
           label="Stored Filename"
-          value={item.uploadMetadata.storedFilename ?? "Nicht verfuegbar"}
+          value={trustedMetadata.storedFilename ?? "Nicht verfuegbar"}
         />
         <InfoTile
           label="Created"
@@ -981,7 +1011,7 @@ function formatBrandingMetadataFilterLabel(
     case "invalid":
       return "Metadata ungueltig";
     case "unavailable":
-      return "Metadata unavailable";
+      return "Metadata nicht verfuegbar";
   }
 }
 

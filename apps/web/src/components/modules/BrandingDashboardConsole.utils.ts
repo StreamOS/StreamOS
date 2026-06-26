@@ -359,7 +359,7 @@ export function formatBrandingUploadMetadataStatusLabel(
     case "invalid":
       return "Metadata ungueltig";
     case "unavailable":
-      return "Metadata unavailable";
+      return "Metadata nicht verfuegbar";
   }
 }
 
@@ -411,7 +411,7 @@ export function formatBrandingDashboardSortLabel(
 ): string {
   switch (sort) {
     case "asset_type":
-      return "Asset Type";
+      return "Asset-Typ";
     case "created_desc":
       return "Zuletzt erstellt";
     case "status":

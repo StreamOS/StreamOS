@@ -129,7 +129,7 @@ describe("BrandingPage", () => {
     expect(html).toContain(
       "Kurzlebige Preview nur fuer diese Dashboard-Response",
     );
-    expect(html).toContain("Metadata unavailable");
+    expect(html).toContain("Metadata nicht verfuegbar");
     expect(html).not.toContain("brand-assets/");
     expect(html).not.toContain("public_url");
     expect(html).not.toContain("storage_path");
