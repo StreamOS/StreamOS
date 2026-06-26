@@ -104,7 +104,7 @@ describe("AnalyticsPage", () => {
           publication_status: "published",
           published_at: "2026-06-25T10:00:00.000Z",
           requested_at: "2026-06-25T09:45:00.000Z",
-          schedule_status: "completed",
+          schedule_status: "not_scheduled",
           scheduled_at_utc: null,
           target_platform: "youtube",
           updated_at: "2026-06-25T10:05:00.000Z",
