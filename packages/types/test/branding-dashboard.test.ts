@@ -156,7 +156,7 @@ const sampleReadModel = {
   ],
 } satisfies BrandingDashboardReadModel;
 
-void test("branding dashboard contract keeps the feed and lookup enums stable", () => {
+void test("branding dashboard contract keeps the feed enums and exact filter ownership stable", () => {
   assert.equal(BRANDING_DASHBOARD_ASSET_LIMIT, 12);
   assert.equal(BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS, 60);
   assert.equal(BRANDING_DASHBOARD_UPLOAD_MAX_FILE_SIZE_BYTES, 5 * 1024 * 1024);
@@ -198,6 +198,10 @@ void test("branding dashboard contract keeps the feed and lookup enums stable", 
     preview: "client_window",
     status: "server_query",
   });
+  assert.deepEqual(
+    Object.keys(BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP).sort(),
+    ["assetType", "metadata", "preview", "status"],
+  );
   assert.deepEqual(BRANDING_DASHBOARD_PREVIEW_FILTERS, [
     "all",
     "available",
