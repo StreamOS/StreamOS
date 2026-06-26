@@ -2,29 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  BarChart2,
-  ChevronLeft,
-  ChevronRight,
-  Clapperboard,
-  DollarSign,
-  Globe,
-  Palette,
-  RadioTower,
-  TrendingUp,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, RadioTower } from "lucide-react";
 import { useEffect } from "react";
+import { dashboardNavItems } from "@/components/layout/dashboardNavigation";
 import { cn } from "@/lib/utils/cn";
 import { useUiStore } from "@/store/uiStore";
-
-const navItems = [
-  { label: "Analytics", href: "/dashboard/analytics", icon: BarChart2 },
-  { label: "Content", href: "/dashboard/content", icon: Clapperboard },
-  { label: "Monetization", href: "/dashboard/monetization", icon: DollarSign },
-  { label: "Growth", href: "/dashboard/growth", icon: TrendingUp },
-  { label: "Branding", href: "/dashboard/branding", icon: Palette },
-  { label: "Platforms", href: "/dashboard/platforms", icon: Globe },
-] as const;
 
 type SidebarProps = {
   creatorName?: string;
@@ -88,7 +70,7 @@ export function Sidebar({
           )}
         </div>
         <nav className="space-y-1">
-          {navItems.map((item) => {
+          {dashboardNavItems.map((item) => {
             const isActive =
               pathname === item.href || pathname.startsWith(`${item.href}/`);
 
