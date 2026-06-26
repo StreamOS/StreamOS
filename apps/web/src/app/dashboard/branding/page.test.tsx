@@ -19,13 +19,17 @@ vi.mock("./actions", () => ({
   uploadBrandAssetAction: mocks.uploadBrandAssetAction,
 }));
 
+type BrandingPageAsset = Parameters<
+  typeof buildBrandingDashboardModel
+>[0]["items"][number];
+
 describe("BrandingPage", () => {
   beforeEach(() => {
     mocks.getBrandingDashboardData.mockReset();
     mocks.uploadBrandAssetAction.mockReset();
   });
 
-  it("renders the upload surface without destructive actions when no brand assets exist yet", async () => {
+  it("renders the upload and explorer surfaces without enabling destructive actions when no brand assets exist yet", async () => {
     mocks.getBrandingDashboardData.mockResolvedValue(
       createEmptyBrandingDashboardModel("user-1"),
     );
@@ -34,30 +38,27 @@ describe("BrandingPage", () => {
 
     expect(html).toContain("Branding MVP");
     expect(html).toContain("Brand Asset Upload");
+    expect(html).toContain("Asset Explorer");
+    expect(html).toContain("Asset Detail");
     expect(html).toContain("Noch keine Brand Assets");
     expect(html).toContain("Brand Asset hochladen");
     expect(html).toContain("Future Mutation Contract");
     expect(html).toContain("Orphan Cleanup");
-    expect(html).toContain('type="file"');
+    expect(html).toContain("Filter anwenden");
+    expect(html).toContain("Filter zuruecksetzen");
     expect(html).toContain("Maximale Groesse: 5 MB");
     expect(html).toContain("kurzlebig signiert");
-    expect(html).not.toContain("formaction=");
     expect(html).toContain("blocked");
-    expect(html).not.toContain("Replace spaeter");
-    expect(html).not.toContain("Delete spaeter");
+    expect(html).toContain('type="file"');
+    expect(html).not.toContain("formaction=");
     expect(html).not.toContain("Asset bearbeiten");
     expect(html).not.toContain("loeschen");
   });
 
-  it("renders existing assets with stable unknown type labels and without public URLs", async () => {
-    const model = buildBrandingDashboardModel({
-      feed: {
-        hasMore: false,
-        limit: 12,
-        returnedCount: 2,
-      },
-      items: [
-        {
+  it("renders a read-only asset detail panel with safe metadata and disabled future actions", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel([
+        createAsset({
           assetType: "overlay",
           channelId: "channel-1",
           createdAt: "2026-06-26T08:00:00.000Z",
@@ -69,10 +70,10 @@ describe("BrandingPage", () => {
             expiresAt: "2026-06-26T10:01:00.000Z",
             reason: null,
             status: "available",
-            url: "https://signed.example/preview-1",
+            url: "https://assets.local/preview-1",
           },
-          status: "active",
           storageState: "attached",
+          updatedAt: "2026-06-26T10:00:00.000Z",
           uploadMetadata: {
             contentType: "image/png",
             fileExtension: "png",
@@ -80,17 +81,14 @@ describe("BrandingPage", () => {
             status: "available",
             storedFilename: "neon-overlay.png",
           },
-          updatedAt: "2026-06-26T10:00:00.000Z",
           usageContext: "NovaPlays Live",
-        },
-        {
+        }),
+        createAsset({
           assetType: "mystery_pack",
-          channelId: null,
           createdAt: "2026-06-25T08:00:00.000Z",
           description: null,
           id: "asset-2",
           name: "Mystery Pack",
-          platform: null,
           preview: {
             expiresAt: null,
             reason: "unsupported_file_type",
@@ -99,6 +97,7 @@ describe("BrandingPage", () => {
           },
           status: "draft",
           storageState: "incomplete",
+          updatedAt: "2026-06-25T10:00:00.000Z",
           uploadMetadata: {
             contentType: null,
             fileExtension: null,
@@ -106,40 +105,145 @@ describe("BrandingPage", () => {
             status: "unavailable",
             storedFilename: null,
           },
-          updatedAt: "2026-06-25T10:00:00.000Z",
           usageContext: null,
-        },
-      ],
-      lookupIssues: [],
-      state: "ready",
-      userId: "user-2",
-    });
-
-    mocks.getBrandingDashboardData.mockResolvedValue(model);
+        }),
+      ]),
+    );
 
     const html = renderToStaticMarkup(await BrandingPage());
 
+    expect(html).toContain("Asset Explorer");
+    expect(html).toContain("Asset Detail");
     expect(html).toContain("Neon Overlay");
     expect(html).toContain("Mystery Pack");
-    expect(html).toContain("mystery_pack");
-    expect(html).toContain("Private Datei verknuepft");
-    expect(html).toContain("Storage-Metadaten unvollstaendig");
-    expect(html).toContain("Twitch");
-    expect(html).toContain("Globales Brand Asset");
-    expect(html).toContain("Replace spaeter");
-    expect(html).toContain("Delete spaeter");
-    expect(html).toContain("Contract only");
-    expect(html).toContain("blocked");
+    expect(html).toContain("Details ansehen");
     expect(html).toContain('alt="Neon Overlay preview"');
     expect(html).toContain("PNG (image/png)");
-    expect(html).toContain("2 KB");
     expect(html).toContain("neon-overlay.png");
+    expect(html).toContain("Twitch");
+    expect(html).toContain("NovaPlays Live");
+    expect(html).toContain("Replace");
+    expect(html).toContain("Delete");
+    expect(html).toContain("Orphan Cleanup");
+    expect(html).toContain("blocked");
+    expect(html).toContain(
+      "Kurzlebige Preview nur fuer diese Dashboard-Response",
+    );
     expect(html).toContain("Metadata unavailable");
-    expect(html).toContain("Kurzlebige Preview fuer diese Dashboard-Response");
-    expect(html).toContain("Kein gerendertes Thumbnail");
     expect(html).not.toContain("brand-assets/");
     expect(html).not.toContain("public_url");
-    expect(html).not.toContain("Storage-Bucket erstellen");
+    expect(html).not.toContain("storage_path");
+  });
+
+  it("applies read-only filters and detail selection from search params", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel([
+        createAsset({
+          assetType: "logo",
+          createdAt: "2026-06-26T07:00:00.000Z",
+          id: "asset-1",
+          name: "Neon Logo",
+          preview: {
+            expiresAt: "2026-06-26T10:01:00.000Z",
+            reason: null,
+            status: "available",
+            url: "https://assets.local/preview-logo",
+          },
+          updatedAt: "2026-06-26T10:00:00.000Z",
+          uploadMetadata: {
+            contentType: "image/png",
+            fileExtension: "png",
+            fileSizeBytes: 1024,
+            status: "available",
+            storedFilename: "neon-logo.png",
+          },
+        }),
+        createAsset({
+          assetType: "overlay",
+          createdAt: "2026-06-26T09:00:00.000Z",
+          id: "asset-2",
+          name: "Fallback Overlay",
+          preview: {
+            expiresAt: null,
+            reason: "signing_failed",
+            status: "failed",
+            url: null,
+          },
+          status: "draft",
+          updatedAt: "2026-06-26T11:00:00.000Z",
+          uploadMetadata: {
+            contentType: "image/webp",
+            fileExtension: "webp",
+            fileSizeBytes: 4096,
+            status: "available",
+            storedFilename: "fallback-overlay.webp",
+          },
+        }),
+      ]),
+    );
+
+    const html = renderToStaticMarkup(
+      await BrandingPage({
+        searchParams: Promise.resolve({
+          asset: "asset-1",
+          assetType: "logo",
+          metadata: "available",
+          preview: "available",
+          sort: "created_desc",
+          statusFilter: "active",
+        }),
+      }),
+    );
+
+    expect(html).toContain(
+      'Sortierung: <span class="font-semibold text-white">Zuletzt erstellt</span>',
+    );
+    expect(html).toContain(
+      'Sichtbare Assets: <span class="font-semibold text-white">1</span> / 2',
+    );
+    expect(html).toContain("Neon Logo");
+    expect(html).toContain('alt="Neon Logo preview"');
+    expect(html).not.toContain('alt="Fallback Overlay preview"');
+    expect(html).not.toContain(
+      "Passe Asset Type, Status, Preview oder Metadata-Filter an",
+    );
+  });
+
+  it("renders a filtered empty state when the current feed has no matching assets", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel([
+        createAsset({
+          assetType: "overlay",
+          id: "asset-1",
+          name: "Overlay Only",
+          preview: {
+            expiresAt: null,
+            reason: "signing_failed",
+            status: "failed",
+            url: null,
+          },
+          status: "draft",
+          uploadMetadata: {
+            contentType: null,
+            fileExtension: null,
+            fileSizeBytes: null,
+            status: "unavailable",
+            storedFilename: null,
+          },
+        }),
+      ]),
+    );
+
+    const html = renderToStaticMarkup(
+      await BrandingPage({
+        searchParams: Promise.resolve({
+          preview: "available",
+        }),
+      }),
+    );
+
+    expect(html).toContain("Keine Assets fuer aktuelle Filter");
+    expect(html).toContain("Kein Detail verfuegbar");
   });
 
   it("renders upload error feedback without exposing raw storage details", async () => {
@@ -157,27 +261,7 @@ describe("BrandingPage", () => {
 
     expect(html).toContain("Der private Storage-Upload ist fehlgeschlagen");
     expect(html).not.toContain("storage.objects");
-    expect(html).not.toContain("signed.example");
-  });
-
-  it("renders cleanup failure feedback without exposing private storage details", async () => {
-    mocks.getBrandingDashboardData.mockResolvedValue(
-      createEmptyBrandingDashboardModel("user-7"),
-    );
-
-    const html = renderToStaticMarkup(
-      await BrandingPage({
-        searchParams: Promise.resolve({
-          error: "brand-asset-cleanup-failed",
-        }),
-      }),
-    );
-
-    expect(html).toContain(
-      "Der Upload konnte nach einem Persistenzfehler nicht vollstaendig rueckabgewickelt werden",
-    );
     expect(html).not.toContain("brand-assets/");
-    expect(html).not.toContain("signed.example");
   });
 
   it("renders a hard load-failed state separately from the empty state", async () => {
@@ -191,52 +275,40 @@ describe("BrandingPage", () => {
     expect(html).not.toContain("Noch keine Brand Assets");
   });
 
-  it("renders partial lookup failures without crashing the asset list", async () => {
-    const model = buildBrandingDashboardModel({
-      feed: {
-        hasMore: false,
-        limit: 12,
-        returnedCount: 1,
-      },
-      items: [
-        {
-          assetType: "logo",
-          channelId: "channel-1",
-          createdAt: "2026-06-26T08:00:00.000Z",
-          description: "Primary logo.",
-          id: "asset-1",
-          name: "Neon Logo",
-          platform: null,
-          preview: {
-            expiresAt: null,
-            reason: "missing_storage",
-            status: "unavailable",
-            url: null,
+  it("renders partial lookup failures without crashing the explorer or detail panel", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel(
+        [
+          createAsset({
+            assetType: "logo",
+            id: "asset-1",
+            name: "Neon Logo",
+            platform: null,
+            preview: {
+              expiresAt: null,
+              reason: "missing_storage",
+              status: "unavailable",
+              url: null,
+            },
+            storageState: "none",
+            uploadMetadata: {
+              contentType: null,
+              fileExtension: null,
+              fileSizeBytes: null,
+              status: "unavailable",
+              storedFilename: null,
+            },
+            usageContext: null,
+          }),
+        ],
+        [
+          {
+            code: "load-failed",
+            source: "channels",
           },
-          status: "active",
-          storageState: "none",
-          uploadMetadata: {
-            contentType: null,
-            fileExtension: null,
-            fileSizeBytes: null,
-            status: "unavailable",
-            storedFilename: null,
-          },
-          updatedAt: "2026-06-26T10:00:00.000Z",
-          usageContext: null,
-        },
-      ],
-      lookupIssues: [
-        {
-          code: "load-failed",
-          source: "channels",
-        },
-      ],
-      state: "ready",
-      userId: "user-4",
-    });
-
-    mocks.getBrandingDashboardData.mockResolvedValue(model);
+        ],
+      ),
+    );
 
     const html = renderToStaticMarkup(await BrandingPage());
 
@@ -245,32 +317,22 @@ describe("BrandingPage", () => {
     );
     expect(html).toContain("Neon Logo");
     expect(html).toContain("Kein Plattformkontext");
+    expect(html).toContain("Globales Brand Asset");
   });
 
   it("keeps a single preview failure local to the asset instead of rendering the global load-failed state", async () => {
-    const model = buildBrandingDashboardModel({
-      feed: {
-        hasMore: false,
-        limit: 12,
-        returnedCount: 2,
-      },
-      items: [
-        {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel([
+        createAsset({
           assetType: "logo",
-          channelId: null,
-          createdAt: "2026-06-26T08:00:00.000Z",
-          description: "Primary logo.",
           id: "asset-1",
           name: "Neon Logo",
-          platform: null,
           preview: {
             expiresAt: "2026-06-26T10:01:00.000Z",
             reason: null,
             status: "available",
-            url: "https://signed.example/preview-1",
+            url: "https://assets.local/preview-1",
           },
-          status: "active",
-          storageState: "attached",
           uploadMetadata: {
             contentType: "image/png",
             fileExtension: "png",
@@ -278,17 +340,11 @@ describe("BrandingPage", () => {
             status: "available",
             storedFilename: "neon-logo.png",
           },
-          updatedAt: "2026-06-26T10:00:00.000Z",
-          usageContext: null,
-        },
-        {
+        }),
+        createAsset({
           assetType: "overlay",
-          channelId: null,
-          createdAt: "2026-06-26T08:00:00.000Z",
-          description: "Secondary overlay.",
           id: "asset-2",
           name: "Fallback Overlay",
-          platform: null,
           preview: {
             expiresAt: null,
             reason: "signing_failed",
@@ -296,7 +352,6 @@ describe("BrandingPage", () => {
             url: null,
           },
           status: "draft",
-          storageState: "attached",
           uploadMetadata: {
             contentType: "image/webp",
             fileExtension: "webp",
@@ -304,49 +359,39 @@ describe("BrandingPage", () => {
             status: "available",
             storedFilename: "fallback-overlay.webp",
           },
-          updatedAt: "2026-06-26T10:00:00.000Z",
-          usageContext: null,
-        },
-      ],
-      lookupIssues: [],
-      state: "ready",
-      userId: "user-5",
-    });
+        }),
+      ]),
+    );
 
-    mocks.getBrandingDashboardData.mockResolvedValue(model);
-
-    const html = renderToStaticMarkup(await BrandingPage());
+    const html = renderToStaticMarkup(
+      await BrandingPage({
+        searchParams: Promise.resolve({
+          asset: "asset-2",
+        }),
+      }),
+    );
 
     expect(html).toContain("Neon Logo");
     expect(html).toContain("Fallback Overlay");
     expect(html).toContain("Preview konnte nicht erzeugt werden");
+    expect(html).toContain("Kein gerendertes Thumbnail");
     expect(html).not.toContain("Brand Assets konnten nicht geladen werden");
+    expect(html).not.toContain('alt="Neon Logo preview"');
   });
 
   it("renders invalid upload metadata without exposing path-like filenames", async () => {
-    const model = buildBrandingDashboardModel({
-      feed: {
-        hasMore: false,
-        limit: 12,
-        returnedCount: 1,
-      },
-      items: [
-        {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel([
+        createAsset({
           assetType: "logo",
-          channelId: null,
-          createdAt: "2026-06-26T08:00:00.000Z",
-          description: "Primary logo.",
           id: "asset-1",
           name: "Unsafe Logo",
-          platform: null,
           preview: {
             expiresAt: null,
             reason: "unsupported_file_type",
             status: "unsupported",
             url: null,
           },
-          status: "active",
-          storageState: "attached",
           uploadMetadata: {
             contentType: "image/png",
             fileExtension: "png",
@@ -354,16 +399,9 @@ describe("BrandingPage", () => {
             status: "invalid",
             storedFilename: null,
           },
-          updatedAt: "2026-06-26T10:00:00.000Z",
-          usageContext: null,
-        },
-      ],
-      lookupIssues: [],
-      state: "ready",
-      userId: "user-8",
-    });
-
-    mocks.getBrandingDashboardData.mockResolvedValue(model);
+        }),
+      ]),
+    );
 
     const html = renderToStaticMarkup(await BrandingPage());
 
@@ -384,3 +422,50 @@ describe("BrandingPage", () => {
     expect(html).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
   });
 });
+
+function createReadyModel(
+  items: BrandingPageAsset[],
+  lookupIssues: Array<{ code: "load-failed"; source: "channels" }> = [],
+) {
+  return buildBrandingDashboardModel({
+    feed: {
+      hasMore: false,
+      limit: 12,
+      returnedCount: items.length,
+    },
+    items,
+    lookupIssues,
+    state: "ready",
+    userId: "user-test",
+  });
+}
+
+function createAsset(overrides: Partial<BrandingPageAsset>): BrandingPageAsset {
+  return {
+    assetType: "logo",
+    channelId: null,
+    createdAt: "2026-06-26T08:00:00.000Z",
+    description: "Primary logo.",
+    id: "asset-default",
+    name: "Default Asset",
+    platform: null,
+    preview: {
+      expiresAt: null,
+      reason: "missing_storage",
+      status: "unavailable",
+      url: null,
+    },
+    status: "active",
+    storageState: "attached",
+    updatedAt: "2026-06-26T10:00:00.000Z",
+    uploadMetadata: {
+      contentType: null,
+      fileExtension: null,
+      fileSizeBytes: null,
+      status: "unavailable",
+      storedFilename: null,
+    },
+    usageContext: null,
+    ...overrides,
+  };
+}

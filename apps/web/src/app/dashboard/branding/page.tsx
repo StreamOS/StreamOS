@@ -1,6 +1,18 @@
 import React from "react";
 import { uploadBrandAssetAction } from "./actions";
-import { BrandingDashboardConsole } from "@/components/modules/BrandingDashboardConsole";
+import {
+  BrandingDashboardConsole,
+  type BrandingDashboardConsoleView,
+} from "@/components/modules/BrandingDashboardConsole";
+import {
+  BRANDING_DASHBOARD_METADATA_FILTERS,
+  BRANDING_DASHBOARD_PREVIEW_FILTERS,
+  BRANDING_DASHBOARD_SORT_OPTIONS,
+  buildBrandingDashboardViewModel,
+  type BrandingDashboardMetadataFilter,
+  type BrandingDashboardPreviewFilter,
+  type BrandingDashboardSortOption,
+} from "@/components/modules/BrandingDashboardConsole.utils";
 import { getBrandingDashboardData } from "./data";
 
 export const dynamic = "force-dynamic";
@@ -13,14 +25,32 @@ export default async function BrandingPage({
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const model = await getBrandingDashboardData();
   const uploadFeedback = resolveBrandingUploadFeedback(resolvedSearchParams);
+  const view = buildBrandingDashboardViewModel(
+    model,
+    parseBrandingDashboardView(resolvedSearchParams),
+  );
 
   return (
     <BrandingDashboardConsole
       model={model}
+      view={view as BrandingDashboardConsoleView}
       uploadAction={uploadBrandAssetAction}
       uploadFeedback={uploadFeedback}
     />
   );
+}
+
+function parseBrandingDashboardView(
+  searchParams?: Record<string, string | string[] | undefined>,
+) {
+  return {
+    assetType: readSingleSearchParam(searchParams?.assetType),
+    detailAssetId: readSingleSearchParam(searchParams?.asset),
+    metadata: parseBrandingMetadataFilter(searchParams?.metadata),
+    preview: parseBrandingPreviewFilter(searchParams?.preview),
+    sort: parseBrandingSort(searchParams?.sort),
+    status: readSingleSearchParam(searchParams?.statusFilter),
+  };
 }
 
 function resolveBrandingUploadFeedback(
@@ -119,4 +149,34 @@ function readSingleSearchParam(
   }
 
   return Array.isArray(value) ? (value[0] ?? null) : null;
+}
+
+function parseBrandingSort(
+  value: string | string[] | undefined,
+): BrandingDashboardSortOption {
+  const candidate = readSingleSearchParam(value);
+
+  return BRANDING_DASHBOARD_SORT_OPTIONS.includes(candidate as never)
+    ? (candidate as BrandingDashboardSortOption)
+    : "updated_desc";
+}
+
+function parseBrandingPreviewFilter(
+  value: string | string[] | undefined,
+): BrandingDashboardPreviewFilter {
+  const candidate = readSingleSearchParam(value);
+
+  return BRANDING_DASHBOARD_PREVIEW_FILTERS.includes(candidate as never)
+    ? (candidate as BrandingDashboardPreviewFilter)
+    : "all";
+}
+
+function parseBrandingMetadataFilter(
+  value: string | string[] | undefined,
+): BrandingDashboardMetadataFilter {
+  const candidate = readSingleSearchParam(value);
+
+  return BRANDING_DASHBOARD_METADATA_FILTERS.includes(candidate as never)
+    ? (candidate as BrandingDashboardMetadataFilter)
+    : "all";
 }

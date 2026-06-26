@@ -1,4 +1,5 @@
 import React from "react";
+import Link from "next/link";
 import { Archive, Image, Layers3, Palette, ShieldCheck } from "lucide-react";
 import {
   BRANDING_DASHBOARD_UPLOAD_ALLOWED_MIME_TYPES,
@@ -7,8 +8,12 @@ import {
 import { StatCard } from "@streamos/ui";
 import { getSupabaseSetupNotice } from "@/lib/supabase/messages";
 import {
+  BRANDING_DASHBOARD_METADATA_FILTERS,
+  BRANDING_DASHBOARD_PREVIEW_FILTERS,
+  BRANDING_DASHBOARD_SORT_OPTIONS,
   formatBrandingAssetStatusLabel,
   formatBrandingAssetTypeLabel,
+  formatBrandingDashboardSortLabel,
   formatBrandingDateTime,
   formatBrandingFileSizeLabel,
   formatBrandingFutureActionLabel,
@@ -20,6 +25,7 @@ import {
   formatBrandingUploadMetadataStatusLabel,
   formatBrandingUploadMetadataTypeLabel,
   type BrandingDashboardModel,
+  type BrandingDashboardViewModel,
 } from "./BrandingDashboardConsole.utils";
 
 type BrandingDashboardConsoleProps = {
@@ -29,16 +35,21 @@ type BrandingDashboardConsoleProps = {
     message: string;
     tone: "error" | "success";
   } | null;
+  view: BrandingDashboardConsoleView;
 };
+
+export type BrandingDashboardConsoleView = BrandingDashboardViewModel;
 
 export function BrandingDashboardConsole({
   model,
   uploadAction,
   uploadFeedback,
+  view,
 }: BrandingDashboardConsoleProps) {
   const hasLookupIssues = model.lookupIssues.length > 0;
   const showPartialNotice = model.state === "ready" && hasLookupIssues;
   const hasData = model.items.length > 0;
+  const hasVisibleItems = view.items.length > 0;
   const previewReadyCount = model.items.filter(
     (item) => item.preview.status === "available",
   ).length;
@@ -358,180 +369,407 @@ export function BrandingDashboardConsole({
         </article>
       </section>
 
-      <section className="card space-y-4">
-        <SectionHeader
-          title="Recent Brand Assets"
-          description="Neueste Brand Assets mit Typ, Status, optionalem Plattformkontext und sicherer Storage-Verfuegbarkeit."
-        />
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
+        <article className="card space-y-4">
+          <SectionHeader
+            title="Asset Explorer"
+            description="Read-only Feed mit Filterung, Sortierung und klarer Asset-Auswahl auf Basis der bereits geladenen Branding-Stichprobe."
+          />
 
-        {hasData ? (
-          <div className="space-y-3">
-            {model.items.map((item) => (
-              <article
-                key={item.id}
-                className="rounded-lg border border-white/10 bg-white/5 p-4"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <Pill tone="emerald">
-                    {formatBrandingAssetTypeLabel(item.assetType)}
-                  </Pill>
-                  <Pill tone="violet">
-                    {formatBrandingAssetStatusLabel(item.status)}
-                  </Pill>
-                  <Pill tone="slate">
-                    {formatBrandingStorageStateLabel(item.storageState)}
-                  </Pill>
-                  {item.platform !== null && (
-                    <Pill tone="amber">
-                      {formatBrandingPlatformLabel(item.platform)}
-                    </Pill>
-                  )}
-                </div>
+          <BrandingFilterForm view={view} />
 
-                <h3 className="mt-3 text-xl font-semibold text-white">
-                  {item.name}
-                </h3>
-                <p className="mt-2 text-sm leading-6 text-slate-400">
-                  {item.description ?? "Keine Asset-Beschreibung vorhanden."}
-                </p>
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <InfoTile
-                    label="Dateityp"
-                    value={formatBrandingUploadMetadataTypeLabel(
-                      item.uploadMetadata,
-                    )}
-                  />
-                  <InfoTile
-                    label="Dateigroesse"
-                    value={
-                      item.uploadMetadata.status === "available"
-                        ? formatBrandingFileSizeLabel(
-                            item.uploadMetadata.fileSizeBytes,
-                          )
-                        : formatBrandingUploadMetadataStatusLabel(
-                            item.uploadMetadata,
-                          )
-                    }
-                  />
-                  <InfoTile
-                    label="Stored Filename"
-                    value={
-                      item.uploadMetadata.storedFilename ??
-                      formatBrandingUploadMetadataStatusLabel(
-                        item.uploadMetadata,
-                      )
-                    }
-                  />
-                  <InfoTile
-                    label="Metadata Status"
-                    value={formatBrandingUploadMetadataStatusLabel(
-                      item.uploadMetadata,
-                    )}
-                  />
-                </div>
-
-                <div className="mt-4 space-y-2 rounded-lg border border-dashed border-white/10 bg-surface-950/70 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Future Actions
-                    </p>
-                    <span className="text-xs text-slate-500">
-                      Contract only
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {item.futureActions.map((action) => (
-                      <button
-                        key={`${item.id}-${action.action}`}
-                        aria-disabled="true"
-                        className="cursor-not-allowed rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-500 opacity-80"
-                        disabled
-                        title={formatBrandingMutationReasonLabel(action.reason)}
-                        type="button"
-                      >
-                        {formatBrandingFutureActionLabel(action.action)} spaeter
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-xs leading-5 text-slate-500">
-                    Replace und Delete bleiben blockiert, bis DB-Row,
-                    Storage-Objekt und Cleanup-Failures gemeinsam serverseitig
-                    orchestriert werden.
-                  </p>
-                </div>
-
-                <div className="mt-4 rounded-lg border border-white/10 bg-surface-950/70 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Private Preview
-                    </p>
-                    <span className="text-xs font-medium text-slate-400">
-                      {formatBrandingPreviewStatusLabel(item.preview.status)}
-                    </span>
-                  </div>
-
-                  {item.preview.status === "available" && item.preview.url ? (
-                    <div className="mt-3 space-y-3">
-                      {/* Signed preview URLs are short-lived and rendered as-is in the dashboard. */}
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        alt={`${item.name} preview`}
-                        className="h-40 w-full rounded-lg border border-white/10 bg-surface-950 object-contain"
-                        loading="lazy"
-                        src={item.preview.url}
-                      />
-                      <p className="text-xs leading-5 text-slate-500">
-                        Kurzlebige Preview fuer diese Dashboard-Response.
-                        Ablauf: {formatBrandingDateTime(item.preview.expiresAt)}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="mt-3 rounded-lg border border-dashed border-white/10 bg-white/5 p-4">
-                      <p className="text-sm font-medium text-slate-200">
-                        Kein gerendertes Thumbnail
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-slate-400">
-                        {formatBrandingPreviewReasonLabel(item.preview.reason)}
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <InfoTile
-                    label="Usage Context"
-                    value={item.usageContext ?? "Globales Brand Asset"}
-                  />
-                  <InfoTile
-                    label="Platform"
-                    value={formatBrandingPlatformLabel(item.platform)}
-                  />
-                  <InfoTile
-                    label="Created"
-                    value={formatBrandingDateTime(item.createdAt)}
-                  />
-                  <InfoTile
-                    label="Updated"
-                    value={formatBrandingDateTime(item.updatedAt)}
-                  />
-                </div>
-              </article>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+            <p>
+              Sortierung:{" "}
+              <span className="font-semibold text-white">
+                {formatBrandingDashboardSortLabel(view.sort)}
+              </span>
+            </p>
+            <p>
+              Sichtbare Assets:{" "}
+              <span className="font-semibold text-white">
+                {view.items.length}
+              </span>
+              {hasData ? ` / ${model.items.length}` : ""}
+            </p>
           </div>
-        ) : model.state !== "ready" ? (
-          <StateEmptyState state={model.state} />
-        ) : hasLookupIssues ? (
-          <EmptyState
-            title="Teilweise geladene Brand Assets"
-            body="Assets sind geladen, aber optionale Lookup-Kontexte fehlen noch teilweise."
+
+          {hasData ? (
+            hasVisibleItems ? (
+              <div className="space-y-3">
+                {view.items.map((item) => (
+                  <article
+                    key={item.id}
+                    className={`rounded-lg border p-4 ${
+                      view.detailAssetId === item.id
+                        ? "border-brand-500/40 bg-brand-500/10"
+                        : "border-white/10 bg-white/5"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Pill tone="emerald">
+                            {formatBrandingAssetTypeLabel(item.assetType)}
+                          </Pill>
+                          <Pill tone="violet">
+                            {formatBrandingAssetStatusLabel(item.status)}
+                          </Pill>
+                          <Pill tone="slate">
+                            {formatBrandingPreviewStatusLabel(
+                              item.preview.status,
+                            )}
+                          </Pill>
+                          <Pill tone="amber">
+                            {formatBrandingUploadMetadataStatusLabel(
+                              item.uploadMetadata,
+                            )}
+                          </Pill>
+                        </div>
+                        <h3 className="text-lg font-semibold text-white">
+                          {item.name}
+                        </h3>
+                        <p className="text-sm leading-6 text-slate-400">
+                          {item.description ??
+                            "Keine Asset-Beschreibung vorhanden."}
+                        </p>
+                      </div>
+
+                      <Link
+                        className="rounded-full border border-white/10 bg-surface-950/70 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:border-brand-500/40 hover:text-white"
+                        href={buildBrandingViewHref(view, item.id)}
+                      >
+                        Details ansehen
+                      </Link>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <InfoTile
+                        label="Dateityp"
+                        value={formatBrandingUploadMetadataTypeLabel(
+                          item.uploadMetadata,
+                        )}
+                      />
+                      <InfoTile
+                        label="Dateigroesse"
+                        value={formatBrandingFileSizeLabel(
+                          item.uploadMetadata.fileSizeBytes,
+                        )}
+                      />
+                      <InfoTile
+                        label="Updated"
+                        value={formatBrandingDateTime(item.updatedAt)}
+                      />
+                      <InfoTile
+                        label="Platform"
+                        value={formatBrandingPlatformLabel(item.platform)}
+                      />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                title="Keine Assets fuer aktuelle Filter"
+                body="Passe Asset Type, Status, Preview oder Metadata-Filter an, um wieder Ergebnisse zu sehen."
+              />
+            )
+          ) : model.state !== "ready" ? (
+            <StateEmptyState state={model.state} />
+          ) : hasLookupIssues ? (
+            <EmptyState
+              title="Teilweise geladene Brand Assets"
+              body="Assets sind geladen, aber optionale Lookup-Kontexte fehlen noch teilweise."
+            />
+          ) : (
+            <EmptyState
+              title="Noch keine Brand Assets"
+              body="Sobald `brand_assets` fuer den aktuellen User vorhanden sind, zeigt StreamOS hier die read-only Branding-Surface."
+            />
+          )}
+        </article>
+
+        <article className="card space-y-4">
+          <SectionHeader
+            title="Asset Detail"
+            description="Read-only Detailansicht mit Preview, Metadata und bewusst disabled Future-Actions."
           />
+
+          {view.selectedAsset ? (
+            <AssetDetailPanel item={view.selectedAsset} />
+          ) : (
+            <EmptyState
+              title="Kein Detail verfuegbar"
+              body="Waehle ein Asset aus oder loese Filter, damit wieder ein Detailbereich sichtbar wird."
+            />
+          )}
+        </article>
+      </section>
+    </div>
+  );
+}
+
+function BrandingFilterForm({ view }: { view: BrandingDashboardConsoleView }) {
+  return (
+    <form className="grid gap-4 rounded-lg border border-white/10 bg-white/5 p-4 lg:grid-cols-[repeat(4,minmax(0,1fr))]">
+      <label className="grid gap-2 text-sm font-semibold text-slate-300">
+        Asset Type
+        <select
+          className="rounded-lg border border-white/10 bg-surface-900 px-3 py-2 text-white outline-none transition focus:border-signal-green"
+          defaultValue={view.filters.assetType ?? "all"}
+          name="assetType"
+        >
+          <option value="all">Alle Asset-Typen</option>
+          {view.assetTypeOptions.map((assetType) => (
+            <option key={assetType} value={assetType}>
+              {formatBrandingAssetTypeLabel(assetType)}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="grid gap-2 text-sm font-semibold text-slate-300">
+        Status
+        <select
+          className="rounded-lg border border-white/10 bg-surface-900 px-3 py-2 text-white outline-none transition focus:border-signal-green"
+          defaultValue={view.filters.status ?? "all"}
+          name="statusFilter"
+        >
+          <option value="all">Alle Status</option>
+          {view.statusOptions.map((status) => (
+            <option key={status} value={status}>
+              {formatBrandingAssetStatusLabel(status)}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="grid gap-2 text-sm font-semibold text-slate-300">
+        Preview
+        <select
+          className="rounded-lg border border-white/10 bg-surface-900 px-3 py-2 text-white outline-none transition focus:border-signal-green"
+          defaultValue={view.filters.preview}
+          name="preview"
+        >
+          {BRANDING_DASHBOARD_PREVIEW_FILTERS.map((preview) => (
+            <option key={preview} value={preview}>
+              {formatBrandingPreviewFilterLabel(preview)}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="grid gap-2 text-sm font-semibold text-slate-300">
+        Metadata
+        <select
+          className="rounded-lg border border-white/10 bg-surface-900 px-3 py-2 text-white outline-none transition focus:border-signal-green"
+          defaultValue={view.filters.metadata}
+          name="metadata"
+        >
+          {BRANDING_DASHBOARD_METADATA_FILTERS.map((metadata) => (
+            <option key={metadata} value={metadata}>
+              {formatBrandingMetadataFilterLabel(metadata)}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="grid gap-2 text-sm font-semibold text-slate-300 lg:col-span-2">
+        Sortierung
+        <select
+          className="rounded-lg border border-white/10 bg-surface-900 px-3 py-2 text-white outline-none transition focus:border-signal-green"
+          defaultValue={view.sort}
+          name="sort"
+        >
+          {BRANDING_DASHBOARD_SORT_OPTIONS.map((sort) => (
+            <option key={sort} value={sort}>
+              {formatBrandingDashboardSortLabel(sort)}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div className="flex items-end gap-3 lg:col-span-2">
+        <button className="btn-primary min-h-10 px-4 py-2" type="submit">
+          Filter anwenden
+        </button>
+        <Link
+          className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:border-white/20 hover:text-white"
+          href="/dashboard/branding"
+        >
+          Filter zuruecksetzen
+        </Link>
+      </div>
+    </form>
+  );
+}
+
+function AssetDetailPanel({
+  item,
+}: {
+  item: BrandingDashboardViewModel["selectedAsset"];
+}) {
+  if (!item) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Pill tone="emerald">
+                {formatBrandingAssetTypeLabel(item.assetType)}
+              </Pill>
+              <Pill tone="violet">
+                {formatBrandingAssetStatusLabel(item.status)}
+              </Pill>
+            </div>
+            <h3 className="mt-3 text-xl font-semibold text-white">
+              {item.name}
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              {item.description ?? "Keine Asset-Beschreibung vorhanden."}
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-surface-950/70 px-3 py-2 text-right">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+              Preview Status
+            </p>
+            <p className="mt-1 text-sm font-semibold text-white">
+              {formatBrandingPreviewStatusLabel(item.preview.status)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <section className="rounded-lg border border-white/10 bg-white/5 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+          Private Preview
+        </p>
+        {item.preview.status === "available" && item.preview.url ? (
+          <div className="mt-3 space-y-3">
+            <img
+              alt={`${item.name} preview`}
+              className="max-h-80 w-full rounded-lg border border-white/10 bg-surface-950 object-contain"
+              decoding="async"
+              loading="lazy"
+              src={item.preview.url}
+            />
+            <p className="text-xs leading-6 text-slate-500">
+              Kurzlebige Preview nur fuer diese Dashboard-Response. Die URL wird
+              nicht persistiert oder als Debug-Text angezeigt.
+            </p>
+          </div>
         ) : (
-          <EmptyState
-            title="Noch keine Brand Assets"
-            body="Sobald `brand_assets` fuer den aktuellen User vorhanden sind, zeigt StreamOS hier die read-only Branding-Surface."
-          />
+          <div className="mt-3 rounded-lg border border-dashed border-white/10 bg-surface-950/80 p-4">
+            <p className="text-sm font-semibold text-white">
+              Kein gerendertes Thumbnail
+            </p>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              {formatBrandingPreviewReasonLabel(item.preview.reason)}
+            </p>
+          </div>
         )}
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2">
+        <InfoTile label="Name" value={item.name} />
+        <InfoTile
+          label="Asset Type"
+          value={formatBrandingAssetTypeLabel(item.assetType)}
+        />
+        <InfoTile
+          label="Status"
+          value={formatBrandingAssetStatusLabel(item.status)}
+        />
+        <InfoTile
+          label="Storage Status"
+          value={formatBrandingStorageStateLabel(item.storageState)}
+        />
+        <InfoTile
+          label="Preview-Status"
+          value={formatBrandingPreviewStatusLabel(item.preview.status)}
+        />
+        <InfoTile
+          label="Upload Metadata Status"
+          value={formatBrandingUploadMetadataStatusLabel(item.uploadMetadata)}
+        />
+        <InfoTile
+          label="Content Type"
+          value={item.uploadMetadata.contentType ?? "Nicht verfuegbar"}
+        />
+        <InfoTile
+          label="File Extension"
+          value={
+            item.uploadMetadata.fileExtension?.toUpperCase() ??
+            "Nicht verfuegbar"
+          }
+        />
+        <InfoTile
+          label="File Size"
+          value={formatBrandingFileSizeLabel(item.uploadMetadata.fileSizeBytes)}
+        />
+        <InfoTile
+          label="Stored Filename"
+          value={item.uploadMetadata.storedFilename ?? "Nicht verfuegbar"}
+        />
+        <InfoTile
+          label="Created"
+          value={formatBrandingDateTime(item.createdAt)}
+        />
+        <InfoTile
+          label="Updated"
+          value={formatBrandingDateTime(item.updatedAt)}
+        />
+        <InfoTile
+          label="Platform"
+          value={formatBrandingPlatformLabel(item.platform)}
+        />
+        <InfoTile
+          label="Usage Context"
+          value={item.usageContext ?? "Globales Brand Asset"}
+        />
+      </section>
+
+      <section className="rounded-lg border border-dashed border-white/10 bg-surface-950/70 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+          Future Actions
+        </p>
+        <div className="mt-3 space-y-3">
+          {item.futureActions.map((action) => (
+            <div
+              key={action.action}
+              className="rounded-lg border border-white/10 bg-white/5 p-3"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-white">
+                  {formatBrandingFutureActionLabel(action.action)}
+                </p>
+                <span className="rounded-full border border-white/10 bg-surface-950/70 px-3 py-1 text-xs font-semibold text-slate-300">
+                  blocked
+                </span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-slate-400">
+                {formatBrandingMutationReasonLabel(action.reason)}
+              </p>
+            </div>
+          ))}
+          <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-white">Orphan Cleanup</p>
+              <span className="rounded-full border border-white/10 bg-surface-950/70 px-3 py-1 text-xs font-semibold text-slate-300">
+                blocked
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-slate-400">
+              {formatBrandingMutationReasonLabel(
+                "requires_scoped_manual_cleanup",
+              )}
+            </p>
+          </div>
+        </div>
       </section>
     </div>
   );
@@ -718,3 +956,65 @@ const UPLOAD_ASSET_TYPES = [
   "color_palette",
   "typography",
 ] as const;
+
+function formatBrandingPreviewFilterLabel(
+  value: (typeof BRANDING_DASHBOARD_PREVIEW_FILTERS)[number],
+): string {
+  switch (value) {
+    case "all":
+      return "Alle Preview-Zustaende";
+    case "available":
+      return "Preview verfuegbar";
+    case "unavailable":
+      return "Preview nicht verfuegbar";
+  }
+}
+
+function formatBrandingMetadataFilterLabel(
+  value: (typeof BRANDING_DASHBOARD_METADATA_FILTERS)[number],
+): string {
+  switch (value) {
+    case "all":
+      return "Alle Metadata-Zustaende";
+    case "available":
+      return "Metadata verfuegbar";
+    case "invalid":
+      return "Metadata ungueltig";
+    case "unavailable":
+      return "Metadata unavailable";
+  }
+}
+
+function buildBrandingViewHref(
+  view: BrandingDashboardConsoleView,
+  detailAssetId: string,
+): string {
+  const searchParams = new URLSearchParams();
+
+  if (view.filters.assetType) {
+    searchParams.set("assetType", view.filters.assetType);
+  }
+
+  if (view.filters.status) {
+    searchParams.set("statusFilter", view.filters.status);
+  }
+
+  if (view.filters.preview !== "all") {
+    searchParams.set("preview", view.filters.preview);
+  }
+
+  if (view.filters.metadata !== "all") {
+    searchParams.set("metadata", view.filters.metadata);
+  }
+
+  if (view.sort !== "updated_desc") {
+    searchParams.set("sort", view.sort);
+  }
+
+  searchParams.set("asset", detailAssetId);
+
+  const query = searchParams.toString();
+  return query.length > 0
+    ? `/dashboard/branding?${query}`
+    : "/dashboard/branding";
+}

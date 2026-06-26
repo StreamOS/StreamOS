@@ -28,6 +28,55 @@ export type BrandingDashboardModel = BrandingDashboardReadModel & {
 };
 type BrandingDashboardBaseAsset = Omit<BrandingDashboardAsset, "futureActions">;
 
+export const BRANDING_DASHBOARD_SORT_OPTIONS = [
+  "updated_desc",
+  "created_desc",
+  "asset_type",
+  "status",
+] as const;
+export const BRANDING_DASHBOARD_PREVIEW_FILTERS = [
+  "all",
+  "available",
+  "unavailable",
+] as const;
+export const BRANDING_DASHBOARD_METADATA_FILTERS = [
+  "all",
+  "available",
+  "invalid",
+  "unavailable",
+] as const;
+
+export type BrandingDashboardSortOption =
+  (typeof BRANDING_DASHBOARD_SORT_OPTIONS)[number];
+export type BrandingDashboardPreviewFilter =
+  (typeof BRANDING_DASHBOARD_PREVIEW_FILTERS)[number];
+export type BrandingDashboardMetadataFilter =
+  (typeof BRANDING_DASHBOARD_METADATA_FILTERS)[number];
+
+export type BrandingDashboardViewInput = {
+  assetType: string | null;
+  detailAssetId: string | null;
+  metadata: BrandingDashboardMetadataFilter;
+  preview: BrandingDashboardPreviewFilter;
+  sort: BrandingDashboardSortOption;
+  status: string | null;
+};
+
+export type BrandingDashboardViewModel = {
+  assetTypeOptions: string[];
+  detailAssetId: string | null;
+  filters: {
+    assetType: string | null;
+    metadata: BrandingDashboardMetadataFilter;
+    preview: BrandingDashboardPreviewFilter;
+    status: string | null;
+  };
+  items: BrandingDashboardAsset[];
+  selectedAsset: BrandingDashboardAsset | null;
+  sort: BrandingDashboardSortOption;
+  statusOptions: string[];
+};
+
 const knownAssetTypeLabels: Record<string, string> = {
   alert: "Alert",
   banner: "Banner",
@@ -147,6 +196,57 @@ export function createEmptyBrandingDashboardModel(
     },
     typeDistribution: [],
     userId,
+  };
+}
+
+export function buildBrandingDashboardViewModel(
+  model: BrandingDashboardModel,
+  input: BrandingDashboardViewInput,
+): BrandingDashboardViewModel {
+  const assetTypeOptions = [
+    ...new Set(model.items.map((item) => item.assetType)),
+  ].sort((left, right) => left.localeCompare(right));
+  const statusOptions = [
+    ...new Set(model.items.map((item) => item.status)),
+  ].sort((left, right) => left.localeCompare(right));
+  const assetType =
+    input.assetType && assetTypeOptions.includes(input.assetType)
+      ? input.assetType
+      : null;
+  const status =
+    input.status && statusOptions.includes(input.status) ? input.status : null;
+  const items = [...model.items]
+    .filter((item) => (assetType ? item.assetType === assetType : true))
+    .filter((item) => (status ? item.status === status : true))
+    .filter((item) =>
+      input.preview === "available"
+        ? item.preview.status === "available"
+        : input.preview === "unavailable"
+          ? item.preview.status !== "available"
+          : true,
+    )
+    .filter((item) =>
+      input.metadata === "all"
+        ? true
+        : item.uploadMetadata.status === input.metadata,
+    )
+    .sort((left, right) => compareBrandingAssets(left, right, input.sort));
+  const selectedAsset =
+    items.find((item) => item.id === input.detailAssetId) ?? items[0] ?? null;
+
+  return {
+    assetTypeOptions,
+    detailAssetId: selectedAsset?.id ?? null,
+    filters: {
+      assetType,
+      metadata: input.metadata,
+      preview: input.preview,
+      status,
+    },
+    items,
+    selectedAsset,
+    sort: input.sort,
+    statusOptions,
   };
 }
 
@@ -306,6 +406,21 @@ export function formatBrandingFutureActionLabel(
   }
 }
 
+export function formatBrandingDashboardSortLabel(
+  sort: BrandingDashboardSortOption,
+): string {
+  switch (sort) {
+    case "asset_type":
+      return "Asset Type";
+    case "created_desc":
+      return "Zuletzt erstellt";
+    case "status":
+      return "Status";
+    case "updated_desc":
+      return "Zuletzt aktualisiert";
+  }
+}
+
 export function formatBrandingMutationReasonLabel(
   reason: BrandingDashboardMutationBlockReason,
 ): string {
@@ -371,6 +486,32 @@ function isKnownAssetType(value: string): boolean {
 
 function buildBrandingAssetFutureActions(): BrandingDashboardFutureAction[] {
   return [mutationContract.replace, mutationContract.delete];
+}
+
+function compareBrandingAssets(
+  left: BrandingDashboardAsset,
+  right: BrandingDashboardAsset,
+  sort: BrandingDashboardSortOption,
+): number {
+  switch (sort) {
+    case "asset_type":
+      return (
+        left.assetType.localeCompare(right.assetType) ||
+        right.updatedAt.localeCompare(left.updatedAt)
+      );
+    case "created_desc":
+      return (
+        right.createdAt.localeCompare(left.createdAt) ||
+        right.updatedAt.localeCompare(left.updatedAt)
+      );
+    case "status":
+      return (
+        left.status.localeCompare(right.status) ||
+        right.updatedAt.localeCompare(left.updatedAt)
+      );
+    case "updated_desc":
+      return right.updatedAt.localeCompare(left.updatedAt);
+  }
 }
 
 function formatBrandingFileSizeUnit(value: number): string {
