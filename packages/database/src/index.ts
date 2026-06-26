@@ -159,6 +159,15 @@ export type BrandAssetType =
   | "typography"
   | "scene";
 export type BrandAssetStatus = "draft" | "active" | "archived";
+export type BrandAssetUploadMetadataStatus =
+  | "available"
+  | "invalid"
+  | "unavailable";
+export type BrandAssetPreviewCapabilityStatus =
+  | "previewable"
+  | "unsupported"
+  | "missing_storage"
+  | "invalid_storage";
 export type MonetizationEventType =
   | "subscription"
   | "membership"
@@ -1919,6 +1928,8 @@ export type Database = {
           public_url: string | null;
           config: Json;
           metadata: Json;
+          upload_metadata_status: BrandAssetUploadMetadataStatus;
+          preview_capability_status: BrandAssetPreviewCapabilityStatus;
           created_at: string;
           updated_at: string;
         };

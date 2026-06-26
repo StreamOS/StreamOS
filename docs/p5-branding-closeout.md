@@ -114,8 +114,14 @@ Secret-Aenderungen ausgefuehrt.
   abgeleitet wird, ohne persistierten `upload_metadata_status`
 - der Explorer-Contract markiert Filter-Ownership jetzt maschinenlesbar als
   `server_query` vs. `client_window`
-- ein spaeterer Server-Filter-Slice braucht einen expliziten persistierten
-  Follow-up-Contract statt impliziter Runtime-Heuristiken
+- P5.12 fuehrt diesen persistierten Follow-up-Contract jetzt als
+  server-managed `upload_metadata_status`- und
+  `preview_capability_status`-Spalten ein
+- die Spalten werden datenbankseitig aus `metadata`, `storage_bucket`,
+  `storage_path` und `user_id` abgeleitet und nicht vom App-Insert vertraut
+- `preview` und `metadata` bleiben trotzdem `client_window`, bis ein
+  dedizierter Backfill-/Index-/Activation-Gate die spaetere serverseitige
+  Filterung freigibt
 
 ### Feed Scope / Cursor / Load More
 
@@ -134,6 +140,8 @@ Secret-Aenderungen ausgefuehrt.
 - `storage_bucket`
 - `storage_path`
 - `metadata.upload`
+- `upload_metadata_status`
+- `preview_capability_status`
 
 ### Aktive Contracts
 
@@ -250,7 +258,8 @@ Begruendung:
 ## 10. Empfohlene naechste Slices
 
 1. Persistierten `upload_metadata_status`- und
-   `preview_capability_status`-Contract definieren, backfillen und erst danach
+   `preview_capability_status`-Contract per Migration ausrollen, historischen
+   Backfill validieren, Query-Indizes entscheiden und erst danach
    Preview/Metadata-Filters serverseitig in den Feed-Query ueberfuehren
 2. Brand Kit Structure Read Model fuer hoehere semantische Vollstaendigkeit im
    Dashboard

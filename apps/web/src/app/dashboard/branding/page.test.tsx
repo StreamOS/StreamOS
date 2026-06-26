@@ -785,6 +785,10 @@ function createAsset(overrides: Partial<BrandingPageAsset>): BrandingPageAsset {
     channelId: null,
     createdAt: "2026-06-26T08:00:00.000Z",
     description: "Primary logo.",
+    derivedStatuses: {
+      previewCapabilityStatus: "missing_storage",
+      uploadMetadataStatus: "unavailable",
+    },
     id: "asset-default",
     name: "Default Asset",
     platform: null,

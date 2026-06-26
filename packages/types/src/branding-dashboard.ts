@@ -51,6 +51,12 @@ export const BRANDING_DASHBOARD_METADATA_FILTERS = [
   "invalid",
   "unavailable",
 ] as const;
+export const BRANDING_DASHBOARD_PREVIEW_CAPABILITY_STATUSES = [
+  "previewable",
+  "unsupported",
+  "missing_storage",
+  "invalid_storage",
+] as const;
 
 export type BrandingDashboardLookupSource =
   (typeof BRANDING_DASHBOARD_LOOKUP_SOURCES)[number];
@@ -59,10 +65,13 @@ export type BrandingDashboardFeedScope =
 export type BrandingDashboardFeedServerSort =
   (typeof BRANDING_DASHBOARD_FEED_SERVER_SORTS)[number];
 export type BrandingDashboardFeedFilterOwner = "client_window" | "server_query";
+export type BrandingDashboardDerivedStatusOwner = "server_managed";
 export type BrandingDashboardPreviewFilter =
   (typeof BRANDING_DASHBOARD_PREVIEW_FILTERS)[number];
 export type BrandingDashboardMetadataFilter =
   (typeof BRANDING_DASHBOARD_METADATA_FILTERS)[number];
+export type BrandingDashboardPreviewCapabilityStatus =
+  (typeof BRANDING_DASHBOARD_PREVIEW_CAPABILITY_STATUSES)[number];
 
 export type BrandingDashboardLookupIssue = {
   code: "load-failed";
@@ -117,11 +126,27 @@ export type BrandingDashboardUploadMetadata = {
   storedFilename: string | null;
 };
 
+export type BrandingDashboardDerivedStatuses = Readonly<{
+  previewCapabilityStatus: BrandingDashboardPreviewCapabilityStatus;
+  uploadMetadataStatus: BrandingDashboardUploadMetadataStatus;
+}>;
+
+export type BrandingDashboardDerivedStatusOwnership = Readonly<{
+  previewCapabilityStatus: "server_managed";
+  uploadMetadataStatus: "server_managed";
+}>;
+
+export const BRANDING_DASHBOARD_DERIVED_STATUS_OWNERSHIP = {
+  previewCapabilityStatus: "server_managed",
+  uploadMetadataStatus: "server_managed",
+} as const satisfies BrandingDashboardDerivedStatusOwnership;
+
 export type BrandingDashboardAsset = {
   assetType: BrandAssetType | string;
   channelId: string | null;
   createdAt: string;
   description: string | null;
+  derivedStatuses: BrandingDashboardDerivedStatuses;
   futureActions: BrandingDashboardFutureAction[];
   id: string;
   name: string;
@@ -202,6 +227,21 @@ type _BrandingDashboardFeedFilterOwnershipAssertions = [
     BrandingDashboardTypeEqual<
       BrandingDashboardFeedFilterOwnership["status"],
       "server_query"
+    >
+  >,
+];
+
+type _BrandingDashboardDerivedStatusOwnershipAssertions = [
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusOwnership["previewCapabilityStatus"],
+      "server_managed"
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusOwnership["uploadMetadataStatus"],
+      "server_managed"
     >
   >,
 ];

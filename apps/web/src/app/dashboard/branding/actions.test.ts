@@ -66,6 +66,8 @@ describe("uploadBrandAssetAction", () => {
         user_id: "11111111-1111-4111-8111-111111111111",
       }),
     ]);
+    expect(supabase.inserts[0]).not.toHaveProperty("upload_metadata_status");
+    expect(supabase.inserts[0]).not.toHaveProperty("preview_capability_status");
     expect(supabase.inserts[0]?.metadata).toEqual({
       upload: {
         content_type: "image/png",

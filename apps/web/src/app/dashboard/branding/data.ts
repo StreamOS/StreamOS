@@ -35,9 +35,11 @@ type BrandAssetRow = Omit<
     | "id"
     | "metadata"
     | "name"
+    | "preview_capability_status"
     | "status"
     | "storage_bucket"
     | "storage_path"
+    | "upload_metadata_status"
     | "updated_at"
   >,
   "asset_type" | "status"
@@ -289,7 +291,7 @@ async function fetchBrandingAssetWindow({
   let request = supabase
     .from("brand_assets")
     .select(
-      "asset_type,channel_id,created_at,description,id,metadata,name,status,storage_bucket,storage_path,updated_at",
+      "asset_type,channel_id,created_at,description,id,metadata,name,preview_capability_status,status,storage_bucket,storage_path,upload_metadata_status,updated_at",
     )
     .eq("user_id", userId);
 
@@ -541,6 +543,10 @@ function normalizeBrandAsset(
     channelId: row.channel_id,
     createdAt: row.created_at,
     description: row.description,
+    derivedStatuses: {
+      previewCapabilityStatus: row.preview_capability_status,
+      uploadMetadataStatus: row.upload_metadata_status,
+    },
     id: row.id,
     name: row.name,
     platform: channel?.platform ?? null,

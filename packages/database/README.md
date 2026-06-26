@@ -56,7 +56,15 @@ only `storage_bucket` and `storage_path` when upload runtime is added later;
 durable `public_url` persistence is intentionally avoided. SVG remains blocked
 for the upload MVP because uploaded SVG can carry script-capable content, and
 previews should use short-lived server-generated signed URLs from the private
-bucket instead of public bucket URLs.
+bucket instead of public bucket URLs. The `brand_assets` table also carries the
+server-managed derived status columns `upload_metadata_status` and
+`preview_capability_status`. They are database-derived columns, so app writes
+do not set them directly; PostgreSQL computes them from `metadata`,
+`storage_bucket`, `storage_path`, and `user_id`. They exist to make future
+server-queryable Branding Explorer filters possible without trusting
+client-window heuristics. This package does not enable those filters by itself:
+activate server-side preview/metadata filtering only after the migration
+rollout and any needed index gate are complete.
 
 `content_jobs.queue_job_id` links BullMQ job attempts to durable database state.
 Workers and server actions mutate runtime status, result, error, and retry
