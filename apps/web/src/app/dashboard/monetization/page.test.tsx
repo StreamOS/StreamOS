@@ -115,6 +115,8 @@ describe("MonetizationPage", () => {
     );
     expect(html).toContain("Diese Surface zeigt die neuesten 1 Monetization");
     expect(html).toContain("Recent Monetization Events");
+    expect(html).toContain("Revenue by Category");
+    expect(html).toContain("Sponsorships");
     expect(html).toContain("Sponsoring");
     expect(html).toContain("Brand Campaign");
   });
@@ -165,7 +167,7 @@ describe("MonetizationPage", () => {
     const html = renderToStaticMarkup(await MonetizationPage());
 
     expect(html).toContain("Revenue Categories");
-    expect(html).toContain("Top Revenue Categories");
+    expect(html).toContain("Donations");
     expect(html).not.toContain("Revenue by Source");
     expect(html).toContain(
       "Summary rows expose category counts without source-level revenue amounts in this MVP.",

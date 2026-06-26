@@ -19,6 +19,7 @@ import {
   getMonetizationStatusLabel,
   type MonetizationDashboardModel,
 } from "./MonetizationDashboardConsole.utils";
+import { getMonetizationSourceCategoryLabel } from "./monetizationSourceTaxonomy";
 
 type MonetizationDashboardConsoleProps = {
   model: MonetizationDashboardModel;
@@ -39,7 +40,7 @@ export function MonetizationDashboardConsole({
   const revenueBreakdownTitle = getRevenueBreakdownTitle(
     model.revenueBreakdownContext,
   );
-  const topRevenueBreakdownTitle = getTopRevenueBreakdownTitle(
+  const revenueCategoryTitle = getRevenueCategoryTitle(
     model.revenueBreakdownContext,
   );
 
@@ -251,6 +252,12 @@ export function MonetizationDashboardConsole({
             </p>
             <p className="mt-4 font-semibold text-white">Revenue breakdown</p>
             <p className="mt-2">{formatRevenueBreakdownCoverage(model)}</p>
+            <p className="mt-4 font-semibold text-white">Category taxonomy</p>
+            <p className="mt-2">
+              {model.coverage.revenueBreakdownDataSource === "none"
+                ? "Unavailable"
+                : "Canonical business categories derived client-side"}
+            </p>
             <p className="mt-4 font-semibold text-white">Latest event</p>
             <p className="mt-2">
               {formatMonetizationDateTime(model.coverage.latestEventAt)}
@@ -289,6 +296,14 @@ export function MonetizationDashboardConsole({
                       <p className="mt-1 text-sm text-slate-400">
                         {formatMonetizationCount(item.eventCount)} events
                       </p>
+                      {model.revenueBreakdownContext.dimension === "source" ? (
+                        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                          Category:{" "}
+                          <span className="text-slate-300">
+                            {getMonetizationSourceCategoryLabel(item.category)}
+                          </span>
+                        </p>
+                      ) : null}
                     </div>
                     <strong className="text-base text-white">
                       {formatMonetizationAmount(item.amount)}
@@ -358,7 +373,18 @@ export function MonetizationDashboardConsole({
                         {getMonetizationBreakdownValueLabel(event.eventType)}
                       </td>
                       <td className="px-4 py-3 text-slate-400">
-                        {getMonetizationBreakdownValueLabel(event.source)}
+                        <div>
+                          <p>
+                            {event.source
+                              ? getMonetizationBreakdownValueLabel(event.source)
+                              : "Unavailable"}
+                          </p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.08em] text-slate-500">
+                            {getMonetizationSourceCategoryLabel(
+                              event.sourceCategory,
+                            )}
+                          </p>
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-right font-semibold text-white">
                         {formatMonetizationAmount(event.amount)}
@@ -394,15 +420,15 @@ export function MonetizationDashboardConsole({
 
       <section className="card space-y-4">
         <SectionHeader
-          title={topRevenueBreakdownTitle}
-          description={`Die staerksten Revenue-Gruppen fuer ${model.periodContext.periodLabel}, sofern Umsatzbetraege oder belastbare Count-only Summary-Daten vorliegen.`}
+          title={revenueCategoryTitle}
+          description={getRevenueCategoryDescription(model)}
         />
 
-        {model.topRevenueBreakdown.length > 0 ? (
+        {model.revenueCategories.length > 0 ? (
           <div className="grid gap-3 md:grid-cols-3">
-            {model.topRevenueBreakdown.map((item) => (
+            {model.revenueCategories.map((item) => (
               <article
-                key={item.key}
+                key={item.category}
                 className="rounded-lg border border-white/10 bg-white/5 p-4"
               >
                 <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
@@ -420,16 +446,18 @@ export function MonetizationDashboardConsole({
         ) : model.state !== "ready" ? (
           <StateEmptyState
             state={model.state}
-            title={`${topRevenueBreakdownTitle} konnten nicht geladen werden`}
+            title={`${revenueCategoryTitle} konnten nicht geladen werden`}
           />
         ) : hasLookupIssues ? (
           <PartialState
-            title={`${topRevenueBreakdownTitle} teilweise verfuegbar`}
+            title={`${revenueCategoryTitle} teilweise verfuegbar`}
             body="Mindestens ein Monetization-Read ist ausgefallen. Deshalb bleibt diese Priorisierung konservativ leer."
           />
         ) : (
           <EmptyState
-            title={`Noch keine ${topRevenueBreakdownTitle}`}
+            title={getInitialRevenueCategoryTitle(
+              model.revenueBreakdownContext,
+            )}
             body="Sobald ausreichend Monetization-Daten vorliegen, zeigt dieser Bereich die staerksten Revenue-Gruppen."
           />
         )}
@@ -712,18 +740,12 @@ function getRevenueBreakdownTitle(
   return "Revenue Breakdown";
 }
 
-function getTopRevenueBreakdownTitle(
+function getRevenueCategoryTitle(
   context: MonetizationDashboardModel["revenueBreakdownContext"],
 ): string {
-  if (context.dimension === "source") {
-    return "Top Revenue Sources";
-  }
-
-  if (context.dimension === "summary_category") {
-    return "Top Revenue Categories";
-  }
-
-  return "Top Revenue Breakdown";
+  return context.dimension === "source"
+    ? "Revenue by Category"
+    : "Revenue Categories";
 }
 
 function getRevenueBreakdownDescription(
@@ -738,6 +760,28 @@ function getRevenueBreakdownDescription(
   }
 
   return `Breakdown fuer ${model.periodContext.periodLabel} mit konservativer Darstellung fehlender oder unvollstaendiger Monetization-Daten.`;
+}
+
+function getRevenueCategoryDescription(
+  model: MonetizationDashboardModel,
+): string {
+  if (model.revenueBreakdownContext.dimension === "source") {
+    return `Kanonische Business-Kategorien fuer ${model.periodContext.periodLabel}, clientseitig aus Raw Sources normalisiert und getrennt von den Originalwerten dargestellt.`;
+  }
+
+  if (model.revenueBreakdownContext.dimension === "summary_category") {
+    return `Kanonische Kategorien fuer ${model.periodContext.periodLabel}. Bei Summary-Fallback bleiben Umsatzbetraege unveraendert unavailable, falls nur Count-Daten vorliegen.`;
+  }
+
+  return `Kanonische Kategorien fuer ${model.periodContext.periodLabel}, sobald belastbare Monetization-Daten verfuegbar sind.`;
+}
+
+function getInitialRevenueCategoryTitle(
+  context: MonetizationDashboardModel["revenueBreakdownContext"],
+): string {
+  return context.dimension === "source"
+    ? "Noch keine Revenue Categories"
+    : "Noch keine Revenue Categories";
 }
 
 function formatRevenueBreakdownCoverage(

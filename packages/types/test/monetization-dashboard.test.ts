@@ -7,6 +7,7 @@ import {
   MONETIZATION_DASHBOARD_LOOKUP_SOURCES,
   MONETIZATION_DASHBOARD_PERIODS,
   MONETIZATION_REVENUE_BREAKDOWN_DIMENSIONS,
+  MONETIZATION_SOURCE_CATEGORIES,
   type MonetizationDashboardReadModel,
 } from "../src/monetization-dashboard.js";
 
@@ -48,7 +49,20 @@ const sampleReadModel = {
       occurredAt: "2026-06-25T10:30:00.000Z",
       provider: "twitch",
       source: "channel_subscription",
+      sourceCategory: "subscriptions",
       status: "confirmed",
+    },
+  ],
+  revenueCategories: [
+    {
+      amount: {
+        amountCents: 182400,
+        availability: "available",
+        currency: "USD",
+      },
+      category: "subscriptions",
+      eventCount: 128,
+      label: "Subscriptions",
     },
   ],
   revenueBreakdown: [
@@ -58,9 +72,11 @@ const sampleReadModel = {
         availability: "available",
         currency: "USD",
       },
+      category: "subscriptions",
       eventCount: 128,
       key: "channel_subscription",
       label: "Channel Subscription",
+      rawSource: "channel_subscription",
     },
   ],
   revenueBreakdownContext: {
@@ -88,18 +104,6 @@ const sampleReadModel = {
       currency: "USD",
     },
   },
-  topRevenueBreakdown: [
-    {
-      amount: {
-        amountCents: 182400,
-        availability: "available",
-        currency: "USD",
-      },
-      eventCount: 128,
-      key: "channel_subscription",
-      label: "Channel Subscription",
-    },
-  ],
   trend: [
     {
       amount: {
@@ -136,6 +140,17 @@ void test("monetization dashboard contract keeps enums and feed limits stable", 
     "source",
     "summary_category",
   ]);
+  assert.deepEqual(MONETIZATION_SOURCE_CATEGORIES, [
+    "subscriptions",
+    "donations",
+    "sponsorships",
+    "merch",
+    "ads",
+    "affiliate",
+    "platform_revenue",
+    "other",
+    "unknown",
+  ]);
 });
 
 void test("monetization dashboard read model stays read-only and explicit about currency handling", () => {
@@ -148,7 +163,16 @@ void test("monetization dashboard read model stays read-only and explicit about 
   assert.equal(sampleReadModel.coverage.trendSource, "summaries");
   assert.equal(sampleReadModel.coverage.revenueBreakdownDimension, "source");
   assert.equal(
+    sampleReadModel.recentEvents[0]?.sourceCategory,
+    "subscriptions",
+  );
+  assert.equal(sampleReadModel.revenueCategories[0]?.category, "subscriptions");
+  assert.equal(
     sampleReadModel.revenueBreakdown[0]?.key,
+    "channel_subscription",
+  );
+  assert.equal(
+    sampleReadModel.revenueBreakdown[0]?.rawSource,
     "channel_subscription",
   );
   assert.equal(sampleReadModel.revenueBreakdownContext.dataSource, "events");

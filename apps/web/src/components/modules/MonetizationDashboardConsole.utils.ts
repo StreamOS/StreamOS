@@ -8,11 +8,18 @@ import {
   type MonetizationDashboardPeriodContext,
   type MonetizationDashboardReadModel,
   type MonetizationRecentEvent,
+  type MonetizationRevenueCategoryItem,
   type MonetizationRevenueBreakdownContext,
   type MonetizationRevenueBreakdownItem,
+  type MonetizationSourceCategory,
   type MonetizationTrendPoint,
   type StreamPlatform,
 } from "@streamos/types";
+import {
+  getMonetizationSourceCategoryLabel,
+  normalizeMonetizationSourceCategory,
+  resolveBreakdownCategory,
+} from "./monetizationSourceTaxonomy";
 
 export type MonetizationDashboardState =
   | "auth-failed"
@@ -127,9 +134,11 @@ export function buildMonetizationDashboardModel({
     revenueBreakdown,
     summaries,
   });
-  const topRevenueBreakdown = [...revenueBreakdown]
-    .sort(compareRevenueBreakdownItems)
-    .slice(0, 3);
+  const revenueCategories = buildRevenueCategories({
+    aggregate,
+    currencyState,
+    revenueBreakdown,
+  });
   const trend = buildTrend({
     aggregate,
     currencyState,
@@ -171,11 +180,11 @@ export function buildMonetizationDashboardModel({
     period,
     periodContext,
     recentEvents,
+    revenueCategories,
     revenueBreakdown,
     revenueBreakdownContext,
     state,
     summary: totals,
-    topRevenueBreakdown,
     trend,
     userId,
   };
@@ -209,6 +218,7 @@ export function createEmptyMonetizationDashboardModel(
     period,
     periodContext: buildPeriodContext(period),
     recentEvents: [],
+    revenueCategories: [],
     revenueBreakdown: [],
     revenueBreakdownContext: {
       dataSource: "none",
@@ -224,7 +234,6 @@ export function createEmptyMonetizationDashboardModel(
       totalConfirmedEvents: null,
       totalRevenue: unavailableAmount(),
     },
-    topRevenueBreakdown: [],
     trend: [],
     userId,
   };
@@ -423,9 +432,15 @@ function buildRevenueBreakdown({
   if (aggregate.sourceBreakdown.length > 0) {
     return aggregate.sourceBreakdown.map((row) => ({
       amount: createAmountValue(row.amountCents, currencyState),
+      category: resolveBreakdownCategory({
+        dimension: "source",
+        key: row.key,
+        rawSource: row.key,
+      }),
       eventCount: row.eventCount,
       key: row.key,
       label: getMonetizationBreakdownValueLabel(row.key),
+      rawSource: row.key,
     }));
   }
 
@@ -453,9 +468,15 @@ function buildRevenueBreakdown({
 
   return SUMMARY_CATEGORY_KEYS.map((key) => ({
     amount: unavailableAmount(),
+    category: resolveBreakdownCategory({
+      dimension: "summary_category",
+      key,
+      rawSource: null,
+    }),
     eventCount: counts[key] ?? 0,
     key,
     label: getMonetizationBreakdownValueLabel(key),
+    rawSource: null,
   })).filter((item) => (item.eventCount ?? 0) > 0);
 }
 
@@ -489,6 +510,67 @@ function buildRevenueBreakdownContext({
     dimension: null,
     note: null,
   };
+}
+
+function buildRevenueCategories({
+  aggregate,
+  currencyState,
+  revenueBreakdown,
+}: {
+  aggregate: MonetizationAggregateSnapshot;
+  currencyState: CurrencyState;
+  revenueBreakdown: MonetizationRevenueBreakdownItem[];
+}): MonetizationRevenueCategoryItem[] {
+  if (aggregate.sourceBreakdown.length > 0) {
+    const categoryMap = aggregate.sourceBreakdown.reduce<
+      Map<
+        MonetizationSourceCategory,
+        { amountCents: number | null; eventCount: number | null }
+      >
+    >((map, row) => {
+      const category = normalizeMonetizationSourceCategory(row.key);
+      const current = map.get(category);
+
+      map.set(category, {
+        amountCents: (current?.amountCents ?? 0) + (row.amountCents ?? 0),
+        eventCount:
+          current?.eventCount === undefined
+            ? row.eventCount
+            : sumNullableCounts(current.eventCount, row.eventCount),
+      });
+
+      return map;
+    }, new Map());
+
+    return [...categoryMap.entries()]
+      .map(([category, value]) => ({
+        amount: createAmountValue(value.amountCents, currencyState),
+        category,
+        eventCount: value.eventCount,
+        label: getMonetizationSourceCategoryLabel(category),
+      }))
+      .sort(compareRevenueCategoryItems);
+  }
+
+  const categoryMap = revenueBreakdown.reduce<
+    Map<MonetizationSourceCategory, MonetizationRevenueCategoryItem>
+  >((map, item) => {
+    const current = map.get(item.category);
+
+    map.set(item.category, {
+      amount: mergeAmountValues(current?.amount ?? null, item.amount),
+      category: item.category,
+      eventCount:
+        current?.eventCount === undefined
+          ? item.eventCount
+          : sumNullableCounts(current.eventCount, item.eventCount),
+      label: getMonetizationSourceCategoryLabel(item.category),
+    });
+
+    return map;
+  }, new Map());
+
+  return [...categoryMap.values()].sort(compareRevenueCategoryItems);
 }
 
 function buildTrend({
@@ -532,7 +614,8 @@ function normalizeRecentEvents(
     id: row.id,
     occurredAt: row.occurred_at,
     provider: row.provider,
-    source: row.source,
+    source: normalizeRawSource(row.source),
+    sourceCategory: normalizeMonetizationSourceCategory(row.source),
     status: row.status,
   }));
 }
@@ -657,6 +740,28 @@ function compareRevenueBreakdownItems(
   return (right.eventCount ?? 0) - (left.eventCount ?? 0);
 }
 
+function compareRevenueCategoryItems(
+  left: MonetizationRevenueCategoryItem,
+  right: MonetizationRevenueCategoryItem,
+): number {
+  if (
+    left.amount.availability === "available" &&
+    right.amount.availability === "available"
+  ) {
+    return (right.amount.amountCents ?? 0) - (left.amount.amountCents ?? 0);
+  }
+
+  if (left.amount.availability === "available") {
+    return -1;
+  }
+
+  if (right.amount.availability === "available") {
+    return 1;
+  }
+
+  return (right.eventCount ?? 0) - (left.eventCount ?? 0);
+}
+
 function sumEventCounts(rows: MonetizationAggregateSourceRow[]): number | null {
   if (rows.length === 0 || rows.some((row) => row.eventCount === null)) {
     return null;
@@ -665,8 +770,59 @@ function sumEventCounts(rows: MonetizationAggregateSourceRow[]): number | null {
   return rows.reduce((sum, row) => sum + (row.eventCount ?? 0), 0);
 }
 
+function sumNullableCounts(
+  left: number | null,
+  right: number | null,
+): number | null {
+  if (left === null || right === null) {
+    return null;
+  }
+
+  return left + right;
+}
+
+function mergeAmountValues(
+  left: MonetizationAmountValue | null,
+  right: MonetizationAmountValue,
+): MonetizationAmountValue {
+  if (!left) {
+    return right;
+  }
+
+  if (
+    left.availability === "available" &&
+    right.availability === "available" &&
+    left.currency === right.currency
+  ) {
+    return {
+      amountCents: (left.amountCents ?? 0) + (right.amountCents ?? 0),
+      availability: "available",
+      currency: left.currency,
+    };
+  }
+
+  if (
+    left.availability === "mixed_currency" ||
+    right.availability === "mixed_currency"
+  ) {
+    return {
+      amountCents: null,
+      availability: "mixed_currency",
+      currency: null,
+    };
+  }
+
+  return unavailableAmount();
+}
+
 function isCurrencyCode(value: string | null): value is string {
   return typeof value === "string" && /^[A-Z]{3}$/.test(value);
+}
+
+function normalizeRawSource(value: string): string | null {
+  const normalized = value.trim();
+
+  return normalized.length > 0 ? normalized : null;
 }
 
 function formatTrendLabel(value: string): string {

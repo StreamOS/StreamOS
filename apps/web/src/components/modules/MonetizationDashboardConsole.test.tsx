@@ -78,8 +78,11 @@ describe("MonetizationDashboardConsole.utils", () => {
     expect(model.coverage.revenueBreakdownDimension).toBe("source");
     expect(model.revenueBreakdownContext.dataSource).toBe("events");
     expect(model.revenueBreakdown[0]?.key).toBe("channel_subscription");
-    expect(model.topRevenueBreakdown[0]?.label).toBe("Channel Subscription");
+    expect(model.revenueBreakdown[0]?.category).toBe("subscriptions");
+    expect(model.revenueBreakdown[0]?.rawSource).toBe("channel_subscription");
+    expect(model.revenueCategories[0]?.label).toBe("Subscriptions");
     expect(model.recentEvents[0]?.source).toBe("channel_subscription");
+    expect(model.recentEvents[0]?.sourceCategory).toBe("subscriptions");
   });
 
   it("keeps summaries without events explicit and leaves summary-category amounts unavailable", () => {
@@ -127,6 +130,9 @@ describe("MonetizationDashboardConsole.utils", () => {
     expect(model.recentEvents).toHaveLength(0);
     expect(model.coverage.revenueBreakdownDimension).toBe("summary_category");
     expect(model.revenueBreakdownContext.note).toContain("category counts");
+    expect(model.revenueBreakdown[0]?.rawSource).toBeNull();
+    expect(model.revenueBreakdown[0]?.category).toBe("donations");
+    expect(model.revenueCategories[0]?.category).toBe("donations");
     expect(model.revenueBreakdown[0]?.amount.availability).toBe("unavailable");
     expect(model.revenueBreakdown[0]?.eventCount).toBe(2);
   });
@@ -185,6 +191,8 @@ describe("MonetizationDashboardConsole.utils", () => {
     expect(model.coverage.trendSource).toBe("events");
     expect(model.revenueBreakdownContext.dimension).toBe("source");
     expect(model.revenueBreakdown[0]?.label).toBe("Brand Campaign");
+    expect(model.revenueBreakdown[0]?.category).toBe("sponsorships");
+    expect(model.revenueCategories[0]?.label).toBe("Sponsorships");
   });
 
   it("keeps unknown source labels stable", () => {
@@ -217,6 +225,52 @@ describe("MonetizationDashboardConsole.utils", () => {
     });
 
     expect(model.revenueBreakdown[0]?.label).toBe("Brand Deal Bonus");
+    expect(model.revenueBreakdown[0]?.category).toBe("sponsorships");
+  });
+
+  it("treats unmapped raw sources as unknown categories without inventing source values", () => {
+    const model = buildMonetizationDashboardModel({
+      aggregate: {
+        activePlatforms: 1,
+        averageRevenuePerDayCents: 5000,
+        currency: "USD",
+        sourceBreakdown: [
+          {
+            amountCents: 5000,
+            eventCount: 1,
+            key: "mystery_drop",
+          },
+        ],
+        totalRevenueCents: 5000,
+        trend: [],
+      },
+      events: [
+        {
+          amount_cents: 5000,
+          currency: "USD",
+          event_type: "other",
+          id: "event-unknown",
+          occurred_at: "2026-06-25T10:30:00.000Z",
+          provider: "twitch",
+          source: "mystery_drop",
+          status: "confirmed",
+        },
+      ],
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 1,
+      },
+      lookupIssues: [],
+      period: "last_30_days",
+      state: "ready",
+      summaries: [],
+      userId: "user-unknown",
+    });
+
+    expect(model.revenueBreakdown[0]?.rawSource).toBe("mystery_drop");
+    expect(model.revenueBreakdown[0]?.category).toBe("unknown");
+    expect(model.recentEvents[0]?.sourceCategory).toBe("unknown");
   });
 
   it("preserves explicit event feed metadata and load-failed state", () => {

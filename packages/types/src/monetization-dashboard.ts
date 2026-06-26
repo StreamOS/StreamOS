@@ -58,6 +58,21 @@ export type MonetizationAmountValue = {
   currency: string | null;
 };
 
+export const MONETIZATION_SOURCE_CATEGORIES = [
+  "subscriptions",
+  "donations",
+  "sponsorships",
+  "merch",
+  "ads",
+  "affiliate",
+  "platform_revenue",
+  "other",
+  "unknown",
+] as const;
+
+export type MonetizationSourceCategory =
+  (typeof MONETIZATION_SOURCE_CATEGORIES)[number];
+
 export const MONETIZATION_REVENUE_BREAKDOWN_DIMENSIONS = [
   "source",
   "summary_category",
@@ -68,15 +83,24 @@ export type MonetizationRevenueBreakdownDimension =
 
 export type MonetizationRevenueBreakdownItem = {
   amount: MonetizationAmountValue;
+  category: MonetizationSourceCategory;
   eventCount: number | null;
   key: string;
   label: string;
+  rawSource: string | null;
 };
 
 export type MonetizationRevenueBreakdownContext = {
   dataSource: "events" | "none" | "summaries";
   dimension: MonetizationRevenueBreakdownDimension | null;
   note: string | null;
+};
+
+export type MonetizationRevenueCategoryItem = {
+  amount: MonetizationAmountValue;
+  category: MonetizationSourceCategory;
+  eventCount: number | null;
+  label: string;
 };
 
 export type MonetizationTrendPoint = {
@@ -93,7 +117,8 @@ export type MonetizationRecentEvent = {
   id: string;
   occurredAt: string;
   provider: StreamPlatform;
-  source: string;
+  source: string | null;
+  sourceCategory: MonetizationSourceCategory;
   status: MonetizationEventStatus;
 };
 
@@ -139,9 +164,9 @@ export type MonetizationDashboardReadModel = {
   period: MonetizationDashboardPeriod;
   periodContext: MonetizationDashboardPeriodContext;
   recentEvents: MonetizationRecentEvent[];
+  revenueCategories: MonetizationRevenueCategoryItem[];
   revenueBreakdown: MonetizationRevenueBreakdownItem[];
   revenueBreakdownContext: MonetizationRevenueBreakdownContext;
   summary: MonetizationDashboardSummary;
-  topRevenueBreakdown: MonetizationRevenueBreakdownItem[];
   trend: MonetizationTrendPoint[];
 };

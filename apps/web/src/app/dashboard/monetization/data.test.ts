@@ -159,6 +159,9 @@ describe("monetization data loader", () => {
     expect(model.revenueBreakdownContext.dataSource).toBe("events");
     expect(model.revenueBreakdown[0]?.key).toBe("channel_subscription");
     expect(model.revenueBreakdown[0]?.label).toBe("Channel Subscription");
+    expect(model.revenueBreakdown[0]?.category).toBe("subscriptions");
+    expect(model.revenueCategories[0]?.label).toBe("Subscriptions");
+    expect(model.recentEvents[0]?.sourceCategory).toBe("subscriptions");
   });
 
   it("does not treat legacy revenue_by_event_type aggregates as source breakdown data", async () => {
