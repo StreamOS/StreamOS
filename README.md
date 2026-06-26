@@ -43,11 +43,7 @@ Use these files in this order when resolving conflicts:
 3. `architecture.md` or `docs/architecture.md` for service boundaries and data ownership.
 4. `deployment.md` or `docs/deployment.md` for runtime topology, environment ownership, audits, and gates.
 5. `AGENTS.md` for Codex behavior inside the repository.
-6. `docs/ai/00_prompt_architect_master.md` for Prompt-Architect behavior.
-7. `docs/ai/01_security_and_stabilization.md` for security/stabilization rules.
-8. `docs/ai/02_roadmap_and_next_slices.md` for active roadmap direction.
-9. `docs/ai/03_codex_prompt_patterns.md` for reusable Codex prompt shapes.
-10. Existing code, package-local README files, tests, scripts, and migrations.
+6. Existing code, package-local README files, tests, scripts, and migrations.
 
 Conflict rules:
 
@@ -86,7 +82,6 @@ StreamOS/
 |   |-- ui/                               # Reusable UI primitives, not product-specific dashboard widgets
 |   `-- utils/                            # Shared utilities where present
 |-- docs/
-|   |-- ai/                               # Prompt-Architect and Codex instruction set
 |   `-- ...
 |-- scripts/                              # Audits, rollout checks, E2E helpers, env policies
 |-- pnpm-workspace.yaml
@@ -983,10 +978,6 @@ A StreamOS task is done only when:
 ```text
 Architecture:                 architecture.md or docs/architecture.md
 Deployment:                   deployment.md or docs/deployment.md
-Prompt Architect:             docs/ai/00_prompt_architect_master.md
-Security/Stabilization:       docs/ai/01_security_and_stabilization.md
-Roadmap:                      docs/ai/02_roadmap_and_next_slices.md
-Codex Prompt Patterns:        docs/ai/03_codex_prompt_patterns.md
 Troubleshooting:              docs/troubleshooting.md
 P4 Closeout:                  docs/p4-product-closeout.md
 P4 Roadmap Update:            docs/p4-product-roadmap-update.md
