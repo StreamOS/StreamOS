@@ -50,7 +50,7 @@ const mutationContract: BrandingDashboardMutationContract = {
     available: false,
     reason: "requires_db_storage_consistency",
   },
-  orphanCleanup: {
+  orphan_cleanup: {
     action: "orphan_cleanup",
     available: false,
     reason: "requires_scoped_manual_cleanup",

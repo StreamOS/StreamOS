@@ -82,6 +82,10 @@ describe("getBrandingDashboardData", () => {
     expect(data.mutationContract.replace.reason).toBe(
       "requires_new_asset_row_strategy",
     );
+    expect(data.mutationContract["orphan_cleanup"].reason).toBe(
+      "requires_scoped_manual_cleanup",
+    );
+    expect("orphanCleanup" in data.mutationContract).toBe(false);
   });
 
   it("loads read-only brand assets with server-signed previews and without selecting public URLs", async () => {
@@ -143,7 +147,7 @@ describe("getBrandingDashboardData", () => {
       },
     ]);
     expect(supabase.storageTouched).toBe(true);
-    expect(data.mutationContract.orphanCleanup.reason).toBe(
+    expect(data.mutationContract["orphan_cleanup"].reason).toBe(
       "requires_scoped_manual_cleanup",
     );
   });

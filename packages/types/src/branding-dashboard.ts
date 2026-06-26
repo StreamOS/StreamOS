@@ -51,7 +51,7 @@ export type BrandingDashboardFutureAction = {
 };
 export type BrandingDashboardMutationContract = {
   delete: BrandingDashboardFutureAction;
-  orphanCleanup: BrandingDashboardFutureAction;
+  orphan_cleanup: BrandingDashboardFutureAction;
   replace: BrandingDashboardFutureAction;
 };
 

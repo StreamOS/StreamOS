@@ -97,7 +97,7 @@ const sampleReadModel = {
       available: false,
       reason: "requires_db_storage_consistency",
     },
-    orphanCleanup: {
+    orphan_cleanup: {
       action: "orphan_cleanup",
       available: false,
       reason: "requires_scoped_manual_cleanup",
@@ -171,8 +171,14 @@ void test("branding dashboard read model stays read-only and tolerant of unknown
   assert.equal(sampleReadModel.coverage.platformCount, 1);
   assert.equal(sampleReadModel.typeDistribution[0]?.key, "logo");
   assert.equal(sampleReadModel.mutationContract.delete.available, false);
+  assert.equal(sampleReadModel.mutationContract.replace.action, "replace");
+  assert.equal(sampleReadModel.mutationContract["delete"].action, "delete");
   assert.equal(
-    sampleReadModel.mutationContract.orphanCleanup.reason,
+    sampleReadModel.mutationContract["orphan_cleanup"].reason,
     "requires_scoped_manual_cleanup",
+  );
+  assert.equal(
+    Object.hasOwn(sampleReadModel.mutationContract, "orphanCleanup"),
+    false,
   );
 });
