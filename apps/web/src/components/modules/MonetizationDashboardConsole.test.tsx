@@ -88,6 +88,61 @@ describe("MonetizationDashboardConsole.utils", () => {
     expect(model.dataQuality.notices).toEqual([]);
   });
 
+  it("derives latestEventAt and stale checks from the newest unsorted recent event", () => {
+    const staleOccurredAt = new Date(
+      Date.now() - 45 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const freshOccurredAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+
+    const model = buildMonetizationDashboardModel({
+      aggregate: {
+        activePlatforms: 1,
+        averageRevenuePerDayCents: 4000,
+        currency: "USD",
+        sourceBreakdown: [],
+        totalRevenueCents: 8000,
+        trend: [],
+      },
+      events: [
+        {
+          amount_cents: 4000,
+          currency: "USD",
+          event_type: "tip",
+          id: "event-stale-first",
+          occurred_at: staleOccurredAt,
+          provider: "twitch",
+          source: "tip",
+          status: "confirmed",
+        },
+        {
+          amount_cents: 4000,
+          currency: "USD",
+          event_type: "subscription",
+          id: "event-fresh-second",
+          occurred_at: freshOccurredAt,
+          provider: "youtube",
+          source: "channel_subscription",
+          status: "confirmed",
+        },
+      ],
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 2,
+      },
+      lookupIssues: [],
+      period: "last_30_days",
+      state: "ready",
+      summaries: [],
+      userId: "user-unsorted-events",
+    });
+
+    expect(model.recentEvents[0]?.id).toBe("event-fresh-second");
+    expect(model.summary.latestEventAt).toBe(freshOccurredAt);
+    expect(model.coverage.latestEventAt).toBe(freshOccurredAt);
+    expect(model.dataQuality.staleLatestEvent).toBe(false);
+  });
+
   it("keeps summaries without events explicit and leaves summary-category amounts unavailable", () => {
     const model = buildMonetizationDashboardModel({
       aggregate: {
@@ -142,6 +197,89 @@ describe("MonetizationDashboardConsole.utils", () => {
     expect(model.dataQuality.notices.map((notice) => notice.code)).toContain(
       "summaries_without_events",
     );
+  });
+
+  it("merges duplicate summary buckets into one trend point and averages over bucket count", () => {
+    const model = buildMonetizationDashboardModel({
+      aggregate: {
+        activePlatforms: null,
+        averageRevenuePerDayCents: null,
+        currency: null,
+        sourceBreakdown: [],
+        totalRevenueCents: null,
+        trend: [],
+      },
+      events: [],
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 0,
+      },
+      lookupIssues: [],
+      period: "last_30_days",
+      state: "ready",
+      summaries: [
+        {
+          ad_revenue_count: 0,
+          channel_id: "channel-1",
+          currency: "USD",
+          donation_count: 0,
+          event_count: 1,
+          gross_amount_cents: 10000,
+          merch_sale_count: 0,
+          net_amount_cents: 9000,
+          period: "daily",
+          period_end: "2026-06-24T11:59:59.000Z",
+          period_start: "2026-06-24T00:00:00.000Z",
+          provider: "twitch",
+          sponsorship_count: 0,
+          subscription_count: 1,
+          tip_count: 0,
+        },
+        {
+          ad_revenue_count: 0,
+          channel_id: "channel-2",
+          currency: "USD",
+          donation_count: 0,
+          event_count: 1,
+          gross_amount_cents: 5000,
+          merch_sale_count: 0,
+          net_amount_cents: 4500,
+          period: "daily",
+          period_end: "2026-06-24T23:59:59.000Z",
+          period_start: "2026-06-24T00:00:00.000Z",
+          provider: "youtube",
+          sponsorship_count: 0,
+          subscription_count: 1,
+          tip_count: 0,
+        },
+        {
+          ad_revenue_count: 0,
+          channel_id: "channel-3",
+          currency: "USD",
+          donation_count: 0,
+          event_count: 1,
+          gross_amount_cents: 9000,
+          merch_sale_count: 0,
+          net_amount_cents: 8000,
+          period: "daily",
+          period_end: "2026-06-25T23:59:59.000Z",
+          period_start: "2026-06-25T00:00:00.000Z",
+          provider: "twitch",
+          sponsorship_count: 0,
+          subscription_count: 1,
+          tip_count: 0,
+        },
+      ],
+      userId: "user-summary-buckets",
+    });
+
+    expect(model.trend).toHaveLength(2);
+    expect(model.trend[0]?.periodStart).toBe("2026-06-24T00:00:00.000Z");
+    expect(model.trend[0]?.amount.amountCents).toBe(15000);
+    expect(model.trend[1]?.periodStart).toBe("2026-06-25T00:00:00.000Z");
+    expect(model.summary.totalRevenue.amountCents).toBe(24000);
+    expect(model.summary.averageRevenuePerDay.amountCents).toBe(12000);
   });
 
   it("uses event aggregates when summaries are absent", () => {
@@ -236,6 +374,46 @@ describe("MonetizationDashboardConsole.utils", () => {
 
     expect(model.revenueBreakdown[0]?.label).toBe("Brand Deal Bonus");
     expect(model.revenueBreakdown[0]?.category).toBe("sponsorships");
+  });
+
+  it("keeps aggregated category amounts unavailable when any source bucket amount is unknown", () => {
+    const model = buildMonetizationDashboardModel({
+      aggregate: {
+        activePlatforms: 1,
+        averageRevenuePerDayCents: 5000,
+        currency: "USD",
+        sourceBreakdown: [
+          {
+            amountCents: 5000,
+            eventCount: 2,
+            key: "channel_subscription",
+          },
+          {
+            amountCents: null,
+            eventCount: 1,
+            key: "prime_sub",
+          },
+        ],
+        totalRevenueCents: 5000,
+        trend: [],
+      },
+      events: [],
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 0,
+      },
+      lookupIssues: [],
+      period: "last_30_days",
+      state: "ready",
+      summaries: [],
+      userId: "user-unknown-amount",
+    });
+
+    expect(model.revenueCategories).toHaveLength(1);
+    expect(model.revenueCategories[0]?.category).toBe("subscriptions");
+    expect(model.revenueCategories[0]?.amount.availability).toBe("unavailable");
+    expect(model.revenueCategories[0]?.amount.amountCents).toBeNull();
   });
 
   it("treats unmapped raw sources as unknown categories without inventing source values", () => {
@@ -457,6 +635,63 @@ describe("MonetizationDashboardConsole.utils", () => {
         "stale_latest_event",
       ]),
     );
+  });
+
+  it("keeps missing and unknown sources separate in recent-event data quality counts", () => {
+    const freshOccurredAt = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+
+    const model = buildMonetizationDashboardModel({
+      aggregate: {
+        activePlatforms: 1,
+        averageRevenuePerDayCents: 5000,
+        currency: "USD",
+        sourceBreakdown: [],
+        totalRevenueCents: 10000,
+        trend: [],
+      },
+      events: [
+        {
+          amount_cents: 5000,
+          currency: "USD",
+          event_type: "other",
+          id: "event-missing-source",
+          occurred_at: freshOccurredAt,
+          provider: "twitch",
+          source: " ",
+          status: "confirmed",
+        },
+        {
+          amount_cents: 5000,
+          currency: "USD",
+          event_type: "other",
+          id: "event-unknown-source",
+          occurred_at: freshOccurredAt,
+          provider: "youtube",
+          source: "mystery_drop",
+          status: "confirmed",
+        },
+      ],
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 2,
+      },
+      lookupIssues: [],
+      period: "last_30_days",
+      state: "ready",
+      summaries: [],
+      userId: "user-source-semantics",
+    });
+
+    expect(model.dataQuality.missingSourceCount).toBe(1);
+    expect(model.dataQuality.unknownSourceCount).toBe(1);
+    expect(model.dataQuality.unknownSourceRatio).toBe(0.5);
+    expect(model.dataQuality.notices.map((notice) => notice.code)).toContain(
+      "missing_sources",
+    );
+    expect(
+      model.dataQuality.notices.map((notice) => notice.code),
+    ).not.toContain("unknown_sources");
   });
 
   it("preserves explicit event feed metadata and load-failed state", () => {

@@ -278,6 +278,73 @@ describe("monetization data loader", () => {
     ]);
   });
 
+  it("ignores invalid revenue_by_source and revenue_over_time payload members without crashing", async () => {
+    mocks.isSupabaseConfigured.mockReturnValue(true);
+    mocks.createClient.mockResolvedValue(
+      createSupabaseClient({
+        rpcResult: {
+          data: {
+            active_platforms: 1,
+            avg_revenue_per_day_cents: 5000,
+            currency: "USD",
+            revenue_by_source: [
+              null,
+              "bad",
+              42,
+              {
+                amount_cents: 5000,
+                event_count: 2,
+                source: "channel_subscription",
+              },
+              {
+                amount_cents: 999,
+                event_count: 1,
+                source: null,
+              },
+            ],
+            revenue_over_time: [
+              null,
+              "bad",
+              17,
+              {
+                amount_cents: 5000,
+                day: "2026-06-25",
+              },
+              {
+                amount_cents: 2500,
+                day: 42,
+              },
+            ],
+            total_revenue_cents: 5000,
+          },
+          error: null,
+        },
+        tableResults: {
+          monetization_events: {
+            count: 0,
+            data: [],
+            error: null,
+          },
+          monetization_summaries: {
+            data: [],
+            error: null,
+          },
+        },
+        user: {
+          id: "user-invalid-rpc-items",
+        },
+      }),
+    );
+
+    const model = await getMonetizationDashboardData("last_30_days");
+
+    expect(model.state).toBe("ready");
+    expect(model.revenueBreakdown).toHaveLength(1);
+    expect(model.revenueBreakdown[0]?.key).toBe("channel_subscription");
+    expect(model.trend).toHaveLength(1);
+    expect(model.trend[0]?.periodStart).toBe("2026-06-25");
+  });
+
   it("returns a load-failed state when aggregates, events and summaries fail together", async () => {
     mocks.isSupabaseConfigured.mockReturnValue(true);
     mocks.createClient.mockResolvedValue(

@@ -269,8 +269,12 @@ function normalizeAggregatePayload(
       payload.avg_revenue_per_day_cents,
     ),
     currency: asCurrencyOrNull(payload.currency),
-    sourceBreakdown: asArray<RpcSourceRevenue>(payload.revenue_by_source)
+    sourceBreakdown: asArray<unknown>(payload.revenue_by_source)
       .map<MonetizationAggregateSourceRow | null>((item) => {
+        if (!isRecord(item)) {
+          return null;
+        }
+
         const key = asString(item.source);
 
         if (!key) {
@@ -285,8 +289,12 @@ function normalizeAggregatePayload(
       })
       .filter((item): item is MonetizationAggregateSourceRow => item !== null),
     totalRevenueCents: asNumberOrNull(payload.total_revenue_cents),
-    trend: asArray<RpcTrendPoint>(payload.revenue_over_time)
+    trend: asArray<unknown>(payload.revenue_over_time)
       .map<MonetizationAggregateTrendRow | null>((item) => {
+        if (!isRecord(item)) {
+          return null;
+        }
+
         const periodStart = asString(item.day);
 
         if (!periodStart) {
@@ -333,6 +341,10 @@ function getSinceIso(period: MonetizationDashboardPeriod): string | null {
 }
 
 function isAggregatePayload(value: unknown): value is RpcMonetizationDashboard {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

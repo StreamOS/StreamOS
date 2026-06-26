@@ -125,6 +125,7 @@ export function buildMonetizationDashboardModel({
 }): MonetizationDashboardModel {
   const currencyState = resolveCurrencyState(aggregate, events, summaries);
   const recentEvents = normalizeRecentEvents(events);
+  const latestEventAt = resolveLatestEventAt(recentEvents);
   const periodContext = buildPeriodContext(period);
   const revenueBreakdown = buildRevenueBreakdown({
     aggregate,
@@ -149,13 +150,14 @@ export function buildMonetizationDashboardModel({
   const totals = buildSummaryMetrics({
     aggregate,
     currencyState,
-    latestEventAt: recentEvents[0]?.occurredAt ?? null,
+    latestEventAt,
     summaries,
     trend,
   });
   const dataQuality = buildDataQuality({
     aggregate,
     currencyState,
+    latestEventAt,
     lookupIssues,
     period,
     recentEvents,
@@ -169,7 +171,7 @@ export function buildMonetizationDashboardModel({
       aggregateSourceCount: aggregate.sourceBreakdown.length,
       currencies: currencyState.currencies,
       currencyMode: currencyState.mode,
-      latestEventAt: recentEvents[0]?.occurredAt ?? null,
+      latestEventAt,
       latestSummaryPeriodEnd:
         summaries.length > 0
           ? ([...summaries].sort((left, right) =>
@@ -546,7 +548,10 @@ function buildRevenueCategories({
       const current = map.get(category);
 
       map.set(category, {
-        amountCents: (current?.amountCents ?? 0) + (row.amountCents ?? 0),
+        amountCents:
+          current?.amountCents === undefined
+            ? row.amountCents
+            : sumNullableCounts(current.amountCents, row.amountCents),
         eventCount:
           current?.eventCount === undefined
             ? row.eventCount
@@ -590,6 +595,7 @@ function buildRevenueCategories({
 function buildDataQuality({
   aggregate,
   currencyState,
+  latestEventAt,
   lookupIssues,
   period,
   recentEvents,
@@ -599,6 +605,7 @@ function buildDataQuality({
 }: {
   aggregate: MonetizationAggregateSnapshot;
   currencyState: CurrencyState;
+  latestEventAt: string | null;
   lookupIssues: MonetizationDashboardLookupIssue[];
   period: MonetizationDashboardPeriod;
   recentEvents: MonetizationRecentEvent[];
@@ -642,14 +649,16 @@ function buildDataQuality({
       ? revenueBreakdown
           .filter((item) => item.category === "unknown")
           .reduce((sum, item) => sum + (item.eventCount ?? 0), 0)
-      : recentEvents.filter((event) => event.sourceCategory === "unknown")
-          .length;
+      : recentEvents.filter(
+          (event) =>
+            event.source !== null && event.sourceCategory === "unknown",
+        ).length;
   const missingSourceCount = recentEvents.filter(
     (event) => event.source === null,
   ).length;
   const unknownSourceRatio =
     sourceObservationCount > 0
-      ? (unknownSourceCount + missingSourceCount) / sourceObservationCount
+      ? unknownSourceCount / sourceObservationCount
       : null;
   const mixedCurrency = currencyState.mode === "mixed";
   const partialRead = lookupIssues.length > 0;
@@ -663,7 +672,7 @@ function buildDataQuality({
       aggregate.sourceBreakdown.length > 0 ||
       aggregate.totalRevenueCents !== null);
   const staleLatestEvent = isLatestEventStale({
-    latestEventAt: recentEvents[0]?.occurredAt ?? null,
+    latestEventAt,
     period,
   });
   const notices = buildDataQualityNotices({
@@ -852,17 +861,13 @@ function buildTrend({
   summaries: MonetizationSummaryRow[];
 }): MonetizationTrendPoint[] {
   if (summaries.length > 0) {
-    return [...summaries]
-      .sort((left, right) =>
-        left.period_start.localeCompare(right.period_start),
-      )
-      .map((row) => ({
-        amount: createAmountValue(row.gross_amount_cents, currencyState),
-        label: formatTrendLabel(row.period_start),
-        periodEnd: row.period_end,
-        periodStart: row.period_start,
-        source: "summaries",
-      }));
+    return buildSummaryTrendBuckets(summaries).map((bucket) => ({
+      amount: createAmountValue(bucket.amountCents, currencyState),
+      label: formatTrendLabel(bucket.periodStart),
+      periodEnd: bucket.periodEnd,
+      periodStart: bucket.periodStart,
+      source: "summaries",
+    }));
   }
 
   return aggregate.trend.map((row) => ({
@@ -877,16 +882,24 @@ function buildTrend({
 function normalizeRecentEvents(
   rows: MonetizationEventRow[],
 ): MonetizationRecentEvent[] {
-  return rows.map((row) => ({
-    amount: createSingleCurrencyAmount(row.amount_cents, row.currency),
-    eventType: row.event_type,
-    id: row.id,
-    occurredAt: row.occurred_at,
-    provider: row.provider,
-    source: normalizeRawSource(row.source),
-    sourceCategory: normalizeMonetizationSourceCategory(row.source),
-    status: row.status,
-  }));
+  return rows
+    .map((row, index) => ({
+      event: {
+        amount: createSingleCurrencyAmount(row.amount_cents, row.currency),
+        eventType: row.event_type,
+        id: row.id,
+        occurredAt: row.occurred_at,
+        provider: row.provider,
+        source: normalizeRawSource(row.source),
+        sourceCategory: normalizeMonetizationSourceCategory(row.source),
+        status: row.status,
+      },
+      index,
+    }))
+    .sort((left, right) =>
+      compareRecentEvents(left.event, right.event, left.index, right.index),
+    )
+    .map(({ event }) => event);
 }
 
 function createEmptyDataQuality(): MonetizationDataQuality {
@@ -1024,6 +1037,87 @@ function compareRevenueCategoryItems(
   }
 
   return (right.eventCount ?? 0) - (left.eventCount ?? 0);
+}
+
+function buildSummaryTrendBuckets(
+  summaries: MonetizationSummaryRow[],
+): Array<{ amountCents: number; periodEnd: string; periodStart: string }> {
+  const buckets = summaries.reduce<
+    Map<string, { amountCents: number; periodEnd: string; periodStart: string }>
+  >((map, row) => {
+    const current = map.get(row.period_start);
+
+    map.set(row.period_start, {
+      amountCents: (current?.amountCents ?? 0) + row.gross_amount_cents,
+      periodEnd:
+        current && current.periodEnd.localeCompare(row.period_end) > 0
+          ? current.periodEnd
+          : row.period_end,
+      periodStart: row.period_start,
+    });
+
+    return map;
+  }, new Map());
+
+  return [...buckets.values()].sort((left, right) =>
+    left.periodStart.localeCompare(right.periodStart),
+  );
+}
+
+function compareRecentEvents(
+  left: MonetizationRecentEvent,
+  right: MonetizationRecentEvent,
+  leftIndex: number,
+  rightIndex: number,
+): number {
+  const leftTimestamp = getEventTimestamp(left.occurredAt);
+  const rightTimestamp = getEventTimestamp(right.occurredAt);
+
+  if (leftTimestamp !== null && rightTimestamp !== null) {
+    if (leftTimestamp !== rightTimestamp) {
+      return rightTimestamp - leftTimestamp;
+    }
+
+    return leftIndex - rightIndex;
+  }
+
+  if (leftTimestamp !== null) {
+    return -1;
+  }
+
+  if (rightTimestamp !== null) {
+    return 1;
+  }
+
+  return leftIndex - rightIndex;
+}
+
+function resolveLatestEventAt(
+  recentEvents: MonetizationRecentEvent[],
+): string | null {
+  let latestTimestamp: number | null = null;
+  let latestEventAt: string | null = null;
+
+  for (const event of recentEvents) {
+    const timestamp = getEventTimestamp(event.occurredAt);
+
+    if (timestamp === null) {
+      continue;
+    }
+
+    if (latestTimestamp === null || timestamp > latestTimestamp) {
+      latestTimestamp = timestamp;
+      latestEventAt = event.occurredAt;
+    }
+  }
+
+  return latestEventAt;
+}
+
+function getEventTimestamp(value: string): number | null {
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime()) ? null : date.getTime();
 }
 
 function sumEventCounts(rows: MonetizationAggregateSourceRow[]): number | null {
