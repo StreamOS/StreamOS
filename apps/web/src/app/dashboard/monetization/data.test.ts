@@ -161,6 +161,61 @@ describe("monetization data loader", () => {
     expect(model.revenueBreakdown[0]?.label).toBe("Channel Subscription");
   });
 
+  it("does not treat legacy revenue_by_event_type aggregates as source breakdown data", async () => {
+    mocks.isSupabaseConfigured.mockReturnValue(true);
+    mocks.createClient.mockResolvedValue(
+      createSupabaseClient({
+        rpcResult: {
+          data: {
+            active_platforms: 1,
+            avg_revenue_per_day_cents: 5000,
+            currency: "USD",
+            revenue_by_event_type: [
+              {
+                amount_cents: 5000,
+                event_count: 2,
+                event_type: "subscription",
+              },
+            ],
+            total_revenue_cents: 5000,
+          },
+          error: null,
+        },
+        tableResults: {
+          monetization_events: {
+            count: 1,
+            data: [
+              {
+                amount_cents: 2500,
+                currency: "USD",
+                event_type: "subscription",
+                id: "event-legacy",
+                occurred_at: "2026-06-25T10:30:00.000Z",
+                provider: "twitch",
+                source: "channel_subscription",
+                status: "confirmed",
+              },
+            ],
+            error: null,
+          },
+          monetization_summaries: {
+            data: [],
+            error: null,
+          },
+        },
+        user: {
+          id: "user-legacy",
+        },
+      }),
+    );
+
+    const model = await getMonetizationDashboardData("last_30_days");
+
+    expect(model.revenueBreakdown).toEqual([]);
+    expect(model.revenueBreakdownContext.dataSource).toBe("none");
+    expect(model.revenueBreakdownContext.dimension).toBeNull();
+  });
+
   it("returns a load-failed state when aggregates, events and summaries fail together", async () => {
     mocks.isSupabaseConfigured.mockReturnValue(true);
     mocks.createClient.mockResolvedValue(
