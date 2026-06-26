@@ -30,6 +30,8 @@ export function MonetizationDashboardConsole({
 }: MonetizationDashboardConsoleProps) {
   const hasLookupIssues = model.lookupIssues.length > 0;
   const showPartialLoadNotice = model.state === "ready" && hasLookupIssues;
+  const showDataQualityNotice =
+    model.state === "ready" && model.dataQuality.notices.length > 0;
   const hasData =
     model.coverage.summaryRowCount > 0 ||
     model.recentEvents.length > 0 ||
@@ -55,6 +57,7 @@ export function MonetizationDashboardConsole({
       )}
       {model.feed.hasMore && <FeedScopeNotice model={model} />}
       {showPartialLoadNotice && <PartialLoadNotice />}
+      {showDataQualityNotice && <DataQualityNotice model={model} />}
 
       <header className="grid gap-6 rounded-lg border border-white/10 bg-surface-900/85 p-6 shadow-[0_22px_70px_rgba(0,0,0,0.42)] xl:grid-cols-[minmax(0,1fr)_360px]">
         <div>
@@ -531,6 +534,48 @@ function PartialLoadNotice() {
       Einige Monetization-Reads konnten nicht geladen werden. Vorhandene Daten
       bleiben sichtbar, aber Breakdown, Trend oder Recent Events koennen
       unvollstaendig sein.
+    </section>
+  );
+}
+
+function DataQualityNotice({ model }: { model: MonetizationDashboardModel }) {
+  return (
+    <section className="rounded-lg border border-white/10 bg-white/5 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Data Quality
+          </p>
+          <h2 className="mt-2 text-lg font-semibold text-white">
+            Hinweise zur Datenabdeckung
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-slate-400">
+            Diese Hinweise basieren nur auf bereits geladenen Monetization-
+            Daten und helfen bei der Einordnung von Luecken, gemischten
+            Waehrungen oder noch unkategorisierten Sources.
+          </p>
+        </div>
+        <Pill tone="slate">
+          {model.dataQuality.sourceObservationScope === "breakdown_events"
+            ? "Period aggregate"
+            : model.dataQuality.sourceObservationScope === "recent_event_sample"
+              ? "Recent event sample"
+              : "Unavailable"}
+        </Pill>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {model.dataQuality.notices.map((notice) => (
+          <article
+            key={notice.code}
+            className="rounded-lg border border-white/10 bg-surface-950/60 p-4"
+          >
+            <p className="text-sm font-semibold text-white">{notice.title}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              {notice.description}
+            </p>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }

@@ -38,6 +38,7 @@ describe("MonetizationPage", () => {
     expect(html).toContain("Aktive Revenue-Perspektive:");
     expect(html).toContain("Noch keine Monetization-Daten");
     expect(html).toContain("Keine Monetization Events im Zeitraum");
+    expect(html).not.toContain("Data Quality");
   });
 
   it("renders active all-time period controls with the weekly-summary note", async () => {
@@ -113,6 +114,8 @@ describe("MonetizationPage", () => {
     expect(html).toContain(
       "Einige Monetization-Reads konnten nicht geladen werden",
     );
+    expect(html).toContain("Data Quality");
+    expect(html).toContain("This view is based on partial data.");
     expect(html).toContain("Diese Surface zeigt die neuesten 1 Monetization");
     expect(html).toContain("Recent Monetization Events");
     expect(html).toContain("Revenue by Category");
@@ -168,6 +171,7 @@ describe("MonetizationPage", () => {
 
     expect(html).toContain("Revenue Categories");
     expect(html).toContain("Donations");
+    expect(html).toContain("Recent events are missing for this period.");
     expect(html).not.toContain("Revenue by Source");
     expect(html).toContain(
       "Summary rows expose category counts without source-level revenue amounts in this MVP.",
@@ -197,5 +201,6 @@ describe("MonetizationPage", () => {
     expect(html).not.toContain(
       "Einige Monetization-Reads konnten nicht geladen werden",
     );
+    expect(html).not.toContain("Data Quality");
   });
 });

@@ -3,6 +3,8 @@ import {
   MONETIZATION_DASHBOARD_PERIOD_OPTIONS,
   MONETIZATION_DASHBOARD_EVENT_LIMIT,
   type MonetizationAmountValue,
+  type MonetizationDataQuality,
+  type MonetizationDataQualityNotice,
   type MonetizationDashboardLookupIssue,
   type MonetizationDashboardPeriod,
   type MonetizationDashboardPeriodContext,
@@ -151,6 +153,16 @@ export function buildMonetizationDashboardModel({
     summaries,
     trend,
   });
+  const dataQuality = buildDataQuality({
+    aggregate,
+    currencyState,
+    lookupIssues,
+    period,
+    recentEvents,
+    revenueBreakdown,
+    summaries,
+    trend,
+  });
 
   return {
     coverage: {
@@ -175,6 +187,7 @@ export function buildMonetizationDashboardModel({
             ? "events"
             : "none",
     },
+    dataQuality,
     feed,
     lookupIssues,
     period,
@@ -209,6 +222,7 @@ export function createEmptyMonetizationDashboardModel(
       summaryRowCount: 0,
       trendSource: "none",
     },
+    dataQuality: createEmptyDataQuality(),
     feed: {
       hasMore: false,
       limit: MONETIZATION_DASHBOARD_EVENT_LIMIT,
@@ -573,6 +587,219 @@ function buildRevenueCategories({
   return [...categoryMap.values()].sort(compareRevenueCategoryItems);
 }
 
+function buildDataQuality({
+  aggregate,
+  currencyState,
+  lookupIssues,
+  period,
+  recentEvents,
+  revenueBreakdown,
+  summaries,
+  trend,
+}: {
+  aggregate: MonetizationAggregateSnapshot;
+  currencyState: CurrencyState;
+  lookupIssues: MonetizationDashboardLookupIssue[];
+  period: MonetizationDashboardPeriod;
+  recentEvents: MonetizationRecentEvent[];
+  revenueBreakdown: MonetizationRevenueBreakdownItem[];
+  summaries: MonetizationSummaryRow[];
+  trend: MonetizationTrendPoint[];
+}): MonetizationDataQuality {
+  const hasAnyData =
+    recentEvents.length > 0 ||
+    summaries.length > 0 ||
+    aggregate.sourceBreakdown.length > 0 ||
+    aggregate.totalRevenueCents !== null ||
+    trend.length > 0;
+
+  if (!hasAnyData) {
+    return createEmptyDataQuality();
+  }
+
+  const breakdownCounts =
+    aggregate.sourceBreakdown.length > 0 &&
+    aggregate.sourceBreakdown.every((row) => row.eventCount !== null)
+      ? aggregate.sourceBreakdown
+      : null;
+  const sourceObservationScope: MonetizationDataQuality["sourceObservationScope"] =
+    breakdownCounts
+      ? "breakdown_events"
+      : recentEvents.length > 0
+        ? "recent_event_sample"
+        : "none";
+  const sourceObservationCount =
+    sourceObservationScope === "breakdown_events"
+      ? (breakdownCounts?.reduce(
+          (sum, row) => sum + (row.eventCount ?? 0),
+          0,
+        ) ?? 0)
+      : sourceObservationScope === "recent_event_sample"
+        ? recentEvents.length
+        : 0;
+  const unknownSourceCount =
+    sourceObservationScope === "breakdown_events"
+      ? revenueBreakdown
+          .filter((item) => item.category === "unknown")
+          .reduce((sum, item) => sum + (item.eventCount ?? 0), 0)
+      : recentEvents.filter((event) => event.sourceCategory === "unknown")
+          .length;
+  const missingSourceCount = recentEvents.filter(
+    (event) => event.source === null,
+  ).length;
+  const unknownSourceRatio =
+    sourceObservationCount > 0
+      ? (unknownSourceCount + missingSourceCount) / sourceObservationCount
+      : null;
+  const mixedCurrency = currencyState.mode === "mixed";
+  const partialRead = lookupIssues.length > 0;
+  const summariesWithoutEvents =
+    summaries.length > 0 && recentEvents.length === 0;
+  const eventsWithoutSummaries =
+    recentEvents.length > 0 && summaries.length === 0;
+  const noRecentEvents =
+    recentEvents.length === 0 &&
+    (summaries.length > 0 ||
+      aggregate.sourceBreakdown.length > 0 ||
+      aggregate.totalRevenueCents !== null);
+  const staleLatestEvent = isLatestEventStale({
+    latestEventAt: recentEvents[0]?.occurredAt ?? null,
+    period,
+  });
+  const notices = buildDataQualityNotices({
+    eventsWithoutSummaries,
+    mixedCurrency,
+    missingSourceCount,
+    noRecentEvents,
+    partialRead,
+    sourceObservationScope,
+    staleLatestEvent,
+    summariesWithoutEvents,
+    unknownSourceCount,
+    unknownSourceRatio,
+  });
+
+  return {
+    eventsWithoutSummaries,
+    missingSourceCount,
+    mixedCurrency,
+    noRecentEvents,
+    notices,
+    partialRead,
+    sourceObservationCount,
+    sourceObservationScope,
+    staleLatestEvent,
+    summariesWithoutEvents,
+    unknownSourceCount,
+    unknownSourceRatio,
+  };
+}
+
+function buildDataQualityNotices({
+  eventsWithoutSummaries,
+  mixedCurrency,
+  missingSourceCount,
+  noRecentEvents,
+  partialRead,
+  sourceObservationScope,
+  staleLatestEvent,
+  summariesWithoutEvents,
+  unknownSourceCount,
+  unknownSourceRatio,
+}: {
+  eventsWithoutSummaries: boolean;
+  mixedCurrency: boolean;
+  missingSourceCount: number;
+  noRecentEvents: boolean;
+  partialRead: boolean;
+  sourceObservationScope: MonetizationDataQuality["sourceObservationScope"];
+  staleLatestEvent: boolean;
+  summariesWithoutEvents: boolean;
+  unknownSourceCount: number;
+  unknownSourceRatio: number | null;
+}): MonetizationDataQualityNotice[] {
+  const notices: MonetizationDataQualityNotice[] = [];
+
+  if (partialRead) {
+    notices.push({
+      code: "partial_read",
+      description:
+        "This view is based on partial data because at least one monetization read failed.",
+      title: "This view is based on partial data.",
+    });
+  }
+
+  if (mixedCurrency) {
+    notices.push({
+      code: "mixed_currency",
+      description:
+        "Revenue amounts span multiple currencies, so category totals may stay unavailable.",
+      title: "Currency is mixed across monetization data.",
+    });
+  }
+
+  if (missingSourceCount > 0) {
+    notices.push({
+      code: "missing_sources",
+      description:
+        "Some recent events do not include a raw source, so StreamOS cannot categorize them more precisely.",
+      title: "Some recent events are missing a revenue source.",
+    });
+  }
+
+  if (
+    unknownSourceCount > 0 &&
+    (unknownSourceRatio === null || unknownSourceRatio >= 0.2)
+  ) {
+    notices.push({
+      code: "unknown_sources",
+      description:
+        sourceObservationScope === "breakdown_events"
+          ? "Some revenue sources are still uncategorized in the current period."
+          : "Some sampled recent events use uncategorized revenue sources.",
+      title: "Some revenue sources are uncategorized.",
+    });
+  }
+
+  if (summariesWithoutEvents) {
+    notices.push({
+      code: "summaries_without_events",
+      description:
+        "Summary data is available, but recent events are missing for this period.",
+      title: "Recent events are missing for this period.",
+    });
+  }
+
+  if (eventsWithoutSummaries) {
+    notices.push({
+      code: "events_without_summaries",
+      description:
+        "Recent events are available, but summary rows are missing for this period.",
+      title: "Summary coverage is limited for this period.",
+    });
+  }
+
+  if (noRecentEvents && !summariesWithoutEvents) {
+    notices.push({
+      code: "no_recent_events",
+      description:
+        "This period has no recent monetization events in the sampled event feed.",
+      title: "Recent events are not available in this view.",
+    });
+  }
+
+  if (staleLatestEvent) {
+    notices.push({
+      code: "stale_latest_event",
+      description:
+        "The newest monetization event in this view is older than expected for the selected period.",
+      title: "Latest monetization activity looks stale.",
+    });
+  }
+
+  return notices;
+}
+
 function buildTrend({
   aggregate,
   currencyState,
@@ -618,6 +845,23 @@ function normalizeRecentEvents(
     sourceCategory: normalizeMonetizationSourceCategory(row.source),
     status: row.status,
   }));
+}
+
+function createEmptyDataQuality(): MonetizationDataQuality {
+  return {
+    eventsWithoutSummaries: false,
+    missingSourceCount: 0,
+    mixedCurrency: false,
+    noRecentEvents: false,
+    notices: [],
+    partialRead: false,
+    sourceObservationCount: 0,
+    sourceObservationScope: "none",
+    staleLatestEvent: false,
+    summariesWithoutEvents: false,
+    unknownSourceCount: 0,
+    unknownSourceRatio: null,
+  };
 }
 
 function resolveCurrencyState(
@@ -823,6 +1067,29 @@ function normalizeRawSource(value: string): string | null {
   const normalized = value.trim();
 
   return normalized.length > 0 ? normalized : null;
+}
+
+function isLatestEventStale({
+  latestEventAt,
+  period,
+}: {
+  latestEventAt: string | null;
+  period: MonetizationDashboardPeriod;
+}): boolean {
+  if (!latestEventAt) {
+    return false;
+  }
+
+  const latest = new Date(latestEventAt);
+
+  if (Number.isNaN(latest.getTime())) {
+    return false;
+  }
+
+  const thresholdDays =
+    period === "last_7_days" ? 3 : period === "last_30_days" ? 14 : 30;
+
+  return Date.now() - latest.getTime() > thresholdDays * 24 * 60 * 60 * 1000;
 }
 
 function formatTrendLabel(value: string): string {

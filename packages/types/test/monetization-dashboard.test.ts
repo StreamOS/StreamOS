@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   MONETIZATION_AMOUNT_AVAILABILITIES,
+  MONETIZATION_DATA_QUALITY_CODES,
   MONETIZATION_DASHBOARD_EVENT_LIMIT,
   MONETIZATION_DASHBOARD_LOOKUP_SOURCES,
   MONETIZATION_DASHBOARD_PERIODS,
@@ -23,6 +24,20 @@ const sampleReadModel = {
     revenueBreakdownDimension: "source",
     summaryRowCount: 7,
     trendSource: "summaries",
+  },
+  dataQuality: {
+    eventsWithoutSummaries: false,
+    missingSourceCount: 0,
+    mixedCurrency: false,
+    noRecentEvents: false,
+    notices: [],
+    partialRead: false,
+    sourceObservationCount: 128,
+    sourceObservationScope: "breakdown_events",
+    staleLatestEvent: false,
+    summariesWithoutEvents: false,
+    unknownSourceCount: 0,
+    unknownSourceRatio: 0,
   },
   feed: {
     hasMore: false,
@@ -120,6 +135,16 @@ const sampleReadModel = {
 } satisfies MonetizationDashboardReadModel;
 
 void test("monetization dashboard contract keeps enums and feed limits stable", () => {
+  assert.deepEqual(MONETIZATION_DATA_QUALITY_CODES, [
+    "partial_read",
+    "mixed_currency",
+    "unknown_sources",
+    "missing_sources",
+    "summaries_without_events",
+    "events_without_summaries",
+    "stale_latest_event",
+    "no_recent_events",
+  ]);
   assert.deepEqual(MONETIZATION_DASHBOARD_PERIODS, [
     "last_7_days",
     "last_30_days",
@@ -161,6 +186,8 @@ void test("monetization dashboard read model stays read-only and explicit about 
   assert.equal(sampleReadModel.summary.totalConfirmedEvents, 146);
   assert.equal(sampleReadModel.coverage.summaryRowCount, 7);
   assert.equal(sampleReadModel.coverage.trendSource, "summaries");
+  assert.equal(sampleReadModel.dataQuality.sourceObservationCount, 128);
+  assert.equal(sampleReadModel.dataQuality.unknownSourceRatio, 0);
   assert.equal(sampleReadModel.coverage.revenueBreakdownDimension, "source");
   assert.equal(
     sampleReadModel.recentEvents[0]?.sourceCategory,

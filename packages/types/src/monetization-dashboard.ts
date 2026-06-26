@@ -103,6 +103,41 @@ export type MonetizationRevenueCategoryItem = {
   label: string;
 };
 
+export const MONETIZATION_DATA_QUALITY_CODES = [
+  "partial_read",
+  "mixed_currency",
+  "unknown_sources",
+  "missing_sources",
+  "summaries_without_events",
+  "events_without_summaries",
+  "stale_latest_event",
+  "no_recent_events",
+] as const;
+
+export type MonetizationDataQualityCode =
+  (typeof MONETIZATION_DATA_QUALITY_CODES)[number];
+
+export type MonetizationDataQualityNotice = {
+  code: MonetizationDataQualityCode;
+  description: string;
+  title: string;
+};
+
+export type MonetizationDataQuality = {
+  eventsWithoutSummaries: boolean;
+  missingSourceCount: number;
+  mixedCurrency: boolean;
+  noRecentEvents: boolean;
+  notices: MonetizationDataQualityNotice[];
+  partialRead: boolean;
+  sourceObservationCount: number;
+  sourceObservationScope: "breakdown_events" | "none" | "recent_event_sample";
+  staleLatestEvent: boolean;
+  summariesWithoutEvents: boolean;
+  unknownSourceCount: number;
+  unknownSourceRatio: number | null;
+};
+
 export type MonetizationTrendPoint = {
   amount: MonetizationAmountValue;
   label: string;
@@ -159,6 +194,7 @@ export type MonetizationDashboardPeriodContext = {
 
 export type MonetizationDashboardReadModel = {
   coverage: MonetizationDashboardCoverage;
+  dataQuality: MonetizationDataQuality;
   feed: MonetizationDashboardFeedMetadata;
   lookupIssues: MonetizationDashboardLookupIssue[];
   period: MonetizationDashboardPeriod;

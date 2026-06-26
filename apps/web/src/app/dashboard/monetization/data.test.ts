@@ -102,6 +102,7 @@ describe("monetization data loader", () => {
     expect(model.summary.totalRevenue.availability).toBe("unavailable");
     expect(model.recentEvents).toHaveLength(0);
     expect(model.revenueBreakdownContext.dimension).toBeNull();
+    expect(model.dataQuality.notices).toEqual([]);
     expect(model.lookupIssues).toHaveLength(0);
   });
 
@@ -162,6 +163,8 @@ describe("monetization data loader", () => {
     expect(model.revenueBreakdown[0]?.category).toBe("subscriptions");
     expect(model.revenueCategories[0]?.label).toBe("Subscriptions");
     expect(model.recentEvents[0]?.sourceCategory).toBe("subscriptions");
+    expect(model.dataQuality.sourceObservationScope).toBe("breakdown_events");
+    expect(model.dataQuality.unknownSourceCount).toBe(0);
   });
 
   it("does not treat legacy revenue_by_event_type aggregates as source breakdown data", async () => {
@@ -217,6 +220,9 @@ describe("monetization data loader", () => {
     expect(model.revenueBreakdown).toEqual([]);
     expect(model.revenueBreakdownContext.dataSource).toBe("none");
     expect(model.revenueBreakdownContext.dimension).toBeNull();
+    expect(model.dataQuality.notices.map((notice) => notice.code)).toEqual([
+      "events_without_summaries",
+    ]);
   });
 
   it("returns a load-failed state when aggregates, events and summaries fail together", async () => {
@@ -252,6 +258,7 @@ describe("monetization data loader", () => {
       "events",
       "summaries",
     ]);
+    expect(model.dataQuality.notices).toEqual([]);
   });
 });
 
