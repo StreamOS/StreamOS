@@ -434,6 +434,8 @@ export function BrandingDashboardConsole({
 
                   {item.preview.status === "available" && item.preview.url ? (
                     <div className="mt-3 space-y-3">
+                      {/* Signed preview URLs are short-lived and rendered as-is in the dashboard. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         alt={`${item.name} preview`}
                         className="h-40 w-full rounded-lg border border-white/10 bg-surface-950 object-contain"
