@@ -1,5 +1,9 @@
 import React from "react";
 import { Archive, Image, Layers3, Palette, ShieldCheck } from "lucide-react";
+import {
+  BRANDING_DASHBOARD_UPLOAD_ALLOWED_MIME_TYPES,
+  BRANDING_DASHBOARD_UPLOAD_MAX_FILE_SIZE_BYTES,
+} from "@streamos/types";
 import { StatCard } from "@streamos/ui";
 import { getSupabaseSetupNotice } from "@/lib/supabase/messages";
 import {
@@ -15,10 +19,17 @@ import {
 
 type BrandingDashboardConsoleProps = {
   model: BrandingDashboardModel;
+  uploadAction: (formData: FormData) => Promise<void>;
+  uploadFeedback: {
+    message: string;
+    tone: "error" | "success";
+  } | null;
 };
 
 export function BrandingDashboardConsole({
   model,
+  uploadAction,
+  uploadFeedback,
 }: BrandingDashboardConsoleProps) {
   const hasLookupIssues = model.lookupIssues.length > 0;
   const showPartialNotice = model.state === "ready" && hasLookupIssues;
@@ -26,6 +37,7 @@ export function BrandingDashboardConsole({
   const previewReadyCount = model.items.filter(
     (item) => item.preview.status === "available",
   ).length;
+  const uploadEnabled = model.state === "ready";
 
   return (
     <div className="space-y-6">
@@ -33,6 +45,7 @@ export function BrandingDashboardConsole({
       {model.state === "unauthorized" && <UnauthorizedNotice />}
       {model.state === "auth-failed" && <AuthFailedNotice />}
       {model.state === "load-failed" && <LoadFailedNotice />}
+      {uploadFeedback && <UploadFeedbackNotice feedback={uploadFeedback} />}
       {model.feed.hasMore && <FeedScopeNotice model={model} />}
       {showPartialNotice && <PartialLoadNotice />}
 
@@ -42,13 +55,13 @@ export function BrandingDashboardConsole({
             Branding MVP
           </p>
           <h1 className="mt-3 max-w-3xl text-4xl font-semibold tracking-normal text-white md:text-5xl">
-            Read-only Brand Assets fuer Creator-sichere Dashboard-Sichten
+            Brand Assets mit server-owned Upload und privaten Preview-Sichten
           </h1>
           <p className="mt-4 max-w-3xl text-base leading-7 text-slate-400">
-            Diese Surface zeigt vorhandene `brand_assets` tenant-scoped und
-            read-only. Upload-, Replace- und Delete-Runtime bleiben bewusst out
-            of scope; private Previews werden nur serverseitig und kurzlebig
-            signiert.
+            Diese Surface zeigt vorhandene `brand_assets` tenant-scoped, erlaubt
+            neue Create-Uploads und haelt Replace-, Delete- und Edit-Semantik
+            bewusst aus dem Slice heraus. Private Previews werden nur
+            serverseitig und kurzlebig signiert.
           </p>
         </div>
 
@@ -75,17 +88,130 @@ export function BrandingDashboardConsole({
             <li>
               Signed Preview URLs werden nur serverseitig und kurzlebig erzeugt.
             </li>
-            <li>Upload und Datei-Verarbeitung bleiben kuenftige Slices.</li>
+            <li>
+              Uploads bleiben create-only, tenant-scoped und ohne dauerhafte
+              oeffentliche Asset-URL.
+            </li>
           </ul>
         </aside>
       </header>
+
+      {uploadEnabled ? (
+        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+          <article className="card space-y-4">
+            <SectionHeader
+              title="Brand Asset Upload"
+              description="Neues Brand Asset serverseitig in den privaten Bucket schreiben, danach Metadaten in `brand_assets` persistieren."
+            />
+
+            <form action={uploadAction} className="grid gap-4">
+              <label className="grid gap-2 text-sm font-semibold text-slate-300">
+                Datei
+                <input
+                  accept={BRANDING_DASHBOARD_UPLOAD_ALLOWED_MIME_TYPES.join(
+                    ",",
+                  )}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 file:mr-4 file:rounded-md file:border-0 file:bg-signal-green/15 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-signal-green"
+                  name="assetFile"
+                  required
+                  type="file"
+                />
+              </label>
+
+              <div className="grid gap-4 sm:grid-cols-[220px_minmax(0,1fr)]">
+                <label className="grid gap-2 text-sm font-semibold text-slate-300">
+                  Asset-Typ
+                  <select
+                    className="rounded-lg border border-white/10 bg-surface-900 px-3 py-2 text-white outline-none transition focus:border-signal-green"
+                    defaultValue="logo"
+                    name="assetType"
+                  >
+                    {UPLOAD_ASSET_TYPES.map((assetType) => (
+                      <option key={assetType} value={assetType}>
+                        {formatBrandingAssetTypeLabel(assetType)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="grid gap-2 text-sm font-semibold text-slate-300">
+                  Name optional
+                  <input
+                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none transition placeholder:text-slate-500 focus:border-signal-green"
+                    maxLength={160}
+                    name="name"
+                    placeholder="Neon Logo"
+                    type="text"
+                  />
+                </label>
+              </div>
+
+              <label className="grid gap-2 text-sm font-semibold text-slate-300">
+                Beschreibung optional
+                <input
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none transition placeholder:text-slate-500 focus:border-signal-green"
+                  maxLength={1000}
+                  name="description"
+                  placeholder="Kurzbeschreibung fuer den Brand-Kontext"
+                  type="text"
+                />
+              </label>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 p-4">
+                <div className="space-y-1 text-sm leading-6 text-slate-300">
+                  <p>
+                    Erlaubte Formate:{" "}
+                    {BRANDING_DASHBOARD_UPLOAD_ALLOWED_MIME_TYPES.join(", ")}
+                  </p>
+                  <p>
+                    Maximale Groesse:{" "}
+                    {formatBrandingUploadSizeLabel(
+                      BRANDING_DASHBOARD_UPLOAD_MAX_FILE_SIZE_BYTES,
+                    )}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    SVG, Replace, Delete, Edit und Public-URL-Logik bleiben
+                    ausserhalb dieses Slices.
+                  </p>
+                </div>
+                <button
+                  className="btn-primary min-h-10 px-4 py-2"
+                  type="submit"
+                >
+                  Brand Asset hochladen
+                </button>
+              </div>
+            </form>
+          </article>
+
+          <article className="card space-y-4">
+            <SectionHeader
+              title="Upload Contract"
+              description="Die Upload-Runtime bleibt minimal, tenant-scoped und ohne spaetere Mutationssemantik."
+            />
+
+            <div className="space-y-3 rounded-lg border border-white/10 bg-white/5 p-4 text-sm leading-6 text-slate-300">
+              <p>Private Dateien landen im Bucket `brand-assets`.</p>
+              <p>Storage-Pfade beginnen mit der aktuellen `user_id`.</p>
+              <p>
+                Persistiert werden nur sichere Metadaten und keine dauerhafte
+                oeffentliche Asset-URL.
+              </p>
+              <p>
+                Previews entstehen spaeter nur ueber den bestehenden
+                Signed-Preview-Contract.
+              </p>
+            </div>
+          </article>
+        </section>
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={Layers3}
           label="Brand Assets"
           tone="emerald"
-          trend="Read-only Feed"
+          trend="Tenant-scoped Feed"
           value={String(model.summary.totalAssets)}
         />
         <StatCard
@@ -320,6 +446,26 @@ function DisabledNotice() {
   );
 }
 
+function UploadFeedbackNotice({
+  feedback,
+}: {
+  feedback: {
+    message: string;
+    tone: "error" | "success";
+  };
+}) {
+  const className =
+    feedback.tone === "success"
+      ? "border-signal-green/30 bg-signal-green/10 text-signal-green"
+      : "border-signal-red/30 bg-signal-red/10 text-signal-red";
+
+  return (
+    <section className={`rounded-lg border p-4 text-sm ${className}`}>
+      {feedback.message}
+    </section>
+  );
+}
+
 function UnauthorizedNotice() {
   return (
     <section className="rounded-lg border border-signal-red/30 bg-signal-red/10 p-4 text-sm text-signal-red">
@@ -455,3 +601,19 @@ function Pill({
     </span>
   );
 }
+
+function formatBrandingUploadSizeLabel(bytes: number): string {
+  return `${Math.floor(bytes / (1024 * 1024))} MB`;
+}
+
+const UPLOAD_ASSET_TYPES = [
+  "logo",
+  "overlay",
+  "banner",
+  "panel",
+  "alert",
+  "scene",
+  "emote",
+  "color_palette",
+  "typography",
+] as const;

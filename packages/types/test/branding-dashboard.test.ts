@@ -5,6 +5,9 @@ import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
   BRANDING_DASHBOARD_LOOKUP_SOURCES,
   BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS,
+  BRANDING_DASHBOARD_UPLOAD_ALLOWED_EXTENSIONS,
+  BRANDING_DASHBOARD_UPLOAD_ALLOWED_MIME_TYPES,
+  BRANDING_DASHBOARD_UPLOAD_MAX_FILE_SIZE_BYTES,
   type BrandingDashboardReadModel,
 } from "../src/branding-dashboard.js";
 
@@ -86,6 +89,18 @@ const sampleReadModel = {
 void test("branding dashboard contract keeps the feed and lookup enums stable", () => {
   assert.equal(BRANDING_DASHBOARD_ASSET_LIMIT, 12);
   assert.equal(BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS, 60);
+  assert.equal(BRANDING_DASHBOARD_UPLOAD_MAX_FILE_SIZE_BYTES, 5 * 1024 * 1024);
+  assert.deepEqual(BRANDING_DASHBOARD_UPLOAD_ALLOWED_MIME_TYPES, [
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+  ]);
+  assert.deepEqual(BRANDING_DASHBOARD_UPLOAD_ALLOWED_EXTENSIONS, [
+    "png",
+    "jpg",
+    "jpeg",
+    "webp",
+  ]);
   assert.deepEqual(BRANDING_DASHBOARD_LOOKUP_SOURCES, ["channels"]);
 });
 

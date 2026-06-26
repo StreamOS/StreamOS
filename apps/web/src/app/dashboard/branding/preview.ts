@@ -3,10 +3,11 @@ import {
   type BrandingDashboardPreview,
 } from "@streamos/types";
 import { createClient } from "@/lib/supabase/server";
-
-const BRAND_ASSET_STORAGE_BUCKET = "brand-assets";
-const PREVIEWABLE_IMAGE_EXTENSIONS = new Set(["jpeg", "jpg", "png", "webp"]);
-const BLOCKED_IMAGE_EXTENSIONS = new Set(["svg"]);
+import {
+  BRAND_ASSET_STORAGE_BUCKET,
+  isPreviewableBrandingAssetPath,
+  isTenantScopedBrandingStoragePath,
+} from "./storage";
 
 type BrandingPreviewStorageClient = Pick<
   Awaited<ReturnType<typeof createClient>>,
@@ -41,7 +42,7 @@ export async function createBrandingAssetPreview({
     };
   }
 
-  if (!isPreviewableImagePath(storage.path)) {
+  if (!isPreviewableBrandingAssetPath(storage.path)) {
     return {
       expiresAt: null,
       reason: "unsupported_file_type",
@@ -112,7 +113,7 @@ function parsePreviewStorage({
     };
   }
 
-  if (!isTenantScopedStoragePath(storagePath, userId)) {
+  if (!isTenantScopedBrandingStoragePath(storagePath, userId)) {
     return {
       ok: false,
       reason: "invalid_storage_metadata",
@@ -124,39 +125,4 @@ function parsePreviewStorage({
     ok: true,
     path: storagePath,
   };
-}
-
-function isTenantScopedStoragePath(
-  storagePath: string,
-  userId: string,
-): boolean {
-  if (
-    storagePath.startsWith("/") ||
-    storagePath.includes("\\") ||
-    storagePath.includes("://") ||
-    storagePath.includes("?") ||
-    storagePath.includes("#")
-  ) {
-    return false;
-  }
-
-  const segments = storagePath.split("/");
-
-  return (
-    segments.length >= 4 &&
-    segments[0] === userId &&
-    segments.every(
-      (segment) => segment.length > 0 && segment !== "." && segment !== "..",
-    )
-  );
-}
-
-function isPreviewableImagePath(storagePath: string): boolean {
-  const extension = storagePath.split(".").at(-1)?.toLowerCase() ?? "";
-
-  if (!extension || BLOCKED_IMAGE_EXTENSIONS.has(extension)) {
-    return false;
-  }
-
-  return PREVIEWABLE_IMAGE_EXTENSIONS.has(extension);
 }

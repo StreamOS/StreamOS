@@ -6,6 +6,18 @@ import type {
 
 export const BRANDING_DASHBOARD_ASSET_LIMIT = 12;
 export const BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS = 60;
+export const BRANDING_DASHBOARD_UPLOAD_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+export const BRANDING_DASHBOARD_UPLOAD_ALLOWED_MIME_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+] as const;
+export const BRANDING_DASHBOARD_UPLOAD_ALLOWED_EXTENSIONS = [
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+] as const;
 
 export const BRANDING_DASHBOARD_LOOKUP_SOURCES = ["channels"] as const;
 

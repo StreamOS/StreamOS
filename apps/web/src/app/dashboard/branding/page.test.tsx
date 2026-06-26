@@ -8,18 +8,24 @@ import {
 
 const mocks = vi.hoisted(() => ({
   getBrandingDashboardData: vi.fn(),
+  uploadBrandAssetAction: vi.fn(),
 }));
 
 vi.mock("./data", () => ({
   getBrandingDashboardData: mocks.getBrandingDashboardData,
 }));
 
+vi.mock("./actions", () => ({
+  uploadBrandAssetAction: mocks.uploadBrandAssetAction,
+}));
+
 describe("BrandingPage", () => {
   beforeEach(() => {
     mocks.getBrandingDashboardData.mockReset();
+    mocks.uploadBrandAssetAction.mockReset();
   });
 
-  it("renders the empty read-only branding surface without upload or destructive actions", async () => {
+  it("renders the upload surface without destructive actions when no brand assets exist yet", async () => {
     mocks.getBrandingDashboardData.mockResolvedValue(
       createEmptyBrandingDashboardModel("user-1"),
     );
@@ -27,14 +33,15 @@ describe("BrandingPage", () => {
     const html = renderToStaticMarkup(await BrandingPage());
 
     expect(html).toContain("Branding MVP");
-    expect(html).toContain("Read-first Branding Surface");
+    expect(html).toContain("Brand Asset Upload");
     expect(html).toContain("Noch keine Brand Assets");
-    expect(html).toContain("Upload-, Replace- und Delete-Runtime");
+    expect(html).toContain("Brand Asset hochladen");
+    expect(html).toContain('type="file"');
+    expect(html).toContain("Maximale Groesse: 5 MB");
     expect(html).toContain("kurzlebig signiert");
-    expect(html).not.toContain('type="file"');
-    expect(html).not.toContain("Brand Asset Upload");
-    expect(html).not.toContain("Brand Kit erstellen");
-    expect(html).not.toContain("Aenderungen speichern");
+    expect(html).not.toContain("Brand Asset ersetzen");
+    expect(html).not.toContain("Brand Asset loeschen");
+    expect(html).not.toContain("Asset bearbeiten");
     expect(html).not.toContain("loeschen");
   });
 
@@ -107,6 +114,24 @@ describe("BrandingPage", () => {
     expect(html).not.toContain("brand-assets/");
     expect(html).not.toContain("public_url");
     expect(html).not.toContain("Storage-Bucket erstellen");
+  });
+
+  it("renders upload error feedback without exposing raw storage details", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createEmptyBrandingDashboardModel("user-6"),
+    );
+
+    const html = renderToStaticMarkup(
+      await BrandingPage({
+        searchParams: Promise.resolve({
+          error: "brand-asset-upload-failed",
+        }),
+      }),
+    );
+
+    expect(html).toContain("Der private Storage-Upload ist fehlgeschlagen");
+    expect(html).not.toContain("storage.objects");
+    expect(html).not.toContain("signed.example");
   });
 
   it("renders a hard load-failed state separately from the empty state", async () => {
