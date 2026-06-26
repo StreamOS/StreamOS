@@ -5,10 +5,12 @@ import {
   type BrandingDashboardConsoleView,
 } from "@/components/modules/BrandingDashboardConsole";
 import {
+  BRANDING_DASHBOARD_MAX_WINDOWS,
   BRANDING_DASHBOARD_METADATA_FILTERS,
   BRANDING_DASHBOARD_PREVIEW_FILTERS,
   BRANDING_DASHBOARD_SORT_OPTIONS,
   buildBrandingDashboardViewModel,
+  decodeBrandingDashboardCursorToken,
   type BrandingDashboardMetadataFilter,
   type BrandingDashboardPreviewFilter,
   type BrandingDashboardSortOption,
@@ -23,12 +25,14 @@ export default async function BrandingPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 } = {}) {
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const model = await getBrandingDashboardData();
+  const parsedView = parseBrandingDashboardView(resolvedSearchParams);
+  const model = await getBrandingDashboardData({
+    cursor: parsedView.loadMoreCursor,
+    cursorServerSort: parsedView.cursorServerSort,
+    windowCount: parsedView.windowCount,
+  });
   const uploadFeedback = resolveBrandingUploadFeedback(resolvedSearchParams);
-  const view = buildBrandingDashboardViewModel(
-    model,
-    parseBrandingDashboardView(resolvedSearchParams),
-  );
+  const view = buildBrandingDashboardViewModel(model, parsedView);
 
   return (
     <BrandingDashboardConsole
@@ -43,13 +47,21 @@ export default async function BrandingPage({
 function parseBrandingDashboardView(
   searchParams?: Record<string, string | string[] | undefined>,
 ) {
+  const cursorToken = readSingleSearchParam(searchParams?.cursor);
+  const decodedCursor = decodeBrandingDashboardCursorToken(cursorToken);
+  const windowCount = parseBrandingWindowCount(searchParams?.window);
+
   return {
     assetType: readSingleSearchParam(searchParams?.assetType),
+    cursorServerSort: decodedCursor.serverSort,
+    cursorToken: decodedCursor.cursor ? cursorToken : null,
     detailAssetId: readSingleSearchParam(searchParams?.asset),
+    loadMoreCursor: decodedCursor.cursor,
     metadata: parseBrandingMetadataFilter(searchParams?.metadata),
     preview: parseBrandingPreviewFilter(searchParams?.preview),
     sort: parseBrandingSort(searchParams?.sort),
     status: readSingleSearchParam(searchParams?.statusFilter),
+    windowCount: decodedCursor.cursor ? windowCount : 1,
   };
 }
 
@@ -179,4 +191,17 @@ function parseBrandingMetadataFilter(
   return BRANDING_DASHBOARD_METADATA_FILTERS.includes(candidate as never)
     ? (candidate as BrandingDashboardMetadataFilter)
     : "all";
+}
+
+function parseBrandingWindowCount(
+  value: string | string[] | undefined,
+): number {
+  const candidate = readSingleSearchParam(value);
+  const parsed = candidate ? Number.parseInt(candidate, 10) : 1;
+
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    return 1;
+  }
+
+  return Math.min(parsed, BRANDING_DASHBOARD_MAX_WINDOWS);
 }

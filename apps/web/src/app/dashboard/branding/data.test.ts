@@ -213,6 +213,112 @@ describe("getBrandingDashboardData", () => {
     expect(data.items).toHaveLength(12);
   });
 
+  it("loads an additional cursor window without duplicating already visible assets", async () => {
+    const firstWindowRows = Array.from({ length: 13 }, (_, index) =>
+      createBrandAssetRow({
+        asset_type: "logo",
+        channel_id: null,
+        id: `asset-${index + 1}`,
+        name: `Asset ${index + 1}`,
+        storage_bucket: null,
+        storage_path: null,
+      }),
+    );
+    const secondWindowRows = [
+      createBrandAssetRow({
+        asset_type: "overlay",
+        channel_id: null,
+        id: "asset-13",
+        name: "Asset 13",
+        storage_bucket: null,
+        storage_path: null,
+      }),
+      createBrandAssetRow({
+        asset_type: "banner",
+        channel_id: null,
+        id: "asset-14",
+        name: "Asset 14",
+        storage_bucket: null,
+        storage_path: null,
+        updated_at: "2026-06-21T10:15:00.000Z",
+      }),
+    ];
+    const cursor = {
+      id: "asset-12",
+      updatedAt: "2026-06-22T10:15:00.000Z",
+    };
+    const supabase = createSupabaseClientMock({
+      rowsByCursor: {
+        [createCursorKey(cursor)]: secondWindowRows,
+        root: firstWindowRows,
+      },
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData({
+      cursor,
+      cursorServerSort: "updated_desc",
+      windowCount: 2,
+    });
+
+    expect(data.state).toBe("ready");
+    expect(data.items).toHaveLength(14);
+    expect(new Set(data.items.map((item) => item.id)).size).toBe(14);
+    expect(data.feed).toEqual({
+      hasMore: false,
+      limit: 12,
+      nextCursor: null,
+      returnedCount: 14,
+      scope: "full_result",
+      serverSort: "updated_desc",
+    });
+  });
+
+  it("falls back to the first window when the requested cursor does not match the prior server boundary", async () => {
+    const firstWindowRows = Array.from({ length: 13 }, (_, index) =>
+      createBrandAssetRow({
+        asset_type: "logo",
+        channel_id: null,
+        id: `asset-${index + 1}`,
+        name: `Asset ${index + 1}`,
+        storage_bucket: null,
+        storage_path: null,
+      }),
+    );
+    const supabase = createSupabaseClientMock({
+      rowsByCursor: {
+        root: firstWindowRows,
+      },
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData({
+      cursor: {
+        id: "asset-mismatch",
+        updatedAt: "2026-06-22T10:15:00.000Z",
+      },
+      cursorServerSort: "updated_desc",
+      windowCount: 2,
+    });
+
+    expect(data.state).toBe("ready");
+    expect(data.items).toHaveLength(12);
+    expect(data.items.map((item) => item.id)).toEqual(
+      Array.from({ length: 12 }, (_, index) => `asset-${index + 1}`),
+    );
+    expect(data.feed).toEqual({
+      hasMore: true,
+      limit: 12,
+      nextCursor: {
+        id: "asset-12",
+        updatedAt: "2026-06-22T10:15:00.000Z",
+      },
+      returnedCount: 12,
+      scope: "loaded_sample",
+      serverSort: "updated_desc",
+    });
+  });
+
   it("keeps channel lookup failures as partial state instead of failing the main asset read", async () => {
     const supabase = createSupabaseClientMock({
       channelError: new Error("channels failed"),
@@ -503,24 +609,28 @@ describe("getBrandingDashboardData", () => {
 function createBrandAssetRow({
   asset_type,
   channel_id,
+  created_at = "2026-06-22T10:00:00.000Z",
   id = "22222222-2222-4222-8222-222222222222",
   metadata = null,
   name = "Neon Logo",
   storage_bucket,
   storage_path,
+  updated_at = "2026-06-22T10:15:00.000Z",
 }: {
   asset_type: string;
   channel_id: string | null;
+  created_at?: string;
   id?: string;
   metadata?: Record<string, unknown> | null;
   name?: string;
   storage_bucket: string | null;
   storage_path: string | null;
+  updated_at?: string;
 }) {
   return {
     asset_type,
     channel_id,
-    created_at: "2026-06-22T10:00:00.000Z",
+    created_at,
     description: "Private logo.",
     id,
     metadata,
@@ -528,7 +638,7 @@ function createBrandAssetRow({
     status: "active",
     storage_bucket,
     storage_path,
-    updated_at: "2026-06-22T10:15:00.000Z",
+    updated_at,
   };
 }
 
@@ -537,6 +647,7 @@ function createSupabaseClientMock({
   channelRows = [],
   rowError = null,
   rows = [],
+  rowsByCursor,
   signedUrlErrorPaths = [],
   user = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -547,6 +658,7 @@ function createSupabaseClientMock({
   channelRows?: unknown[] | null;
   rowError?: unknown;
   rows?: unknown[] | null;
+  rowsByCursor?: Record<string, unknown[] | null>;
   signedUrlErrorPaths?: string[];
   user?: { id: string } | null;
   userError?: unknown;
@@ -558,11 +670,16 @@ function createSupabaseClientMock({
     path: string;
   }> = [];
   let currentTable = "";
+  let currentCursorKey = "root";
 
   const brandAssetBuilder = {
     eq: vi.fn(() => brandAssetBuilder),
+    or: vi.fn((value: string) => {
+      currentCursorKey = parseCursorKeyFromFilter(value) ?? "__invalid__";
+      return brandAssetBuilder;
+    }),
     limit: vi.fn(async () => ({
-      data: rows,
+      data: rowsByCursor?.[currentCursorKey] ?? rowsByCursor?.root ?? rows,
       error: rowError,
     })),
     order: vi.fn(() => brandAssetBuilder),
@@ -595,6 +712,7 @@ function createSupabaseClientMock({
     },
     from: vi.fn((table: string) => {
       currentTable = table;
+      currentCursorKey = "root";
 
       return currentTable === "channels" ? channelBuilder : brandAssetBuilder;
     }),
@@ -629,4 +747,23 @@ function createSupabaseClientMock({
       return signedUrlRequests.length > 0;
     },
   };
+}
+
+function createCursorKey(cursor: { id: string; updatedAt: string }) {
+  return `${cursor.updatedAt}|${cursor.id}`;
+}
+
+function parseCursorKeyFromFilter(value: string): string | null {
+  const match = value.match(
+    /^updated_at\.lt\.(.+),and\(updated_at\.eq\.(.+),id\.lt\.(.+)\)$/,
+  );
+
+  if (!match || match[1] !== match[2]) {
+    return null;
+  }
+
+  return createCursorKey({
+    id: match[3],
+    updatedAt: match[1],
+  });
 }

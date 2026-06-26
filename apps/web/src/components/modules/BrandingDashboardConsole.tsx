@@ -8,7 +8,9 @@ import {
 import { StatCard } from "@streamos/ui";
 import { getSupabaseSetupNotice } from "@/lib/supabase/messages";
 import {
+  encodeBrandingDashboardCursorToken,
   BRANDING_DASHBOARD_METADATA_FILTERS,
+  BRANDING_DASHBOARD_MAX_WINDOWS,
   BRANDING_DASHBOARD_PREVIEW_FILTERS,
   BRANDING_DASHBOARD_SORT_OPTIONS,
   formatBrandingAssetStatusLabel,
@@ -409,16 +411,19 @@ export function BrandingDashboardConsole({
 
           {hasData ? (
             hasVisibleItems ? (
-              <div className="space-y-3">
-                {view.items.map((item) => (
-                  <AssetExplorerCard
-                    isSelected={view.detailAssetId === item.id}
-                    item={item}
-                    view={view}
-                    key={item.id}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="space-y-3">
+                  {view.items.map((item) => (
+                    <AssetExplorerCard
+                      isSelected={view.detailAssetId === item.id}
+                      item={item}
+                      view={view}
+                      key={item.id}
+                    />
+                  ))}
+                </div>
+                <LoadMoreSection view={view} />
+              </>
             ) : (
               <EmptyState
                 title="Keine Assets fuer aktuelle Filter"
@@ -503,9 +508,47 @@ function ExplorerFeedNotice({ view }: { view: BrandingDashboardConsoleView }) {
         Serverseitig geladen wird aktuell nur die Sortierung{" "}
         {formatBrandingDashboardSortLabel(view.feed.serverSort)}.
         {view.feed.scope === "loaded_sample" && view.feed.hasMore
-          ? " Weitere Assets existieren bereits; der Cursor-Contract ist vorbereitet, aber Pagination wird in diesem Slice noch nicht freigeschaltet."
-          : " Zusätzliche Explorer-Filter bleiben clientseitig und read-only."}
+          ? " Weitere Assets existieren bereits; ueber den Cursor-Contract kann das Feed-Fenster schrittweise erweitert werden."
+          : " Zusaetzliche Explorer-Filter bleiben clientseitig und read-only."}
       </p>
+    </section>
+  );
+}
+
+function LoadMoreSection({ view }: { view: BrandingDashboardConsoleView }) {
+  if (!view.feed.hasMore || !view.feed.nextCursor) {
+    return null;
+  }
+
+  if (view.feed.windowCount >= BRANDING_DASHBOARD_MAX_WINDOWS) {
+    return (
+      <section className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
+        Das aktuell freigegebene Branding-Fenster ist erreicht. Weitere Assets
+        bleiben serverseitig begrenzt, bis ein groesserer Pagination-Scope
+        freigegeben wird.
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-brand-500/20 bg-brand-500/10 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-white">
+            Weitere Assets laden
+          </p>
+          <p className="text-sm leading-6 text-slate-300">
+            Der Explorer erweitert das geladene Feed-Fenster cursor-basiert um
+            die naechste serverseitige Asset-Seite.
+          </p>
+        </div>
+        <Link
+          className="btn-primary min-h-10 px-4 py-2"
+          href={buildBrandingLoadMoreHref(view)}
+        >
+          Mehr laden
+        </Link>
+      </div>
     </section>
   );
 }
@@ -1078,7 +1121,47 @@ function buildBrandingViewHref(
   detailAssetId: string,
 ): string {
   const searchParams = new URLSearchParams();
+  appendBrandingExplorerParams(searchParams, view);
+  searchParams.set("asset", detailAssetId);
 
+  const query = searchParams.toString();
+  return query.length > 0
+    ? `/dashboard/branding?${query}`
+    : "/dashboard/branding";
+}
+
+function buildBrandingLoadMoreHref(view: BrandingDashboardConsoleView): string {
+  if (!view.feed.nextCursor) {
+    return view.detailAssetId
+      ? buildBrandingViewHref(view, view.detailAssetId)
+      : "/dashboard/branding";
+  }
+
+  const searchParams = new URLSearchParams();
+  appendBrandingExplorerParams(searchParams, view);
+  searchParams.set(
+    "cursor",
+    encodeBrandingDashboardCursorToken({
+      cursor: view.feed.nextCursor,
+      serverSort: view.feed.serverSort,
+    }),
+  );
+  searchParams.set("window", String(view.feed.windowCount + 1));
+
+  if (view.detailAssetId ?? view.selectedAsset?.id) {
+    searchParams.set(
+      "asset",
+      view.detailAssetId ?? view.selectedAsset?.id ?? "",
+    );
+  }
+
+  return `/dashboard/branding?${searchParams.toString()}`;
+}
+
+function appendBrandingExplorerParams(
+  searchParams: URLSearchParams,
+  view: BrandingDashboardConsoleView,
+) {
   if (view.filters.assetType) {
     searchParams.set("assetType", view.filters.assetType);
   }
@@ -1099,12 +1182,13 @@ function buildBrandingViewHref(
     searchParams.set("sort", view.sort);
   }
 
-  searchParams.set("asset", detailAssetId);
+  if (view.feed.cursorToken) {
+    searchParams.set("cursor", view.feed.cursorToken);
+  }
 
-  const query = searchParams.toString();
-  return query.length > 0
-    ? `/dashboard/branding?${query}`
-    : "/dashboard/branding";
+  if (view.feed.windowCount > 1) {
+    searchParams.set("window", String(view.feed.windowCount));
+  }
 }
 
 function formatBrandingActiveFilterSummary(

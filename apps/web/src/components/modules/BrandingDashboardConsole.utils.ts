@@ -1,5 +1,7 @@
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
+  type BrandingDashboardFeedCursor,
+  type BrandingDashboardFeedServerSort,
   type BrandingDashboardFutureAction,
   type BrandingDashboardMutationBlockReason,
   type BrandingDashboardMutationContract,
@@ -34,6 +36,7 @@ export const BRANDING_DASHBOARD_SORT_OPTIONS = [
   "asset_type",
   "status",
 ] as const;
+export const BRANDING_DASHBOARD_MAX_WINDOWS = 5;
 export const BRANDING_DASHBOARD_PREVIEW_FILTERS = [
   "all",
   "available",
@@ -55,11 +58,13 @@ export type BrandingDashboardMetadataFilter =
 
 export type BrandingDashboardViewInput = {
   assetType: string | null;
+  cursorToken: string | null;
   detailAssetId: string | null;
   metadata: BrandingDashboardMetadataFilter;
   preview: BrandingDashboardPreviewFilter;
   sort: BrandingDashboardSortOption;
   status: string | null;
+  windowCount: number;
 };
 
 export type BrandingDashboardViewModel = {
@@ -77,8 +82,10 @@ export type BrandingDashboardViewModel = {
       status: string | null;
     };
     activeSort: BrandingDashboardSortOption;
+    cursorToken: string | null;
     hasActiveFilters: boolean;
     visibleCount: number;
+    windowCount: number;
   };
   filters: {
     assetType: string | null;
@@ -273,12 +280,14 @@ export function buildBrandingDashboardViewModel(
       ...model.feed,
       activeFilters,
       activeSort: input.sort,
+      cursorToken: input.cursorToken,
       hasActiveFilters:
         assetType !== null ||
         status !== null ||
         input.preview !== "all" ||
         input.metadata !== "all",
       visibleCount: items.length,
+      windowCount: input.windowCount,
     },
     filters: {
       ...activeFilters,
@@ -288,6 +297,63 @@ export function buildBrandingDashboardViewModel(
     sort: input.sort,
     statusOptions,
   };
+}
+
+export function encodeBrandingDashboardCursorToken(input: {
+  cursor: BrandingDashboardFeedCursor;
+  serverSort: BrandingDashboardFeedServerSort;
+}): string {
+  return Buffer.from(JSON.stringify(input), "utf8").toString("base64url");
+}
+
+export function decodeBrandingDashboardCursorToken(value: string | null): {
+  cursor: BrandingDashboardFeedCursor | null;
+  serverSort: BrandingDashboardFeedServerSort | null;
+} {
+  if (!value) {
+    return {
+      cursor: null,
+      serverSort: null,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as {
+      cursor?: {
+        id?: unknown;
+        updatedAt?: unknown;
+      };
+      serverSort?: unknown;
+    };
+
+    if (
+      !parsed.cursor ||
+      typeof parsed.cursor.id !== "string" ||
+      typeof parsed.cursor.updatedAt !== "string" ||
+      Number.isNaN(new Date(parsed.cursor.updatedAt).getTime()) ||
+      parsed.serverSort !== "updated_desc"
+    ) {
+      return {
+        cursor: null,
+        serverSort: null,
+      };
+    }
+
+    return {
+      cursor: {
+        id: parsed.cursor.id,
+        updatedAt: parsed.cursor.updatedAt,
+      },
+      serverSort: "updated_desc",
+    };
+  } catch {
+    return {
+      cursor: null,
+      serverSort: null,
+    };
+  }
 }
 
 export function formatBrandingAssetTypeLabel(value: string): string {

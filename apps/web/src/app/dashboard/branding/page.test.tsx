@@ -281,6 +281,78 @@ describe("BrandingPage", () => {
     );
   });
 
+  it("renders a load-more link when the server feed exposes a next cursor", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel(
+        [
+          createAsset({
+            assetType: "logo",
+            id: "asset-1",
+            name: "Newest Logo",
+            preview: {
+              expiresAt: "2026-06-26T10:01:00.000Z",
+              reason: null,
+              status: "available",
+              url: "https://assets.local/preview-logo",
+            },
+            uploadMetadata: {
+              contentType: "image/png",
+              fileExtension: "png",
+              fileSizeBytes: 1024,
+              status: "available",
+              storedFilename: "newest-logo.png",
+            },
+          }),
+        ],
+        [],
+        {
+          hasMore: true,
+          limit: 12,
+          nextCursor: {
+            id: "asset-12",
+            updatedAt: "2026-06-26T10:00:00.000Z",
+          },
+          returnedCount: 12,
+          scope: "loaded_sample",
+          serverSort: "updated_desc",
+        },
+      ),
+    );
+
+    const html = renderToStaticMarkup(
+      await BrandingPage({
+        searchParams: Promise.resolve({
+          asset: "asset-1",
+          metadata: "available",
+          preview: "available",
+        }),
+      }),
+    );
+
+    expect(html).toContain("Mehr laden");
+    expect(html).toContain("window=2");
+    expect(html).toContain("cursor=");
+    expect(html).toContain("asset=asset-1");
+    expect(html).toContain("preview=available");
+    expect(html).toContain("metadata=available");
+  });
+
+  it("does not render a load-more link when the full feed is already visible", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel([
+        createAsset({
+          id: "asset-1",
+          name: "Only Asset",
+        }),
+      ]),
+    );
+
+    const html = renderToStaticMarkup(await BrandingPage());
+
+    expect(html).not.toContain("Mehr laden");
+    expect(html).not.toContain("Weitere Assets laden");
+  });
+
   it("normalizes invalid search params back to safe defaults", async () => {
     mocks.getBrandingDashboardData.mockResolvedValue(
       createReadyModel([
@@ -315,6 +387,39 @@ describe("BrandingPage", () => {
     expect(html.indexOf("Alpha Asset")).toBeLessThan(
       html.indexOf("Beta Asset"),
     );
+    expect(mocks.getBrandingDashboardData).toHaveBeenCalledWith({
+      cursor: null,
+      cursorServerSort: null,
+      windowCount: 1,
+    });
+  });
+
+  it("normalizes invalid cursor params back to the first server window", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel([
+        createAsset({
+          id: "asset-a",
+          name: "Alpha Asset",
+        }),
+      ]),
+    );
+
+    const html = renderToStaticMarkup(
+      await BrandingPage({
+        searchParams: Promise.resolve({
+          cursor: "not-a-valid-token",
+          window: "99",
+        }),
+      }),
+    );
+
+    expect(html).toContain("Alpha Asset");
+    expect(mocks.getBrandingDashboardData).toHaveBeenCalledWith({
+      cursor: null,
+      cursorServerSort: null,
+      windowCount: 1,
+    });
+    expect(html).not.toContain("window=99");
   });
 
   it("falls back to the first visible asset when the requested detail asset is filtered out", async () => {
