@@ -1,185 +1,162 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
-
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import BrandingPage from "./page";
+import {
+  buildBrandingDashboardModel,
+  createEmptyBrandingDashboardModel,
+} from "@/components/modules/BrandingDashboardConsole.utils";
 
 const mocks = vi.hoisted(() => ({
-  getBrandKitDashboardData: vi.fn(),
-  isSupabaseConfigured: vi.fn(),
+  getBrandingDashboardData: vi.fn(),
 }));
 
 vi.mock("./data", () => ({
-  getBrandKitDashboardData: mocks.getBrandKitDashboardData,
-}));
-
-vi.mock("@/lib/supabase/config", () => ({
-  isSupabaseConfigured: mocks.isSupabaseConfigured,
+  getBrandingDashboardData: mocks.getBrandingDashboardData,
 }));
 
 describe("BrandingPage", () => {
-  it("renders the upload UI with safe file guidance", async () => {
-    mocks.isSupabaseConfigured.mockReturnValue(true);
-    mocks.getBrandKitDashboardData.mockResolvedValue({
-      activeAssets: 0,
-      archivedAssets: 0,
-      assets: [],
-      draftAssets: 0,
-      error: null,
-      totalAssets: 0,
-      userId: "11111111-1111-4111-8111-111111111111",
-    });
-
-    const html = renderToStaticMarkup(
-      await BrandingPage({ searchParams: Promise.resolve({}) }),
-    );
-
-    expect(html).toContain("Noch kein Brand Kit");
-    expect(html).toContain("Brand Kit erstellen");
-    expect(html).toContain("Brand Asset Upload");
-    expect(html).toContain('type="file"');
-    expect(html).toContain('accept="image/png,image/jpeg,image/webp"');
-    expect(html).toContain("Erlaubte Formate: PNG, JPEG, WebP");
-    expect(html).toContain("Maximale Groesse: 5 MB");
-    expect(html).toContain("Private Assets ohne Public URLs");
-    expect(html).not.toContain("Storage-Bucket erstellen");
-    expect(html).not.toContain("SVG");
-    expect(html).not.toContain("GIF");
+  beforeEach(() => {
+    mocks.getBrandingDashboardData.mockReset();
   });
 
-  it("renders existing brand kits with edit, stored-file delete, and preview surfaces", async () => {
-    mocks.isSupabaseConfigured.mockReturnValue(true);
-    mocks.getBrandKitDashboardData.mockResolvedValue({
-      activeAssets: 1,
-      archivedAssets: 0,
-      assets: [
+  it("renders the empty read-only branding surface without upload or destructive actions", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createEmptyBrandingDashboardModel("user-1"),
+    );
+
+    const html = renderToStaticMarkup(await BrandingPage());
+
+    expect(html).toContain("Branding MVP");
+    expect(html).toContain("Read-first Branding Surface");
+    expect(html).toContain("Noch keine Brand Assets");
+    expect(html).toContain(
+      "keine Upload-, Replace-, Delete- oder Preview-Runtime",
+    );
+    expect(html).not.toContain('type="file"');
+    expect(html).not.toContain("Brand Asset Upload");
+    expect(html).not.toContain("Brand Kit erstellen");
+    expect(html).not.toContain("Aenderungen speichern");
+    expect(html).not.toContain("loeschen");
+  });
+
+  it("renders existing assets with stable unknown type labels and without public URLs", async () => {
+    const model = buildBrandingDashboardModel({
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 2,
+      },
+      items: [
         {
-          asset_type: "overlay",
-          config: {
-            primaryColor: "#00d4aa",
-            secondaryColor: "#9b5cff",
-            textColor: "#ffffff",
-          },
-          created_at: "2026-06-22T10:00:00.000Z",
-          description: "Main stream overlay.",
-          hasStoredFile: true,
-          id: "22222222-2222-4222-8222-222222222222",
-          metadata: {},
+          assetType: "overlay",
+          channelId: "channel-1",
+          createdAt: "2026-06-26T08:00:00.000Z",
+          description: "Main overlay.",
+          id: "asset-1",
           name: "Neon Overlay",
-          previewStatus: "available",
-          previewUrl: "https://storage.example/signed-preview",
+          platform: "twitch",
           status: "active",
-          updated_at: "2026-06-22T10:15:00.000Z",
+          storageState: "attached",
+          updatedAt: "2026-06-26T10:00:00.000Z",
+          usageContext: "NovaPlays Live",
         },
-      ],
-      draftAssets: 0,
-      error: null,
-      totalAssets: 1,
-      userId: "11111111-1111-4111-8111-111111111111",
-    });
-
-    const html = renderToStaticMarkup(
-      await BrandingPage({
-        searchParams: Promise.resolve({ status: "brand-kit-updated" }),
-      }),
-    );
-
-    expect(html).toContain("Brand Kit wurde aktualisiert");
-    expect(html).toContain("Neon Overlay");
-    expect(html).toContain("Main stream overlay.");
-    expect(html).toContain("https://storage.example/signed-preview");
-    expect(html).toContain("Bearbeiten");
-    expect(html).toContain("Aenderungen speichern");
-    expect(html).toContain("Datei und Brand Asset entfernen");
-    expect(html).not.toContain('name="publicUrl"');
-    expect(html).not.toContain('name="storagePath"');
-  });
-
-  it("keeps metadata-only delete copy separate from stored-file removal", async () => {
-    mocks.isSupabaseConfigured.mockReturnValue(true);
-    mocks.getBrandKitDashboardData.mockResolvedValue({
-      activeAssets: 1,
-      archivedAssets: 0,
-      assets: [
         {
-          asset_type: "overlay",
-          config: {},
-          created_at: "2026-06-22T10:00:00.000Z",
-          description: "Metadata-only asset.",
-          hasStoredFile: false,
-          id: "22222222-2222-4222-8222-222222222222",
-          metadata: {},
-          name: "Metadata Overlay",
-          previewStatus: "no_preview",
-          previewUrl: null,
-          status: "active",
-          updated_at: "2026-06-22T10:15:00.000Z",
+          assetType: "mystery_pack",
+          channelId: null,
+          createdAt: "2026-06-25T08:00:00.000Z",
+          description: null,
+          id: "asset-2",
+          name: "Mystery Pack",
+          platform: null,
+          status: "draft",
+          storageState: "incomplete",
+          updatedAt: "2026-06-25T10:00:00.000Z",
+          usageContext: null,
         },
       ],
-      draftAssets: 0,
-      error: null,
-      totalAssets: 1,
-      userId: "11111111-1111-4111-8111-111111111111",
+      lookupIssues: [],
+      state: "ready",
+      userId: "user-2",
     });
 
-    const html = renderToStaticMarkup(
-      await BrandingPage({ searchParams: Promise.resolve({}) }),
-    );
+    mocks.getBrandingDashboardData.mockResolvedValue(model);
 
-    expect(html).toContain("Private Datei-Vorschau aktuell nicht verfuegbar");
-    expect(html).toContain("Brand Kit loeschen");
-    expect(html).not.toContain("Datei und Brand Asset entfernen");
+    const html = renderToStaticMarkup(await BrandingPage());
+
+    expect(html).toContain("Neon Overlay");
+    expect(html).toContain("Mystery Pack");
+    expect(html).toContain("Mystery Pack");
+    expect(html).toContain("Private Datei verknuepft");
+    expect(html).toContain("Storage-Metadaten unvollstaendig");
+    expect(html).toContain("Twitch");
+    expect(html).toContain("Globales Brand Asset");
+    expect(html).not.toContain("https://");
+    expect(html).not.toContain("brand-assets/");
+    expect(html).not.toContain("public_url");
+    expect(html).not.toContain("Storage-Bucket erstellen");
   });
 
-  it("renders sanitized upload status and errors", async () => {
-    mocks.isSupabaseConfigured.mockReturnValue(true);
-    mocks.getBrandKitDashboardData.mockResolvedValue({
-      activeAssets: 0,
-      archivedAssets: 0,
-      assets: [],
-      draftAssets: 0,
-      error: null,
-      totalAssets: 0,
-      userId: "11111111-1111-4111-8111-111111111111",
-    });
-
-    const successHtml = renderToStaticMarkup(
-      await BrandingPage({
-        searchParams: Promise.resolve({ status: "brand-asset-uploaded" }),
-      }),
-    );
-    const errorHtml = renderToStaticMarkup(
-      await BrandingPage({
-        searchParams: Promise.resolve({
-          error: "brand-asset-file-type-not-supported",
-        }),
-      }),
+  it("renders a hard load-failed state separately from the empty state", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createEmptyBrandingDashboardModel("user-3", "load-failed"),
     );
 
-    expect(successHtml).toContain("Brand Asset wurde hochgeladen.");
-    expect(errorHtml).toContain(
-      "Dieses Dateiformat wird fuer Brand Assets nicht unterstuetzt.",
-    );
-    expect(errorHtml).not.toContain("private storage detail");
-    expect(errorHtml).not.toContain("StorageError");
+    const html = renderToStaticMarkup(await BrandingPage());
+
+    expect(html).toContain("Brand Assets konnten nicht geladen werden");
+    expect(html).not.toContain("Noch keine Brand Assets");
   });
 
-  it("renders a safe setup notice when Supabase is not configured", async () => {
-    mocks.isSupabaseConfigured.mockReturnValue(false);
-    mocks.getBrandKitDashboardData.mockResolvedValue({
-      activeAssets: 0,
-      archivedAssets: 0,
-      assets: [],
-      draftAssets: 0,
-      error: null,
-      totalAssets: 0,
-      userId: null,
+  it("renders partial lookup failures without crashing the asset list", async () => {
+    const model = buildBrandingDashboardModel({
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 1,
+      },
+      items: [
+        {
+          assetType: "logo",
+          channelId: "channel-1",
+          createdAt: "2026-06-26T08:00:00.000Z",
+          description: "Primary logo.",
+          id: "asset-1",
+          name: "Neon Logo",
+          platform: null,
+          status: "active",
+          storageState: "none",
+          updatedAt: "2026-06-26T10:00:00.000Z",
+          usageContext: null,
+        },
+      ],
+      lookupIssues: [
+        {
+          code: "load-failed",
+          source: "channels",
+        },
+      ],
+      state: "ready",
+      userId: "user-4",
     });
 
-    const html = renderToStaticMarkup(
-      await BrandingPage({ searchParams: Promise.resolve({}) }),
+    mocks.getBrandingDashboardData.mockResolvedValue(model);
+
+    const html = renderToStaticMarkup(await BrandingPage());
+
+    expect(html).toContain(
+      "Einige optionale Branding-Lookups konnten nicht geladen werden",
+    );
+    expect(html).toContain("Neon Logo");
+    expect(html).toContain("Kein Plattformkontext");
+  });
+
+  it("renders a safe setup notice when branding is disabled", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createEmptyBrandingDashboardModel(null, "disabled"),
     );
 
-    expect(html).toContain("Supabase noch nicht konfiguriert");
+    const html = renderToStaticMarkup(await BrandingPage());
+
     expect(html).toContain("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
     expect(html).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
   });

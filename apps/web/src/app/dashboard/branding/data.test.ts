@@ -14,9 +14,9 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: mocks.createClient,
 }));
 
-import { getBrandKitDashboardData } from "./data";
+import { getBrandingDashboardData } from "./data";
 
-describe("getBrandKitDashboardData", () => {
+describe("getBrandingDashboardData", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.isSupabaseConfigured.mockReturnValue(true);
@@ -30,124 +30,154 @@ describe("getBrandKitDashboardData", () => {
     });
   });
 
-  it("adds short-lived signed preview URLs without exposing storage metadata", async () => {
+  it("returns a disabled state when Supabase is not configured", async () => {
+    mocks.isSupabaseConfigured.mockReturnValue(false);
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.state).toBe("disabled");
+    expect(data.userId).toBeNull();
+  });
+
+  it("returns an auth-failed state when the session lookup errors", async () => {
+    mocks.createClient.mockResolvedValue(
+      createSupabaseClientMock({
+        user: null,
+        userError: new Error("session failed"),
+      }) as never,
+    );
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.state).toBe("auth-failed");
+    expect(data.userId).toBeNull();
+  });
+
+  it("returns an unauthorized state when no user session exists", async () => {
+    mocks.createClient.mockResolvedValue(
+      createSupabaseClientMock({
+        user: null,
+      }) as never,
+    );
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.state).toBe("unauthorized");
+  });
+
+  it("returns a true empty ready state when the brand asset read succeeds without rows", async () => {
+    mocks.createClient.mockResolvedValue(
+      createSupabaseClientMock({
+        rows: [],
+      }) as never,
+    );
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.state).toBe("ready");
+    expect(data.items).toHaveLength(0);
+    expect(data.lookupIssues).toHaveLength(0);
+  });
+
+  it("loads read-only brand assets without signing previews or selecting public URLs", async () => {
     const supabase = createSupabaseClientMock({
+      channelRows: [
+        {
+          display_name: "NovaPlays Live",
+          id: "channel-1",
+          platform: "twitch",
+        },
+      ],
       rows: [
         createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: "channel-1",
           storage_bucket: "brand-assets",
           storage_path:
-            "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
+            "11111111-1111-4111-8111-111111111111/logo/asset-1/neon-logo.png",
         }),
       ],
-      signedUrl: "https://storage.example/signed-preview",
     });
     mocks.createClient.mockResolvedValue(supabase as never);
 
-    const data = await getBrandKitDashboardData();
+    const data = await getBrandingDashboardData();
 
-    expect(data.assets).toHaveLength(1);
-    expect(data.assets[0]).toMatchObject({
-      hasStoredFile: true,
-      id: "22222222-2222-4222-8222-222222222222",
-      previewStatus: "available",
-      previewUrl: "https://storage.example/signed-preview",
+    expect(data.state).toBe("ready");
+    expect(data.items[0]).toMatchObject({
+      assetType: "logo",
+      name: "Neon Logo",
+      platform: "twitch",
+      storageState: "attached",
+      usageContext: "NovaPlays Live",
     });
-    expect("storage_path" in data.assets[0]!).toBe(false);
-    expect("public_url" in data.assets[0]!).toBe(false);
+    expect(supabase.selects[0]).toEqual(
+      "asset_type,channel_id,created_at,description,id,name,status,storage_bucket,storage_path,updated_at",
+    );
     expect(supabase.selects[0]).not.toContain("public_url");
-    expect(supabase.signedUrlRequests).toEqual([
+    expect(supabase.storageTouched).toBe(false);
+  });
+
+  it("keeps channel lookup failures as partial state instead of failing the main asset read", async () => {
+    const supabase = createSupabaseClientMock({
+      channelError: new Error("channels failed"),
+      rows: [
+        createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: "channel-1",
+          storage_bucket: null,
+          storage_path: null,
+        }),
+      ],
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.state).toBe("ready");
+    expect(data.items[0]).toMatchObject({
+      platform: null,
+      usageContext: null,
+    });
+    expect(data.lookupIssues).toEqual([
       {
-        bucket: "brand-assets",
-        expiresIn: 300,
-        path: "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
+        code: "load-failed",
+        source: "channels",
       },
     ]);
   });
 
-  it("does not sign missing, wrong-bucket, or tenant-mismatched storage metadata", async () => {
-    const supabase = createSupabaseClientMock({
-      rows: [
-        createBrandAssetRow({
-          id: "22222222-2222-4222-8222-222222222222",
-          storage_bucket: null,
-          storage_path: null,
-        }),
-        createBrandAssetRow({
-          id: "33333333-3333-4333-8333-333333333333",
-          storage_bucket: "public-assets",
-          storage_path:
-            "11111111-1111-4111-8111-111111111111/logo/33333333-3333-4333-8333-333333333333/logo.png",
-        }),
-        createBrandAssetRow({
-          id: "44444444-4444-4444-8444-444444444444",
-          storage_bucket: "brand-assets",
-          storage_path:
-            "99999999-9999-4999-8999-999999999999/logo/44444444-4444-4444-8444-444444444444/logo.png",
-        }),
-      ],
-      signedUrl: "https://storage.example/signed-preview",
-    });
-    mocks.createClient.mockResolvedValue(supabase as never);
+  it("returns a load-failed state when the main brand asset read fails", async () => {
+    mocks.createClient.mockResolvedValue(
+      createSupabaseClientMock({
+        rowError: new Error("brand_assets failed"),
+        rows: null,
+      }) as never,
+    );
 
-    const data = await getBrandKitDashboardData();
+    const data = await getBrandingDashboardData();
 
-    expect(data.assets.map((asset) => asset.previewStatus)).toEqual([
-      "no_preview",
-      "invalid_storage_metadata",
-      "invalid_storage_metadata",
-    ]);
-    expect(data.assets.map((asset) => asset.hasStoredFile)).toEqual([
-      false,
-      false,
-      false,
-    ]);
-    expect(data.assets.map((asset) => asset.previewUrl)).toEqual([
-      null,
-      null,
-      null,
-    ]);
-    expect(supabase.signedUrlRequests).toHaveLength(0);
-  });
-
-  it("keeps storage errors sanitized as unavailable previews", async () => {
-    const supabase = createSupabaseClientMock({
-      rows: [
-        createBrandAssetRow({
-          storage_bucket: "brand-assets",
-          storage_path:
-            "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
-        }),
-      ],
-      signedUrlError: { message: "private storage detail" },
-    });
-    mocks.createClient.mockResolvedValue(supabase as never);
-
-    const data = await getBrandKitDashboardData();
-
-    expect(data.assets[0]).toMatchObject({
-      hasStoredFile: true,
-      previewStatus: "storage_error",
-      previewUrl: null,
-    });
+    expect(data.state).toBe("load-failed");
+    expect(data.items).toHaveLength(0);
   });
 });
 
 function createBrandAssetRow({
-  id = "22222222-2222-4222-8222-222222222222",
+  asset_type,
+  channel_id,
   storage_bucket,
   storage_path,
 }: {
-  id?: string;
+  asset_type: string;
+  channel_id: string | null;
   storage_bucket: string | null;
   storage_path: string | null;
 }) {
   return {
-    asset_type: "logo",
-    config: {},
+    asset_type,
+    channel_id,
     created_at: "2026-06-22T10:00:00.000Z",
     description: "Private logo.",
-    id,
-    metadata: {},
+    id: "22222222-2222-4222-8222-222222222222",
     name: "Neon Logo",
     status: "active",
     storage_bucket,
@@ -157,57 +187,67 @@ function createBrandAssetRow({
 }
 
 function createSupabaseClientMock({
-  rows,
-  signedUrl = null,
-  signedUrlError = null,
+  channelError = null,
+  channelRows = [],
+  rowError = null,
+  rows = [],
+  user = {
+    id: "11111111-1111-4111-8111-111111111111",
+  },
+  userError = null,
 }: {
-  rows: unknown[];
-  signedUrl?: string | null;
-  signedUrlError?: unknown;
+  channelError?: unknown;
+  channelRows?: unknown[] | null;
+  rowError?: unknown;
+  rows?: unknown[] | null;
+  user?: { id: string } | null;
+  userError?: unknown;
 }) {
   const selects: string[] = [];
-  const signedUrlRequests: Array<{
-    bucket: string;
-    expiresIn: number;
-    path: string;
-  }> = [];
+  let currentTable = "";
 
-  const queryBuilder = {
-    eq: () => queryBuilder,
-    limit: async () => ({
+  const brandAssetBuilder = {
+    eq: vi.fn(() => brandAssetBuilder),
+    limit: vi.fn(async () => ({
       data: rows,
-      error: null,
-    }),
-    order: () => queryBuilder,
-    select: (payload: string) => {
+      error: rowError,
+    })),
+    order: vi.fn(() => brandAssetBuilder),
+    select: vi.fn((payload: string) => {
       selects.push(payload);
+      return brandAssetBuilder;
+    }),
+  };
 
-      return queryBuilder;
-    },
+  const channelBuilder = {
+    eq: vi.fn(() => channelBuilder),
+    in: vi.fn(async () => ({
+      data: channelRows,
+      error: channelError,
+    })),
+    select: vi.fn((payload: string) => {
+      selects.push(payload);
+      return channelBuilder;
+    }),
   };
 
   return {
     auth: {
-      getUser: mocks.getUser,
-    },
-    from: vi.fn(() => queryBuilder),
-    selects,
-    signedUrlRequests,
-    storage: {
-      from: (bucket: string) => ({
-        createSignedUrl: async (path: string, expiresIn: number) => {
-          signedUrlRequests.push({
-            bucket,
-            expiresIn,
-            path,
-          });
-
-          return {
-            data: signedUrl ? { signedUrl } : null,
-            error: signedUrlError,
-          };
+      getUser: vi.fn().mockResolvedValue({
+        data: {
+          user,
         },
+        error: userError,
       }),
+    },
+    from: vi.fn((table: string) => {
+      currentTable = table;
+
+      return currentTable === "channels" ? channelBuilder : brandAssetBuilder;
+    }),
+    selects,
+    get storageTouched() {
+      return false;
     },
   };
 }
