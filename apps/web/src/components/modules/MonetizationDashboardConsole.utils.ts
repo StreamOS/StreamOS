@@ -1004,28 +1004,6 @@ function unavailableAmount(): MonetizationAmountValue {
   };
 }
 
-function compareRevenueBreakdownItems(
-  left: MonetizationRevenueBreakdownItem,
-  right: MonetizationRevenueBreakdownItem,
-): number {
-  if (
-    left.amount.availability === "available" &&
-    right.amount.availability === "available"
-  ) {
-    return (right.amount.amountCents ?? 0) - (left.amount.amountCents ?? 0);
-  }
-
-  if (left.amount.availability === "available") {
-    return -1;
-  }
-
-  if (right.amount.availability === "available") {
-    return 1;
-  }
-
-  return (right.eventCount ?? 0) - (left.eventCount ?? 0);
-}
-
 function compareRevenueCategoryItems(
   left: MonetizationRevenueCategoryItem,
   right: MonetizationRevenueCategoryItem,
