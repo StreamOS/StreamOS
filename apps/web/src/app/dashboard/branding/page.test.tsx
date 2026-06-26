@@ -103,7 +103,7 @@ describe("BrandingPage", () => {
 
     expect(html).toContain("Neon Overlay");
     expect(html).toContain("Mystery Pack");
-    expect(html).toContain("Mystery Pack");
+    expect(html).toContain("mystery_pack");
     expect(html).toContain("Private Datei verknuepft");
     expect(html).toContain("Storage-Metadaten unvollstaendig");
     expect(html).toContain("Twitch");
@@ -131,6 +131,26 @@ describe("BrandingPage", () => {
 
     expect(html).toContain("Der private Storage-Upload ist fehlgeschlagen");
     expect(html).not.toContain("storage.objects");
+    expect(html).not.toContain("signed.example");
+  });
+
+  it("renders cleanup failure feedback without exposing private storage details", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createEmptyBrandingDashboardModel("user-7"),
+    );
+
+    const html = renderToStaticMarkup(
+      await BrandingPage({
+        searchParams: Promise.resolve({
+          error: "brand-asset-cleanup-failed",
+        }),
+      }),
+    );
+
+    expect(html).toContain(
+      "Der Upload konnte nach einem Persistenzfehler nicht vollstaendig rueckabgewickelt werden",
+    );
+    expect(html).not.toContain("brand-assets/");
     expect(html).not.toContain("signed.example");
   });
 

@@ -100,6 +100,12 @@ function resolveBrandingUploadFeedback(
           "Die Asset-Metadaten konnten nach dem Upload nicht gespeichert werden. StreamOS hat ein serverseitiges Best-Effort-Cleanup versucht.",
         tone: "error",
       };
+    case "brand-asset-cleanup-failed":
+      return {
+        message:
+          "Der Upload konnte nach einem Persistenzfehler nicht vollstaendig rueckabgewickelt werden. StreamOS hat keine privaten Storage-Details offengelegt.",
+        tone: "error",
+      };
     default:
       return null;
   }

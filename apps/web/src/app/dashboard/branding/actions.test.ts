@@ -42,7 +42,7 @@ describe("uploadBrandAssetAction", () => {
       uploadBrandAssetAction(
         createUploadFormData({
           assetType: "logo",
-          file: createFile("neon-logo.png", "image/png"),
+          file: createImageFile("neon-logo.png", "image/png"),
         }),
       ),
     ).rejects.toThrow(
@@ -70,7 +70,7 @@ describe("uploadBrandAssetAction", () => {
       upload: {
         content_type: "image/png",
         file_extension: "png",
-        file_size_bytes: 7,
+        file_size_bytes: 8,
         stored_filename: "neon-logo.png",
       },
     });
@@ -92,7 +92,7 @@ describe("uploadBrandAssetAction", () => {
         uploadBrandAssetAction(
           createUploadFormData({
             assetType: "banner",
-            file: createFile(filename, mimeType),
+            file: createImageFile(filename, mimeType),
           }),
         ),
       ).rejects.toThrow(
@@ -140,6 +140,44 @@ describe("uploadBrandAssetAction", () => {
     expect(supabase.storageUploads).toHaveLength(0);
   });
 
+  it("blocks MIME and extension mismatches before storage writes", async () => {
+    const supabase = createSupabaseClientMock();
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "logo",
+          file: createImageFile("brand-shot.png", "image/jpeg"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-file-extension-mismatch",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(0);
+    expect(supabase.inserts).toHaveLength(0);
+  });
+
+  it("blocks spoofed file contents even when MIME type and extension look allowed", async () => {
+    const supabase = createSupabaseClientMock();
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "logo",
+          file: createFile("neon-logo.png", "image/png", "not-a-real-png"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-file-type-not-supported",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(0);
+    expect(supabase.inserts).toHaveLength(0);
+  });
+
   it("blocks oversized files before storage writes", async () => {
     const supabase = createSupabaseClientMock();
     mocks.createClient.mockResolvedValue(supabase as never);
@@ -171,7 +209,7 @@ describe("uploadBrandAssetAction", () => {
       uploadBrandAssetAction(
         createUploadFormData({
           assetType: "panel",
-          file: createFile("..\\..//Neon ?Panel!!.png", "image/png"),
+          file: createImageFile("..\\..//Neon ?Panel!!.png", "image/png"),
           name: "",
         }),
       ),
@@ -201,10 +239,14 @@ describe("uploadBrandAssetAction", () => {
       uploadBrandAssetAction(
         createUploadFormData({
           assetType: "logo",
-          file: createFile("neon-logo.png", "image/png"),
+          file: createImageFile("neon-logo.png", "image/png"),
         }),
       ),
     ).rejects.toThrow("REDIRECT:/login");
+
+    const supabase = await mocks.createClient.mock.results[0]?.value;
+    expect(supabase.storageUploads).toHaveLength(0);
+    expect(supabase.inserts).toHaveLength(0);
   });
 
   it("returns a secret-safe storage failure", async () => {
@@ -217,7 +259,7 @@ describe("uploadBrandAssetAction", () => {
       uploadBrandAssetAction(
         createUploadFormData({
           assetType: "logo",
-          file: createFile("neon-logo.png", "image/png"),
+          file: createImageFile("neon-logo.png", "image/png"),
         }),
       ),
     ).rejects.toThrow(
@@ -238,7 +280,7 @@ describe("uploadBrandAssetAction", () => {
       uploadBrandAssetAction(
         createUploadFormData({
           assetType: "logo",
-          file: createFile("neon-logo.png", "image/png"),
+          file: createImageFile("neon-logo.png", "image/png"),
         }),
       ),
     ).rejects.toThrow(
@@ -246,6 +288,32 @@ describe("uploadBrandAssetAction", () => {
     );
 
     expect(supabase.storageUploads).toHaveLength(1);
+    expect(supabase.storageRemoves).toEqual([
+      {
+        bucket: "brand-assets",
+        paths: [supabase.storageUploads[0]?.path],
+      },
+    ]);
+  });
+
+  it("surfaces cleanup failure without exposing private storage details", async () => {
+    const supabase = createSupabaseClientMock({
+      insertError: new Error("db exploded"),
+      removeError: new Error("cleanup failed"),
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "logo",
+          file: createImageFile("neon-logo.png", "image/png"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-cleanup-failed",
+    );
+
     expect(supabase.storageRemoves).toEqual([
       {
         bucket: "brand-assets",
@@ -272,12 +340,34 @@ function createUploadFormData({
   return formData;
 }
 
-function createFile(name: string, type: string, content = "content") {
+function createFile(
+  name: string,
+  type: string,
+  content: string | Uint8Array = "content",
+) {
   return new File([content], name, { type });
+}
+
+function createImageFile(
+  name: string,
+  type: "image/jpeg" | "image/png" | "image/webp",
+) {
+  const contents = {
+    "image/jpeg": new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43]),
+    "image/png": new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ]),
+    "image/webp": new Uint8Array([
+      0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+    ]),
+  } satisfies Record<typeof type, Uint8Array>;
+
+  return createFile(name, type, contents[type]);
 }
 
 function createSupabaseClientMock({
   insertError = null,
+  removeError = null,
   uploadError = null,
   user = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -285,6 +375,7 @@ function createSupabaseClientMock({
   userError = null,
 }: {
   insertError?: unknown;
+  removeError?: unknown;
   uploadError?: unknown;
   user?: { id: string } | null;
   userError?: unknown;
@@ -332,8 +423,8 @@ function createSupabaseClientMock({
           });
 
           return {
-            data: null,
-            error: null,
+            data: removeError ? null : {},
+            error: removeError,
           };
         }),
         upload: vi.fn(

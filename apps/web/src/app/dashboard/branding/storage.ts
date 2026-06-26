@@ -70,10 +70,10 @@ const uploadFormSchema = z.object({
   name: z.string().trim().max(160).optional(),
 });
 
-export function parseBrandingAssetUploadFormData(
+export async function parseBrandingAssetUploadFormData(
   formData: FormData,
   createAssetId: () => string,
-): BrandingUploadParseResult {
+): Promise<BrandingUploadParseResult> {
   const file = formData.get("assetFile");
 
   if (!(file instanceof File) || file.size === 0) {
@@ -134,6 +134,18 @@ export function parseBrandingAssetUploadFormData(
   ) {
     return {
       error: "brand-asset-file-extension-mismatch",
+      ok: false,
+    };
+  }
+
+  const matchesFileSignature = await fileMatchesAllowedSignature(
+    file,
+    file.type as keyof typeof MIME_EXTENSION_MAP,
+  );
+
+  if (!matchesFileSignature) {
+    return {
+      error: "brand-asset-file-type-not-supported",
       ok: false,
     };
   }
@@ -278,4 +290,48 @@ function titleFromFilename(filename: string): string | null {
   const title = name.replace(/[-_]+/g, " ").trim();
 
   return title.length > 0 ? title : null;
+}
+
+async function fileMatchesAllowedSignature(
+  file: File,
+  mimeType: keyof typeof MIME_EXTENSION_MAP,
+): Promise<boolean> {
+  const bytes = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+
+  switch (mimeType) {
+    case "image/png":
+      return matchesPngSignature(bytes);
+    case "image/jpeg":
+      return matchesJpegSignature(bytes);
+    case "image/webp":
+      return matchesWebpSignature(bytes);
+    default:
+      return false;
+  }
+}
+
+function matchesPngSignature(bytes: Uint8Array): boolean {
+  return hasPrefix(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+}
+
+function matchesJpegSignature(bytes: Uint8Array): boolean {
+  return hasPrefix(bytes, [0xff, 0xd8, 0xff]);
+}
+
+function matchesWebpSignature(bytes: Uint8Array): boolean {
+  return (
+    hasPrefix(bytes, [0x52, 0x49, 0x46, 0x46]) &&
+    bytes.length >= 12 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  );
+}
+
+function hasPrefix(bytes: Uint8Array, expected: number[]): boolean {
+  return (
+    bytes.length >= expected.length &&
+    expected.every((byte, index) => bytes[index] === byte)
+  );
 }

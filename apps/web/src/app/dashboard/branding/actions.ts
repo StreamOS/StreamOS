@@ -19,7 +19,7 @@ export async function uploadBrandAssetAction(formData: FormData) {
     redirect(`${BRANDING_PATH}?error=supabase-not-configured`);
   }
 
-  const parsed = parseBrandingAssetUploadFormData(formData, randomUUID);
+  const parsed = await parseBrandingAssetUploadFormData(formData, randomUUID);
 
   if (!parsed.ok) {
     redirect(`${BRANDING_PATH}?error=${parsed.error}`);
@@ -75,9 +75,14 @@ export async function uploadBrandAssetAction(formData: FormData) {
     .insert(payload as never);
 
   if (insertResult.error) {
-    await supabase.storage
+    const cleanupResult = await supabase.storage
       .from(BRAND_ASSET_STORAGE_BUCKET)
       .remove([storagePath]);
+
+    if (cleanupResult.error) {
+      redirect(`${BRANDING_PATH}?error=brand-asset-cleanup-failed`);
+    }
+
     redirect(`${BRANDING_PATH}?error=brand-asset-persist-failed`);
   }
 
