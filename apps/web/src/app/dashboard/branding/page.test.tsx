@@ -36,11 +36,15 @@ describe("BrandingPage", () => {
     expect(html).toContain("Brand Asset Upload");
     expect(html).toContain("Noch keine Brand Assets");
     expect(html).toContain("Brand Asset hochladen");
+    expect(html).toContain("Future Mutation Contract");
+    expect(html).toContain("Orphan Cleanup");
     expect(html).toContain('type="file"');
     expect(html).toContain("Maximale Groesse: 5 MB");
     expect(html).toContain("kurzlebig signiert");
-    expect(html).not.toContain("Brand Asset ersetzen");
-    expect(html).not.toContain("Brand Asset loeschen");
+    expect(html).not.toContain("formaction=");
+    expect(html).toContain("blocked");
+    expect(html).not.toContain("Replace spaeter");
+    expect(html).not.toContain("Delete spaeter");
     expect(html).not.toContain("Asset bearbeiten");
     expect(html).not.toContain("loeschen");
   });
@@ -108,6 +112,10 @@ describe("BrandingPage", () => {
     expect(html).toContain("Storage-Metadaten unvollstaendig");
     expect(html).toContain("Twitch");
     expect(html).toContain("Globales Brand Asset");
+    expect(html).toContain("Replace spaeter");
+    expect(html).toContain("Delete spaeter");
+    expect(html).toContain("Contract only");
+    expect(html).toContain("blocked");
     expect(html).toContain('alt="Neon Overlay preview"');
     expect(html).toContain("Kurzlebige Preview fuer diese Dashboard-Response");
     expect(html).toContain("Kein gerendertes Thumbnail");

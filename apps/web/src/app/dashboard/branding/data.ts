@@ -33,6 +33,7 @@ type BrandAssetRow = Omit<
   asset_type: string;
   status: string;
 };
+type BrandingDashboardBaseAsset = Omit<BrandingDashboardAsset, "futureActions">;
 
 type ChannelRow = Pick<Tables<"channels">, "display_name" | "id" | "platform">;
 
@@ -166,7 +167,7 @@ function normalizeBrandAsset(
   row: BrandAssetRow,
   channelsById: Map<string, ChannelRow>,
   preview: BrandingDashboardPreview,
-): BrandingDashboardAsset {
+): BrandingDashboardBaseAsset {
   const channel =
     row.channel_id !== null ? (channelsById.get(row.channel_id) ?? null) : null;
 

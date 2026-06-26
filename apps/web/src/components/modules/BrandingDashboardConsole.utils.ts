@@ -1,5 +1,8 @@
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
+  type BrandingDashboardFutureAction,
+  type BrandingDashboardMutationBlockReason,
+  type BrandingDashboardMutationContract,
   type BrandingDashboardAsset,
   type BrandingDashboardCoverage,
   type BrandingDashboardDistributionItem,
@@ -22,6 +25,7 @@ export type BrandingDashboardModel = BrandingDashboardReadModel & {
   state: BrandingDashboardState;
   userId: string | null;
 };
+type BrandingDashboardBaseAsset = Omit<BrandingDashboardAsset, "futureActions">;
 
 const knownAssetTypeLabels: Record<string, string> = {
   alert: "Alert",
@@ -40,6 +44,23 @@ const knownStatusLabels: Record<string, string> = {
   archived: "Archiviert",
   draft: "Entwurf",
 };
+const mutationContract: BrandingDashboardMutationContract = {
+  delete: {
+    action: "delete",
+    available: false,
+    reason: "requires_db_storage_consistency",
+  },
+  orphanCleanup: {
+    action: "orphan_cleanup",
+    available: false,
+    reason: "requires_scoped_manual_cleanup",
+  },
+  replace: {
+    action: "replace",
+    available: false,
+    reason: "requires_new_asset_row_strategy",
+  },
+};
 
 export function buildBrandingDashboardModel({
   feed,
@@ -49,7 +70,7 @@ export function buildBrandingDashboardModel({
   userId,
 }: {
   feed: BrandingDashboardFeedMetadata;
-  items: BrandingDashboardAsset[];
+  items: BrandingDashboardBaseAsset[];
   lookupIssues: BrandingDashboardLookupIssue[];
   state: BrandingDashboardState;
   userId: string | null;
@@ -69,8 +90,12 @@ export function buildBrandingDashboardModel({
   return {
     coverage,
     feed,
-    items,
+    items: items.map((item) => ({
+      ...item,
+      futureActions: buildBrandingAssetFutureActions(),
+    })),
     lookupIssues,
+    mutationContract,
     state,
     summary: {
       activeAssets,
@@ -108,6 +133,7 @@ export function createEmptyBrandingDashboardModel(
     },
     items: [],
     lookupIssues,
+    mutationContract,
     state,
     summary: {
       activeAssets: 0,
@@ -223,8 +249,34 @@ export function formatBrandingPreviewReasonLabel(
   }
 }
 
+export function formatBrandingFutureActionLabel(
+  action: BrandingDashboardFutureAction["action"],
+): string {
+  switch (action) {
+    case "delete":
+      return "Delete";
+    case "orphan_cleanup":
+      return "Orphan Cleanup";
+    case "replace":
+      return "Replace";
+  }
+}
+
+export function formatBrandingMutationReasonLabel(
+  reason: BrandingDashboardMutationBlockReason,
+): string {
+  switch (reason) {
+    case "requires_db_storage_consistency":
+      return "Erfordert eine atomare DB-/Storage-Loeschsemantik, damit keine Row auf fehlende private Dateien zeigt.";
+    case "requires_new_asset_row_strategy":
+      return "Erfordert einen neuen Asset-Datensatz plus kontrolliertes Umschalten statt unsicherem Update oder Upsert.";
+    case "requires_scoped_manual_cleanup":
+      return "Bleibt vorerst ein bewusst begrenzter manueller oder spaeter worker-owned Cleanup-Flow ohne globalen Scan.";
+  }
+}
+
 function buildTypeDistribution(
-  items: BrandingDashboardAsset[],
+  items: BrandingDashboardBaseAsset[],
 ): BrandingDashboardDistributionItem[] {
   const counts = items.reduce<Map<string, number>>((map, item) => {
     map.set(item.assetType, (map.get(item.assetType) ?? 0) + 1);
@@ -240,7 +292,7 @@ function buildTypeDistribution(
 }
 
 function buildCoverage(
-  items: BrandingDashboardAsset[],
+  items: BrandingDashboardBaseAsset[],
 ): BrandingDashboardCoverage {
   return {
     attachedStorageCount: items.filter(
@@ -259,7 +311,7 @@ function buildCoverage(
   };
 }
 
-function isBrandKitMissing(items: BrandingDashboardAsset[]): boolean {
+function isBrandKitMissing(items: BrandingDashboardBaseAsset[]): boolean {
   const activeTypes = new Set(
     items
       .filter((item) => item.status === "active")
@@ -271,4 +323,8 @@ function isBrandKitMissing(items: BrandingDashboardAsset[]): boolean {
 
 function isKnownAssetType(value: string): boolean {
   return Object.hasOwn(knownAssetTypeLabels, value);
+}
+
+function buildBrandingAssetFutureActions(): BrandingDashboardFutureAction[] {
+  return [mutationContract.replace, mutationContract.delete];
 }

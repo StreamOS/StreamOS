@@ -10,6 +10,8 @@ import {
   formatBrandingAssetStatusLabel,
   formatBrandingAssetTypeLabel,
   formatBrandingDateTime,
+  formatBrandingFutureActionLabel,
+  formatBrandingMutationReasonLabel,
   formatBrandingPlatformLabel,
   formatBrandingPreviewReasonLabel,
   formatBrandingPreviewStatusLabel,
@@ -60,8 +62,8 @@ export function BrandingDashboardConsole({
           <p className="mt-4 max-w-3xl text-base leading-7 text-slate-400">
             Diese Surface zeigt vorhandene `brand_assets` tenant-scoped, erlaubt
             neue Create-Uploads und haelt Replace-, Delete- und Edit-Semantik
-            bewusst aus dem Slice heraus. Private Previews werden nur
-            serverseitig und kurzlebig signiert.
+            bewusst nur als disabled Future-Contract sichtbar. Private Previews
+            werden nur serverseitig und kurzlebig signiert.
           </p>
         </div>
 
@@ -91,6 +93,10 @@ export function BrandingDashboardConsole({
             <li>
               Uploads bleiben create-only, tenant-scoped und ohne dauerhafte
               oeffentliche Asset-URL.
+            </li>
+            <li>
+              Replace, Delete und Orphan Cleanup bleiben bewusst contract-only
+              und ohne aktive Mutation.
             </li>
           </ul>
         </aside>
@@ -187,7 +193,7 @@ export function BrandingDashboardConsole({
           <article className="card space-y-4">
             <SectionHeader
               title="Upload Contract"
-              description="Die Upload-Runtime bleibt minimal, tenant-scoped und ohne spaetere Mutationssemantik."
+              description="Die Upload-Runtime bleibt minimal, tenant-scoped und ohne implizite Replace-, Delete- oder Orphan-Cleanup-Semantik."
             />
 
             <div className="space-y-3 rounded-lg border border-white/10 bg-white/5 p-4 text-sm leading-6 text-slate-300">
@@ -201,6 +207,30 @@ export function BrandingDashboardConsole({
                 Previews entstehen spaeter nur ueber den bestehenden
                 Signed-Preview-Contract.
               </p>
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-dashed border-white/10 bg-surface-950/70 p-4 text-sm leading-6 text-slate-300">
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                Future Mutation Contract
+              </p>
+              {Object.values(model.mutationContract).map((entry) => (
+                <div
+                  key={entry.action}
+                  className="rounded-lg border border-white/10 bg-white/5 p-3"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-white">
+                      {formatBrandingFutureActionLabel(entry.action)}
+                    </p>
+                    <span className="rounded-full border border-white/10 bg-surface-950/70 px-3 py-1 text-xs font-semibold text-slate-300">
+                      blocked
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">
+                    {formatBrandingMutationReasonLabel(entry.reason)}
+                  </p>
+                </div>
+              ))}
             </div>
           </article>
         </section>
@@ -361,6 +391,36 @@ export function BrandingDashboardConsole({
                 <p className="mt-2 text-sm leading-6 text-slate-400">
                   {item.description ?? "Keine Asset-Beschreibung vorhanden."}
                 </p>
+
+                <div className="mt-4 space-y-2 rounded-lg border border-dashed border-white/10 bg-surface-950/70 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                      Future Actions
+                    </p>
+                    <span className="text-xs text-slate-500">
+                      Contract only
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {item.futureActions.map((action) => (
+                      <button
+                        key={`${item.id}-${action.action}`}
+                        aria-disabled="true"
+                        className="cursor-not-allowed rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-500 opacity-80"
+                        disabled
+                        title={formatBrandingMutationReasonLabel(action.reason)}
+                        type="button"
+                      >
+                        {formatBrandingFutureActionLabel(action.action)} spaeter
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs leading-5 text-slate-500">
+                    Replace und Delete bleiben blockiert, bis DB-Row,
+                    Storage-Objekt und Cleanup-Failures gemeinsam serverseitig
+                    orchestriert werden.
+                  </p>
+                </div>
 
                 <div className="mt-4 rounded-lg border border-white/10 bg-surface-950/70 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">

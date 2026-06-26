@@ -78,6 +78,10 @@ describe("getBrandingDashboardData", () => {
     expect(data.state).toBe("ready");
     expect(data.items).toHaveLength(0);
     expect(data.lookupIssues).toHaveLength(0);
+    expect(data.mutationContract.delete.available).toBe(false);
+    expect(data.mutationContract.replace.reason).toBe(
+      "requires_new_asset_row_strategy",
+    );
   });
 
   it("loads read-only brand assets with server-signed previews and without selecting public URLs", async () => {
@@ -106,6 +110,16 @@ describe("getBrandingDashboardData", () => {
     expect(data.state).toBe("ready");
     expect(data.items[0]).toMatchObject({
       assetType: "logo",
+      futureActions: [
+        expect.objectContaining({
+          action: "replace",
+          available: false,
+        }),
+        expect.objectContaining({
+          action: "delete",
+          available: false,
+        }),
+      ],
       name: "Neon Logo",
       platform: "twitch",
       preview: {
@@ -129,6 +143,9 @@ describe("getBrandingDashboardData", () => {
       },
     ]);
     expect(supabase.storageTouched).toBe(true);
+    expect(data.mutationContract.orphanCleanup.reason).toBe(
+      "requires_scoped_manual_cleanup",
+    );
   });
 
   it("keeps channel lookup failures as partial state instead of failing the main asset read", async () => {

@@ -18,6 +18,16 @@ export const BRANDING_DASHBOARD_UPLOAD_ALLOWED_EXTENSIONS = [
   "jpeg",
   "webp",
 ] as const;
+export const BRANDING_DASHBOARD_MUTATION_ACTIONS = [
+  "replace",
+  "delete",
+  "orphan_cleanup",
+] as const;
+export const BRANDING_DASHBOARD_MUTATION_BLOCK_REASONS = [
+  "requires_db_storage_consistency",
+  "requires_new_asset_row_strategy",
+  "requires_scoped_manual_cleanup",
+] as const;
 
 export const BRANDING_DASHBOARD_LOOKUP_SOURCES = ["channels"] as const;
 
@@ -30,6 +40,20 @@ export type BrandingDashboardLookupIssue = {
 };
 
 export type BrandingDashboardStorageState = "attached" | "incomplete" | "none";
+export type BrandingDashboardMutationAction =
+  (typeof BRANDING_DASHBOARD_MUTATION_ACTIONS)[number];
+export type BrandingDashboardMutationBlockReason =
+  (typeof BRANDING_DASHBOARD_MUTATION_BLOCK_REASONS)[number];
+export type BrandingDashboardFutureAction = {
+  action: BrandingDashboardMutationAction;
+  available: false;
+  reason: BrandingDashboardMutationBlockReason;
+};
+export type BrandingDashboardMutationContract = {
+  delete: BrandingDashboardFutureAction;
+  orphanCleanup: BrandingDashboardFutureAction;
+  replace: BrandingDashboardFutureAction;
+};
 
 export type BrandingDashboardPreviewStatus =
   | "available"
@@ -55,6 +79,7 @@ export type BrandingDashboardAsset = {
   channelId: string | null;
   createdAt: string;
   description: string | null;
+  futureActions: BrandingDashboardFutureAction[];
   id: string;
   name: string;
   platform: StreamPlatform | null;
@@ -99,6 +124,7 @@ export type BrandingDashboardReadModel = {
   feed: BrandingDashboardFeedMetadata;
   items: BrandingDashboardAsset[];
   lookupIssues: BrandingDashboardLookupIssue[];
+  mutationContract: BrandingDashboardMutationContract;
   summary: BrandingDashboardSummary;
   typeDistribution: BrandingDashboardDistributionItem[];
 };
