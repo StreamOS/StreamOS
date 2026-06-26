@@ -18,10 +18,10 @@ import {
   type MonetizationSummaryRow,
 } from "@/components/modules/MonetizationDashboardConsole.utils";
 
-type RpcEventTypeRevenue = {
+type RpcSourceRevenue = {
   amount_cents?: unknown;
   event_count?: unknown;
-  event_type?: unknown;
+  source?: unknown;
 };
 
 type RpcTrendPoint = {
@@ -33,7 +33,7 @@ type RpcMonetizationDashboard = {
   active_platforms?: unknown;
   avg_revenue_per_day_cents?: unknown;
   currency?: unknown;
-  revenue_by_event_type?: unknown;
+  revenue_by_source?: unknown;
   revenue_over_time?: unknown;
   total_revenue_cents?: unknown;
 };
@@ -134,7 +134,7 @@ export async function getMonetizationDashboardData(
   if (
     visibleEvents.length === 0 &&
     summaries.rows.length === 0 &&
-    aggregate.snapshot.revenueBySource.length === 0 &&
+    aggregate.snapshot.sourceBreakdown.length === 0 &&
     aggregate.snapshot.trend.length === 0 &&
     aggregate.snapshot.totalRevenueCents === null
   ) {
@@ -269,9 +269,9 @@ function normalizeAggregatePayload(
       payload.avg_revenue_per_day_cents,
     ),
     currency: asCurrencyOrNull(payload.currency),
-    revenueBySource: asArray<RpcEventTypeRevenue>(payload.revenue_by_event_type)
+    sourceBreakdown: asArray<RpcSourceRevenue>(payload.revenue_by_source)
       .map<MonetizationAggregateSourceRow | null>((item) => {
-        const key = asString(item.event_type);
+        const key = asString(item.source);
 
         if (!key) {
           return null;
@@ -310,7 +310,7 @@ function createEmptyAggregateSnapshot(): MonetizationAggregateSnapshot {
     activePlatforms: null,
     averageRevenuePerDayCents: null,
     currency: null,
-    revenueBySource: [],
+    sourceBreakdown: [],
     totalRevenueCents: null,
     trend: [],
   };

@@ -11,16 +11,16 @@ describe("MonetizationDashboardConsole.utils", () => {
         activePlatforms: 2,
         averageRevenuePerDayCents: 18800,
         currency: "USD",
-        revenueBySource: [
+        sourceBreakdown: [
           {
             amountCents: 182400,
             eventCount: 128,
-            key: "subscription",
+            key: "channel_subscription",
           },
           {
             amountCents: 68400,
             eventCount: 18,
-            key: "merch_sale",
+            key: "merch_store",
           },
         ],
         totalRevenueCents: 250800,
@@ -75,18 +75,20 @@ describe("MonetizationDashboardConsole.utils", () => {
     expect(model.periodContext.periodLabel).toBe("Last 30 days");
     expect(model.coverage.summaryRowCount).toBe(1);
     expect(model.coverage.trendSource).toBe("summaries");
-    expect(model.revenueBySource[0]?.key).toBe("subscription");
-    expect(model.topRevenueSources[0]?.label).toBe("Subscription");
+    expect(model.coverage.revenueBreakdownDimension).toBe("source");
+    expect(model.revenueBreakdownContext.dataSource).toBe("events");
+    expect(model.revenueBreakdown[0]?.key).toBe("channel_subscription");
+    expect(model.topRevenueBreakdown[0]?.label).toBe("Channel Subscription");
     expect(model.recentEvents[0]?.source).toBe("channel_subscription");
   });
 
-  it("keeps summaries without events explicit and leaves source amounts unavailable", () => {
+  it("keeps summaries without events explicit and leaves summary-category amounts unavailable", () => {
     const model = buildMonetizationDashboardModel({
       aggregate: {
         activePlatforms: null,
         averageRevenuePerDayCents: null,
         currency: null,
-        revenueBySource: [],
+        sourceBreakdown: [],
         totalRevenueCents: null,
         trend: [],
       },
@@ -123,8 +125,10 @@ describe("MonetizationDashboardConsole.utils", () => {
 
     expect(model.summary.totalRevenue.amountCents).toBe(12000);
     expect(model.recentEvents).toHaveLength(0);
-    expect(model.revenueBySource[0]?.amount.availability).toBe("unavailable");
-    expect(model.revenueBySource[0]?.eventCount).toBe(2);
+    expect(model.coverage.revenueBreakdownDimension).toBe("summary_category");
+    expect(model.revenueBreakdownContext.note).toContain("category counts");
+    expect(model.revenueBreakdown[0]?.amount.availability).toBe("unavailable");
+    expect(model.revenueBreakdown[0]?.eventCount).toBe(2);
   });
 
   it("uses event aggregates when summaries are absent", () => {
@@ -133,11 +137,11 @@ describe("MonetizationDashboardConsole.utils", () => {
         activePlatforms: 1,
         averageRevenuePerDayCents: 9000,
         currency: "USD",
-        revenueBySource: [
+        sourceBreakdown: [
           {
             amountCents: 63000,
             eventCount: 7,
-            key: "sponsorship",
+            key: "brand_campaign",
           },
         ],
         totalRevenueCents: 63000,
@@ -179,16 +183,17 @@ describe("MonetizationDashboardConsole.utils", () => {
     expect(model.summary.netRevenue.availability).toBe("unavailable");
     expect(model.periodContext.periodLabel).toBe("Last 7 days");
     expect(model.coverage.trendSource).toBe("events");
-    expect(model.revenueBySource[0]?.label).toBe("Sponsoring");
+    expect(model.revenueBreakdownContext.dimension).toBe("source");
+    expect(model.revenueBreakdown[0]?.label).toBe("Brand Campaign");
   });
 
-  it("keeps unknown revenue source labels stable", () => {
+  it("keeps unknown source labels stable", () => {
     const model = buildMonetizationDashboardModel({
       aggregate: {
         activePlatforms: 1,
         averageRevenuePerDayCents: 5000,
         currency: "USD",
-        revenueBySource: [
+        sourceBreakdown: [
           {
             amountCents: 5000,
             eventCount: 1,
@@ -211,7 +216,7 @@ describe("MonetizationDashboardConsole.utils", () => {
       userId: "user-4",
     });
 
-    expect(model.revenueBySource[0]?.label).toBe("Brand Deal Bonus");
+    expect(model.revenueBreakdown[0]?.label).toBe("Brand Deal Bonus");
   });
 
   it("preserves explicit event feed metadata and load-failed state", () => {
@@ -232,5 +237,6 @@ describe("MonetizationDashboardConsole.utils", () => {
     expect(model.feed.limit).toBe(12);
     expect(model.periodContext.periodCoverageNote).toContain("weekly summary");
     expect(model.lookupIssues[0]?.source).toBe("events");
+    expect(model.revenueBreakdownContext.dimension).toBeNull();
   });
 });

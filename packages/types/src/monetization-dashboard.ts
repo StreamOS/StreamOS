@@ -58,11 +58,25 @@ export type MonetizationAmountValue = {
   currency: string | null;
 };
 
-export type MonetizationRevenueSource = {
+export const MONETIZATION_REVENUE_BREAKDOWN_DIMENSIONS = [
+  "source",
+  "summary_category",
+] as const;
+
+export type MonetizationRevenueBreakdownDimension =
+  (typeof MONETIZATION_REVENUE_BREAKDOWN_DIMENSIONS)[number];
+
+export type MonetizationRevenueBreakdownItem = {
   amount: MonetizationAmountValue;
   eventCount: number | null;
   key: string;
   label: string;
+};
+
+export type MonetizationRevenueBreakdownContext = {
+  dataSource: "events" | "none" | "summaries";
+  dimension: MonetizationRevenueBreakdownDimension | null;
+  note: string | null;
 };
 
 export type MonetizationTrendPoint = {
@@ -97,7 +111,8 @@ export type MonetizationDashboardCoverage = {
   latestEventAt: string | null;
   latestSummaryPeriodEnd: string | null;
   recentEventCount: number;
-  sourceBreakdownSource: "events" | "none" | "summaries";
+  revenueBreakdownDataSource: "events" | "none" | "summaries";
+  revenueBreakdownDimension: MonetizationRevenueBreakdownDimension | null;
   summaryRowCount: number;
   trendSource: "events" | "none" | "summaries";
 };
@@ -124,8 +139,9 @@ export type MonetizationDashboardReadModel = {
   period: MonetizationDashboardPeriod;
   periodContext: MonetizationDashboardPeriodContext;
   recentEvents: MonetizationRecentEvent[];
-  revenueBySource: MonetizationRevenueSource[];
+  revenueBreakdown: MonetizationRevenueBreakdownItem[];
+  revenueBreakdownContext: MonetizationRevenueBreakdownContext;
   summary: MonetizationDashboardSummary;
-  topRevenueSources: MonetizationRevenueSource[];
+  topRevenueBreakdown: MonetizationRevenueBreakdownItem[];
   trend: MonetizationTrendPoint[];
 };

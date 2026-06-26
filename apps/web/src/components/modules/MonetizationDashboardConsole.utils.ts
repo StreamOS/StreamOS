@@ -8,7 +8,8 @@ import {
   type MonetizationDashboardPeriodContext,
   type MonetizationDashboardReadModel,
   type MonetizationRecentEvent,
-  type MonetizationRevenueSource,
+  type MonetizationRevenueBreakdownContext,
+  type MonetizationRevenueBreakdownItem,
   type MonetizationTrendPoint,
   type StreamPlatform,
 } from "@streamos/types";
@@ -69,7 +70,7 @@ export type MonetizationAggregateSnapshot = {
   activePlatforms: number | null;
   averageRevenuePerDayCents: number | null;
   currency: string | null;
-  revenueBySource: MonetizationAggregateSourceRow[];
+  sourceBreakdown: MonetizationAggregateSourceRow[];
   totalRevenueCents: number | null;
   trend: MonetizationAggregateTrendRow[];
 };
@@ -79,7 +80,7 @@ export type MonetizationDashboardModel = MonetizationDashboardReadModel & {
   userId: string | null;
 };
 
-const SUMMARY_SOURCE_KEYS = [
+const SUMMARY_CATEGORY_KEYS = [
   "subscription",
   "tip",
   "donation",
@@ -116,13 +117,18 @@ export function buildMonetizationDashboardModel({
   const currencyState = resolveCurrencyState(aggregate, events, summaries);
   const recentEvents = normalizeRecentEvents(events);
   const periodContext = buildPeriodContext(period);
-  const revenueBySource = buildRevenueBySource({
+  const revenueBreakdown = buildRevenueBreakdown({
     aggregate,
     currencyState,
     summaries,
   });
-  const topRevenueSources = [...revenueBySource]
-    .sort(compareRevenueSources)
+  const revenueBreakdownContext = buildRevenueBreakdownContext({
+    aggregate,
+    revenueBreakdown,
+    summaries,
+  });
+  const topRevenueBreakdown = [...revenueBreakdown]
+    .sort(compareRevenueBreakdownItems)
     .slice(0, 3);
   const trend = buildTrend({
     aggregate,
@@ -139,7 +145,7 @@ export function buildMonetizationDashboardModel({
 
   return {
     coverage: {
-      aggregateSourceCount: aggregate.revenueBySource.length,
+      aggregateSourceCount: aggregate.sourceBreakdown.length,
       currencies: currencyState.currencies,
       currencyMode: currencyState.mode,
       latestEventAt: recentEvents[0]?.occurredAt ?? null,
@@ -150,12 +156,8 @@ export function buildMonetizationDashboardModel({
             )[0]?.period_end ?? null)
           : null,
       recentEventCount: recentEvents.length,
-      sourceBreakdownSource:
-        aggregate.revenueBySource.length > 0
-          ? "events"
-          : revenueBySource.length > 0
-            ? "summaries"
-            : "none",
+      revenueBreakdownDataSource: revenueBreakdownContext.dataSource,
+      revenueBreakdownDimension: revenueBreakdownContext.dimension,
       summaryRowCount: summaries.length,
       trendSource:
         summaries.length > 0
@@ -169,10 +171,11 @@ export function buildMonetizationDashboardModel({
     period,
     periodContext,
     recentEvents,
-    revenueBySource,
+    revenueBreakdown,
+    revenueBreakdownContext,
     state,
     summary: totals,
-    topRevenueSources,
+    topRevenueBreakdown,
     trend,
     userId,
   };
@@ -192,7 +195,8 @@ export function createEmptyMonetizationDashboardModel(
       latestEventAt: null,
       latestSummaryPeriodEnd: null,
       recentEventCount: 0,
-      sourceBreakdownSource: "none",
+      revenueBreakdownDataSource: "none",
+      revenueBreakdownDimension: null,
       summaryRowCount: 0,
       trendSource: "none",
     },
@@ -205,7 +209,12 @@ export function createEmptyMonetizationDashboardModel(
     period,
     periodContext: buildPeriodContext(period),
     recentEvents: [],
-    revenueBySource: [],
+    revenueBreakdown: [],
+    revenueBreakdownContext: {
+      dataSource: "none",
+      dimension: null,
+      note: null,
+    },
     state,
     summary: {
       activePlatforms: 0,
@@ -215,7 +224,7 @@ export function createEmptyMonetizationDashboardModel(
       totalConfirmedEvents: null,
       totalRevenue: unavailableAmount(),
     },
-    topRevenueSources: [],
+    topRevenueBreakdown: [],
     trend: [],
     userId,
   };
@@ -280,7 +289,7 @@ export function getMonetizationPlatformLabel(value: StreamPlatform): string {
   }
 }
 
-export function getMonetizationSourceLabel(value: string): string {
+export function getMonetizationBreakdownValueLabel(value: string): string {
   switch (value) {
     case "ad_revenue":
       return "Ads";
@@ -397,12 +406,12 @@ function buildSummaryMetrics({
     totalConfirmedEvents:
       summaries.length > 0
         ? summaries.reduce((sum, row) => sum + row.event_count, 0)
-        : sumEventCounts(aggregate.revenueBySource),
+        : sumEventCounts(aggregate.sourceBreakdown),
     totalRevenue: createAmountValue(totalRevenue, currencyState),
   };
 }
 
-function buildRevenueBySource({
+function buildRevenueBreakdown({
   aggregate,
   currencyState,
   summaries,
@@ -410,13 +419,13 @@ function buildRevenueBySource({
   aggregate: MonetizationAggregateSnapshot;
   currencyState: CurrencyState;
   summaries: MonetizationSummaryRow[];
-}): MonetizationRevenueSource[] {
-  if (aggregate.revenueBySource.length > 0) {
-    return aggregate.revenueBySource.map((row) => ({
+}): MonetizationRevenueBreakdownItem[] {
+  if (aggregate.sourceBreakdown.length > 0) {
+    return aggregate.sourceBreakdown.map((row) => ({
       amount: createAmountValue(row.amountCents, currencyState),
       eventCount: row.eventCount,
       key: row.key,
-      label: getMonetizationSourceLabel(row.key),
+      label: getMonetizationBreakdownValueLabel(row.key),
     }));
   }
 
@@ -442,12 +451,44 @@ function buildRevenueBySource({
     {},
   );
 
-  return SUMMARY_SOURCE_KEYS.map((key) => ({
+  return SUMMARY_CATEGORY_KEYS.map((key) => ({
     amount: unavailableAmount(),
     eventCount: counts[key] ?? 0,
     key,
-    label: getMonetizationSourceLabel(key),
+    label: getMonetizationBreakdownValueLabel(key),
   })).filter((item) => (item.eventCount ?? 0) > 0);
+}
+
+function buildRevenueBreakdownContext({
+  aggregate,
+  revenueBreakdown,
+  summaries,
+}: {
+  aggregate: MonetizationAggregateSnapshot;
+  revenueBreakdown: MonetizationRevenueBreakdownItem[];
+  summaries: MonetizationSummaryRow[];
+}): MonetizationRevenueBreakdownContext {
+  if (aggregate.sourceBreakdown.length > 0) {
+    return {
+      dataSource: "events",
+      dimension: "source",
+      note: null,
+    };
+  }
+
+  if (revenueBreakdown.length > 0 && summaries.length > 0) {
+    return {
+      dataSource: "summaries",
+      dimension: "summary_category",
+      note: "Summary rows expose category counts without source-level revenue amounts in this MVP.",
+    };
+  }
+
+  return {
+    dataSource: "none",
+    dimension: null,
+    note: null,
+  };
 }
 
 function buildTrend({
@@ -594,9 +635,9 @@ function unavailableAmount(): MonetizationAmountValue {
   };
 }
 
-function compareRevenueSources(
-  left: MonetizationRevenueSource,
-  right: MonetizationRevenueSource,
+function compareRevenueBreakdownItems(
+  left: MonetizationRevenueBreakdownItem,
+  right: MonetizationRevenueBreakdownItem,
 ): number {
   if (
     left.amount.availability === "available" &&

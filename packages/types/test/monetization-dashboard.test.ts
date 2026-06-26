@@ -6,6 +6,7 @@ import {
   MONETIZATION_DASHBOARD_EVENT_LIMIT,
   MONETIZATION_DASHBOARD_LOOKUP_SOURCES,
   MONETIZATION_DASHBOARD_PERIODS,
+  MONETIZATION_REVENUE_BREAKDOWN_DIMENSIONS,
   type MonetizationDashboardReadModel,
 } from "../src/monetization-dashboard.js";
 
@@ -17,7 +18,8 @@ const sampleReadModel = {
     latestEventAt: "2026-06-25T10:30:00.000Z",
     latestSummaryPeriodEnd: "2026-06-25T23:59:59.000Z",
     recentEventCount: 2,
-    sourceBreakdownSource: "events",
+    revenueBreakdownDataSource: "events",
+    revenueBreakdownDimension: "source",
     summaryRowCount: 7,
     trendSource: "summaries",
   },
@@ -49,7 +51,7 @@ const sampleReadModel = {
       status: "confirmed",
     },
   ],
-  revenueBySource: [
+  revenueBreakdown: [
     {
       amount: {
         amountCents: 182400,
@@ -57,10 +59,15 @@ const sampleReadModel = {
         currency: "USD",
       },
       eventCount: 128,
-      key: "subscription",
-      label: "Subscription",
+      key: "channel_subscription",
+      label: "Channel Subscription",
     },
   ],
+  revenueBreakdownContext: {
+    dataSource: "events",
+    dimension: "source",
+    note: null,
+  },
   summary: {
     activePlatforms: 2,
     averageRevenuePerDay: {
@@ -81,7 +88,7 @@ const sampleReadModel = {
       currency: "USD",
     },
   },
-  topRevenueSources: [
+  topRevenueBreakdown: [
     {
       amount: {
         amountCents: 182400,
@@ -89,8 +96,8 @@ const sampleReadModel = {
         currency: "USD",
       },
       eventCount: 128,
-      key: "subscription",
-      label: "Subscription",
+      key: "channel_subscription",
+      label: "Channel Subscription",
     },
   ],
   trend: [
@@ -125,6 +132,10 @@ void test("monetization dashboard contract keeps enums and feed limits stable", 
     "mixed_currency",
     "unavailable",
   ]);
+  assert.deepEqual(MONETIZATION_REVENUE_BREAKDOWN_DIMENSIONS, [
+    "source",
+    "summary_category",
+  ]);
 });
 
 void test("monetization dashboard read model stays read-only and explicit about currency handling", () => {
@@ -135,6 +146,11 @@ void test("monetization dashboard read model stays read-only and explicit about 
   assert.equal(sampleReadModel.summary.totalConfirmedEvents, 146);
   assert.equal(sampleReadModel.coverage.summaryRowCount, 7);
   assert.equal(sampleReadModel.coverage.trendSource, "summaries");
-  assert.equal(sampleReadModel.revenueBySource[0]?.key, "subscription");
+  assert.equal(sampleReadModel.coverage.revenueBreakdownDimension, "source");
+  assert.equal(
+    sampleReadModel.revenueBreakdown[0]?.key,
+    "channel_subscription",
+  );
+  assert.equal(sampleReadModel.revenueBreakdownContext.dataSource, "events");
   assert.equal(sampleReadModel.recentEvents[0]?.status, "confirmed");
 });

@@ -14,8 +14,8 @@ import {
   formatMonetizationAmount,
   formatMonetizationCount,
   formatMonetizationDateTime,
+  getMonetizationBreakdownValueLabel,
   getMonetizationPlatformLabel,
-  getMonetizationSourceLabel,
   getMonetizationStatusLabel,
   type MonetizationDashboardModel,
 } from "./MonetizationDashboardConsole.utils";
@@ -32,10 +32,16 @@ export function MonetizationDashboardConsole({
   const hasData =
     model.coverage.summaryRowCount > 0 ||
     model.recentEvents.length > 0 ||
-    model.revenueBySource.length > 0 ||
+    model.revenueBreakdown.length > 0 ||
     model.trend.length > 0 ||
     model.summary.totalRevenue.availability !== "unavailable" ||
     model.summary.totalConfirmedEvents !== null;
+  const revenueBreakdownTitle = getRevenueBreakdownTitle(
+    model.revenueBreakdownContext,
+  );
+  const topRevenueBreakdownTitle = getTopRevenueBreakdownTitle(
+    model.revenueBreakdownContext,
+  );
 
   return (
     <div className="space-y-6">
@@ -55,7 +61,7 @@ export function MonetizationDashboardConsole({
             Monetization Dashboard
           </p>
           <h1 className="mt-3 max-w-3xl text-4xl font-semibold tracking-normal text-white md:text-5xl">
-            Read-only Umsatz, Revenue Sources und letzte Monetization Events
+            Read-only Umsatz, Revenue Breakdown und letzte Monetization Events
           </h1>
           <p className="mt-4 max-w-3xl text-base leading-7 text-slate-400">
             Diese Surface nutzt vorhandene Monetization-Events und Summary-Daten
@@ -217,8 +223,8 @@ export function MonetizationDashboardConsole({
               value={String(model.coverage.recentEventCount)}
             />
             <CoverageTile
-              helper="Aggregierte Revenue Sources"
-              label="Source Buckets"
+              helper="Aggregierte confirmed source buckets"
+              label="Breakdown Buckets"
               value={String(model.coverage.aggregateSourceCount)}
             />
             <CoverageTile
@@ -243,12 +249,8 @@ export function MonetizationDashboardConsole({
                 ? "Unavailable"
                 : model.coverage.trendSource}
             </p>
-            <p className="mt-4 font-semibold text-white">Source breakdown</p>
-            <p className="mt-2 capitalize">
-              {model.coverage.sourceBreakdownSource === "none"
-                ? "Unavailable"
-                : model.coverage.sourceBreakdownSource}
-            </p>
+            <p className="mt-4 font-semibold text-white">Revenue breakdown</p>
+            <p className="mt-2">{formatRevenueBreakdownCoverage(model)}</p>
             <p className="mt-4 font-semibold text-white">Latest event</p>
             <p className="mt-2">
               {formatMonetizationDateTime(model.coverage.latestEventAt)}
@@ -262,13 +264,19 @@ export function MonetizationDashboardConsole({
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.35fr)]">
         <article className="card space-y-4">
           <SectionHeader
-            title="Revenue by Source"
-            description={`Quelle oder Event-Typ fuer ${model.periodContext.periodLabel} mit expliziten Availability-Labels fuer fehlende Umsatzbetraege.`}
+            title={revenueBreakdownTitle}
+            description={getRevenueBreakdownDescription(model)}
           />
 
-          {model.revenueBySource.length > 0 ? (
+          {model.revenueBreakdownContext.note ? (
+            <section className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
+              {model.revenueBreakdownContext.note}
+            </section>
+          ) : null}
+
+          {model.revenueBreakdown.length > 0 ? (
             <div className="space-y-3">
-              {model.revenueBySource.map((item) => (
+              {model.revenueBreakdown.map((item) => (
                 <article
                   key={item.key}
                   className="rounded-lg border border-white/10 bg-white/5 p-4"
@@ -292,22 +300,26 @@ export function MonetizationDashboardConsole({
           ) : model.state !== "ready" ? (
             <StateEmptyState
               state={model.state}
-              title="Revenue Sources konnten nicht geladen werden"
+              title={`${revenueBreakdownTitle} konnten nicht geladen werden`}
             />
           ) : hasLookupIssues ? (
             <PartialState
-              title="Revenue Sources teilweise verfuegbar"
+              title={`${revenueBreakdownTitle} teilweise verfuegbar`}
               body="Einige Monetization-Reads sind ausgefallen. StreamOS ersetzt fehlende Umsatzgruppen nicht durch stillschweigende Nullwerte."
             />
           ) : hasData ? (
             <EmptyState
-              title="Keine Revenue Sources verfuegbar"
-              body="Fuer diesen Zeitraum gibt es keine verwertbaren Revenue-Gruppen oder nur Count-only Summary-Daten ohne Umsatzbetraege."
+              title={getEmptyRevenueBreakdownTitle(
+                model.revenueBreakdownContext,
+              )}
+              body="Fuer diesen Zeitraum gibt es keine verwertbaren Revenue-Gruppen."
             />
           ) : (
             <EmptyState
-              title="Noch keine Revenue Sources"
-              body="Sobald bestaetigte Monetization-Daten vorliegen, erscheinen hier Revenue-Gruppen nach Quelle."
+              title={getInitialRevenueBreakdownTitle(
+                model.revenueBreakdownContext,
+              )}
+              body="Sobald belastbare Monetization-Daten vorliegen, erscheinen hier Revenue-Gruppen mit ehrlicher Breakdown-Semantik."
             />
           )}
         </article>
@@ -343,10 +355,10 @@ export function MonetizationDashboardConsole({
                         {getMonetizationPlatformLabel(event.provider)}
                       </td>
                       <td className="px-4 py-3">
-                        {getMonetizationSourceLabel(event.eventType)}
+                        {getMonetizationBreakdownValueLabel(event.eventType)}
                       </td>
                       <td className="px-4 py-3 text-slate-400">
-                        {getMonetizationSourceLabel(event.source)}
+                        {getMonetizationBreakdownValueLabel(event.source)}
                       </td>
                       <td className="px-4 py-3 text-right font-semibold text-white">
                         {formatMonetizationAmount(event.amount)}
@@ -382,13 +394,13 @@ export function MonetizationDashboardConsole({
 
       <section className="card space-y-4">
         <SectionHeader
-          title="Top Revenue Sources"
+          title={topRevenueBreakdownTitle}
           description={`Die staerksten Revenue-Gruppen fuer ${model.periodContext.periodLabel}, sofern Umsatzbetraege oder belastbare Count-only Summary-Daten vorliegen.`}
         />
 
-        {model.topRevenueSources.length > 0 ? (
+        {model.topRevenueBreakdown.length > 0 ? (
           <div className="grid gap-3 md:grid-cols-3">
-            {model.topRevenueSources.map((item) => (
+            {model.topRevenueBreakdown.map((item) => (
               <article
                 key={item.key}
                 className="rounded-lg border border-white/10 bg-white/5 p-4"
@@ -408,16 +420,16 @@ export function MonetizationDashboardConsole({
         ) : model.state !== "ready" ? (
           <StateEmptyState
             state={model.state}
-            title="Top Revenue Sources konnten nicht geladen werden"
+            title={`${topRevenueBreakdownTitle} konnten nicht geladen werden`}
           />
         ) : hasLookupIssues ? (
           <PartialState
-            title="Top Sources teilweise verfuegbar"
+            title={`${topRevenueBreakdownTitle} teilweise verfuegbar`}
             body="Mindestens ein Monetization-Read ist ausgefallen. Deshalb bleibt diese Priorisierung konservativ leer."
           />
         ) : (
           <EmptyState
-            title="Noch keine Top Revenue Sources"
+            title={`Noch keine ${topRevenueBreakdownTitle}`}
             body="Sobald ausreichend Monetization-Daten vorliegen, zeigt dieser Bereich die staerksten Revenue-Gruppen."
           />
         )}
@@ -684,4 +696,92 @@ function statusTone(
   }
 
   return "slate";
+}
+
+function getRevenueBreakdownTitle(
+  context: MonetizationDashboardModel["revenueBreakdownContext"],
+): string {
+  if (context.dimension === "source") {
+    return "Revenue by Source";
+  }
+
+  if (context.dimension === "summary_category") {
+    return "Revenue Categories";
+  }
+
+  return "Revenue Breakdown";
+}
+
+function getTopRevenueBreakdownTitle(
+  context: MonetizationDashboardModel["revenueBreakdownContext"],
+): string {
+  if (context.dimension === "source") {
+    return "Top Revenue Sources";
+  }
+
+  if (context.dimension === "summary_category") {
+    return "Top Revenue Categories";
+  }
+
+  return "Top Revenue Breakdown";
+}
+
+function getRevenueBreakdownDescription(
+  model: MonetizationDashboardModel,
+): string {
+  if (model.revenueBreakdownContext.dimension === "source") {
+    return `Echte Source-Werte fuer ${model.periodContext.periodLabel} mit expliziten Availability-Labels fuer fehlende Umsatzbetraege.`;
+  }
+
+  if (model.revenueBreakdownContext.dimension === "summary_category") {
+    return `Summary-Kategorien fuer ${model.periodContext.periodLabel}. Wenn nur Summary-Counts vorliegen, bleiben Umsatzbetraege explizit unavailable.`;
+  }
+
+  return `Breakdown fuer ${model.periodContext.periodLabel} mit konservativer Darstellung fehlender oder unvollstaendiger Monetization-Daten.`;
+}
+
+function formatRevenueBreakdownCoverage(
+  model: MonetizationDashboardModel,
+): string {
+  if (model.coverage.revenueBreakdownDataSource === "none") {
+    return "Unavailable";
+  }
+
+  if (model.coverage.revenueBreakdownDimension === "source") {
+    return "Source via events";
+  }
+
+  if (model.coverage.revenueBreakdownDimension === "summary_category") {
+    return "Summary category via summaries";
+  }
+
+  return model.coverage.revenueBreakdownDataSource;
+}
+
+function getEmptyRevenueBreakdownTitle(
+  context: MonetizationDashboardModel["revenueBreakdownContext"],
+): string {
+  if (context.dimension === "source") {
+    return "Keine Revenue Sources verfuegbar";
+  }
+
+  if (context.dimension === "summary_category") {
+    return "Keine Revenue Categories verfuegbar";
+  }
+
+  return "Kein Revenue Breakdown verfuegbar";
+}
+
+function getInitialRevenueBreakdownTitle(
+  context: MonetizationDashboardModel["revenueBreakdownContext"],
+): string {
+  if (context.dimension === "source") {
+    return "Noch keine Revenue Sources";
+  }
+
+  if (context.dimension === "summary_category") {
+    return "Noch keine Revenue Categories";
+  }
+
+  return "Noch kein Revenue Breakdown";
 }

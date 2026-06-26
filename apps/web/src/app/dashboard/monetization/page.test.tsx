@@ -66,11 +66,11 @@ describe("MonetizationPage", () => {
         activePlatforms: 1,
         averageRevenuePerDayCents: 9000,
         currency: "USD",
-        revenueBySource: [
+        sourceBreakdown: [
           {
             amountCents: 63000,
             eventCount: 7,
-            key: "sponsorship",
+            key: "brand_campaign",
           },
         ],
         totalRevenueCents: 63000,
@@ -116,6 +116,60 @@ describe("MonetizationPage", () => {
     expect(html).toContain("Diese Surface zeigt die neuesten 1 Monetization");
     expect(html).toContain("Recent Monetization Events");
     expect(html).toContain("Sponsoring");
+    expect(html).toContain("Brand Campaign");
+  });
+
+  it("renders summary fallback as categories instead of sources", async () => {
+    const model = buildMonetizationDashboardModel({
+      aggregate: {
+        activePlatforms: null,
+        averageRevenuePerDayCents: null,
+        currency: null,
+        sourceBreakdown: [],
+        totalRevenueCents: null,
+        trend: [],
+      },
+      events: [],
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 0,
+      },
+      lookupIssues: [],
+      period: "last_30_days",
+      state: "ready",
+      summaries: [
+        {
+          ad_revenue_count: 0,
+          channel_id: "channel-1",
+          currency: "USD",
+          donation_count: 2,
+          event_count: 2,
+          gross_amount_cents: 12000,
+          merch_sale_count: 0,
+          net_amount_cents: 11000,
+          period: "daily",
+          period_end: "2026-06-25T23:59:59.000Z",
+          period_start: "2026-06-25T00:00:00.000Z",
+          provider: "youtube",
+          sponsorship_count: 0,
+          subscription_count: 0,
+          tip_count: 0,
+        },
+      ],
+      userId: "user-7",
+    });
+
+    mocks.getMonetizationDashboardData.mockResolvedValue(model);
+
+    const html = renderToStaticMarkup(await MonetizationPage());
+
+    expect(html).toContain("Revenue Categories");
+    expect(html).toContain("Top Revenue Categories");
+    expect(html).not.toContain("Revenue by Source");
+    expect(html).toContain(
+      "Summary rows expose category counts without source-level revenue amounts in this MVP.",
+    );
   });
 
   it("renders a hard load failure without the partial-load notice", async () => {
