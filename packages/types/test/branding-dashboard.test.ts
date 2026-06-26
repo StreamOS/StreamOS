@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
   BRANDING_DASHBOARD_LOOKUP_SOURCES,
+  BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS,
   type BrandingDashboardReadModel,
 } from "../src/branding-dashboard.js";
 
@@ -29,6 +30,12 @@ const sampleReadModel = {
       id: "asset-1",
       name: "Neon Logo",
       platform: "twitch",
+      preview: {
+        expiresAt: "2026-06-26T10:01:00.000Z",
+        reason: null,
+        status: "available",
+        url: "https://signed.example/preview-1",
+      },
       status: "active",
       storageState: "attached",
       updatedAt: "2026-06-26T10:00:00.000Z",
@@ -42,6 +49,12 @@ const sampleReadModel = {
       id: "asset-2",
       name: "Mystery Pack",
       platform: null,
+      preview: {
+        expiresAt: null,
+        reason: "unsupported_file_type",
+        status: "unsupported",
+        url: null,
+      },
       status: "draft",
       storageState: "none",
       updatedAt: "2026-06-25T10:00:00.000Z",
@@ -72,13 +85,19 @@ const sampleReadModel = {
 
 void test("branding dashboard contract keeps the feed and lookup enums stable", () => {
   assert.equal(BRANDING_DASHBOARD_ASSET_LIMIT, 12);
+  assert.equal(BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS, 60);
   assert.deepEqual(BRANDING_DASHBOARD_LOOKUP_SOURCES, ["channels"]);
 });
 
 void test("branding dashboard read model stays read-only and tolerant of unknown asset types", () => {
   assert.equal(sampleReadModel.feed.limit, 12);
   assert.equal(sampleReadModel.items[0]?.storageState, "attached");
+  assert.equal(sampleReadModel.items[0]?.preview.status, "available");
   assert.equal(sampleReadModel.items[1]?.assetType, "mystery_pack");
+  assert.equal(
+    sampleReadModel.items[1]?.preview.reason,
+    "unsupported_file_type",
+  );
   assert.equal(sampleReadModel.summary.unknownTypeCount, 1);
   assert.equal(sampleReadModel.coverage.platformCount, 1);
   assert.equal(sampleReadModel.typeDistribution[0]?.key, "logo");

@@ -5,6 +5,7 @@ import type {
 } from "./index.js";
 
 export const BRANDING_DASHBOARD_ASSET_LIMIT = 12;
+export const BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS = 60;
 
 export const BRANDING_DASHBOARD_LOOKUP_SOURCES = ["channels"] as const;
 
@@ -18,6 +19,25 @@ export type BrandingDashboardLookupIssue = {
 
 export type BrandingDashboardStorageState = "attached" | "incomplete" | "none";
 
+export type BrandingDashboardPreviewStatus =
+  | "available"
+  | "failed"
+  | "unavailable"
+  | "unsupported";
+
+export type BrandingDashboardPreviewReason =
+  | "invalid_storage_metadata"
+  | "missing_storage"
+  | "signing_failed"
+  | "unsupported_file_type";
+
+export type BrandingDashboardPreview = {
+  expiresAt: string | null;
+  reason: BrandingDashboardPreviewReason | null;
+  status: BrandingDashboardPreviewStatus;
+  url: string | null;
+};
+
 export type BrandingDashboardAsset = {
   assetType: BrandAssetType | string;
   channelId: string | null;
@@ -26,6 +46,7 @@ export type BrandingDashboardAsset = {
   id: string;
   name: string;
   platform: StreamPlatform | null;
+  preview: BrandingDashboardPreview;
   status: BrandAssetStatus | string;
   storageState: BrandingDashboardStorageState;
   updatedAt: string;

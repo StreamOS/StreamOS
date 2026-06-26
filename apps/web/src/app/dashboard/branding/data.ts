@@ -3,6 +3,7 @@ import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
   type BrandingDashboardAsset,
   type BrandingDashboardLookupIssue,
+  type BrandingDashboardPreview,
 } from "@streamos/types";
 import {
   buildBrandingDashboardModel,
@@ -11,6 +12,7 @@ import {
 } from "@/components/modules/BrandingDashboardConsole.utils";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
+import { createBrandingAssetPreview } from "./preview";
 
 type BrandAssetRow = Omit<
   Pick<
@@ -74,6 +76,22 @@ export async function getBrandingDashboardData(): Promise<BrandingDashboardModel
     supabase,
     userId: userData.user.id,
   });
+  const previewsByAssetId = new Map(
+    await Promise.all(
+      visibleRows.map(
+        async (row) =>
+          [
+            row.id,
+            await createBrandingAssetPreview({
+              client: supabase,
+              storageBucket: row.storage_bucket,
+              storagePath: row.storage_path,
+              userId: userData.user.id,
+            }),
+          ] as const,
+      ),
+    ),
+  );
 
   return buildBrandingDashboardModel({
     feed: {
@@ -81,7 +99,18 @@ export async function getBrandingDashboardData(): Promise<BrandingDashboardModel
       limit: BRANDING_DASHBOARD_ASSET_LIMIT,
       returnedCount: visibleRows.length,
     },
-    items: visibleRows.map((row) => normalizeBrandAsset(row, channelsById)),
+    items: visibleRows.map((row) =>
+      normalizeBrandAsset(
+        row,
+        channelsById,
+        previewsByAssetId.get(row.id) ?? {
+          expiresAt: null,
+          reason: "signing_failed",
+          status: "failed",
+          url: null,
+        },
+      ),
+    ),
     lookupIssues: issues,
     state: "ready",
     userId: userData.user.id,
@@ -136,6 +165,7 @@ async function loadChannels({
 function normalizeBrandAsset(
   row: BrandAssetRow,
   channelsById: Map<string, ChannelRow>,
+  preview: BrandingDashboardPreview,
 ): BrandingDashboardAsset {
   const channel =
     row.channel_id !== null ? (channelsById.get(row.channel_id) ?? null) : null;
@@ -148,6 +178,7 @@ function normalizeBrandAsset(
     id: row.id,
     name: row.name,
     platform: channel?.platform ?? null,
+    preview,
     status: row.status,
     storageState: resolveStorageState(row.storage_bucket, row.storage_path),
     updatedAt: row.updated_at,

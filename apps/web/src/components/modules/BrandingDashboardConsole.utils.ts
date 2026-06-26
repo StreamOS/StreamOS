@@ -5,6 +5,8 @@ import {
   type BrandingDashboardDistributionItem,
   type BrandingDashboardFeedMetadata,
   type BrandingDashboardLookupIssue,
+  type BrandingDashboardPreviewReason,
+  type BrandingDashboardPreviewStatus,
   type BrandingDashboardReadModel,
   type StreamPlatform,
 } from "@streamos/types";
@@ -186,6 +188,38 @@ export function formatBrandingStorageStateLabel(
       return "Storage-Metadaten unvollstaendig";
     case "none":
       return "Nur Metadaten";
+  }
+}
+
+export function formatBrandingPreviewStatusLabel(
+  status: BrandingDashboardPreviewStatus,
+): string {
+  switch (status) {
+    case "available":
+      return "Private Preview verfuegbar";
+    case "failed":
+      return "Preview konnte nicht erzeugt werden";
+    case "unsupported":
+      return "Preview nicht unterstuetzt";
+    case "unavailable":
+      return "Preview nicht verfuegbar";
+  }
+}
+
+export function formatBrandingPreviewReasonLabel(
+  reason: BrandingDashboardPreviewReason | null,
+): string {
+  switch (reason) {
+    case "invalid_storage_metadata":
+      return "Storage-Metadaten sind nicht tenant-sicher.";
+    case "missing_storage":
+      return "Es ist kein privater Storage-Pfad verknuepft.";
+    case "signing_failed":
+      return "Die kurzlebige Preview konnte serverseitig nicht signiert werden.";
+    case "unsupported_file_type":
+      return "Dieser Dateityp bleibt ohne Sanitizing oder MIME-Contract unpreviewbar.";
+    default:
+      return "Keine Preview-Metadaten verfuegbar.";
   }
 }
 

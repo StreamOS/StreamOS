@@ -29,9 +29,8 @@ describe("BrandingPage", () => {
     expect(html).toContain("Branding MVP");
     expect(html).toContain("Read-first Branding Surface");
     expect(html).toContain("Noch keine Brand Assets");
-    expect(html).toContain(
-      "keine Upload-, Replace-, Delete- oder Preview-Runtime",
-    );
+    expect(html).toContain("Upload-, Replace- und Delete-Runtime");
+    expect(html).toContain("kurzlebig signiert");
     expect(html).not.toContain('type="file"');
     expect(html).not.toContain("Brand Asset Upload");
     expect(html).not.toContain("Brand Kit erstellen");
@@ -55,6 +54,12 @@ describe("BrandingPage", () => {
           id: "asset-1",
           name: "Neon Overlay",
           platform: "twitch",
+          preview: {
+            expiresAt: "2026-06-26T10:01:00.000Z",
+            reason: null,
+            status: "available",
+            url: "https://signed.example/preview-1",
+          },
           status: "active",
           storageState: "attached",
           updatedAt: "2026-06-26T10:00:00.000Z",
@@ -68,6 +73,12 @@ describe("BrandingPage", () => {
           id: "asset-2",
           name: "Mystery Pack",
           platform: null,
+          preview: {
+            expiresAt: null,
+            reason: "unsupported_file_type",
+            status: "unsupported",
+            url: null,
+          },
           status: "draft",
           storageState: "incomplete",
           updatedAt: "2026-06-25T10:00:00.000Z",
@@ -90,7 +101,9 @@ describe("BrandingPage", () => {
     expect(html).toContain("Storage-Metadaten unvollstaendig");
     expect(html).toContain("Twitch");
     expect(html).toContain("Globales Brand Asset");
-    expect(html).not.toContain("https://");
+    expect(html).toContain('alt="Neon Overlay preview"');
+    expect(html).toContain("Kurzlebige Preview fuer diese Dashboard-Response");
+    expect(html).toContain("Kein gerendertes Thumbnail");
     expect(html).not.toContain("brand-assets/");
     expect(html).not.toContain("public_url");
     expect(html).not.toContain("Storage-Bucket erstellen");
@@ -123,6 +136,12 @@ describe("BrandingPage", () => {
           id: "asset-1",
           name: "Neon Logo",
           platform: null,
+          preview: {
+            expiresAt: null,
+            reason: "missing_storage",
+            status: "unavailable",
+            url: null,
+          },
           status: "active",
           storageState: "none",
           updatedAt: "2026-06-26T10:00:00.000Z",
@@ -148,6 +167,68 @@ describe("BrandingPage", () => {
     );
     expect(html).toContain("Neon Logo");
     expect(html).toContain("Kein Plattformkontext");
+  });
+
+  it("keeps a single preview failure local to the asset instead of rendering the global load-failed state", async () => {
+    const model = buildBrandingDashboardModel({
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 2,
+      },
+      items: [
+        {
+          assetType: "logo",
+          channelId: null,
+          createdAt: "2026-06-26T08:00:00.000Z",
+          description: "Primary logo.",
+          id: "asset-1",
+          name: "Neon Logo",
+          platform: null,
+          preview: {
+            expiresAt: "2026-06-26T10:01:00.000Z",
+            reason: null,
+            status: "available",
+            url: "https://signed.example/preview-1",
+          },
+          status: "active",
+          storageState: "attached",
+          updatedAt: "2026-06-26T10:00:00.000Z",
+          usageContext: null,
+        },
+        {
+          assetType: "overlay",
+          channelId: null,
+          createdAt: "2026-06-26T08:00:00.000Z",
+          description: "Secondary overlay.",
+          id: "asset-2",
+          name: "Fallback Overlay",
+          platform: null,
+          preview: {
+            expiresAt: null,
+            reason: "signing_failed",
+            status: "failed",
+            url: null,
+          },
+          status: "draft",
+          storageState: "attached",
+          updatedAt: "2026-06-26T10:00:00.000Z",
+          usageContext: null,
+        },
+      ],
+      lookupIssues: [],
+      state: "ready",
+      userId: "user-5",
+    });
+
+    mocks.getBrandingDashboardData.mockResolvedValue(model);
+
+    const html = renderToStaticMarkup(await BrandingPage());
+
+    expect(html).toContain("Neon Logo");
+    expect(html).toContain("Fallback Overlay");
+    expect(html).toContain("Preview konnte nicht erzeugt werden");
+    expect(html).not.toContain("Brand Assets konnten nicht geladen werden");
   });
 
   it("renders a safe setup notice when branding is disabled", async () => {

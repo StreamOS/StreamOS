@@ -7,6 +7,8 @@ import {
   formatBrandingAssetTypeLabel,
   formatBrandingDateTime,
   formatBrandingPlatformLabel,
+  formatBrandingPreviewReasonLabel,
+  formatBrandingPreviewStatusLabel,
   formatBrandingStorageStateLabel,
   type BrandingDashboardModel,
 } from "./BrandingDashboardConsole.utils";
@@ -21,6 +23,9 @@ export function BrandingDashboardConsole({
   const hasLookupIssues = model.lookupIssues.length > 0;
   const showPartialNotice = model.state === "ready" && hasLookupIssues;
   const hasData = model.items.length > 0;
+  const previewReadyCount = model.items.filter(
+    (item) => item.preview.status === "available",
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -41,8 +46,9 @@ export function BrandingDashboardConsole({
           </h1>
           <p className="mt-4 max-w-3xl text-base leading-7 text-slate-400">
             Diese Surface zeigt vorhandene `brand_assets` tenant-scoped und
-            read-only. Es gibt bewusst keine Upload-, Replace-, Delete- oder
-            Preview-Runtime in diesem Slice.
+            read-only. Upload-, Replace- und Delete-Runtime bleiben bewusst out
+            of scope; private Previews werden nur serverseitig und kurzlebig
+            signiert.
           </p>
         </div>
 
@@ -63,9 +69,12 @@ export function BrandingDashboardConsole({
           <ul className="mt-4 space-y-2 text-sm leading-6 text-slate-300">
             <li>Owner boundary: `user_id` via authenticated Supabase reads.</li>
             <li>
-              Keine Storage-Writes, keine Signed URLs, keine Service-Role.
+              Keine Storage-Writes, keine Service-Role, keine persistente
+              oeffentliche Asset-URL.
             </li>
-            <li>Private Bucket-/Path-Daten werden nicht als URL gerendert.</li>
+            <li>
+              Signed Preview URLs werden nur serverseitig und kurzlebig erzeugt.
+            </li>
             <li>Upload und Datei-Verarbeitung bleiben kuenftige Slices.</li>
           </ul>
         </aside>
@@ -88,10 +97,10 @@ export function BrandingDashboardConsole({
         />
         <StatCard
           icon={Image}
-          label="Private Files"
+          label="Preview Ready"
           tone="amber"
-          trend="Ohne Preview-Runtime"
-          value={String(model.coverage.attachedStorageCount)}
+          trend="Kurzlebig server-signiert"
+          value={String(previewReadyCount)}
         />
         <StatCard
           icon={Archive}
@@ -106,7 +115,7 @@ export function BrandingDashboardConsole({
         <article className="card space-y-4">
           <SectionHeader
             title="Brand Assets Summary"
-            description="Uebersicht ueber Typen, Storage-Verfuegbarkeit und die zuletzt aktualisierten Brand Assets."
+            description="Uebersicht ueber Typen, Storage-Verfuegbarkeit, Preview-Bereitschaft und die zuletzt aktualisierten Brand Assets."
           />
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -146,8 +155,8 @@ export function BrandingDashboardConsole({
                 : "Logo und Color Palette sind in aktiven Assets vorhanden."}
             </p>
             <p className="mt-3 text-xs leading-6 text-slate-500">
-              Zukuenftige Upload- und Preview-Slices bauen auf diesem read-first
-              Contract auf und bleiben server-owned.
+              Private Preview-URLs bleiben kurzlebig und werden weder in der
+              Datenbank persistiert noch als Debug-String ausgegeben.
             </p>
           </section>
         </article>
@@ -226,6 +235,41 @@ export function BrandingDashboardConsole({
                 <p className="mt-2 text-sm leading-6 text-slate-400">
                   {item.description ?? "Keine Asset-Beschreibung vorhanden."}
                 </p>
+
+                <div className="mt-4 rounded-lg border border-white/10 bg-surface-950/70 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                      Private Preview
+                    </p>
+                    <span className="text-xs font-medium text-slate-400">
+                      {formatBrandingPreviewStatusLabel(item.preview.status)}
+                    </span>
+                  </div>
+
+                  {item.preview.status === "available" && item.preview.url ? (
+                    <div className="mt-3 space-y-3">
+                      <img
+                        alt={`${item.name} preview`}
+                        className="h-40 w-full rounded-lg border border-white/10 bg-surface-950 object-contain"
+                        loading="lazy"
+                        src={item.preview.url}
+                      />
+                      <p className="text-xs leading-5 text-slate-500">
+                        Kurzlebige Preview fuer diese Dashboard-Response.
+                        Ablauf: {formatBrandingDateTime(item.preview.expiresAt)}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-lg border border-dashed border-white/10 bg-white/5 p-4">
+                      <p className="text-sm font-medium text-slate-200">
+                        Kein gerendertes Thumbnail
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-slate-400">
+                        {formatBrandingPreviewReasonLabel(item.preview.reason)}
+                      </p>
+                    </div>
+                  )}
+                </div>
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <InfoTile
