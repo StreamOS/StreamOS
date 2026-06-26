@@ -4,6 +4,7 @@ const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 const whitelist = require("./config/railway-env-whitelist.cjs");
 const {
+  buildWindowsCommandProcessorArgs,
   buildServiceConfigIndex,
   selectWindowsCommandCandidate,
 } = require("./audit-railway-env.cjs");
@@ -310,6 +311,31 @@ test("selectWindowsCommandCandidate prefers executable Railway shims", () => {
   assert.equal(
     selected,
     "C:\\Users\\dorts\\AppData\\Roaming\\npm\\railway.cmd",
+  );
+});
+
+test("buildWindowsCommandProcessorArgs quotes batch commands and arguments for cmd.exe", () => {
+  assert.deepEqual(
+    buildWindowsCommandProcessorArgs(
+      "C:\\Program Files\\Railway\\railway.cmd",
+      ["environment", "config", "-e", "staging", "beta&gamma"],
+    ),
+    [
+      "/d",
+      "/s",
+      "/c",
+      '""C:\\Program Files\\Railway\\railway.cmd" "environment" "config" "-e" "staging" "beta&gamma""',
+    ],
+  );
+});
+
+test("buildWindowsCommandProcessorArgs rejects percent expansion tokens", () => {
+  assert.throws(
+    () =>
+      buildWindowsCommandProcessorArgs("C:\\Railway\\railway.cmd", [
+        "%USERPROFILE%",
+      ]),
+    /cannot be forwarded safely through the Windows command processor/,
   );
 });
 
