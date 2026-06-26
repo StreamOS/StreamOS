@@ -119,6 +119,10 @@ Secret-Aenderungen ausgefuehrt.
   `preview_capability_status`-Spalten ein
 - die Spalten werden datenbankseitig aus `metadata`, `storage_bucket`,
   `storage_path` und `user_id` abgeleitet und nicht vom App-Insert vertraut
+- historische `brand_assets` werden dadurch beim Migrations-Rollout implizit
+  backfilled; `signing_failed` bleibt ein rein transientes Preview-Ergebnis
+- P5.13 ergaenzt tenant-scoped Query-Indizes und einen maschinenlesbaren
+  Feed-Gate, der die spaetere Server-Filter-Aktivierung weiter explizit blockt
 - `preview` und `metadata` bleiben trotzdem `client_window`, bis ein
   dedizierter Backfill-/Index-/Activation-Gate die spaetere serverseitige
   Filterung freigibt
@@ -149,7 +153,7 @@ Secret-Aenderungen ausgefuehrt.
   `status`, `reason`, `expiresAt`, `url`
 - Feed metadata:
   `limit`, `returnedCount`, `hasMore`, `scope`, `nextCursor`,
-  `serverFilters`, `serverSort`
+  `serverFilters`, `serverSort`, `derivedStatusQueryGate`
 - Mutation future contract:
   `replace`, `delete`, `orphan_cleanup`
 
@@ -161,6 +165,10 @@ Secret-Aenderungen ausgefuehrt.
   `packages/database/supabase/migrations/0015_normalize_rls_auth_uid_predicates.sql`
 - privater Storage-Bucket:
   `packages/database/supabase/migrations/20260622164807_brand_assets_private_storage.sql`
+- Derived-Status-Persistenz:
+  `packages/database/supabase/migrations/20260627120000_brand_assets_derived_status_contract.sql`
+- Derived-Status-Query-Indizes:
+  `packages/database/supabase/migrations/20260627133000_brand_assets_derived_status_query_indexes.sql`
 
 ## 5. Security Closeout
 
@@ -209,6 +217,8 @@ Diese Tests decken insbesondere ab:
 - tenant-sichere Storage-Handhabung
 - disabled Future-Actions
 - Feed-Scope, `serverFilters`, `serverSort` und Cursor-Metadaten
+- maschinenlesbaren Derived-Status-Query-Gate mit geblockter
+  Server-Filter-Aktivierung
 - maschinenlesbare Filter-Ownership fuer `assetType`, `status`, `preview` und
   `metadata`
 - `Mehr laden`-UX und Cursor-Normalisierung
@@ -242,7 +252,8 @@ Begruendung:
   Load More ist auf 5 Feed-Fenster begrenzt
 - `accepted`
   `preview` und `metadata` wirken weiter nur auf das geladene Fenster, bis ein
-  persistierter Query-Status-Contract existiert
+  persistierter Query-Status-Contract produktiv ausgerollt und serverseitig
+  aktiviert ist
 - `accepted`
   Delete/Replace/Orphan Cleanup bleiben reine Future-Contracts
 - `accepted`
@@ -257,10 +268,9 @@ Begruendung:
 
 ## 10. Empfohlene naechste Slices
 
-1. Persistierten `upload_metadata_status`- und
-   `preview_capability_status`-Contract per Migration ausrollen, historischen
-   Backfill validieren, Query-Indizes entscheiden und erst danach
-   Preview/Metadata-Filters serverseitig in den Feed-Query ueberfuehren
+1. P5.14: Preview-/Metadata-Serverfilter im Feed-Query aktivieren, nachdem die
+   Generated-Column-Migration und die Query-Indizes in Zielumgebungen
+   ausgerollt und validiert wurden
 2. Brand Kit Structure Read Model fuer hoehere semantische Vollstaendigkeit im
    Dashboard
 

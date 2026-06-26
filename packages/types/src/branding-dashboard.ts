@@ -57,6 +57,9 @@ export const BRANDING_DASHBOARD_PREVIEW_CAPABILITY_STATUSES = [
   "missing_storage",
   "invalid_storage",
 ] as const;
+export const BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_BLOCKERS = [
+  "requires_server_filter_activation",
+] as const;
 
 export type BrandingDashboardLookupSource =
   (typeof BRANDING_DASHBOARD_LOOKUP_SOURCES)[number];
@@ -72,6 +75,8 @@ export type BrandingDashboardMetadataFilter =
   (typeof BRANDING_DASHBOARD_METADATA_FILTERS)[number];
 export type BrandingDashboardPreviewCapabilityStatus =
   (typeof BRANDING_DASHBOARD_PREVIEW_CAPABILITY_STATUSES)[number];
+export type BrandingDashboardDerivedStatusQueryGateBlocker =
+  (typeof BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_BLOCKERS)[number];
 
 export type BrandingDashboardLookupIssue = {
   code: "load-failed";
@@ -140,6 +145,22 @@ export const BRANDING_DASHBOARD_DERIVED_STATUS_OWNERSHIP = {
   previewCapabilityStatus: "server_managed",
   uploadMetadataStatus: "server_managed",
 } as const satisfies BrandingDashboardDerivedStatusOwnership;
+
+export type BrandingDashboardDerivedStatusQueryGate = Readonly<{
+  blockedBy: readonly BrandingDashboardDerivedStatusQueryGateBlocker[];
+  historicalBackfill: "generated_columns";
+  indexesReady: true;
+  metadataServerQueryable: false;
+  previewServerQueryable: false;
+}>;
+
+export const BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE = {
+  blockedBy: ["requires_server_filter_activation"],
+  historicalBackfill: "generated_columns",
+  indexesReady: true,
+  metadataServerQueryable: false,
+  previewServerQueryable: false,
+} as const satisfies BrandingDashboardDerivedStatusQueryGate;
 
 export type BrandingDashboardAsset = {
   assetType: BrandAssetType | string;
@@ -246,7 +267,35 @@ type _BrandingDashboardDerivedStatusOwnershipAssertions = [
   >,
 ];
 
+type _BrandingDashboardDerivedStatusQueryGateAssertions = [
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["historicalBackfill"],
+      "generated_columns"
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["indexesReady"],
+      true
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["metadataServerQueryable"],
+      false
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["previewServerQueryable"],
+      false
+    >
+  >,
+];
+
 export type BrandingDashboardFeedMetadata = {
+  derivedStatusQueryGate: BrandingDashboardDerivedStatusQueryGate;
   filterOwnership: BrandingDashboardFeedFilterOwnership;
   hasMore: boolean;
   limit: number;

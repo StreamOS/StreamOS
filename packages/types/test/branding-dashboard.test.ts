@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
   BRANDING_DASHBOARD_DERIVED_STATUS_OWNERSHIP,
+  BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+  BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_BLOCKERS,
   BRANDING_DASHBOARD_FEED_SCOPES,
   BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
   BRANDING_DASHBOARD_FEED_SERVER_SORTS,
@@ -29,6 +31,7 @@ const sampleReadModel = {
     typeCount: 2,
   },
   feed: {
+    derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
     filterOwnership: BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
     hasMore: false,
     limit: BRANDING_DASHBOARD_ASSET_LIMIT,
@@ -216,12 +219,28 @@ void test("branding dashboard contract keeps the feed enums and exact filter own
     previewCapabilityStatus: "server_managed",
     uploadMetadataStatus: "server_managed",
   });
+  assert.deepEqual(BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE, {
+    blockedBy: ["requires_server_filter_activation"],
+    historicalBackfill: "generated_columns",
+    indexesReady: true,
+    metadataServerQueryable: false,
+    previewServerQueryable: false,
+  });
+  assert.deepEqual(BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_BLOCKERS, [
+    "requires_server_filter_activation",
+  ]);
   assert.deepEqual(BRANDING_DASHBOARD_PREVIEW_CAPABILITY_STATUSES, [
     "previewable",
     "unsupported",
     "missing_storage",
     "invalid_storage",
   ]);
+  assert.equal(
+    BRANDING_DASHBOARD_PREVIEW_CAPABILITY_STATUSES.includes(
+      "signing_failed" as never,
+    ),
+    false,
+  );
   assert.deepEqual(BRANDING_DASHBOARD_PREVIEW_FILTERS, [
     "all",
     "available",
@@ -240,6 +259,13 @@ void test("branding dashboard read model stays read-only and tolerant of unknown
   assert.equal(sampleReadModel.feed.scope, "full_result");
   assert.equal(sampleReadModel.feed.serverSort, "updated_desc");
   assert.equal(sampleReadModel.feed.nextCursor, null);
+  assert.deepEqual(sampleReadModel.feed.derivedStatusQueryGate, {
+    blockedBy: ["requires_server_filter_activation"],
+    historicalBackfill: "generated_columns",
+    indexesReady: true,
+    metadataServerQueryable: false,
+    previewServerQueryable: false,
+  });
   assert.deepEqual(sampleReadModel.feed.filterOwnership, {
     assetType: "server_query",
     metadata: "client_window",

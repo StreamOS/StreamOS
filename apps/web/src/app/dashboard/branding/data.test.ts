@@ -79,6 +79,13 @@ describe("getBrandingDashboardData", () => {
     expect(data.items).toHaveLength(0);
     expect(data.lookupIssues).toHaveLength(0);
     expect(data.feed).toMatchObject({
+      derivedStatusQueryGate: {
+        blockedBy: ["requires_server_filter_activation"],
+        historicalBackfill: "generated_columns",
+        indexesReady: true,
+        metadataServerQueryable: false,
+        previewServerQueryable: false,
+      },
       hasMore: false,
       limit: 12,
       nextCursor: null,
@@ -120,6 +127,10 @@ describe("getBrandingDashboardData", () => {
       status: "draft",
     });
     expect(data.feed.serverSort).toBe("status");
+    expect(data.feed.derivedStatusQueryGate.previewServerQueryable).toBe(false);
+    expect(data.feed.derivedStatusQueryGate.metadataServerQueryable).toBe(
+      false,
+    );
   });
 
   it("loads read-only brand assets with server-signed previews and without selecting public URLs", async () => {
@@ -157,6 +168,13 @@ describe("getBrandingDashboardData", () => {
 
     expect(data.state).toBe("ready");
     expect(data.feed).toMatchObject({
+      derivedStatusQueryGate: {
+        blockedBy: ["requires_server_filter_activation"],
+        historicalBackfill: "generated_columns",
+        indexesReady: true,
+        metadataServerQueryable: false,
+        previewServerQueryable: false,
+      },
       hasMore: false,
       limit: 12,
       nextCursor: null,
@@ -236,6 +254,13 @@ describe("getBrandingDashboardData", () => {
     const data = await getBrandingDashboardData();
 
     expect(data.feed).toEqual({
+      derivedStatusQueryGate: {
+        blockedBy: ["requires_server_filter_activation"],
+        historicalBackfill: "generated_columns",
+        indexesReady: true,
+        metadataServerQueryable: false,
+        previewServerQueryable: false,
+      },
       filterOwnership: {
         assetType: "server_query",
         metadata: "client_window",
@@ -312,6 +337,13 @@ describe("getBrandingDashboardData", () => {
     expect(data.items).toHaveLength(14);
     expect(new Set(data.items.map((item) => item.id)).size).toBe(14);
     expect(data.feed).toEqual({
+      derivedStatusQueryGate: {
+        blockedBy: ["requires_server_filter_activation"],
+        historicalBackfill: "generated_columns",
+        indexesReady: true,
+        metadataServerQueryable: false,
+        previewServerQueryable: false,
+      },
       filterOwnership: {
         assetType: "server_query",
         metadata: "client_window",
@@ -374,6 +406,13 @@ describe("getBrandingDashboardData", () => {
       ),
     );
     expect(data.feed).toEqual({
+      derivedStatusQueryGate: {
+        blockedBy: ["requires_server_filter_activation"],
+        historicalBackfill: "generated_columns",
+        indexesReady: true,
+        metadataServerQueryable: false,
+        previewServerQueryable: false,
+      },
       filterOwnership: {
         assetType: "server_query",
         metadata: "client_window",
@@ -586,6 +625,13 @@ describe("getBrandingDashboardData", () => {
 
     expect(data.feed.serverSort).toBe("created_desc");
     expect(data.feed.returnedCount).toBe(12);
+    expect(data.feed.derivedStatusQueryGate).toEqual({
+      blockedBy: ["requires_server_filter_activation"],
+      historicalBackfill: "generated_columns",
+      indexesReady: true,
+      metadataServerQueryable: false,
+      previewServerQueryable: false,
+    });
     expect(data.feed.nextCursor).toEqual({
       assetType: null,
       createdAt: "2026-06-22T10:00:00.000Z",
@@ -883,6 +929,9 @@ describe("getBrandingDashboardData", () => {
       status: "failed",
       url: null,
     });
+    expect(data.items[1]?.derivedStatuses.previewCapabilityStatus).toBe(
+      "previewable",
+    );
   });
 
   it("returns a load-failed state when the main brand asset read fails", async () => {

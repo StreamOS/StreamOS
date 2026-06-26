@@ -62,9 +62,14 @@ server-managed derived status columns `upload_metadata_status` and
 do not set them directly; PostgreSQL computes them from `metadata`,
 `storage_bucket`, `storage_path`, and `user_id`. They exist to make future
 server-queryable Branding Explorer filters possible without trusting
-client-window heuristics. This package does not enable those filters by itself:
-activate server-side preview/metadata filtering only after the migration
-rollout and any needed index gate are complete.
+client-window heuristics. Historical `brand_assets` rows are backfilled
+implicitly when the generated columns are added: there is no separate live
+storage probe, no signed-URL generation, and no durable runtime-only status
+such as `signing_failed`. A follow-up index migration prepares
+`upload_metadata_status` and `preview_capability_status` for future
+tenant-scoped query paths. This package does not enable those filters by
+itself: activate server-side preview/metadata filtering only after the
+migration rollout and the dedicated server-filter slice are complete.
 
 `content_jobs.queue_job_id` links BullMQ job attempts to durable database state.
 Workers and server actions mutate runtime status, result, error, and retry
