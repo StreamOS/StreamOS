@@ -2,7 +2,7 @@ import {
   BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS,
   type BrandingDashboardPreview,
 } from "@streamos/types";
-import { createClient } from "@/lib/supabase/server";
+import type { createClient } from "@/lib/supabase/server";
 import {
   BRAND_ASSET_STORAGE_BUCKET,
   isPreviewableBrandingAssetPath,
