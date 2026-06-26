@@ -230,6 +230,12 @@ describe("getBrandingDashboardData", () => {
     const data = await getBrandingDashboardData();
 
     expect(data.feed).toEqual({
+      filterOwnership: {
+        assetType: "server_query",
+        metadata: "client_window",
+        preview: "client_window",
+        status: "server_query",
+      },
       hasMore: true,
       limit: 12,
       nextCursor: {
@@ -300,6 +306,12 @@ describe("getBrandingDashboardData", () => {
     expect(data.items).toHaveLength(14);
     expect(new Set(data.items.map((item) => item.id)).size).toBe(14);
     expect(data.feed).toEqual({
+      filterOwnership: {
+        assetType: "server_query",
+        metadata: "client_window",
+        preview: "client_window",
+        status: "server_query",
+      },
       hasMore: false,
       limit: 12,
       nextCursor: null,
@@ -356,6 +368,12 @@ describe("getBrandingDashboardData", () => {
       ),
     );
     expect(data.feed).toEqual({
+      filterOwnership: {
+        assetType: "server_query",
+        metadata: "client_window",
+        preview: "client_window",
+        status: "server_query",
+      },
       hasMore: true,
       limit: 12,
       nextCursor: {

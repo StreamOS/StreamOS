@@ -1,8 +1,10 @@
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
+  BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
   BRANDING_DASHBOARD_METADATA_FILTERS,
   BRANDING_DASHBOARD_PREVIEW_FILTERS,
   type BrandingDashboardFeedCursor,
+  type BrandingDashboardFeedClientFilters,
   type BrandingDashboardFeedServerFilters,
   type BrandingDashboardFeedServerSort,
   type BrandingDashboardFutureAction,
@@ -89,10 +91,7 @@ export type BrandingDashboardViewModel = {
     requestedAssetId: string | null;
   };
   feed: BrandingDashboardModel["feed"] & {
-    clientFilters: {
-      metadata: BrandingDashboardMetadataFilter;
-      preview: BrandingDashboardPreviewFilter;
-    };
+    clientFilters: BrandingDashboardFeedClientFilters;
     cursorToken: string | null;
     hasActiveClientFilters: boolean;
     hasActiveServerFilters: boolean;
@@ -212,6 +211,7 @@ export function createEmptyBrandingDashboardModel(
       typeCount: 0,
     },
     feed: {
+      filterOwnership: BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
       hasMore: false,
       limit: BRANDING_DASHBOARD_ASSET_LIMIT,
       nextCursor: null,

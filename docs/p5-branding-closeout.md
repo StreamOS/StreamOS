@@ -10,7 +10,11 @@ Contract, Delete/Replace/Orphan Cleanup bleiben deaktivierte Future-Contracts,
 und die finalen Branding-Regressionen aus P5.10 sind ueber Types-, Data-,
 Actions-, Page- und Utils-Tests abgesichert. P5.10 erweitert den Explorer um
 serverseitige DB-basierte Filter-/Sort-Pagination; nur `preview` und
-`metadata` bleiben bewusst clientseitige Fensterfilter.
+`metadata` bleiben bewusst clientseitige Fensterfilter. P5.11 prueft den
+verbleibenden Query-Contract und bestaetigt: Mit dem aktuellen persistierten
+Schema sind weder `preview` noch `metadata` als zuverlaessige
+server-querybare Statusfilter abbildbar, ohne einen neuen server-managed
+Status-Contract einzufuehren.
 
 Dieser Closeout ist reine Repo- und lokale Test-Evidence. Es wurden keine neuen
 Mutationen, keine Storage-/Policy-/DB-Aenderungen, keine Deployments und keine
@@ -99,6 +103,20 @@ Secret-Aenderungen ausgefuehrt.
 - ungueltige oder unpassende Cursor fallen sicher auf Fenster 1 zurueck
 - `preview` und `metadata` bleiben bewusst clientseitige Fensterfilter
 
+### P5.11 Preview / Metadata Queryability Contract
+
+- `assetType` und `status` bleiben die einzigen echten `server_query`-Filter
+- `preview` bleibt `client_window`, weil `preview.status = available` erst nach
+  tenant-sicherer Storage-Pruefung, Dateityp-Entscheidung und erfolgreicher
+  Signed-URL-Erzeugung feststeht
+- `metadata` bleibt `client_window`, weil `uploadMetadata.status` aktuell aus
+  verschachtelter JSON-Shape-, Feld-, Integer- und Safe-Filename-Validierung
+  abgeleitet wird, ohne persistierten `upload_metadata_status`
+- der Explorer-Contract markiert Filter-Ownership jetzt maschinenlesbar als
+  `server_query` vs. `client_window`
+- ein spaeterer Server-Filter-Slice braucht einen expliziten persistierten
+  Follow-up-Contract statt impliziter Runtime-Heuristiken
+
 ### Feed Scope / Cursor / Load More
 
 - Feed-Contract mit `scope`, `hasMore`, `nextCursor`, `serverFilters`,
@@ -161,6 +179,8 @@ Secret-Aenderungen ausgefuehrt.
 - Sample-/loaded-window-Copy macht den begrenzten Feed-Scope explizit
 - DB-basierte Filter und Sortierungen wirken serverseitig auf den Feed-Query
 - nur `preview` und `metadata` bleiben fensterlokale Client-Filter
+- die UI weist diese Trennung jetzt explizit als `server_query` vs.
+  `client_window` aus
 
 ## 7. Test- und Contract-Evidence
 
@@ -181,6 +201,8 @@ Diese Tests decken insbesondere ab:
 - tenant-sichere Storage-Handhabung
 - disabled Future-Actions
 - Feed-Scope, `serverFilters`, `serverSort` und Cursor-Metadaten
+- maschinenlesbare Filter-Ownership fuer `assetType`, `status`, `preview` und
+  `metadata`
 - `Mehr laden`-UX und Cursor-Normalisierung
 - fehlende Duplikate bei cursor-basierter Fenstererweiterung
 - URL-getriebenen Filter-/Sort-State auch in Empty/Error/Auth-Modellen
@@ -211,7 +233,8 @@ Begruendung:
 - `accepted`
   Load More ist auf 5 Feed-Fenster begrenzt
 - `accepted`
-  `preview` und `metadata` wirken weiter nur auf das geladene Fenster
+  `preview` und `metadata` wirken weiter nur auf das geladene Fenster, bis ein
+  persistierter Query-Status-Contract existiert
 - `accepted`
   Delete/Replace/Orphan Cleanup bleiben reine Future-Contracts
 - `accepted`
@@ -226,8 +249,9 @@ Begruendung:
 
 ## 10. Empfohlene naechste Slices
 
-1. Preview/Metadata Server-Queryable Fields Contract fuer vollstaendig
-   serverseitige Explorer-Filterung
+1. Persistierten `upload_metadata_status`- und
+   `preview_capability_status`-Contract definieren, backfillen und erst danach
+   Preview/Metadata-Filters serverseitig in den Feed-Query ueberfuehren
 2. Brand Kit Structure Read Model fuer hoehere semantische Vollstaendigkeit im
    Dashboard
 

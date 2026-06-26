@@ -58,6 +58,7 @@ export type BrandingDashboardFeedScope =
   (typeof BRANDING_DASHBOARD_FEED_SCOPES)[number];
 export type BrandingDashboardFeedServerSort =
   (typeof BRANDING_DASHBOARD_FEED_SERVER_SORTS)[number];
+export type BrandingDashboardFeedFilterOwner = "client_window" | "server_query";
 export type BrandingDashboardPreviewFilter =
   (typeof BRANDING_DASHBOARD_PREVIEW_FILTERS)[number];
 export type BrandingDashboardMetadataFilter =
@@ -151,7 +152,62 @@ export type BrandingDashboardFeedServerFilters = {
   status: BrandAssetStatus | string | null;
 };
 
+export type BrandingDashboardFeedClientFilters = {
+  metadata: BrandingDashboardMetadataFilter;
+  preview: BrandingDashboardPreviewFilter;
+};
+
+export type BrandingDashboardFeedFilterOwnership = Readonly<{
+  assetType: "server_query";
+  metadata: "client_window";
+  preview: "client_window";
+  status: "server_query";
+}>;
+
+export const BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP = {
+  assetType: "server_query",
+  metadata: "client_window",
+  preview: "client_window",
+  status: "server_query",
+} as const satisfies BrandingDashboardFeedFilterOwnership;
+
+type BrandingDashboardTypeAssert<T extends true> = T;
+type BrandingDashboardTypeEqual<TLeft, TRight> =
+  (<TValue>() => TValue extends TLeft ? 1 : 2) extends <
+    TValue,
+  >() => TValue extends TRight ? 1 : 2
+    ? true
+    : false;
+
+type _BrandingDashboardFeedFilterOwnershipAssertions = [
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardFeedFilterOwnership["assetType"],
+      "server_query"
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardFeedFilterOwnership["metadata"],
+      "client_window"
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardFeedFilterOwnership["preview"],
+      "client_window"
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardFeedFilterOwnership["status"],
+      "server_query"
+    >
+  >,
+];
+
 export type BrandingDashboardFeedMetadata = {
+  filterOwnership: BrandingDashboardFeedFilterOwnership;
   hasMore: boolean;
   limit: number;
   nextCursor: BrandingDashboardFeedCursor | null;
