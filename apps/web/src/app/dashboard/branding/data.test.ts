@@ -1,3 +1,4 @@
+import { BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS } from "@streamos/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -14,9 +15,9 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: mocks.createClient,
 }));
 
-import { getBrandKitDashboardData } from "./data";
+import { getBrandingDashboardData } from "./data";
 
-describe("getBrandKitDashboardData", () => {
+describe("getBrandingDashboardData", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.isSupabaseConfigured.mockReturnValue(true);
@@ -30,125 +31,308 @@ describe("getBrandKitDashboardData", () => {
     });
   });
 
-  it("adds short-lived signed preview URLs without exposing storage metadata", async () => {
+  it("returns a disabled state when Supabase is not configured", async () => {
+    mocks.isSupabaseConfigured.mockReturnValue(false);
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.state).toBe("disabled");
+    expect(data.userId).toBeNull();
+  });
+
+  it("returns an auth-failed state when the session lookup errors", async () => {
+    mocks.createClient.mockResolvedValue(
+      createSupabaseClientMock({
+        user: null,
+        userError: new Error("session failed"),
+      }) as never,
+    );
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.state).toBe("auth-failed");
+    expect(data.userId).toBeNull();
+  });
+
+  it("returns an unauthorized state when no user session exists", async () => {
+    mocks.createClient.mockResolvedValue(
+      createSupabaseClientMock({
+        user: null,
+      }) as never,
+    );
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.state).toBe("unauthorized");
+  });
+
+  it("returns a true empty ready state when the brand asset read succeeds without rows", async () => {
+    mocks.createClient.mockResolvedValue(
+      createSupabaseClientMock({
+        rows: [],
+      }) as never,
+    );
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.state).toBe("ready");
+    expect(data.items).toHaveLength(0);
+    expect(data.lookupIssues).toHaveLength(0);
+    expect(data.mutationContract.delete.available).toBe(false);
+    expect(data.mutationContract.replace.reason).toBe(
+      "requires_new_asset_row_strategy",
+    );
+    expect(data.mutationContract["orphan_cleanup"].reason).toBe(
+      "requires_scoped_manual_cleanup",
+    );
+    expect("orphanCleanup" in data.mutationContract).toBe(false);
+  });
+
+  it("loads read-only brand assets with server-signed previews and without selecting public URLs", async () => {
     const supabase = createSupabaseClientMock({
+      channelRows: [
+        {
+          display_name: "NovaPlays Live",
+          id: "channel-1",
+          platform: "twitch",
+        },
+      ],
       rows: [
         createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: "channel-1",
           storage_bucket: "brand-assets",
           storage_path:
-            "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
+            "11111111-1111-4111-8111-111111111111/logo/asset-1/neon-logo.png",
         }),
       ],
-      signedUrl: "https://storage.example/signed-preview",
     });
     mocks.createClient.mockResolvedValue(supabase as never);
 
-    const data = await getBrandKitDashboardData();
+    const data = await getBrandingDashboardData();
 
-    expect(data.assets).toHaveLength(1);
-    expect(data.assets[0]).toMatchObject({
-      hasStoredFile: true,
-      id: "22222222-2222-4222-8222-222222222222",
-      previewStatus: "available",
-      previewUrl: "https://storage.example/signed-preview",
+    expect(data.state).toBe("ready");
+    expect(data.items[0]).toMatchObject({
+      assetType: "logo",
+      futureActions: [
+        expect.objectContaining({
+          action: "replace",
+          available: false,
+        }),
+        expect.objectContaining({
+          action: "delete",
+          available: false,
+        }),
+      ],
+      name: "Neon Logo",
+      platform: "twitch",
+      preview: {
+        reason: null,
+        status: "available",
+        url: expect.stringMatching(/^https:\/\/signed\.example\/preview-\d+$/),
+      },
+      storageState: "attached",
+      usageContext: "NovaPlays Live",
     });
-    expect("storage_path" in data.assets[0]!).toBe(false);
-    expect("public_url" in data.assets[0]!).toBe(false);
+    expect(data.items[0]?.preview.expiresAt).toEqual(expect.any(String));
+    expect(supabase.selects[0]).toEqual(
+      "asset_type,channel_id,created_at,description,id,name,status,storage_bucket,storage_path,updated_at",
+    );
     expect(supabase.selects[0]).not.toContain("public_url");
     expect(supabase.signedUrlRequests).toEqual([
       {
         bucket: "brand-assets",
-        expiresIn: 300,
-        path: "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
+        expiresIn: BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS,
+        path: "11111111-1111-4111-8111-111111111111/logo/asset-1/neon-logo.png",
+      },
+    ]);
+    expect(supabase.storageTouched).toBe(true);
+    expect(data.mutationContract["orphan_cleanup"].reason).toBe(
+      "requires_scoped_manual_cleanup",
+    );
+  });
+
+  it("keeps channel lookup failures as partial state instead of failing the main asset read", async () => {
+    const supabase = createSupabaseClientMock({
+      channelError: new Error("channels failed"),
+      rows: [
+        createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: "channel-1",
+          storage_bucket: null,
+          storage_path: null,
+        }),
+      ],
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.state).toBe("ready");
+    expect(data.items[0]).toMatchObject({
+      platform: null,
+      usageContext: null,
+    });
+    expect(data.lookupIssues).toEqual([
+      {
+        code: "load-failed",
+        source: "channels",
       },
     ]);
   });
 
-  it("does not sign missing, wrong-bucket, or tenant-mismatched storage metadata", async () => {
+  it("keeps previews unavailable when storage metadata is missing", async () => {
     const supabase = createSupabaseClientMock({
       rows: [
         createBrandAssetRow({
-          id: "22222222-2222-4222-8222-222222222222",
+          asset_type: "logo",
+          channel_id: null,
           storage_bucket: null,
           storage_path: null,
         }),
-        createBrandAssetRow({
-          id: "33333333-3333-4333-8333-333333333333",
-          storage_bucket: "public-assets",
-          storage_path:
-            "11111111-1111-4111-8111-111111111111/logo/33333333-3333-4333-8333-333333333333/logo.png",
-        }),
-        createBrandAssetRow({
-          id: "44444444-4444-4444-8444-444444444444",
-          storage_bucket: "brand-assets",
-          storage_path:
-            "99999999-9999-4999-8999-999999999999/logo/44444444-4444-4444-8444-444444444444/logo.png",
-        }),
       ],
-      signedUrl: "https://storage.example/signed-preview",
     });
     mocks.createClient.mockResolvedValue(supabase as never);
 
-    const data = await getBrandKitDashboardData();
+    const data = await getBrandingDashboardData();
 
-    expect(data.assets.map((asset) => asset.previewStatus)).toEqual([
-      "no_preview",
-      "invalid_storage_metadata",
-      "invalid_storage_metadata",
-    ]);
-    expect(data.assets.map((asset) => asset.hasStoredFile)).toEqual([
-      false,
-      false,
-      false,
-    ]);
-    expect(data.assets.map((asset) => asset.previewUrl)).toEqual([
-      null,
-      null,
-      null,
-    ]);
+    expect(data.state).toBe("ready");
+    expect(data.items[0]?.preview).toEqual({
+      expiresAt: null,
+      reason: "missing_storage",
+      status: "unavailable",
+      url: null,
+    });
     expect(supabase.signedUrlRequests).toHaveLength(0);
+    expect(supabase.storageTouched).toBe(false);
   });
 
-  it("keeps storage errors sanitized as unavailable previews", async () => {
+  it("rejects previews for tenant-foreign storage paths before signing", async () => {
     const supabase = createSupabaseClientMock({
       rows: [
         createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: null,
           storage_bucket: "brand-assets",
           storage_path:
-            "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
+            "99999999-9999-4999-8999-999999999999/logo/asset-1/neon-logo.png",
         }),
       ],
-      signedUrlError: { message: "private storage detail" },
     });
     mocks.createClient.mockResolvedValue(supabase as never);
 
-    const data = await getBrandKitDashboardData();
+    const data = await getBrandingDashboardData();
 
-    expect(data.assets[0]).toMatchObject({
-      hasStoredFile: true,
-      previewStatus: "storage_error",
-      previewUrl: null,
+    expect(data.items[0]?.preview).toEqual({
+      expiresAt: null,
+      reason: "invalid_storage_metadata",
+      status: "unavailable",
+      url: null,
     });
+    expect(supabase.signedUrlRequests).toHaveLength(0);
+  });
+
+  it("keeps svg and unsupported asset files out of the preview pipeline", async () => {
+    const supabase = createSupabaseClientMock({
+      rows: [
+        createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: null,
+          storage_bucket: "brand-assets",
+          storage_path:
+            "11111111-1111-4111-8111-111111111111/logo/asset-1/neon-logo.svg",
+        }),
+      ],
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.items[0]?.preview).toEqual({
+      expiresAt: null,
+      reason: "unsupported_file_type",
+      status: "unsupported",
+      url: null,
+    });
+    expect(supabase.signedUrlRequests).toHaveLength(0);
+  });
+
+  it("degrades a single signing failure to asset-level preview state without failing the page", async () => {
+    const failingPath =
+      "11111111-1111-4111-8111-111111111111/logo/asset-2/failing-logo.png";
+    const supabase = createSupabaseClientMock({
+      rows: [
+        createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: null,
+          id: "asset-1",
+          storage_bucket: "brand-assets",
+          storage_path:
+            "11111111-1111-4111-8111-111111111111/logo/asset-1/neon-logo.png",
+        }),
+        createBrandAssetRow({
+          asset_type: "overlay",
+          channel_id: null,
+          id: "asset-2",
+          name: "Failing Logo",
+          storage_bucket: "brand-assets",
+          storage_path: failingPath,
+        }),
+      ],
+      signedUrlErrorPaths: [failingPath],
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.state).toBe("ready");
+    expect(data.items).toHaveLength(2);
+    expect(data.items[0]?.preview.status).toBe("available");
+    expect(data.items[1]?.preview).toEqual({
+      expiresAt: null,
+      reason: "signing_failed",
+      status: "failed",
+      url: null,
+    });
+  });
+
+  it("returns a load-failed state when the main brand asset read fails", async () => {
+    mocks.createClient.mockResolvedValue(
+      createSupabaseClientMock({
+        rowError: new Error("brand_assets failed"),
+        rows: null,
+      }) as never,
+    );
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.state).toBe("load-failed");
+    expect(data.items).toHaveLength(0);
   });
 });
 
 function createBrandAssetRow({
+  asset_type,
+  channel_id,
   id = "22222222-2222-4222-8222-222222222222",
+  name = "Neon Logo",
   storage_bucket,
   storage_path,
 }: {
+  asset_type: string;
+  channel_id: string | null;
   id?: string;
+  name?: string;
   storage_bucket: string | null;
   storage_path: string | null;
 }) {
   return {
-    asset_type: "logo",
-    config: {},
+    asset_type,
+    channel_id,
     created_at: "2026-06-22T10:00:00.000Z",
     description: "Private logo.",
     id,
-    metadata: {},
-    name: "Neon Logo",
+    name,
     status: "active",
     storage_bucket,
     storage_path,
@@ -157,13 +341,23 @@ function createBrandAssetRow({
 }
 
 function createSupabaseClientMock({
-  rows,
-  signedUrl = null,
-  signedUrlError = null,
+  channelError = null,
+  channelRows = [],
+  rowError = null,
+  rows = [],
+  signedUrlErrorPaths = [],
+  user = {
+    id: "11111111-1111-4111-8111-111111111111",
+  },
+  userError = null,
 }: {
-  rows: unknown[];
-  signedUrl?: string | null;
-  signedUrlError?: unknown;
+  channelError?: unknown;
+  channelRows?: unknown[] | null;
+  rowError?: unknown;
+  rows?: unknown[] | null;
+  signedUrlErrorPaths?: string[];
+  user?: { id: string } | null;
+  userError?: unknown;
 }) {
   const selects: string[] = [];
   const signedUrlRequests: Array<{
@@ -171,43 +365,76 @@ function createSupabaseClientMock({
     expiresIn: number;
     path: string;
   }> = [];
+  let currentTable = "";
 
-  const queryBuilder = {
-    eq: () => queryBuilder,
-    limit: async () => ({
+  const brandAssetBuilder = {
+    eq: vi.fn(() => brandAssetBuilder),
+    limit: vi.fn(async () => ({
       data: rows,
-      error: null,
-    }),
-    order: () => queryBuilder,
-    select: (payload: string) => {
+      error: rowError,
+    })),
+    order: vi.fn(() => brandAssetBuilder),
+    select: vi.fn((payload: string) => {
       selects.push(payload);
+      return brandAssetBuilder;
+    }),
+  };
 
-      return queryBuilder;
-    },
+  const channelBuilder = {
+    eq: vi.fn(() => channelBuilder),
+    in: vi.fn(async () => ({
+      data: channelRows,
+      error: channelError,
+    })),
+    select: vi.fn((payload: string) => {
+      selects.push(payload);
+      return channelBuilder;
+    }),
   };
 
   return {
     auth: {
-      getUser: mocks.getUser,
+      getUser: vi.fn().mockResolvedValue({
+        data: {
+          user,
+        },
+        error: userError,
+      }),
     },
-    from: vi.fn(() => queryBuilder),
+    from: vi.fn((table: string) => {
+      currentTable = table;
+
+      return currentTable === "channels" ? channelBuilder : brandAssetBuilder;
+    }),
     selects,
     signedUrlRequests,
     storage: {
-      from: (bucket: string) => ({
-        createSignedUrl: async (path: string, expiresIn: number) => {
+      from: vi.fn((bucket: string) => ({
+        createSignedUrl: vi.fn(async (path: string, expiresIn: number) => {
           signedUrlRequests.push({
             bucket,
             expiresIn,
             path,
           });
 
+          if (signedUrlErrorPaths.includes(path)) {
+            return {
+              data: null,
+              error: new Error("signing failed"),
+            };
+          }
+
           return {
-            data: signedUrl ? { signedUrl } : null,
-            error: signedUrlError,
+            data: {
+              signedUrl: `https://signed.example/preview-${signedUrlRequests.length}`,
+            },
+            error: null,
           };
-        },
-      }),
+        }),
+      })),
+    },
+    get storageTouched() {
+      return signedUrlRequests.length > 0;
     },
   };
 }

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
-  getUser: vi.fn(),
   isSupabaseConfigured: vi.fn(),
   redirect: vi.fn((path: string) => {
     throw new Error(`REDIRECT:${path}`);
@@ -26,77 +25,39 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: mocks.createClient,
 }));
 
-import {
-  createBrandKitAction,
-  deleteBrandKitAction,
-  uploadBrandAssetFileAction,
-  updateBrandKitAction,
-} from "./actions";
+import { uploadBrandAssetAction } from "./actions";
 
-describe("branding server actions", () => {
+describe("uploadBrandAssetAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.isSupabaseConfigured.mockReturnValue(true);
-    mocks.getUser.mockResolvedValue({
-      data: {
-        user: {
-          id: "11111111-1111-4111-8111-111111111111",
-        },
-      },
-      error: null,
-    });
     mocks.createClient.mockResolvedValue(createSupabaseClientMock() as never);
   });
 
-  it("creates a brand kit with the authenticated user id", async () => {
+  it("uploads a PNG asset into private storage and persists safe metadata", async () => {
     const supabase = createSupabaseClientMock();
     mocks.createClient.mockResolvedValue(supabase as never);
-    const formData = createBrandKitFormData();
 
-    await expect(createBrandKitAction(formData)).rejects.toThrow(
-      "REDIRECT:/dashboard/branding?status=brand-kit-created",
-    );
-
-    expect(supabase.inserts).toEqual([
-      {
-        asset_type: "overlay",
-        config: {
-          primaryColor: "#00d4aa",
-        },
-        description: "Main overlay.",
-        name: "Neon Overlay",
-        status: "active",
-        user_id: "11111111-1111-4111-8111-111111111111",
-      },
-    ]);
-    expect(supabase.storageTouched).toBe(false);
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/dashboard/branding");
-  });
-
-  it("uploads a brand asset file through private storage and persists storage metadata", async () => {
-    const supabase = createSupabaseClientMock();
-    mocks.createClient.mockResolvedValue(supabase as never);
-    const formData = createBrandAssetUploadFormData();
-
-    await expect(uploadBrandAssetFileAction(formData)).rejects.toThrow(
+    await expect(
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "logo",
+          file: createImageFile("neon-logo.png", "image/png"),
+        }),
+      ),
+    ).rejects.toThrow(
       "REDIRECT:/dashboard/branding?status=brand-asset-uploaded",
     );
 
-    expect(supabase.storageUploads).toEqual([
-      {
-        bucket: "brand-assets",
-        options: {
-          contentType: "image/png",
-          upsert: false,
-        },
-        path: expect.stringMatching(
-          /^11111111-1111-4111-8111-111111111111\/logo\/[0-9a-f-]{36}\/neon-logo\.png$/,
-        ),
-      },
-    ]);
+    expect(supabase.storageUploads).toHaveLength(1);
+    expect(supabase.storageUploads[0]?.bucket).toBe("brand-assets");
+    expect(supabase.storageUploads[0]?.path).toMatch(
+      /^11111111-1111-4111-8111-111111111111\/logo\/[0-9a-f-]{36}\/neon-logo\.png$/,
+    );
     expect(supabase.inserts).toEqual([
       expect.objectContaining({
         asset_type: "logo",
+        description: "Primary brand asset.",
         name: "Neon Logo",
         public_url: null,
         status: "draft",
@@ -105,19 +66,225 @@ describe("branding server actions", () => {
         user_id: "11111111-1111-4111-8111-111111111111",
       }),
     ]);
+    expect(supabase.inserts[0]?.metadata).toEqual({
+      upload: {
+        content_type: "image/png",
+        file_extension: "png",
+        file_size_bytes: 8,
+        stored_filename: "neon-logo.png",
+      },
+    });
     expect(supabase.storageRemoves).toHaveLength(0);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/dashboard/branding");
   });
 
-  it("cleans up uploaded storage when database persistence fails", async () => {
+  it.each([
+    ["image/jpeg", "brand-shot.jpg", "jpg"],
+    ["image/jpeg", "brand-shot.jpeg", "jpeg"],
+    ["image/webp", "brand-shot.webp", "webp"],
+  ] as const)(
+    "accepts %s uploads with .%s storage filenames",
+    async (mimeType, filename, extension) => {
+      const supabase = createSupabaseClientMock();
+      mocks.createClient.mockResolvedValue(supabase as never);
+
+      await expect(
+        uploadBrandAssetAction(
+          createUploadFormData({
+            assetType: "banner",
+            file: createImageFile(filename, mimeType),
+          }),
+        ),
+      ).rejects.toThrow(
+        "REDIRECT:/dashboard/branding?status=brand-asset-uploaded",
+      );
+
+      expect(supabase.storageUploads[0]?.path).toContain(`.${extension}`);
+    },
+  );
+
+  it("blocks SVG uploads before touching storage", async () => {
+    const supabase = createSupabaseClientMock();
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "logo",
+          file: createFile("brand-mark.svg", "image/svg+xml"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-svg-not-supported",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(0);
+    expect(supabase.inserts).toHaveLength(0);
+  });
+
+  it("blocks unsupported file types", async () => {
+    const supabase = createSupabaseClientMock();
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "logo",
+          file: createFile("brand-brief.pdf", "application/pdf"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-file-type-not-supported",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(0);
+  });
+
+  it("blocks MIME and extension mismatches before storage writes", async () => {
+    const supabase = createSupabaseClientMock();
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "logo",
+          file: createImageFile("brand-shot.png", "image/jpeg"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-file-extension-mismatch",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(0);
+    expect(supabase.inserts).toHaveLength(0);
+  });
+
+  it("blocks spoofed file contents even when MIME type and extension look allowed", async () => {
+    const supabase = createSupabaseClientMock();
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "logo",
+          file: createFile("neon-logo.png", "image/png", "not-a-real-png"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-file-type-not-supported",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(0);
+    expect(supabase.inserts).toHaveLength(0);
+  });
+
+  it("blocks oversized files before storage writes", async () => {
+    const supabase = createSupabaseClientMock();
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "overlay",
+          file: createFile(
+            "large-overlay.png",
+            "image/png",
+            "x".repeat(5 * 1024 * 1024 + 1),
+          ),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-file-too-large",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(0);
+    expect(supabase.inserts).toHaveLength(0);
+  });
+
+  it("sanitizes unsafe filenames so the storage path stays tenant-scoped", async () => {
+    const supabase = createSupabaseClientMock();
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "panel",
+          file: createImageFile("..\\..//Neon ?Panel!!.png", "image/png"),
+          name: "",
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?status=brand-asset-uploaded",
+    );
+
+    const storagePath = supabase.storageUploads[0]?.path ?? "";
+    expect(
+      storagePath.startsWith("11111111-1111-4111-8111-111111111111/"),
+    ).toBe(true);
+    expect(storagePath).not.toContain("..");
+    expect(storagePath).not.toContain("\\");
+    expect(storagePath).not.toContain("?");
+    expect(storagePath).not.toContain("#");
+    expect(storagePath).toMatch(/neon-panel\.png$/);
+  });
+
+  it("blocks unauthenticated uploads", async () => {
+    mocks.createClient.mockResolvedValue(
+      createSupabaseClientMock({
+        user: null,
+      }) as never,
+    );
+
+    await expect(
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "logo",
+          file: createImageFile("neon-logo.png", "image/png"),
+        }),
+      ),
+    ).rejects.toThrow("REDIRECT:/login");
+
+    const supabase = await mocks.createClient.mock.results[0]?.value;
+    expect(supabase.storageUploads).toHaveLength(0);
+    expect(supabase.inserts).toHaveLength(0);
+  });
+
+  it("returns a secret-safe storage failure", async () => {
     const supabase = createSupabaseClientMock({
-      insertError: { message: "database exploded" },
+      uploadError: new Error("storage internals"),
     });
     mocks.createClient.mockResolvedValue(supabase as never);
 
     await expect(
-      uploadBrandAssetFileAction(createBrandAssetUploadFormData()),
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "logo",
+          file: createImageFile("neon-logo.png", "image/png"),
+        }),
+      ),
     ).rejects.toThrow(
       "REDIRECT:/dashboard/branding?error=brand-asset-upload-failed",
+    );
+
+    expect(supabase.inserts).toHaveLength(0);
+    expect(supabase.storageRemoves).toHaveLength(0);
+  });
+
+  it("attempts cleanup when the database insert fails after storage upload", async () => {
+    const supabase = createSupabaseClientMock({
+      insertError: new Error("db exploded"),
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "logo",
+          file: createImageFile("neon-logo.png", "image/png"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-persist-failed",
     );
 
     expect(supabase.storageUploads).toHaveLength(1);
@@ -129,300 +296,134 @@ describe("branding server actions", () => {
     ]);
   });
 
-  it("rejects malformed form data before Supabase writes", async () => {
-    const supabase = createSupabaseClientMock();
-    mocks.createClient.mockResolvedValue(supabase as never);
-    const formData = createBrandKitFormData();
-    formData.set("configJson", "not-json");
-
-    await expect(createBrandKitAction(formData)).rejects.toThrow(
-      "REDIRECT:/dashboard/branding?error=invalid-brand-kit-config",
-    );
-
-    expect(supabase.inserts).toHaveLength(0);
-    expect(supabase.updates).toHaveLength(0);
-    expect(supabase.deletes).toHaveLength(0);
-  });
-
-  it("redirects to login when the authenticated session is missing", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: null },
-      error: null,
+  it("surfaces cleanup failure without exposing private storage details", async () => {
+    const supabase = createSupabaseClientMock({
+      insertError: new Error("db exploded"),
+      removeError: new Error("cleanup failed"),
     });
+    mocks.createClient.mockResolvedValue(supabase as never);
 
     await expect(
-      createBrandKitAction(createBrandKitFormData()),
-    ).rejects.toThrow("REDIRECT:/login");
-  });
-
-  it("updates only a brand kit owned by the current user", async () => {
-    const supabase = createSupabaseClientMock({
-      existingBrandAsset: {
-        id: "22222222-2222-4222-8222-222222222222",
-      },
-    });
-    mocks.createClient.mockResolvedValue(supabase as never);
-    const formData = createBrandKitFormData({
-      id: "22222222-2222-4222-8222-222222222222",
-      name: "Updated Overlay",
-      status: "draft",
-    });
-
-    await expect(updateBrandKitAction(formData)).rejects.toThrow(
-      "REDIRECT:/dashboard/branding?status=brand-kit-updated",
-    );
-
-    expect(supabase.selects).toEqual([
-      {
-        filters: [
-          ["id", "22222222-2222-4222-8222-222222222222"],
-          ["user_id", "11111111-1111-4111-8111-111111111111"],
-        ],
-        payload: "id",
-        table: "brand_assets",
-      },
-    ]);
-    expect(supabase.updates).toEqual([
-      {
-        asset_type: "overlay",
-        config: {
-          primaryColor: "#00d4aa",
-        },
-        description: "Main overlay.",
-        name: "Updated Overlay",
-        status: "draft",
-      },
-    ]);
-  });
-
-  it("deletes only a brand kit owned by the current user", async () => {
-    const supabase = createSupabaseClientMock({
-      existingBrandAsset: {
-        id: "22222222-2222-4222-8222-222222222222",
-      },
-    });
-    mocks.createClient.mockResolvedValue(supabase as never);
-    const formData = new FormData();
-    formData.set("brandAssetId", "22222222-2222-4222-8222-222222222222");
-
-    await expect(deleteBrandKitAction(formData)).rejects.toThrow(
-      "REDIRECT:/dashboard/branding?status=brand-kit-deleted",
-    );
-
-    expect(supabase.deletes).toEqual([
-      {
-        filters: [
-          ["id", "22222222-2222-4222-8222-222222222222"],
-          ["user_id", "11111111-1111-4111-8111-111111111111"],
-        ],
-        table: "brand_assets",
-      },
-    ]);
-    expect(supabase.storageTouched).toBe(false);
-  });
-
-  it("removes private storage when deleting a stored brand asset", async () => {
-    const supabase = createSupabaseClientMock({
-      existingBrandAsset: {
-        id: "22222222-2222-4222-8222-222222222222",
-        storage_bucket: "brand-assets",
-        storage_path:
-          "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
-      },
-    });
-    mocks.createClient.mockResolvedValue(supabase as never);
-    const formData = new FormData();
-    formData.set("brandAssetId", "22222222-2222-4222-8222-222222222222");
-
-    await expect(deleteBrandKitAction(formData)).rejects.toThrow(
-      "REDIRECT:/dashboard/branding?status=brand-kit-deleted",
+      uploadBrandAssetAction(
+        createUploadFormData({
+          assetType: "logo",
+          file: createImageFile("neon-logo.png", "image/png"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-cleanup-failed",
     );
 
     expect(supabase.storageRemoves).toEqual([
       {
         bucket: "brand-assets",
-        paths: [
-          "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
-        ],
+        paths: [supabase.storageUploads[0]?.path],
       },
     ]);
-    expect(supabase.deletes).toHaveLength(1);
-  });
-
-  it("does not leak raw storage errors when delete cleanup fails", async () => {
-    const supabase = createSupabaseClientMock({
-      existingBrandAsset: {
-        id: "22222222-2222-4222-8222-222222222222",
-        storage_bucket: "brand-assets",
-        storage_path:
-          "11111111-1111-4111-8111-111111111111/logo/22222222-2222-4222-8222-222222222222/neon-logo.png",
-      },
-      removeError: { message: "signed internal storage failure" },
-    });
-    mocks.createClient.mockResolvedValue(supabase as never);
-    const formData = new FormData();
-    formData.set("brandAssetId", "22222222-2222-4222-8222-222222222222");
-
-    await expect(deleteBrandKitAction(formData)).rejects.toThrow(
-      "REDIRECT:/dashboard/branding?error=brand-asset-storage-delete-failed",
-    );
-
-    expect(supabase.deletes).toHaveLength(0);
   });
 });
 
-function createBrandKitFormData({
-  id,
-  name = "Neon Overlay",
-  status = "active",
+function createUploadFormData({
+  assetType,
+  file,
+  name = "Neon Logo",
 }: {
-  id?: string;
+  assetType: string;
+  file: File;
   name?: string;
-  status?: string;
-} = {}) {
+}) {
   const formData = new FormData();
-
-  formData.set("assetType", "overlay");
-  formData.set("configJson", '{"primaryColor":"#00d4aa"}');
-  formData.set("description", "Main overlay.");
+  formData.set("assetType", assetType);
+  formData.set("assetFile", file);
+  formData.set("description", "Primary brand asset.");
   formData.set("name", name);
-  formData.set("status", status);
-
-  if (id) {
-    formData.set("brandAssetId", id);
-  }
-
   return formData;
 }
 
-function createBrandAssetUploadFormData() {
-  const formData = new FormData();
+function createFile(name: string, type: string, content: BlobPart = "content") {
+  return new File([content], name, { type });
+}
 
-  formData.set(
-    "assetFile",
-    new File(["safe image"], "Neon Logo.PNG", { type: "image/png" }),
-  );
-  formData.set("assetType", "logo");
-  formData.set("name", "Neon Logo");
-  formData.set("status", "draft");
+function createImageFile(
+  name: string,
+  type: "image/jpeg" | "image/png" | "image/webp",
+) {
+  const contents = {
+    "image/jpeg": toArrayBuffer([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43]),
+    "image/png": toArrayBuffer([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ]),
+    "image/webp": toArrayBuffer([
+      0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+    ]),
+  } satisfies Record<typeof type, ArrayBuffer>;
 
-  return formData;
+  return createFile(name, type, contents[type]);
+}
+
+function toArrayBuffer(bytes: number[]): ArrayBuffer {
+  return Uint8Array.from(bytes).buffer;
 }
 
 function createSupabaseClientMock({
-  existingBrandAsset = null,
   insertError = null,
   removeError = null,
+  uploadError = null,
+  user = {
+    id: "11111111-1111-4111-8111-111111111111",
+  },
+  userError = null,
 }: {
-  existingBrandAsset?: {
-    id: string;
-    storage_bucket?: string | null;
-    storage_path?: string | null;
-  } | null;
-  insertError?: { message: string } | null;
-  removeError?: { message: string } | null;
+  insertError?: unknown;
+  removeError?: unknown;
+  uploadError?: unknown;
+  user?: { id: string } | null;
+  userError?: unknown;
 } = {}) {
-  const inserts: unknown[] = [];
-  const updates: unknown[] = [];
+  const inserts: Array<Record<string, unknown>> = [];
   const storageUploads: Array<{
     bucket: string;
-    options: { contentType: string; upsert: boolean };
+    options: {
+      contentType: string;
+      upsert: boolean;
+    };
     path: string;
   }> = [];
   const storageRemoves: Array<{
     bucket: string;
-    paths: string[];
+    paths: Array<string | undefined>;
   }> = [];
-  const deletes: Array<{
-    filters: Array<[string, string]>;
-    table: string;
-  }> = [];
-  const selects: Array<{
-    filters: Array<[string, string]>;
-    payload: string;
-    table: string;
-  }> = [];
-  let currentFilters: Array<[string, string]> = [];
-  let currentPayload = "";
-  let currentTable = "";
-
-  const builder = {
-    delete: vi.fn(() => {
-      return builder;
-    }),
-    eq: vi.fn((field: string, value: string) => {
-      currentFilters.push([field, value]);
-      return builder;
-    }),
-    insert: vi.fn(async (payload: unknown) => {
-      inserts.push(payload);
-      return { error: insertError };
-    }),
-    maybeSingle: vi.fn(async () => {
-      selects.push({
-        filters: [...currentFilters],
-        payload: currentPayload,
-        table: currentTable,
-      });
-      currentFilters = [];
-
-      return {
-        data: existingBrandAsset,
-        error: null,
-      };
-    }),
-    select: vi.fn((payload: string) => {
-      currentPayload = payload;
-      return builder;
-    }),
-    update: vi.fn((payload: unknown) => {
-      updates.push(payload);
-      return builder;
-    }),
-  };
 
   return {
     auth: {
-      getUser: mocks.getUser,
+      getUser: vi.fn().mockResolvedValue({
+        data: {
+          user,
+        },
+        error: userError,
+      }),
     },
-    deletes,
-    from: vi.fn((table: string) => {
-      currentTable = table;
+    from: vi.fn(() => ({
+      insert: vi.fn(async (payload: Record<string, unknown>) => {
+        inserts.push(payload);
 
-      return {
-        ...builder,
-        delete: vi.fn(() => ({
-          eq: vi.fn((field: string, value: string) => {
-            currentFilters.push([field, value]);
-
-            return {
-              eq: vi.fn(async (secondField: string, secondValue: string) => {
-                currentFilters.push([secondField, secondValue]);
-                deletes.push({
-                  filters: [...currentFilters],
-                  table,
-                });
-                currentFilters = [];
-
-                return { error: null };
-              }),
-            };
-          }),
-        })),
-      };
-    }),
+        return {
+          data: insertError ? null : {},
+          error: insertError,
+        };
+      }),
+    })),
     inserts,
-    selects,
     storage: {
       from: vi.fn((bucket: string) => ({
-        remove: vi.fn(async (paths: string[]) => {
+        remove: vi.fn(async (paths: Array<string | undefined>) => {
           storageRemoves.push({
             bucket,
             paths,
           });
 
           return {
-            data: null,
+            data: removeError ? null : {},
             error: removeError,
           };
         }),
@@ -439,20 +440,14 @@ function createSupabaseClientMock({
             });
 
             return {
-              data: {
-                path,
-              },
-              error: null,
+              data: uploadError ? null : { path },
+              error: uploadError,
             };
           },
         ),
       })),
     },
-    get storageTouched() {
-      return storageUploads.length > 0 || storageRemoves.length > 0;
-    },
     storageRemoves,
     storageUploads,
-    updates,
   };
 }
