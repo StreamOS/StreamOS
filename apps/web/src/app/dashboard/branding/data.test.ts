@@ -101,6 +101,14 @@ describe("getBrandingDashboardData", () => {
         createBrandAssetRow({
           asset_type: "logo",
           channel_id: "channel-1",
+          metadata: {
+            upload: {
+              content_type: "image/png",
+              file_extension: "png",
+              file_size_bytes: 2048,
+              stored_filename: "neon-logo.png",
+            },
+          },
           storage_bucket: "brand-assets",
           storage_path:
             "11111111-1111-4111-8111-111111111111/logo/asset-1/neon-logo.png",
@@ -132,11 +140,18 @@ describe("getBrandingDashboardData", () => {
         url: expect.stringMatching(/^https:\/\/signed\.example\/preview-\d+$/),
       },
       storageState: "attached",
+      uploadMetadata: {
+        contentType: "image/png",
+        fileExtension: "png",
+        fileSizeBytes: 2048,
+        status: "available",
+        storedFilename: "neon-logo.png",
+      },
       usageContext: "NovaPlays Live",
     });
     expect(data.items[0]?.preview.expiresAt).toEqual(expect.any(String));
     expect(supabase.selects[0]).toEqual(
-      "asset_type,channel_id,created_at,description,id,name,status,storage_bucket,storage_path,updated_at",
+      "asset_type,channel_id,created_at,description,id,metadata,name,status,storage_bucket,storage_path,updated_at",
     );
     expect(supabase.selects[0]).not.toContain("public_url");
     expect(supabase.signedUrlRequests).toEqual([
@@ -203,8 +218,37 @@ describe("getBrandingDashboardData", () => {
       status: "unavailable",
       url: null,
     });
+    expect(data.items[0]?.uploadMetadata.status).toBe("unavailable");
     expect(supabase.signedUrlRequests).toHaveLength(0);
     expect(supabase.storageTouched).toBe(false);
+  });
+
+  it("keeps older assets without upload metadata page-safe and allows conservative extension fallback", async () => {
+    const supabase = createSupabaseClientMock({
+      rows: [
+        createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: null,
+          metadata: null,
+          storage_bucket: "brand-assets",
+          storage_path:
+            "11111111-1111-4111-8111-111111111111/logo/asset-1/legacy-logo.png",
+        }),
+      ],
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.items[0]?.uploadMetadata).toEqual({
+      contentType: null,
+      fileExtension: null,
+      fileSizeBytes: null,
+      status: "unavailable",
+      storedFilename: null,
+    });
+    expect(data.items[0]?.preview.status).toBe("available");
+    expect(supabase.signedUrlRequests).toHaveLength(1);
   });
 
   it("rejects previews for tenant-foreign storage paths before signing", async () => {
@@ -254,6 +298,76 @@ describe("getBrandingDashboardData", () => {
       status: "unsupported",
       url: null,
     });
+    expect(supabase.signedUrlRequests).toHaveLength(0);
+  });
+
+  it("blocks preview signing when upload metadata content type and extension disagree", async () => {
+    const supabase = createSupabaseClientMock({
+      rows: [
+        createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: null,
+          metadata: {
+            upload: {
+              content_type: "image/jpeg",
+              file_extension: "png",
+              file_size_bytes: 1200,
+              stored_filename: "brand-shot.png",
+            },
+          },
+          storage_bucket: "brand-assets",
+          storage_path:
+            "11111111-1111-4111-8111-111111111111/logo/asset-1/brand-shot.png",
+        }),
+      ],
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.items[0]?.uploadMetadata.status).toBe("available");
+    expect(data.items[0]?.preview).toEqual({
+      expiresAt: null,
+      reason: "unsupported_file_type",
+      status: "unsupported",
+      url: null,
+    });
+    expect(supabase.signedUrlRequests).toHaveLength(0);
+  });
+
+  it("marks invalid upload metadata without crashing the page or exposing unsafe filenames", async () => {
+    const supabase = createSupabaseClientMock({
+      rows: [
+        createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: null,
+          metadata: {
+            upload: {
+              content_type: "image/png",
+              file_extension: "png",
+              file_size_bytes: 1200,
+              stored_filename: "../unsafe-logo.png",
+            },
+          },
+          storage_bucket: "brand-assets",
+          storage_path:
+            "11111111-1111-4111-8111-111111111111/logo/asset-1/unsafe-logo.png",
+        }),
+      ],
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.state).toBe("ready");
+    expect(data.items[0]?.uploadMetadata).toEqual({
+      contentType: "image/png",
+      fileExtension: "png",
+      fileSizeBytes: 1200,
+      status: "invalid",
+      storedFilename: null,
+    });
+    expect(data.items[0]?.preview.status).toBe("unsupported");
     expect(supabase.signedUrlRequests).toHaveLength(0);
   });
 
@@ -315,6 +429,7 @@ function createBrandAssetRow({
   asset_type,
   channel_id,
   id = "22222222-2222-4222-8222-222222222222",
+  metadata = null,
   name = "Neon Logo",
   storage_bucket,
   storage_path,
@@ -322,6 +437,7 @@ function createBrandAssetRow({
   asset_type: string;
   channel_id: string | null;
   id?: string;
+  metadata?: Record<string, unknown> | null;
   name?: string;
   storage_bucket: string | null;
   storage_path: string | null;
@@ -332,6 +448,7 @@ function createBrandAssetRow({
     created_at: "2026-06-22T10:00:00.000Z",
     description: "Private logo.",
     id,
+    metadata,
     name,
     status: "active",
     storage_bucket,

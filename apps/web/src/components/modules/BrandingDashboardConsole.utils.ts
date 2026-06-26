@@ -11,6 +11,7 @@ import {
   type BrandingDashboardPreviewReason,
   type BrandingDashboardPreviewStatus,
   type BrandingDashboardReadModel,
+  type BrandingDashboardUploadMetadata,
   type StreamPlatform,
 } from "@streamos/types";
 
@@ -249,6 +250,45 @@ export function formatBrandingPreviewReasonLabel(
   }
 }
 
+export function formatBrandingUploadMetadataStatusLabel(
+  metadata: BrandingDashboardUploadMetadata,
+): string {
+  switch (metadata.status) {
+    case "available":
+      return "Metadata verfuegbar";
+    case "invalid":
+      return "Metadata ungueltig";
+    case "unavailable":
+      return "Metadata unavailable";
+  }
+}
+
+export function formatBrandingUploadMetadataTypeLabel(
+  metadata: BrandingDashboardUploadMetadata,
+): string {
+  if (!metadata.contentType || !metadata.fileExtension) {
+    return formatBrandingUploadMetadataStatusLabel(metadata);
+  }
+
+  return `${metadata.fileExtension.toUpperCase()} (${metadata.contentType})`;
+}
+
+export function formatBrandingFileSizeLabel(value: number | null): string {
+  if (value === null) {
+    return "Nicht verfuegbar";
+  }
+
+  if (value < 1024) {
+    return `${value} B`;
+  }
+
+  if (value < 1024 * 1024) {
+    return `${formatBrandingFileSizeUnit(value / 1024)} KB`;
+  }
+
+  return `${formatBrandingFileSizeUnit(value / (1024 * 1024))} MB`;
+}
+
 export function formatBrandingFutureActionLabel(
   action: BrandingDashboardFutureAction["action"],
 ): string {
@@ -327,4 +367,9 @@ function isKnownAssetType(value: string): boolean {
 
 function buildBrandingAssetFutureActions(): BrandingDashboardFutureAction[] {
   return [mutationContract.replace, mutationContract.delete];
+}
+
+function formatBrandingFileSizeUnit(value: number): string {
+  const rounded = value >= 10 ? value.toFixed(0) : value.toFixed(1);
+  return rounded.endsWith(".0") ? rounded.slice(0, -2) : rounded;
 }

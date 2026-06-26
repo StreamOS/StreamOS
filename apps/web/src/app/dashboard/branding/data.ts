@@ -4,6 +4,7 @@ import {
   type BrandingDashboardAsset,
   type BrandingDashboardLookupIssue,
   type BrandingDashboardPreview,
+  type BrandingDashboardUploadMetadata,
 } from "@streamos/types";
 import {
   buildBrandingDashboardModel,
@@ -22,6 +23,7 @@ type BrandAssetRow = Omit<
     | "created_at"
     | "description"
     | "id"
+    | "metadata"
     | "name"
     | "status"
     | "storage_bucket"
@@ -55,7 +57,7 @@ export async function getBrandingDashboardData(): Promise<BrandingDashboardModel
   const { data, error } = await supabase
     .from("brand_assets")
     .select(
-      "asset_type,channel_id,created_at,description,id,name,status,storage_bucket,storage_path,updated_at",
+      "asset_type,channel_id,created_at,description,id,metadata,name,status,storage_bucket,storage_path,updated_at",
     )
     .eq("user_id", userData.user.id)
     .order("updated_at", { ascending: false })
@@ -87,6 +89,7 @@ export async function getBrandingDashboardData(): Promise<BrandingDashboardModel
               client: supabase,
               storageBucket: row.storage_bucket,
               storagePath: row.storage_path,
+              uploadMetadata: parseBrandAssetUploadMetadata(row.metadata),
               userId: userData.user.id,
             }),
           ] as const,
@@ -170,6 +173,7 @@ function normalizeBrandAsset(
 ): BrandingDashboardBaseAsset {
   const channel =
     row.channel_id !== null ? (channelsById.get(row.channel_id) ?? null) : null;
+  const uploadMetadata = parseBrandAssetUploadMetadata(row.metadata);
 
   return {
     assetType: row.asset_type,
@@ -182,6 +186,7 @@ function normalizeBrandAsset(
     preview,
     status: row.status,
     storageState: resolveStorageState(row.storage_bucket, row.storage_path),
+    uploadMetadata,
     updatedAt: row.updated_at,
     usageContext: channel?.display_name ?? null,
   };
@@ -210,4 +215,189 @@ function uniqueIds(values: Array<string | null>): string[] {
   return [
     ...new Set(values.filter((value): value is string => value !== null)),
   ];
+}
+
+function parseBrandAssetUploadMetadata(
+  metadata: Tables<"brand_assets">["metadata"],
+): BrandingDashboardUploadMetadata {
+  if (!isPlainObject(metadata)) {
+    return createUnavailableUploadMetadata();
+  }
+
+  if (!Object.hasOwn(metadata, "upload")) {
+    return createUnavailableUploadMetadata();
+  }
+
+  const upload = metadata.upload;
+
+  if (!isPlainObject(upload)) {
+    return createInvalidUploadMetadata();
+  }
+
+  let hasInvalidField = false;
+  let hasMissingField = false;
+
+  const contentType = readOptionalUploadString(upload, "content_type");
+  if (contentType === INVALID_UPLOAD_STRING) {
+    hasInvalidField = true;
+  } else if (contentType === null) {
+    hasMissingField = true;
+  }
+
+  const fileExtension = readOptionalUploadString(upload, "file_extension");
+  if (fileExtension === INVALID_UPLOAD_STRING) {
+    hasInvalidField = true;
+  } else if (fileExtension === null) {
+    hasMissingField = true;
+  }
+
+  const fileSizeBytes = readOptionalUploadFileSize(upload, "file_size_bytes");
+  if (fileSizeBytes === INVALID_UPLOAD_NUMBER) {
+    hasInvalidField = true;
+  } else if (fileSizeBytes === null) {
+    hasMissingField = true;
+  }
+
+  const storedFilename = readOptionalUploadStoredFilename(
+    upload,
+    "stored_filename",
+  );
+  if (storedFilename === INVALID_UPLOAD_STRING) {
+    hasInvalidField = true;
+  } else if (storedFilename === null) {
+    hasMissingField = true;
+  }
+
+  if (hasInvalidField) {
+    return {
+      contentType: normalizeUploadString(contentType),
+      fileExtension: normalizeUploadExtension(fileExtension),
+      fileSizeBytes: normalizeUploadFileSize(fileSizeBytes),
+      status: "invalid",
+      storedFilename: normalizeUploadString(storedFilename),
+    };
+  }
+
+  if (hasMissingField) {
+    return {
+      contentType: normalizeUploadString(contentType),
+      fileExtension: normalizeUploadExtension(fileExtension),
+      fileSizeBytes: normalizeUploadFileSize(fileSizeBytes),
+      status: "unavailable",
+      storedFilename: normalizeUploadString(storedFilename),
+    };
+  }
+
+  return {
+    contentType: normalizeUploadString(contentType),
+    fileExtension: normalizeUploadExtension(fileExtension),
+    fileSizeBytes: normalizeUploadFileSize(fileSizeBytes),
+    status: "available",
+    storedFilename: normalizeUploadString(storedFilename),
+  };
+}
+
+const INVALID_UPLOAD_STRING = Symbol("invalid-upload-string");
+const INVALID_UPLOAD_NUMBER = Symbol("invalid-upload-number");
+
+function createUnavailableUploadMetadata(): BrandingDashboardUploadMetadata {
+  return {
+    contentType: null,
+    fileExtension: null,
+    fileSizeBytes: null,
+    status: "unavailable",
+    storedFilename: null,
+  };
+}
+
+function createInvalidUploadMetadata(): BrandingDashboardUploadMetadata {
+  return {
+    contentType: null,
+    fileExtension: null,
+    fileSizeBytes: null,
+    status: "invalid",
+    storedFilename: null,
+  };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readOptionalUploadString(
+  value: Record<string, unknown>,
+  key: string,
+): string | null | typeof INVALID_UPLOAD_STRING {
+  if (!Object.hasOwn(value, key) || value[key] == null) {
+    return null;
+  }
+
+  if (typeof value[key] !== "string") {
+    return INVALID_UPLOAD_STRING;
+  }
+
+  const normalized = value[key].trim();
+  return normalized.length > 0 ? normalized : INVALID_UPLOAD_STRING;
+}
+
+function readOptionalUploadFileSize(
+  value: Record<string, unknown>,
+  key: string,
+): number | null | typeof INVALID_UPLOAD_NUMBER {
+  if (!Object.hasOwn(value, key) || value[key] == null) {
+    return null;
+  }
+
+  if (
+    typeof value[key] !== "number" ||
+    !Number.isSafeInteger(value[key]) ||
+    value[key] <= 0
+  ) {
+    return INVALID_UPLOAD_NUMBER;
+  }
+
+  return value[key];
+}
+
+function readOptionalUploadStoredFilename(
+  value: Record<string, unknown>,
+  key: string,
+): string | null | typeof INVALID_UPLOAD_STRING {
+  const rawValue = readOptionalUploadString(value, key);
+
+  if (rawValue === null || rawValue === INVALID_UPLOAD_STRING) {
+    return rawValue;
+  }
+
+  if (
+    rawValue.includes("/") ||
+    rawValue.includes("\\") ||
+    rawValue.includes("://") ||
+    rawValue.includes("?") ||
+    rawValue.includes("#")
+  ) {
+    return INVALID_UPLOAD_STRING;
+  }
+
+  return rawValue;
+}
+
+function normalizeUploadString(
+  value: string | null | typeof INVALID_UPLOAD_STRING,
+): string | null {
+  return value === INVALID_UPLOAD_STRING ? null : value;
+}
+
+function normalizeUploadExtension(
+  value: string | null | typeof INVALID_UPLOAD_STRING,
+): string | null {
+  return value === INVALID_UPLOAD_STRING || value === null
+    ? null
+    : value.toLowerCase();
+}
+
+function normalizeUploadFileSize(
+  value: number | null | typeof INVALID_UPLOAD_NUMBER,
+): number | null {
+  return value === INVALID_UPLOAD_NUMBER ? null : value;
 }

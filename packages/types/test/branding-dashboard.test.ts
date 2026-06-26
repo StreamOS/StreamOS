@@ -55,6 +55,13 @@ const sampleReadModel = {
       },
       status: "active",
       storageState: "attached",
+      uploadMetadata: {
+        contentType: "image/png",
+        fileExtension: "png",
+        fileSizeBytes: 2048,
+        status: "available",
+        storedFilename: "neon-logo.png",
+      },
       updatedAt: "2026-06-26T10:00:00.000Z",
       usageContext: "NovaPlays Live",
     },
@@ -86,6 +93,13 @@ const sampleReadModel = {
       },
       status: "draft",
       storageState: "none",
+      uploadMetadata: {
+        contentType: null,
+        fileExtension: null,
+        fileSizeBytes: null,
+        status: "unavailable",
+        storedFilename: null,
+      },
       updatedAt: "2026-06-25T10:00:00.000Z",
       usageContext: null,
     },
@@ -162,11 +176,17 @@ void test("branding dashboard read model stays read-only and tolerant of unknown
   assert.equal(sampleReadModel.items[0]?.storageState, "attached");
   assert.equal(sampleReadModel.items[0]?.futureActions[0]?.available, false);
   assert.equal(sampleReadModel.items[0]?.preview.status, "available");
+  assert.equal(
+    sampleReadModel.items[0]?.uploadMetadata.contentType,
+    "image/png",
+  );
+  assert.equal(sampleReadModel.items[0]?.uploadMetadata.status, "available");
   assert.equal(sampleReadModel.items[1]?.assetType, "mystery_pack");
   assert.equal(
     sampleReadModel.items[1]?.preview.reason,
     "unsupported_file_type",
   );
+  assert.equal(sampleReadModel.items[1]?.uploadMetadata.status, "unavailable");
   assert.equal(sampleReadModel.summary.unknownTypeCount, 1);
   assert.equal(sampleReadModel.coverage.platformCount, 1);
   assert.equal(sampleReadModel.typeDistribution[0]?.key, "logo");

@@ -74,6 +74,19 @@ export type BrandingDashboardPreview = {
   url: string | null;
 };
 
+export type BrandingDashboardUploadMetadataStatus =
+  | "available"
+  | "invalid"
+  | "unavailable";
+
+export type BrandingDashboardUploadMetadata = {
+  contentType: string | null;
+  fileExtension: string | null;
+  fileSizeBytes: number | null;
+  status: BrandingDashboardUploadMetadataStatus;
+  storedFilename: string | null;
+};
+
 export type BrandingDashboardAsset = {
   assetType: BrandAssetType | string;
   channelId: string | null;
@@ -86,6 +99,7 @@ export type BrandingDashboardAsset = {
   preview: BrandingDashboardPreview;
   status: BrandAssetStatus | string;
   storageState: BrandingDashboardStorageState;
+  uploadMetadata: BrandingDashboardUploadMetadata;
   updatedAt: string;
   usageContext: string | null;
 };

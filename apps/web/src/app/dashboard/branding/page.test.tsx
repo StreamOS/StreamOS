@@ -73,6 +73,13 @@ describe("BrandingPage", () => {
           },
           status: "active",
           storageState: "attached",
+          uploadMetadata: {
+            contentType: "image/png",
+            fileExtension: "png",
+            fileSizeBytes: 2048,
+            status: "available",
+            storedFilename: "neon-overlay.png",
+          },
           updatedAt: "2026-06-26T10:00:00.000Z",
           usageContext: "NovaPlays Live",
         },
@@ -92,6 +99,13 @@ describe("BrandingPage", () => {
           },
           status: "draft",
           storageState: "incomplete",
+          uploadMetadata: {
+            contentType: null,
+            fileExtension: null,
+            fileSizeBytes: null,
+            status: "unavailable",
+            storedFilename: null,
+          },
           updatedAt: "2026-06-25T10:00:00.000Z",
           usageContext: null,
         },
@@ -117,6 +131,10 @@ describe("BrandingPage", () => {
     expect(html).toContain("Contract only");
     expect(html).toContain("blocked");
     expect(html).toContain('alt="Neon Overlay preview"');
+    expect(html).toContain("PNG (image/png)");
+    expect(html).toContain("2 KB");
+    expect(html).toContain("neon-overlay.png");
+    expect(html).toContain("Metadata unavailable");
     expect(html).toContain("Kurzlebige Preview fuer diese Dashboard-Response");
     expect(html).toContain("Kein gerendertes Thumbnail");
     expect(html).not.toContain("brand-assets/");
@@ -197,6 +215,13 @@ describe("BrandingPage", () => {
           },
           status: "active",
           storageState: "none",
+          uploadMetadata: {
+            contentType: null,
+            fileExtension: null,
+            fileSizeBytes: null,
+            status: "unavailable",
+            storedFilename: null,
+          },
           updatedAt: "2026-06-26T10:00:00.000Z",
           usageContext: null,
         },
@@ -246,6 +271,13 @@ describe("BrandingPage", () => {
           },
           status: "active",
           storageState: "attached",
+          uploadMetadata: {
+            contentType: "image/png",
+            fileExtension: "png",
+            fileSizeBytes: 2048,
+            status: "available",
+            storedFilename: "neon-logo.png",
+          },
           updatedAt: "2026-06-26T10:00:00.000Z",
           usageContext: null,
         },
@@ -265,6 +297,13 @@ describe("BrandingPage", () => {
           },
           status: "draft",
           storageState: "attached",
+          uploadMetadata: {
+            contentType: "image/webp",
+            fileExtension: "webp",
+            fileSizeBytes: 4096,
+            status: "available",
+            storedFilename: "fallback-overlay.webp",
+          },
           updatedAt: "2026-06-26T10:00:00.000Z",
           usageContext: null,
         },
@@ -282,6 +321,55 @@ describe("BrandingPage", () => {
     expect(html).toContain("Fallback Overlay");
     expect(html).toContain("Preview konnte nicht erzeugt werden");
     expect(html).not.toContain("Brand Assets konnten nicht geladen werden");
+  });
+
+  it("renders invalid upload metadata without exposing path-like filenames", async () => {
+    const model = buildBrandingDashboardModel({
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 1,
+      },
+      items: [
+        {
+          assetType: "logo",
+          channelId: null,
+          createdAt: "2026-06-26T08:00:00.000Z",
+          description: "Primary logo.",
+          id: "asset-1",
+          name: "Unsafe Logo",
+          platform: null,
+          preview: {
+            expiresAt: null,
+            reason: "unsupported_file_type",
+            status: "unsupported",
+            url: null,
+          },
+          status: "active",
+          storageState: "attached",
+          uploadMetadata: {
+            contentType: "image/png",
+            fileExtension: "png",
+            fileSizeBytes: 1200,
+            status: "invalid",
+            storedFilename: null,
+          },
+          updatedAt: "2026-06-26T10:00:00.000Z",
+          usageContext: null,
+        },
+      ],
+      lookupIssues: [],
+      state: "ready",
+      userId: "user-8",
+    });
+
+    mocks.getBrandingDashboardData.mockResolvedValue(model);
+
+    const html = renderToStaticMarkup(await BrandingPage());
+
+    expect(html).toContain("Metadata ungueltig");
+    expect(html).not.toContain("../unsafe-logo.png");
+    expect(html).not.toContain("brand-assets/");
   });
 
   it("renders a safe setup notice when branding is disabled", async () => {

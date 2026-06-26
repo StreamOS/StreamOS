@@ -10,12 +10,15 @@ import {
   formatBrandingAssetStatusLabel,
   formatBrandingAssetTypeLabel,
   formatBrandingDateTime,
+  formatBrandingFileSizeLabel,
   formatBrandingFutureActionLabel,
   formatBrandingMutationReasonLabel,
   formatBrandingPlatformLabel,
   formatBrandingPreviewReasonLabel,
   formatBrandingPreviewStatusLabel,
   formatBrandingStorageStateLabel,
+  formatBrandingUploadMetadataStatusLabel,
+  formatBrandingUploadMetadataTypeLabel,
   type BrandingDashboardModel,
 } from "./BrandingDashboardConsole.utils";
 
@@ -391,6 +394,42 @@ export function BrandingDashboardConsole({
                 <p className="mt-2 text-sm leading-6 text-slate-400">
                   {item.description ?? "Keine Asset-Beschreibung vorhanden."}
                 </p>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <InfoTile
+                    label="Dateityp"
+                    value={formatBrandingUploadMetadataTypeLabel(
+                      item.uploadMetadata,
+                    )}
+                  />
+                  <InfoTile
+                    label="Dateigroesse"
+                    value={
+                      item.uploadMetadata.status === "available"
+                        ? formatBrandingFileSizeLabel(
+                            item.uploadMetadata.fileSizeBytes,
+                          )
+                        : formatBrandingUploadMetadataStatusLabel(
+                            item.uploadMetadata,
+                          )
+                    }
+                  />
+                  <InfoTile
+                    label="Stored Filename"
+                    value={
+                      item.uploadMetadata.storedFilename ??
+                      formatBrandingUploadMetadataStatusLabel(
+                        item.uploadMetadata,
+                      )
+                    }
+                  />
+                  <InfoTile
+                    label="Metadata Status"
+                    value={formatBrandingUploadMetadataStatusLabel(
+                      item.uploadMetadata,
+                    )}
+                  />
+                </div>
 
                 <div className="mt-4 space-y-2 rounded-lg border border-dashed border-white/10 bg-surface-950/70 p-4">
                   <div className="flex items-center justify-between gap-3">
