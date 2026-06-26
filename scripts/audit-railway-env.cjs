@@ -2,7 +2,7 @@
 
 const { mkdtempSync, readFileSync, rmSync } = require("node:fs");
 const os = require("node:os");
-const { join, resolve } = require("node:path");
+const { isAbsolute, join, resolve } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
 const { consumeValueFlag } = require("./lib/cli-args.cjs");
@@ -302,10 +302,10 @@ function runCommand(
   const needsWindowsCommandProcessor =
     process.platform === "win32" && /\.(?:cmd|bat)$/i.test(resolvedCommand);
   const executable = needsWindowsCommandProcessor
-    ? process.env.ComSpec || "cmd.exe"
+    ? resolveWindowsSystemTool("cmd.exe")
     : resolvedCommand;
   const executableArgs = needsWindowsCommandProcessor
-    ? ["/d", "/s", "/c", resolvedCommand, ...args]
+    ? buildWindowsCommandProcessorArgs(resolvedCommand, args)
     : args;
   const result = spawnSync(executable, executableArgs, {
     cwd,
@@ -313,6 +313,7 @@ function runCommand(
     env,
     input,
     stdio: "pipe",
+    windowsVerbatimArguments: needsWindowsCommandProcessor,
   });
 
   if (result.error) {
@@ -348,7 +349,7 @@ function resolveWindowsCommand(command, env) {
     return command;
   }
 
-  const lookup = spawnSync("where.exe", [command], {
+  const lookup = spawnSync(resolveWindowsSystemTool("where.exe"), [command], {
     encoding: "utf8",
     env,
     stdio: "pipe",
@@ -371,6 +372,51 @@ function selectWindowsCommandCandidate(output, fallbackCommand) {
   );
 
   return executableCandidate ?? candidates[0] ?? fallbackCommand;
+}
+
+function buildWindowsCommandProcessorArgs(command, args) {
+  return [
+    "/d",
+    "/s",
+    "/c",
+    `"${[
+      quoteWindowsCommandProcessorValue(command, "Windows command"),
+      ...args.map((arg, index) =>
+        quoteWindowsCommandProcessorValue(
+          arg,
+          `Windows command argument ${index + 1}`,
+        ),
+      ),
+    ].join(" ")}"`,
+  ];
+}
+
+function quoteWindowsCommandProcessorValue(value, label) {
+  const normalized = String(value);
+
+  if (/[\0\r\n]/u.test(normalized)) {
+    throw new Error(`${label} contains unsupported control characters.`);
+  }
+
+  if (normalized.includes("%")) {
+    throw new Error(
+      `${label} contains % which cannot be forwarded safely through the Windows command processor.`,
+    );
+  }
+
+  return `"${normalized.replace(/"/g, '""')}"`;
+}
+
+function resolveWindowsSystemTool(toolName) {
+  const systemRoot =
+    readNonEmptyEnv(process.env, "SystemRoot") ??
+    readNonEmptyEnv(process.env, "windir");
+
+  if (systemRoot && isAbsolute(systemRoot) && !/[\0\r\n"%]/u.test(systemRoot)) {
+    return join(systemRoot, "System32", toolName);
+  }
+
+  return join("C:\\Windows", "System32", toolName);
 }
 
 function parseJsonOutput(output, description) {
@@ -1178,6 +1224,7 @@ if (require.main === module) {
 
 module.exports = {
   DEFAULT_TIMEOUT_MS,
+  buildWindowsCommandProcessorArgs,
   buildServiceConfigIndex,
   buildRailwayCommandEnv,
   main,
