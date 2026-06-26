@@ -1,234 +1,772 @@
 # StreamOS Monorepo
 
-StreamOS is an AI-assisted operating layer for streamers. The platform combines discoverability, monetization insights, content automation, branding tools, multi-platform management, and analytics in one modular product surface.
+**StreamOS** is an AI-assisted creator operations platform for streamers, creators, and content teams. It combines discoverability, SEO, monetization insights, content automation, branding tools, multi-platform management, publishing workflows, and analytics in one modular product surface.
 
-## Workspace
+This README is the operational entry point for local development, Codex work, validation, deployment awareness, and safe operator handoff.
 
-This repository uses `pnpm` workspaces and Turborepo for parallel builds, task orchestration, and build caching.
+Last updated: **2026-06-26**
+
+---
+
+## 1. Current Status Snapshot
+
+StreamOS is currently in a **maintenance and stabilization-first phase** while product modules continue to move forward in small, reviewable slices.
+
+Active priorities:
+
+1. Keep Security, CodeQL, Env, Auth, OAuth, Gateway, Worker, and Release-Gate findings clean.
+2. Keep provider OAuth and provider writes gateway-owned/server-owned.
+3. Keep dashboard modules creator-safe, tenant-scoped, and browser-safe.
+4. Expand product modules only on top of existing contracts.
+5. Treat staging/production proof as separate from local validation.
+
+Active dashboard/product surfaces:
+
+- Growth / SEO Intelligence: `/dashboard/growth`
+- Analytics Expansion: `/dashboard/analytics`
+- Monetization Dashboard: `/dashboard/monetization`
+- Branding Dashboard: `/dashboard/branding`
+- Jobs / Publications / Schedule surfaces where enabled by the current branch
+
+Current product rule:
+
+> Read-first and tenant-safe surfaces are preferred before new write-heavy flows. Provider writes, publishing, reconciliation, storage policy changes, and production gates require explicit operator awareness.
+
+---
+
+## 2. Source of Truth
+
+Use these files in this order when resolving conflicts:
+
+1. Current task or operator instruction.
+2. `README.md` for local setup, repo orientation, and common commands.
+3. `architecture.md` or `docs/architecture.md` for service boundaries and data ownership.
+4. `deployment.md` or `docs/deployment.md` for runtime topology, environment ownership, audits, and gates.
+5. `AGENTS.md` for Codex behavior inside the repository.
+6. `docs/ai/00_prompt_architect_master.md` for Prompt-Architect behavior.
+7. `docs/ai/01_security_and_stabilization.md` for security/stabilization rules.
+8. `docs/ai/02_roadmap_and_next_slices.md` for active roadmap direction.
+9. `docs/ai/03_codex_prompt_patterns.md` for reusable Codex prompt shapes.
+10. Existing code, package-local README files, tests, scripts, and migrations.
+
+Conflict rules:
+
+- For security, use the stricter rule.
+- For service ownership, use `architecture.md`.
+- For production/deployment behavior, use `deployment.md`.
+- For current prioritization, use the roadmap document or latest operator instruction.
+- Never invent secrets, private URLs, provider credentials, or production state in documentation.
+
+---
+
+## 3. Workspace
+
+StreamOS is a `pnpm` workspace and Turborepo monorepo.
 
 ```text
 StreamOS/
 |-- apps/
-|   `-- web/                     # Next.js App Router dashboard
+|   `-- web/                              # Next.js App Router dashboard
 |-- services/
-|   |-- api-gateway/             # Backend-for-frontend aggregation service
-|   `-- automation-service/      # FastAPI service for clip and AI pipelines
+|   |-- api-gateway/                      # Public backend entrypoint, OAuth, webhooks, BFF, queue producers
+|   `-- automation-service/               # FastAPI service for AI, transcription, clip analysis, repurposing
 |-- workers/
-|   |-- clip-worker/             # BullMQ clip generation worker
-|   |-- content-job-retry-worker/ # Durable content job retry orchestration
-|   |-- stream-job-worker/       # Stream event ingestion worker package
-|   `-- transcription-worker/    # Async media transcription worker
+|   |-- stream-job-worker/                # Canonical streamos-media consumer
+|   |-- transcription-worker/             # Canonical streamos-transcription consumer
+|   |-- clip-worker/                      # Canonical streamos-clip-generation consumer
+|   |-- repurposing-worker/               # Canonical streamos-repurposing consumer
+|   |-- publishing-worker/                # Canonical streamos-publishing consumer
+|   |-- publishing-scheduler-worker/      # Private scheduler for due publication jobs
+|   `-- content-job-retry-worker/         # Durable failed content_jobs retry orchestration
 |-- packages/
-|   |-- config/                  # Shared TypeScript configuration
-|   |-- database/                # Supabase contracts and migration helpers
-|   |-- types/                   # Shared domain contracts
-|   `-- ui/                      # Reusable React UI components
+|   |-- config/                           # Shared TypeScript / lint / build config
+|   |-- database/                         # Supabase migrations, DB contracts, generated types
+|   |-- queue/                            # Shared queue contracts and helpers where present
+|   |-- types/                            # Shared domain contracts
+|   |-- ui/                               # Reusable UI primitives, not product-specific dashboard widgets
+|   `-- utils/                            # Shared utilities where present
+|-- docs/
+|   |-- ai/                               # Prompt-Architect and Codex instruction set
+|   `-- ...
+|-- scripts/                              # Audits, rollout checks, E2E helpers, env policies
 |-- pnpm-workspace.yaml
 `-- turbo.json
 ```
 
-The production frontend lives in `apps/web`. The previous root Vite/Electron prototype has been removed so new frontend work has one clear target.
+The production frontend lives in `apps/web`. Do not recreate the removed root Vite/Electron prototype. New frontend work should target `apps/web/src` unless a task explicitly changes workspace architecture.
 
-## Getting Started
+---
 
-Install dependencies:
+## 4. Runtime Ownership Matrix
+
+| Runtime                     | Owner path                            | Platform                               | Owns                                                                                       | Must not own                                                                                      |
+| --------------------------- | ------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Web dashboard               | `apps/web`                            | Vercel                                 | Dashboard UI, SSR auth, app-facing BFF/server actions, gateway handoff start               | Provider secrets, OpenAI keys, Redis, Supabase service-role, encryption keys, provider write APIs |
+| API Gateway                 | `services/api-gateway`                | Railway                                | OAuth, webhooks, provider sync, server mutations, queue producers, protected observability | Browser token exposure, raw secret logging                                                        |
+| Automation Service          | `services/automation-service`         | Railway first / Fly.io later if needed | Transcription, clip analysis, repurposing plans, AI processing                             | Browser access, public AI endpoint                                                                |
+| Stream Job Worker           | `workers/stream-job-worker`           | Railway worker                         | `streamos-media` consumption, streams/content_jobs materialization, transcription fan-out  | Automation Service calls unless explicitly part of contract                                       |
+| Transcription Worker        | `workers/transcription-worker`        | Railway worker                         | `streamos-transcription`, Automation Service transcription calls, transcript persistence   | Provider writes                                                                                   |
+| Clip Worker                 | `workers/clip-worker`                 | Railway worker                         | `streamos-clip-generation`, clip scoring/analysis persistence                              | Provider secrets unless future contract requires them                                             |
+| Repurposing Worker          | `workers/repurposing-worker`          | Railway worker                         | `streamos-repurposing`, manual-review-only plan persistence                                | Auto-publishing                                                                                   |
+| Publishing Worker           | `workers/publishing-worker`           | Railway worker                         | Approved publication execution and reconciliation                                          | Public networking, browser access, Automation Service dependency                                  |
+| Publishing Scheduler Worker | `workers/publishing-scheduler-worker` | Railway worker                         | Claim due scheduled publications and enqueue deterministic publish jobs                    | Provider APIs, Automation Service calls, public networking                                        |
+| Retry Worker                | `workers/content-job-retry-worker`    | Railway worker                         | Retry failed `content_jobs` into supported queues                                          | Cross-queue ownership drift                                                                       |
+| Release Gate Runner         | `release-gate-runner`                 | Railway private proof runtime          | Production gate proof from same RC snapshot/environment                                    | Product traffic, queue consumption, public URL                                                    |
+
+---
+
+## 5. Active Application Shape
+
+Production frontend work belongs under `apps/web/src`.
+
+```text
+apps/web/src/
+|-- app/
+|   |-- dashboard/
+|   |-- api/
+|   `-- layout.tsx
+|-- components/
+|   |-- ui/
+|   |-- layout/
+|   `-- modules/
+|-- data/
+|-- lib/
+|   |-- supabase/
+|   |-- integrations/
+|   `-- utils/
+|-- store/
+`-- types/
+```
+
+Frontend placement rules:
+
+- App Router routes, layouts, route handlers, and server actions belong in `apps/web/src/app`.
+- Product dashboard pages belong under `apps/web/src/app/dashboard`.
+- Product-specific widgets belong in `apps/web/src/components/modules` unless the existing branch colocates them differently.
+- Reusable low-level UI belongs in `components/ui`; only broadly reused UI belongs in `packages/ui`.
+- Server components are the default. Add `"use client"` only for interactivity, charts, browser APIs, client effects, or client-side state.
+- Durable data should come from server fetches, Supabase, gateway calls, or worker-generated persistence, not long-lived client global state.
+
+---
+
+## 6. Service Boundaries
+
+### Browser and `apps/web`
+
+Allowed:
+
+- Render dashboard modules.
+- Protect routes with Supabase SSR session checks.
+- Start gateway handoff flows after session validation.
+- Call gateway-owned server mutations through approved server-side paths.
+- Display creator-safe read models.
+
+Forbidden:
+
+- Direct OpenAI, Replicate, Whisper, or AI provider calls.
+- Supabase service-role usage in browser/client-near code.
+- Provider token exchange, refresh, decryption, or persistence.
+- Direct provider write APIs.
+- Redis access.
+- Railway private service URLs.
+- Storing provider secrets or webhook secrets in Vercel web environments.
+
+### `services/api-gateway`
+
+Owns:
+
+- OAuth connect/callback for Twitch, YouTube, TikTok, and Kick.
+- Handoff token verification, PKCE, state, callback validation, token exchange.
+- Encrypted provider token persistence.
+- Provider profile/channel upsert.
+- Webhook validation, replay protection, rate limiting.
+- Queue-producing commands.
+- Publication, fanout, publish, reconcile, and schedule-related server contracts.
+- Protected observability routes.
+
+### `services/automation-service`
+
+Owns AI and media analysis:
+
+- `/transcriptions/process`
+- `/clips/analyze`
+- `/repurposing/plan`
+- future title, SEO, and recommendation contracts
+
+It should be private in production. Browser and Vercel client bundles must not call it.
+
+### Workers
+
+Worker rules:
+
+- Each worker consumes only its canonical queue or poll scope.
+- Workers are private Railway background services.
+- Python does not consume BullMQ directly.
+- Job payloads must not contain secrets.
+- Retry, idempotency, status persistence, and secret-safe logs are mandatory for queue changes.
+
+---
+
+## 7. Installation
+
+Prerequisites:
+
+- Node.js version supported by the repository and deployment target.
+- Corepack-enabled `pnpm`.
+- Python **3.12** for `services/automation-service` tests.
+- Docker only when using local infrastructure via `pnpm infra:*`.
+- Supabase project or local Supabase stack when DB-backed flows are needed.
+- Redis when queue/worker flows are tested outside Compose.
+
+Install dependencies from the repository root:
 
 ```bash
 pnpm install
 ```
 
-Python automation service checks require Python 3.12. The root validation
-uses `.venv` when available, or `STREAMOS_PYTHON` when you need to point at a
-specific Python 3.12 executable.
+Python validation uses `.venv` when available. If your Python 3.12 binary is outside the default path, set `STREAMOS_PYTHON` in your shell before validation.
 
-Create local environment values:
+---
+
+## 8. Environment Setup
+
+Create local environment files from examples:
 
 ```bash
 cp apps/web/.env.local.example apps/web/.env.local
 cp .env.compose.example .env
+cp .env.test.example .env.test
 ```
 
-Fill the root `.env` with Supabase values from Supabase Dashboard -> Project
-Settings -> API before starting Compose. `SUPABASE_SERVICE_ROLE_KEY` is required
-for server-side workers and server route handlers that read or write encrypted
-platform tokens; it must never be exposed in browser code.
+Fill values from the correct owner runtime only. Do not copy production secret values into documentation, screenshots, commits, or reports.
 
-Start only the dashboard:
+### Web-owned environment values
+
+`apps/web` may use only browser-safe or web-server-owned values such as:
+
+```bash
+APP_URL=http://localhost:3000
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+STREAMOS_DEMO_MODE=false
+API_GATEWAY_URL=http://localhost:4000
+API_GATEWAY_SECRET=
+```
+
+`API_GATEWAY_SECRET` is server-side in the web runtime for trusted gateway calls and handoff generation. It must not be exposed to browser bundles.
+
+Never place these in `apps/web/.env.local`, Vercel web env, or `NEXT_PUBLIC_*`:
+
+```bash
+APP_ENCRYPTION_KEY=
+OPENAI_API_KEY=
+REPLICATE_API_TOKEN=
+REDIS_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_DB_URL=
+STREAM_EVENT_WEBHOOK_SECRET=
+TWITCH_CLIENT_SECRET=
+YOUTUBE_CLIENT_SECRET=
+TIKTOK_CLIENT_SECRET=
+KICK_CLIENT_SECRET=
+```
+
+### API Gateway-owned environment values
+
+`services/api-gateway` owns provider credentials, webhook secrets, Redis, service-role access, and encryption:
+
+```bash
+NODE_ENV=production
+PORT=4000
+REDIS_URL=
+API_GATEWAY_SECRET=
+API_GATEWAY_ALLOWED_ORIGINS=
+STREAM_EVENT_WEBHOOK_SECRET=
+APP_ENCRYPTION_KEY=
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+TWITCH_CLIENT_ID=
+TWITCH_CLIENT_SECRET=
+TWITCH_EVENTSUB_SECRET=
+YOUTUBE_CLIENT_ID=
+YOUTUBE_CLIENT_SECRET=
+YOUTUBE_WEBHOOK_SECRET=
+TIKTOK_CLIENT_KEY=
+TIKTOK_CLIENT_SECRET=
+KICK_CLIENT_ID=
+KICK_CLIENT_SECRET=
+```
+
+Use placeholders only in documentation. Real values belong in local env files or platform secret stores.
+
+### Automation Service-owned environment values
+
+```bash
+OPENAI_API_KEY=
+OPENAI_MODEL=
+OPENAI_TITLE_MODEL=
+OPENAI_TRANSCRIPTION_MODEL=
+OPENAI_TIMEOUT_SECONDS=
+OPENAI_MAX_TRANSCRIPTION_MEDIA_BYTES=
+REPLICATE_API_TOKEN=
+```
+
+OpenAI keys are server-only and belong to `services/automation-service`.
+
+### Worker-owned environment values
+
+Workers typically own:
+
+```bash
+REDIS_URL=
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+AUTOMATION_SERVICE_URL=
+```
+
+Only workers that call the Automation Service should have `AUTOMATION_SERVICE_URL`. Publishing and scheduler workers must not depend on it under the current contract.
+
+---
+
+## 9. Local Development
+
+### Dashboard only
 
 ```bash
 pnpm --filter @streamos/web dev
 ```
 
-The dashboard runs at `http://localhost:3000/dashboard`.
+Dashboard URL:
 
-If Next.js starts with a stale or corrupt build artifact error such as
-`Cannot find module './7751.js'` or
-`__webpack_modules__[moduleId] is not a function`, reset the local web build
-output and restart the dashboard. The full recovery flow is documented in
-[docs/troubleshooting.md](docs/troubleshooting.md):
+```text
+http://localhost:3000/dashboard
+```
+
+### Reset stale web build output
+
+If Next.js fails with stale or corrupt build artifacts, for example `Cannot find module './7751.js'` or `__webpack_modules__[moduleId] is not a function`, clear only generated web output:
 
 ```bash
 pnpm clean:web
 pnpm --filter @streamos/web dev
 ```
 
-Start the local queue infrastructure, API gateway, automation service, and
-workers:
+Do not manually delete source files, env files, migrations, or package metadata as part of this cleanup.
+
+### Full local infrastructure
+
+Start Redis, API Gateway, Automation Service, and workers through the repo infrastructure scripts:
 
 ```bash
 pnpm infra:up
 pnpm infra:ps
 ```
 
-This starts Redis at `localhost:6379`, the API gateway at
-`http://localhost:4000`, the automation service at `http://localhost:8000`,
-`stream-job-worker`, `clip-worker`, `transcription-worker`, and
-`content-job-retry-worker`.
-Compose reads `SUPABASE_URL`, optional `SUPABASE_DOCKER_URL`, and
-`SUPABASE_SERVICE_ROLE_KEY` from the selected env file for the workers.
-Use `SUPABASE_DOCKER_URL=http://host.docker.internal:54321` when the worker in
-Docker should call a Supabase CLI stack running on your host. The gateway and
-worker use the internal Compose Redis URL `redis://redis:6379/0`; Node services
-that run on your host should use `redis://localhost:6379/0`.
+Expected local endpoints:
 
-Check the gateway health endpoint:
+```text
+Web dashboard:       http://localhost:3000/dashboard
+API Gateway health:  http://localhost:4000/health
+Automation health:   http://localhost:8000/health
+Redis:               localhost:6379
+```
+
+Check API Gateway health:
 
 ```bash
 curl http://localhost:4000/health
 ```
 
-Watch infrastructure logs:
+Watch logs:
 
 ```bash
 pnpm infra:logs
 ```
 
-Stop local infrastructure:
+Stop infrastructure:
 
 ```bash
 pnpm infra:down
 ```
 
-The safe E2E path for jobs uses `.env.test` by default and blocks hosted
-Supabase URLs unless `--allow-hosted` is passed:
+Compose reads root env values for Supabase and service-role use. Use `SUPABASE_DOCKER_URL=http://host.docker.internal:54321` when Docker workers need to reach a Supabase CLI stack running on the host.
+
+---
+
+## 10. Queue and Worker Contracts
+
+StreamOS uses BullMQ with Redis. BullMQ semantics are Node-owned.
+
+| Queue / poll scope         | Producer                                | Consumer                              | Purpose                                                         |
+| -------------------------- | --------------------------------------- | ------------------------------------- | --------------------------------------------------------------- |
+| `streamos-media`           | API Gateway                             | `workers/stream-job-worker`           | Stream/media events, durable stream/content job materialization |
+| `streamos-transcription`   | Stream job worker / gateway-owned flows | `workers/transcription-worker`        | Transcription trigger processing                                |
+| `streamos-clip-generation` | Transcription or app-facing server flow | `workers/clip-worker`                 | Clip scoring and highlight analysis                             |
+| `streamos-repurposing`     | Stream job worker / gateway-owned flows | `workers/repurposing-worker`          | Manual-review-only repurposing plan generation                  |
+| `streamos-publishing`      | API Gateway / scheduler worker          | `workers/publishing-worker`           | Approved publication execution and reconciliation               |
+| due scheduled publications | Supabase polling                        | `workers/publishing-scheduler-worker` | Claim due schedules and enqueue deterministic publish jobs      |
+| failed `content_jobs`      | Supabase polling                        | `workers/content-job-retry-worker`    | Requeue retryable failed content jobs                           |
+
+Queue rules:
+
+- Queue names must come from env/config or existing shared contracts.
+- Producers and consumers must agree on payload shape and queue name.
+- Duplicate provider events must be idempotent or deduplicated.
+- `content_jobs` remains the durable source of truth for user-visible job state.
+- Retry state must preserve `retry_count`, `max_retries`, `next_retry_at`, and `error_message`.
+- Logs and job payloads must not contain provider tokens, API keys, private URLs, or raw secret-bearing payloads.
+
+---
+
+## 11. E2E and Rollout Checks
+
+Safe local job E2E path:
 
 ```bash
-cp .env.test.example .env.test
 pnpm e2e:jobs
 ```
 
-To prove the full transcription path through Redis, API Gateway,
-`stream-job-worker`, `transcription-worker`, and `automation-service`, run:
+Full transcription E2E through Redis, API Gateway, stream job worker, transcription worker, and automation service:
 
 ```bash
 pnpm e2e:transcription
 pnpm e2e:transcription -- --expect=failed
 ```
 
-For a promotable hosted `production-gate`, the transcription E2E also needs an
-explicit non-sensitive public fixture asset via
-`TRANSCRIPTION_E2E_FIXTURE_ASSET_URL` or `--fixture-asset-url`. Placeholder
-hosts such as `example.com`, localhost/private URLs, signed query-string URLs,
-and Railway private URLs are rejected before the gate can enqueue work.
-
-For an operator-level diagnostic that keeps the same hard invariants but still
-targets your local stack, run:
+Operator-level local rollout diagnostic:
 
 ```bash
 pnpm rollout:check:local
 ```
 
-The retry worker scans failed `content_jobs`, claims eligible rows by
-`retry_count`, and requeues supported jobs with BullMQ `attempts=3` plus
-exponential backoff. `clip_scoring` jobs go back to
-`streamos-clip-generation`; `transcription` jobs go back to
-`streamos-transcription`.
+Production rule:
 
-Manual retries from `/dashboard/jobs` keep the row in `failed`, clear
-`next_retry_at`, and raise `max_retries` when the previous retry budget is
-exhausted. The retry worker then claims the row, sets it back to `pending`, and
-the dashboard receives the status change through Supabase Realtime.
+> A green local diagnostic is useful, but it is never a production pass.
 
-Generate a local encryption key before storing platform OAuth tokens:
+Promotable production checks must run from `release-gate-runner` or an equivalent proof-capable Railway runtime that:
 
-```bash
-node -e "console.log('base64:' + require('crypto').randomBytes(32).toString('base64'))"
-```
+- is deployed from the same release-candidate SHA,
+- belongs to the same Railway project/environment,
+- can reach the private Automation Service,
+- contains the required root scripts and workspace sources,
+- does not perform real third-party provider writes.
 
-Set the generated value as `APP_ENCRYPTION_KEY` in the server runtime that owns
-the provider flow. In the current architecture that means the API gateway and
-other trusted Railway services, never `apps/web` on Vercel.
+Hosted production transcription E2E requires a non-sensitive public fixture asset through `TRANSCRIPTION_E2E_FIXTURE_ASSET_URL` or `--fixture-asset-url`. Do not use localhost, private URLs, signed query strings, credential-bearing links, Railway private URLs, or placeholder hosts.
 
-## AI Provider Secrets
+---
 
-OpenAI keys are server-only. Do not define `NEXT_PUBLIC_OPENAI_KEY` or
-`NEXT_PUBLIC_OPENAI_API_KEY` in any web environment. The Next.js app fails
-fast if either value is present.
+## 12. Validation Matrix
 
-Configure AI provider credentials only for `services/automation-service`:
+Run the narrowest useful validation first, then broader validation when a change crosses boundaries.
 
-```bash
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4o
-OPENAI_TITLE_MODEL=gpt-4o-mini
-```
-
-Use `OPENAI_MODEL=gpt-4o` for complex clip analysis and repurposing tasks.
-Keep `OPENAI_TITLE_MODEL` reserved for a future canonical title-generation or
-repurposing contract. The active production endpoints are `/clips/analyze`,
-`/repurposing/plan`, and `/transcriptions/process`.
-
-Browser code should call StreamOS API routes or backend services. It must never
-call OpenAI directly.
-
-## Validation
+### Root / cross-workspace
 
 ```bash
 pnpm validate
 ```
 
-`pnpm validate` runs TypeScript checks, workspace tests, the FastAPI automation
-service tests via `python -m pytest services/automation-service`, and the
-production build.
+### Web dashboard
 
-## Deployment
+```bash
+pnpm --filter @streamos/web lint
+pnpm --filter @streamos/web test
+pnpm --filter @streamos/web build
+```
 
-The production deployment topology is documented in
-[`docs/deployment.md`](docs/deployment.md):
+### API Gateway
 
-- `apps/web` deploys to Vercel as the Next.js App Router dashboard.
-- `services/api-gateway` deploys to Railway with `Dockerfile.api-gateway`.
-- `services/automation-service` deploys to Railway first, or Fly.io when GPU-backed Whisper becomes required.
-- `workers/stream-job-worker` deploys to Railway as the canonical `streamos-media` consumer and materializes durable stream/content-job state.
-- `workers/repurposing-worker` deploys to Railway as the canonical `streamos-repurposing` consumer and calls `POST /repurposing/plan` for manual-review-only repurposing plans.
-- `workers/publishing-worker` deploys to Railway as the canonical `streamos-publishing` consumer and executes approved publication and reconciliation jobs for server-side provider writes.
-- `workers/publishing-scheduler-worker` deploys to Railway as a private polling worker that claims due scheduled publications and enqueues deterministic `publication.publish` jobs into `streamos-publishing`. The StreamOS scheduler remains the primary source of truth; provider-native scheduling is treated only as a secondary policy hint, not as the primary execution path.
-- `workers/transcription-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for transcription.
-- `workers/clip-worker` deploys to Railway as a Node.js BullMQ worker and calls FastAPI for clip scoring.
-- `workers/content-job-retry-worker` deploys to Railway as a Node.js BullMQ worker that requeues retryable failed `content_jobs`.
-- `release-gate-runner` deploys to Railway as a private operator runtime built from `Dockerfile.release-gate-runner`; it exists only to run the promotable `production-gate` from the same release-candidate snapshot and environment.
+```bash
+pnpm --filter @streamos/api-gateway lint
+pnpm --filter @streamos/api-gateway test
+pnpm --filter @streamos/api-gateway build
+```
 
-Only `pnpm rollout:check:production` counts as a promotable release gate. Run
-it from `release-gate-runner` or another Railway runtime that can reach the
-private Automation Service URL and contains the same gate-required
-release-candidate snapshot. A green local diagnostic is useful, but it is not a
-production pass.
-The Railway service itself must exist in the target environment; generic shell
-services are not a valid substitute, and a stopped runner cannot provide proof.
-The gate now fails early with `snapshot_not_proof_capable` if the runtime is
-missing `scripts/rollout-check.cjs`, the root `rollout:check:production`
-script, required workspace sources, or the current runner-provenance / gate-contract
-marker generated from the deployed checkout.
-For the publishing and scheduling slice, run the controlled staging proof in
-[`docs/deployment.md`](docs/deployment.md) before any production-oriented
-approval. That staging proof verifies inventory, worker privacy, schema,
-queue, observability, and creator-safe read models without real third-party
-writes.
+### Automation Service
 
-### Required GitHub Secrets
+```bash
+python -m pytest services/automation-service
+```
 
-Set these values in GitHub repository or environment secrets before enabling
-the CI/CD workflows:
+### Workers
+
+```bash
+pnpm --filter stream-job-worker lint
+pnpm --filter stream-job-worker test
+pnpm --filter stream-job-worker build
+
+pnpm --filter @streamos/transcription-worker lint
+pnpm --filter @streamos/transcription-worker test
+pnpm --filter @streamos/transcription-worker build
+
+pnpm --filter @streamos/clip-worker lint
+pnpm --filter @streamos/clip-worker test
+pnpm --filter @streamos/clip-worker build
+
+pnpm --filter @streamos/repurposing-worker lint
+pnpm --filter @streamos/repurposing-worker test
+pnpm --filter @streamos/repurposing-worker build
+
+pnpm --filter @streamos/publishing-worker lint
+pnpm --filter @streamos/publishing-worker test
+pnpm --filter @streamos/publishing-worker build
+
+pnpm --filter @streamos/publishing-scheduler-worker lint
+pnpm --filter @streamos/publishing-scheduler-worker test
+pnpm --filter @streamos/publishing-scheduler-worker build
+
+pnpm --filter @streamos/content-job-retry-worker lint
+pnpm --filter @streamos/content-job-retry-worker test
+pnpm --filter @streamos/content-job-retry-worker build
+```
+
+If a package filter differs in the actual `package.json`, use the actual package name. Do not rename packages just to match documentation.
+
+### Audits
+
+Vercel env audit after `vercel pull` and before build:
+
+```bash
+pnpm vercel:audit -- --vercel-dir .vercel --environment development
+pnpm vercel:audit -- --vercel-dir .vercel --environment preview
+pnpm vercel:audit -- --vercel-dir .vercel --environment production
+```
+
+Railway audit examples:
+
+```bash
+pnpm railway:audit --env staging --format markdown > audit-baseline-staging.md
+pnpm railway:audit --env staging --format json > audit-staging.json
+pnpm railway:audit --env production --format markdown > audit-production.md
+pnpm railway:audit --environments staging,production --format markdown > audit-premerge-cross-env.md
+```
+
+Audit reports must not contain secret values. If an audit report leaks a value, treat that as a blocker.
+
+---
+
+## 13. Supabase, RLS, and Storage
+
+Supabase/PostgreSQL is the primary data layer. Migrations live in:
+
+```text
+packages/database/supabase/migrations/
+```
+
+Rules:
+
+- Released migrations are not rewritten. Add a new migration for schema changes.
+- Tenant-owned tables need `user_id` unless a documented exception exists.
+- RLS must scope authenticated access to the owning user/tenant.
+- Service-managed columns are not client-writable.
+- `platform_connections` token columns stay hidden from normal authenticated reads.
+- Service-role keys stay server-side in API Gateway, workers, automation-service, proof runtime, or other trusted server-only contexts.
+- Runtime state for `content_jobs`, publications, media processing, and provider-backed data is mutated by services/workers, not by client code.
+
+Current important entities include:
+
+```text
+creators
+user_profiles
+channels
+platform_connections
+metrics_snapshots
+streams
+content_jobs
+content_publications
+content_publication_events
+content_publication_fanouts
+content_publication_fanout_targets
+content_publication_scheduler_runs
+content_publication_scheduler_run_attempts
+vod_assets
+stream_transcripts
+stream_highlights
+clips
+clip_exports
+brand_assets
+monetization_events
+monetization_summaries
+youtube_websub_subscriptions
+```
+
+### Branding storage
+
+Branding uses a private Storage-first model:
+
+- `brand-assets` bucket stays private.
+- Object paths start with the owning `auth.uid()` value.
+- Signed preview URLs are generated server-side.
+- Durable `public_url` storage is avoided.
+- SVG is blocked in the MVP unless a safe sanitizing flow is explicitly added.
+- Replace semantics and orphan cleanup are separate slices unless already implemented in the target branch.
+
+---
+
+## 14. Gateway-Owned OAuth
+
+Twitch, YouTube, TikTok, and Kick OAuth are gateway-owned.
+
+Flow:
+
+1. User is authenticated in `apps/web` through Supabase SSR.
+2. `apps/web` creates a short-lived signed handoff token.
+3. Browser is redirected to API Gateway connect route.
+4. API Gateway owns PKCE, one-time state, provider redirect, callback validation, token exchange, provider profile lookup, encrypted token persistence, channel upsert, and safe return redirect.
+5. Provider tokens never pass through browser code.
+
+Gateway routes:
+
+```text
+GET /api/auth/:provider/connect?handoff=<signed-token>
+GET /api/auth/:provider/callback
+```
+
+Web-owned handoff config:
+
+```bash
+APP_URL=http://localhost:3000
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+API_GATEWAY_URL=http://localhost:4000
+API_GATEWAY_SECRET=
+```
+
+Gateway-owned provider config:
+
+```bash
+TWITCH_CLIENT_ID=
+TWITCH_CLIENT_SECRET=
+TWITCH_REDIRECT_URI=http://localhost:4000/api/auth/twitch/callback
+TWITCH_SCOPES=user:read:email
+
+YOUTUBE_CLIENT_ID=
+YOUTUBE_CLIENT_SECRET=
+YOUTUBE_REDIRECT_URI=http://localhost:4000/api/auth/youtube/callback
+YOUTUBE_SCOPES=https://www.googleapis.com/auth/youtube.readonly
+
+TIKTOK_CLIENT_KEY=
+TIKTOK_CLIENT_SECRET=
+TIKTOK_REDIRECT_URI=http://localhost:4000/api/auth/tiktok/callback
+TIKTOK_SCOPES=user.info.basic
+
+KICK_CLIENT_ID=
+KICK_CLIENT_SECRET=
+KICK_REDIRECT_URI=http://localhost:4000/api/auth/kick/callback
+KICK_SCOPES=user:read channel:read events:subscribe channel:follow channel:subscription
+```
+
+Redirect URI changes require operator action in provider consoles.
+
+---
+
+## 15. Publishing, Fanout, Scheduling, and Reconcile
+
+Publishing is server-owned and review-oriented.
+
+Rules:
+
+- Repurposing remains manual-review-only until a user/operator approves publication.
+- Browser code may request server-owned actions; it must not call provider write APIs directly.
+- API Gateway validates tenant, platform connection, provider eligibility, scope, publication snapshot, schedule policy, and status.
+- Publishing worker executes approved provider writes server-side.
+- Scheduler worker only claims due schedules and enqueues deterministic `publication.publish` jobs.
+- Scheduler must not call provider APIs or the Automation Service.
+- Reconciliation stays server-side and secret-safe.
+- Staging/production proofs must not execute real third-party writes.
+
+Relevant gateway contracts:
+
+```text
+POST /api/content-publications
+POST /api/content-publications/fanout
+POST /api/content-publications/:id/publish
+POST /api/content-publications/:id/reconcile
+GET  /api/observability/scheduler
+```
+
+Relevant dashboard read surface:
+
+```text
+GET /dashboard/publications/schedule
+```
+
+Provider-native scheduling is only a secondary policy hint. StreamOS remains the primary schedule authority.
+
+---
+
+## 16. AI Provider Secrets and Cost Control
+
+OpenAI and other AI provider credentials are server-only.
+
+Never define:
+
+```bash
+NEXT_PUBLIC_OPENAI_KEY=
+NEXT_PUBLIC_OPENAI_API_KEY=
+```
+
+Active automation endpoints:
+
+```text
+POST /transcriptions/process
+POST /clips/analyze
+POST /repurposing/plan
+```
+
+AI/automation rules:
+
+- Browser never calls AI providers directly.
+- Long-running media work is queued.
+- Inputs must be size-limited and validated.
+- Timeouts and retries must be bounded.
+- Logs must not contain secrets or sensitive raw payloads.
+- Outputs that affect publishing, sponsorship, revenue reporting, or brand-facing assets need manual review.
+- Cost-sensitive flows must document model choice, max input size, timeout, and retry behavior.
+
+---
+
+## 17. Deployment Overview
+
+Deployment topology:
+
+| Path                          | Platform                | Notes                                                      |
+| ----------------------------- | ----------------------- | ---------------------------------------------------------- |
+| `apps/web`                    | Vercel                  | Root directory `apps/web`; browser-safe env only           |
+| `services/api-gateway`        | Railway                 | Public service with `/health`, protected app-facing routes |
+| `services/automation-service` | Railway / Fly.io later  | Private in production                                      |
+| `workers/*`                   | Railway worker dynos    | Private, no public domains                                 |
+| `release-gate-runner`         | Railway private runtime | Proof-only, not a product service                          |
+
+Vercel build command:
+
+```bash
+pnpm --filter @streamos/web... --if-present build
+```
+
+API Gateway health:
+
+```text
+/health
+```
+
+Production release rules:
+
+- Do not promote on local validation alone.
+- Do not promote with missing service inventory.
+- Do not promote if required workers are absent.
+- Do not promote if worker public networking is enabled.
+- Do not promote if `apps/web` contains gateway/provider/worker-only secrets.
+- Do not promote if staging/production evidence is incomplete or contradictory.
+- Do not perform real provider writes in proof runs.
+
+---
+
+## 18. Required GitHub Secrets
+
+Use GitHub repository or environment secrets. Do not commit these values.
 
 ```bash
 VERCEL_TOKEN=
@@ -243,213 +781,213 @@ SUPABASE_DB_URL_PRODUCTION=
 DISCORD_WEBHOOK_URL=
 ```
 
-`DISCORD_WEBHOOK_URL` is optional; when it is not configured, production
-deployment notifications are still written to the GitHub Actions job summary.
-`RAILWAY_TOKEN_PRODUCTION` and `RAILWAY_SSH_PRIVATE_KEY_PRODUCTION` are used only
-by the production deployment workflow to execute the promotable gate inside
-`release-gate-runner`; register the matching public SSH key with Railway and do
-not print the token or private key in logs, reports, or runbooks.
-Use GitHub Environments named `staging` and `production` for environment-scoped
-secrets and enable required reviewers on `production` to enforce manual approval
-before production deploy and migration jobs run.
+Notes:
 
-## Queue Backend
+- `DISCORD_WEBHOOK_URL` is optional.
+- Production and staging should be protected GitHub Environments.
+- Production requires manual approval before deployment or migration jobs when configured.
+- Do not print Railway tokens, private SSH keys, Supabase service-role keys, provider secrets, or DB URLs in logs, reports, screenshots, or runbooks.
 
-The API gateway uses BullMQ for automation jobs. For Upstash Redis, configure
-the Redis protocol endpoint, not the REST endpoint:
+---
 
-```bash
-REDIS_URL=rediss://default:password@host.upstash.io:6379
-CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
-TRANSCRIPTION_QUEUE_NAME=streamos-transcription
-REPURPOSING_QUEUE_NAME=streamos-repurposing
-API_GATEWAY_SECRET=
-API_GATEWAY_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-API_GATEWAY_RATE_LIMIT_MAX=120
-API_GATEWAY_RATE_LIMIT_WINDOW_MS=60000
-STREAM_EVENT_WEBHOOK_SECRET=
-TWITCH_CLIENT_ID=
-TWITCH_CLIENT_SECRET=
-TWITCH_EVENTSUB_SECRET=
-YOUTUBE_CLIENT_ID=
-YOUTUBE_CLIENT_SECRET=
-YOUTUBE_WEBHOOK_SECRET=
-TIKTOK_CLIENT_KEY=
-TIKTOK_CLIENT_SECRET=
-KICK_CLIENT_ID=
-KICK_CLIENT_SECRET=
-CONTENT_JOB_RETRY_ATTEMPTS=3
-CONTENT_JOB_RETRY_BACKOFF_MS=30000
-```
+## 19. Troubleshooting
 
-`POST /api/webhooks/streams/ended` first validates the internal `stream_id`
-server-side. Unknown streams return `404 stream_not_found` and do not enqueue
-anything.
+### Stale Next.js artifact
 
-Known streams enqueue a normalized `stream.offline` media event into
-`streamos-media`. The API Gateway opportunistically enriches that event from
-existing `vod_assets` when `vodAssetUrl` is missing, then `stream-job-worker`
-remains the canonical consumer of that queue and only fans out to the
-downstream `transcription.trigger` job in `streamos-transcription` when the
-event carries or resolves complete transcription input.
-
-The API response stays aligned to the later canonical downstream ID:
-`job_id` and `queue_job_id` both resolve to `transcription-trigger-<stream_id>`.
-This keeps UI and monitoring stable even though the first queued job is the
-media event, not the transcription worker job.
-
-`transcription-worker` consumes only `streamos-transcription` and calls
-`POST /transcriptions/process`. `video.published` can now create a durable
-`repurposing` plan content job and enqueue `repurposing.plan` into
-`streamos-repurposing` when server-side enrichment resolves `asset_available`
-and the connected platform metadata explicitly opts in. The dedicated
-`repurposing-worker` consumes only `streamos-repurposing`, calls
-`POST /repurposing/plan`, and persists a manual-review-only plan in
-`content_jobs.result`. It does not auto-publish, export, render, or
-crosspost. Approved repurposing jobs can later produce a sanitized,
-clipboard-only export bundle for manual use. Raw provider events without a
-direct `vodAssetUrl` still rely on server-side enrichment against existing
-assets before they can trigger automatic transcription.
-
-`POST /api/content-publications` is the server-side publication contract for
-approved repurposing jobs. It freezes a publish snapshot, writes
-`content_publications`, and appends `content_publication_events` for audit
-history. The gateway then enqueues the deterministic `publication.publish`
-job into `streamos-publishing`, where `workers/publishing-worker` performs the
-server-side provider write and reconciliation work. The browser still does not
-call provider write APIs directly.
-
-`POST /api/content-publications/fanout` is the server-side fanout contract for
-approved repurposing jobs that should prepare multiple target publications in
-one request. It validates the repurposing snapshot once, validates each target
-server-side, and writes durable fanout audit rows before any publication worker
-path is used. The browser still does not call provider write APIs directly.
-
-`GET /dashboard/publications/schedule` is the read-only schedule overview for
-approved publications and parent fanouts. It groups planned items by day,
-shows export eligibility and history links, and stays tenant-scoped without
-starting any worker, publish, or provider-write flow from the browser. The
-schedule timeline is always StreamOS-managed first; provider-native hints can
-inform policy, but they do not replace the canonical schedule state or fanout
-parent ownership.
-
-`GET /api/observability/scheduler` is a protected server-to-server snapshot
-route for operator use. It requires `API_GATEWAY_SECRET`, returns persisted
-scheduler run history plus summary counters and stuck-claim visibility, and
-exposes only secret-safe attempt/run reasons without raw payloads or private
-URLs.
-
-In production, `services/api-gateway` fails startup unless
-`API_GATEWAY_SECRET`, `STREAM_EVENT_WEBHOOK_SECRET`, and `REDIS_URL` are set.
-App-facing gateway routes accept `Authorization: Bearer $API_GATEWAY_SECRET`;
-external webhooks use `X-StreamOS-Webhook-Secret`.
-
-## Supabase Auth
-
-The dashboard uses Supabase SSR auth. The initial schema migration must be applied before using login/signup.
-
-Signup and password-reset redirects use the SSR callback route:
+Symptoms:
 
 ```text
-/auth/callback
+Cannot find module './7751.js'
+__webpack_modules__[moduleId] is not a function
 ```
 
-For hosted Supabase email confirmations with a custom token-hash template, set
-the Confirm signup email template link to:
-
-```html
-{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email
-```
-
-`/auth/confirm` is intentionally limited to signup email confirmation tokens.
-Also allow your local and deployed `/auth/callback` and `/auth/confirm` URLs in
-Supabase Auth URL configuration. The manual local Inbucket test plan is in
-`docs/auth-email-confirmation-test-plan.md`.
-
-## Gateway-Owned OAuth
-
-Twitch, YouTube, TikTok, and Kick OAuth flows are owned by `services/api-gateway`:
-
-- `GET /api/auth/:provider/connect?handoff=<signed-token>`
-- `GET /api/auth/:provider/callback`
-
-The `handoff` query value is a short-lived HMAC token signed with
-`API_GATEWAY_SECRET`. It carries only `user_id`, `creator_id`, optional
-`return_to`, and `exp`; provider tokens never pass through the browser. The
-gateway stores a one-time `state` plus PKCE `code_verifier`, redirects to the
-provider, exchanges the callback code with PKCE, fetches the authenticated
-provider profile, encrypts access and refresh tokens with `APP_ENCRYPTION_KEY`,
-and upserts `channels` plus `platform_connections`.
-
-`apps/web` only keeps the minimal server-side handoff boundary:
+Recovery:
 
 ```bash
-APP_URL=http://localhost:3000
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
-API_GATEWAY_URL=http://localhost:4000
-API_GATEWAY_SECRET=
+pnpm clean:web
+pnpm --filter @streamos/web dev
 ```
 
-Do not place `APP_ENCRYPTION_KEY`, provider client secrets, webhook secrets,
-Redis credentials, `SUPABASE_SERVICE_ROLE_KEY`, or any `OPENAI_*` variable in
-`apps/web/.env.local`.
+Escalate only if the clean rebuild fails.
 
-Configure these server-only values in the API gateway environment:
+### API Gateway crash
 
-```bash
-TWITCH_CLIENT_ID=
-TWITCH_CLIENT_SECRET=
-TWITCH_REDIRECT_URI=http://localhost:4000/api/auth/twitch/callback
-TWITCH_SCOPES=user:read:email
-YOUTUBE_CLIENT_ID=
-YOUTUBE_CLIENT_SECRET=
-YOUTUBE_REDIRECT_URI=http://localhost:4000/api/auth/youtube/callback
-YOUTUBE_SCOPES=https://www.googleapis.com/auth/youtube.readonly
-TIKTOK_CLIENT_KEY=
-TIKTOK_CLIENT_SECRET=
-TIKTOK_REDIRECT_URI=http://localhost:4000/api/auth/tiktok/callback
-TIKTOK_SCOPES=user.info.basic
-KICK_CLIENT_ID=
-KICK_CLIENT_SECRET=
-KICK_REDIRECT_URI=http://localhost:4000/api/auth/kick/callback
-APP_ENCRYPTION_KEY=base64:replace-with-32-byte-key
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-API_GATEWAY_SECRET=
+Initial read-only triage:
+
+1. Confirm the target environment and release-candidate SHA.
+2. Check `/health` if reachable.
+3. Inspect secret-safe logs for startup failure class.
+4. Verify required env names exist on `services/api-gateway`.
+5. Confirm no web-only or worker-only env drift.
+6. Run or review `pnpm railway:audit` output for the target environment.
+7. Check Redis connectivity and mandatory production env contract.
+8. Do not change production secrets or provider console settings without operator approval.
+
+Likely areas:
+
+- missing `API_GATEWAY_SECRET`, `STREAM_EVENT_WEBHOOK_SECRET`, or `REDIS_URL`,
+- invalid `APP_ENCRYPTION_KEY`,
+- CORS/origin mismatch,
+- Railway service bound to wrong project/environment,
+- schema or queue contract drift,
+- deployment from wrong commit.
+
+### Worker crash loop
+
+Check:
+
+- service inventory,
+- public networking disabled,
+- required env names,
+- correct Dockerfile,
+- correct package filter/build target,
+- Redis reachability,
+- Supabase service-role access,
+- private `AUTOMATION_SERVICE_URL` only for workers that need it,
+- no public Automation Service fallback.
+
+### Hosted proof failure
+
+Classify first:
+
+- local diagnostic failure,
+- staging proof blocker,
+- production gate blocker,
+- evidence incomplete,
+- real runtime failure.
+
+Do not treat local Docker/network failures as production proof failures. Do not treat a successful local diagnostic as production approval.
+
+---
+
+## 20. Codex Operating Contract
+
+Codex should follow this sequence for repository work:
+
+1. Identify task type and affected module.
+2. Read relevant repository context before changing files.
+3. Map correct service boundary and data ownership.
+4. Search existing patterns before adding new abstractions.
+5. Make the smallest safe change that satisfies the task.
+6. Preserve tenant isolation, server/client boundaries, and secret handling.
+7. Add or update tests close to changed behavior.
+8. Run narrow validation first; broaden if the change crosses boundaries.
+9. Report changed files, validation results, assumptions, risks, and follow-ups.
+
+Codex must not:
+
+- move provider/OAuth/token logic into browser code,
+- expose service-role keys or provider secrets,
+- add new dependencies without checking existing alternatives,
+- rewrite released migrations,
+- make workers public,
+- use suppression instead of fixing security findings,
+- run destructive or production-changing commands without operator approval,
+- claim validation passed if it was not run.
+
+---
+
+## 21. Operator Gates
+
+Operator approval is required before:
+
+- adding/changing real secrets,
+- provider developer console changes,
+- OAuth redirect URI changes,
+- staging or production deployments,
+- production gate / release promotion,
+- destructive or risky migrations,
+- real provider publishing, crossposting, or reconciliation,
+- payment/monetization provider writes,
+- high-cost AI workflows,
+- changing public/private networking of Railway services.
+
+No operator gate is needed for:
+
+- local repo analysis,
+- isolated tests,
+- safe documentation updates,
+- read-only dashboard modules,
+- mock/demo UI work,
+- local validation without secrets or production effects.
+
+---
+
+## 22. Current Product Surfaces
+
+Use this as a product orientation, not as a replacement for current branch inspection.
+
+| Surface                   | Route / area                       | Current preferred mode                                        | Safety rule                                                                  |
+| ------------------------- | ---------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Growth / SEO Intelligence | `/dashboard/growth`                | Read-first intelligence surface                               | No OpenAI/browser side effects unless server contract exists                 |
+| Analytics                 | `/dashboard/analytics`             | Tenant-scoped read model                                      | Server-owned syncs; no client provider secrets                               |
+| Monetization              | `/dashboard/monetization`          | Read-first summaries/events                                   | No payment/provider writes from browser                                      |
+| Branding                  | `/dashboard/branding`              | Private assets, read-first explorer, controlled upload slices | Private storage, signed previews, no durable public URLs, SVG blocked in MVP |
+| Jobs                      | `/dashboard/jobs`                  | Runtime status visibility and controlled manual retry         | Runtime state remains service/worker-owned                                   |
+| Publications              | `/dashboard/publications`          | Review, history, fanout, schedule read models                 | Provider writes server-owned                                                 |
+| Schedule                  | `/dashboard/publications/schedule` | Calendar Light read model                                     | StreamOS-managed schedule is source of truth                                 |
+
+---
+
+## 23. Recommended Next Slices
+
+Default order when no higher-priority bug or security finding is active:
+
+1. **Security and stability closeout**
+   - Keep CodeQL, dependency, env, auth, gateway, worker, and release-gate findings closed.
+   - Treat new security findings as higher priority than product expansion.
+
+2. **Gateway / Railway crash audit if runtime issue is active**
+   - Audit API Gateway, worker inventory, env ownership, logs, health, queue/Redis, and schema drift.
+   - Keep the audit read-only unless a concrete fix slice is created.
+
+3. **OAuth regression coverage**
+   - Expand gateway-owned Handoff, callback failure paths, encrypted token persistence, and redirect-safety tests.
+
+4. **Branding MVP hardening**
+   - Continue small slices around private asset previews, metadata completeness, replace semantics, and orphan cleanup.
+   - Keep SVG blocked until a sanitizing path exists.
+
+5. **Monetization provenance and coverage**
+   - Improve freshness, source confidence, summary completeness, and read-model clarity before real sync expansion.
+
+6. **Media / Export / Repurposing stability**
+   - Improve job status, idempotency, retry observability, export safety, and manual-review provenance.
+
+7. **Publishing / Scheduling controlled expansion**
+   - Use staging proof before production-oriented approval.
+   - Never include real third-party writes in proof runs.
+
+---
+
+## 24. Definition of Done
+
+A StreamOS task is done only when:
+
+- the requested behavior is satisfied,
+- the correct service owns the behavior,
+- tenant isolation is preserved,
+- secrets remain server-only,
+- RLS/service-role boundaries remain intact,
+- provider/AI/queue actions are server-owned,
+- UI has clear empty/loading/error states when UI is affected,
+- worker and queue flows are idempotent or deduplicated where needed,
+- environment ownership is documented when changed,
+- tests or validation ran, or limitations are clearly reported,
+- final report lists changed files, validations, architecture decisions, and remaining risks.
+
+---
+
+## 25. Fast Links
+
+```text
+Architecture:                 architecture.md or docs/architecture.md
+Deployment:                   deployment.md or docs/deployment.md
+Prompt Architect:             docs/ai/00_prompt_architect_master.md
+Security/Stabilization:       docs/ai/01_security_and_stabilization.md
+Roadmap:                      docs/ai/02_roadmap_and_next_slices.md
+Codex Prompt Patterns:        docs/ai/03_codex_prompt_patterns.md
+Troubleshooting:              docs/troubleshooting.md
+P4 Closeout:                  docs/p4-product-closeout.md
+P4 Roadmap Update:            docs/p4-product-roadmap-update.md
 ```
-
-Register the matching redirect URI with each provider. Run the gateway OAuth
-tests with:
-
-```bash
-pnpm --filter @streamos/api-gateway test
-```
-
-## Current Product Status
-
-The active dashboard product surfaces after P4 are:
-
-1. Growth / SEO Intelligence at `/dashboard/growth`
-2. Analytics Expansion at `/dashboard/analytics`
-3. Monetization Dashboard at `/dashboard/monetization`
-
-The repo-side closeout and the updated post-P4 roadmap live in:
-
-- [`docs/p4-product-closeout.md`](docs/p4-product-closeout.md)
-- [`docs/p4-product-roadmap-update.md`](docs/p4-product-roadmap-update.md)
-
-These surfaces stay tenant-scoped, read-first, and browser-safe: no provider
-writes, payment writes, OpenAI calls, or service-role logic move into client
-code.
-
-## Next Implementation Steps
-
-1. Build a creator-safe Growth -> Monetization insight link so SEO and
-   monetization signals can be reviewed together without inventing backend
-   writes or AI side effects.
-2. Harden monetization coverage and provenance before any real sync slice so
-   freshness, source confidence, and summary completeness are explicit.
-3. Ship the Branding MVP as a read-first asset surface on top of the existing
-   `brand_assets` contract and private storage model.
