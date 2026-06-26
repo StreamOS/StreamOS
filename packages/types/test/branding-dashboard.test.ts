@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
+  BRANDING_DASHBOARD_FEED_SCOPES,
+  BRANDING_DASHBOARD_FEED_SERVER_SORTS,
   BRANDING_DASHBOARD_LOOKUP_SOURCES,
   BRANDING_DASHBOARD_MUTATION_ACTIONS,
   BRANDING_DASHBOARD_MUTATION_BLOCK_REASONS,
@@ -24,7 +26,10 @@ const sampleReadModel = {
   feed: {
     hasMore: false,
     limit: BRANDING_DASHBOARD_ASSET_LIMIT,
+    nextCursor: null,
     returnedCount: 2,
+    scope: "full_result",
+    serverSort: "updated_desc",
   },
   items: [
     {
@@ -169,10 +174,18 @@ void test("branding dashboard contract keeps the feed and lookup enums stable", 
     "requires_scoped_manual_cleanup",
   ]);
   assert.deepEqual(BRANDING_DASHBOARD_LOOKUP_SOURCES, ["channels"]);
+  assert.deepEqual(BRANDING_DASHBOARD_FEED_SCOPES, [
+    "full_result",
+    "loaded_sample",
+  ]);
+  assert.deepEqual(BRANDING_DASHBOARD_FEED_SERVER_SORTS, ["updated_desc"]);
 });
 
 void test("branding dashboard read model stays read-only and tolerant of unknown asset types", () => {
   assert.equal(sampleReadModel.feed.limit, 12);
+  assert.equal(sampleReadModel.feed.scope, "full_result");
+  assert.equal(sampleReadModel.feed.serverSort, "updated_desc");
+  assert.equal(sampleReadModel.feed.nextCursor, null);
   assert.equal(sampleReadModel.items[0]?.storageState, "attached");
   assert.equal(sampleReadModel.items[0]?.futureActions[0]?.available, false);
   assert.equal(sampleReadModel.items[0]?.preview.status, "available");

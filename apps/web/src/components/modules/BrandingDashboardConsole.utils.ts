@@ -65,6 +65,21 @@ export type BrandingDashboardViewInput = {
 export type BrandingDashboardViewModel = {
   assetTypeOptions: string[];
   detailAssetId: string | null;
+  detailSelection: {
+    fellBackToVisibleItem: boolean;
+    requestedAssetId: string | null;
+  };
+  feed: BrandingDashboardModel["feed"] & {
+    activeFilters: {
+      assetType: string | null;
+      metadata: BrandingDashboardMetadataFilter;
+      preview: BrandingDashboardPreviewFilter;
+      status: string | null;
+    };
+    activeSort: BrandingDashboardSortOption;
+    hasActiveFilters: boolean;
+    visibleCount: number;
+  };
   filters: {
     assetType: string | null;
     metadata: BrandingDashboardMetadataFilter;
@@ -179,7 +194,10 @@ export function createEmptyBrandingDashboardModel(
     feed: {
       hasMore: false,
       limit: BRANDING_DASHBOARD_ASSET_LIMIT,
+      nextCursor: null,
       returnedCount: 0,
+      scope: "full_result",
+      serverSort: "updated_desc",
     },
     items: [],
     lookupIssues,
@@ -233,15 +251,37 @@ export function buildBrandingDashboardViewModel(
     .sort((left, right) => compareBrandingAssets(left, right, input.sort));
   const selectedAsset =
     items.find((item) => item.id === input.detailAssetId) ?? items[0] ?? null;
+  const fellBackToVisibleItem =
+    input.detailAssetId !== null &&
+    selectedAsset !== null &&
+    selectedAsset.id !== input.detailAssetId;
+  const activeFilters = {
+    assetType,
+    metadata: input.metadata,
+    preview: input.preview,
+    status,
+  };
 
   return {
     assetTypeOptions,
     detailAssetId: selectedAsset?.id ?? null,
+    detailSelection: {
+      fellBackToVisibleItem,
+      requestedAssetId: input.detailAssetId,
+    },
+    feed: {
+      ...model.feed,
+      activeFilters,
+      activeSort: input.sort,
+      hasActiveFilters:
+        assetType !== null ||
+        status !== null ||
+        input.preview !== "all" ||
+        input.metadata !== "all",
+      visibleCount: items.length,
+    },
     filters: {
-      assetType,
-      metadata: input.metadata,
-      preview: input.preview,
-      status,
+      ...activeFilters,
     },
     items,
     selectedAsset,
@@ -421,6 +461,17 @@ export function formatBrandingDashboardSortLabel(
   }
 }
 
+export function formatBrandingDashboardFeedScopeLabel(
+  scope: BrandingDashboardModel["feed"]["scope"],
+): string {
+  switch (scope) {
+    case "full_result":
+      return "Vollstaendiger Feed";
+    case "loaded_sample":
+      return "Geladene Stichprobe";
+  }
+}
+
 export function formatBrandingMutationReasonLabel(
   reason: BrandingDashboardMutationBlockReason,
 ): string {
@@ -497,20 +548,26 @@ function compareBrandingAssets(
     case "asset_type":
       return (
         left.assetType.localeCompare(right.assetType) ||
-        right.updatedAt.localeCompare(left.updatedAt)
+        right.updatedAt.localeCompare(left.updatedAt) ||
+        left.id.localeCompare(right.id)
       );
     case "created_desc":
       return (
         right.createdAt.localeCompare(left.createdAt) ||
-        right.updatedAt.localeCompare(left.updatedAt)
+        right.updatedAt.localeCompare(left.updatedAt) ||
+        left.id.localeCompare(right.id)
       );
     case "status":
       return (
         left.status.localeCompare(right.status) ||
-        right.updatedAt.localeCompare(left.updatedAt)
+        right.updatedAt.localeCompare(left.updatedAt) ||
+        left.id.localeCompare(right.id)
       );
     case "updated_desc":
-      return right.updatedAt.localeCompare(left.updatedAt);
+      return (
+        right.updatedAt.localeCompare(left.updatedAt) ||
+        left.id.localeCompare(right.id)
+      );
   }
 }
 

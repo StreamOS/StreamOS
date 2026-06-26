@@ -13,6 +13,7 @@ import {
   BRANDING_DASHBOARD_SORT_OPTIONS,
   formatBrandingAssetStatusLabel,
   formatBrandingAssetTypeLabel,
+  formatBrandingDashboardFeedScopeLabel,
   formatBrandingDashboardSortLabel,
   formatBrandingDateTime,
   formatBrandingFileSizeLabel,
@@ -62,7 +63,9 @@ export function BrandingDashboardConsole({
       {model.state === "auth-failed" && <AuthFailedNotice />}
       {model.state === "load-failed" && <LoadFailedNotice />}
       {uploadFeedback && <UploadFeedbackNotice feedback={uploadFeedback} />}
-      {model.feed.hasMore && <FeedScopeNotice model={model} />}
+      {model.feed.scope === "loaded_sample" && (
+        <FeedScopeNotice model={model} />
+      )}
       {showPartialNotice && <PartialLoadNotice />}
 
       <header className="grid gap-6 rounded-lg border border-white/10 bg-surface-900/85 p-6 shadow-[0_22px_70px_rgba(0,0,0,0.42)] xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -378,21 +381,31 @@ export function BrandingDashboardConsole({
 
           <BrandingFilterForm view={view} />
 
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+          <div className="grid gap-3 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300 md:grid-cols-3">
             <p>
               Sortierung:{" "}
               <span className="font-semibold text-white">
-                {formatBrandingDashboardSortLabel(view.sort)}
+                {formatBrandingDashboardSortLabel(view.feed.activeSort)}
               </span>
             </p>
             <p>
-              Sichtbare Assets:{" "}
+              Feed Scope:{" "}
               <span className="font-semibold text-white">
-                {view.items.length}
+                {formatBrandingDashboardFeedScopeLabel(view.feed.scope)}
               </span>
-              {hasData ? ` / ${model.items.length}` : ""}
+            </p>
+            <p>
+              Zeige{" "}
+              <span className="font-semibold text-white">
+                {view.feed.visibleCount}
+              </span>
+              {view.feed.scope === "loaded_sample"
+                ? ` von ${view.feed.returnedCount} geladenen Assets`
+                : ` von ${view.feed.returnedCount} Assets im Feed`}
             </p>
           </div>
+
+          <ExplorerFeedNotice view={view} />
 
           {hasData ? (
             hasVisibleItems ? (
@@ -409,7 +422,11 @@ export function BrandingDashboardConsole({
             ) : (
               <EmptyState
                 title="Keine Assets fuer aktuelle Filter"
-                body="Passe Asset Type, Status, Preview oder Metadata-Filter an, um wieder Ergebnisse zu sehen."
+                body={
+                  view.feed.scope === "loaded_sample"
+                    ? "Die aktuellen Filter wirken nur auf die geladene Branding-Stichprobe. Passe Filter an oder beachte, dass weitere aeltere Assets ausserhalb dieses Feed-Fensters existieren koennen."
+                    : "Passe Asset Type, Status, Preview oder Metadata-Filter an, um wieder Ergebnisse zu sehen."
+                }
               />
             )
           ) : model.state !== "ready" ? (
@@ -432,6 +449,10 @@ export function BrandingDashboardConsole({
             title="Asset Detail"
             description="Read-only Detailansicht mit Preview, Metadata und bewusst disabled Future-Actions."
           />
+
+          {view.detailSelection.fellBackToVisibleItem ? (
+            <DetailSelectionNotice view={view} />
+          ) : null}
 
           {view.selectedAsset ? (
             <AssetDetailPanel item={view.selectedAsset} />
@@ -465,6 +486,42 @@ function getTrustedUploadMetadataFields(
     fileSizeBytes: uploadMetadata.fileSizeBytes,
     storedFilename: uploadMetadata.storedFilename,
   };
+}
+
+function ExplorerFeedNotice({ view }: { view: BrandingDashboardConsoleView }) {
+  const activeFilterSummary = formatBrandingActiveFilterSummary(view);
+
+  return (
+    <section className="rounded-lg border border-white/10 bg-surface-950/70 p-4 text-sm leading-6 text-slate-300">
+      <p>
+        {view.feed.scope === "loaded_sample"
+          ? `Filter und Sortierung wirken aktuell nur auf ${view.feed.returnedCount} geladene Brand Assets aus dem neuesten Feed-Fenster mit Limit ${view.feed.limit}.`
+          : `Filter und Sortierung wirken auf den aktuell vollstaendig geladenen Branding-Feed mit ${view.feed.returnedCount} Assets.`}
+      </p>
+      <p className="mt-2 text-xs text-slate-500">{activeFilterSummary}</p>
+      <p className="mt-2 text-xs text-slate-500">
+        Serverseitig geladen wird aktuell nur die Sortierung{" "}
+        {formatBrandingDashboardSortLabel(view.feed.serverSort)}.
+        {view.feed.scope === "loaded_sample" && view.feed.hasMore
+          ? " Weitere Assets existieren bereits; der Cursor-Contract ist vorbereitet, aber Pagination wird in diesem Slice noch nicht freigeschaltet."
+          : " Zusätzliche Explorer-Filter bleiben clientseitig und read-only."}
+      </p>
+    </section>
+  );
+}
+
+function DetailSelectionNotice({
+  view,
+}: {
+  view: BrandingDashboardConsoleView;
+}) {
+  return (
+    <section className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
+      Das angeforderte Asset liegt nicht mehr im aktuell sichtbaren Feed.
+      StreamOS zeigt stattdessen das erste sichtbare Asset innerhalb der aktiven
+      Explorer-Filter.
+    </section>
+  );
 }
 
 function BrandingFilterForm({ view }: { view: BrandingDashboardConsoleView }) {
@@ -875,9 +932,10 @@ function PartialLoadNotice() {
 function FeedScopeNotice({ model }: { model: BrandingDashboardModel }) {
   return (
     <section className="rounded-lg border border-brand-500/20 bg-brand-500/10 p-4 text-sm text-brand-500">
-      Diese Surface zeigt die neuesten {model.feed.returnedCount} Brand Assets
-      aus einer Stichprobe mit Limit {model.feed.limit}. Weitere Assets bleiben
-      ausserhalb dieses MVP-Fensters.
+      Diese Surface zeigt aktuell {model.feed.returnedCount} geladene Brand
+      Assets aus dem neuesten Feed-Fenster mit Limit {model.feed.limit}. Weitere
+      Assets sind vorhanden; Explorer-Filter und Sortierung decken den
+      Gesamtbestand noch nicht vollstaendig ab.
     </section>
   );
 }
@@ -1047,4 +1105,29 @@ function buildBrandingViewHref(
   return query.length > 0
     ? `/dashboard/branding?${query}`
     : "/dashboard/branding";
+}
+
+function formatBrandingActiveFilterSummary(
+  view: BrandingDashboardConsoleView,
+): string {
+  if (!view.feed.hasActiveFilters) {
+    return "Aktive Explorer-Filter: keine";
+  }
+
+  const entries = [
+    view.feed.activeFilters.assetType
+      ? `Asset Type ${formatBrandingAssetTypeLabel(view.feed.activeFilters.assetType)}`
+      : null,
+    view.feed.activeFilters.status
+      ? `Status ${formatBrandingAssetStatusLabel(view.feed.activeFilters.status)}`
+      : null,
+    view.feed.activeFilters.preview !== "all"
+      ? `Preview ${formatBrandingPreviewFilterLabel(view.feed.activeFilters.preview)}`
+      : null,
+    view.feed.activeFilters.metadata !== "all"
+      ? `Metadata ${formatBrandingMetadataFilterLabel(view.feed.activeFilters.metadata)}`
+      : null,
+  ].filter((entry): entry is string => entry !== null);
+
+  return `Aktive Explorer-Filter: ${entries.join(", ")}`;
 }

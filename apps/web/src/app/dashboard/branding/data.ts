@@ -2,6 +2,7 @@ import type { Tables } from "@streamos/database";
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
   type BrandingDashboardAsset,
+  type BrandingDashboardFeedMetadata,
   type BrandingDashboardLookupIssue,
   type BrandingDashboardPreview,
   type BrandingDashboardUploadMetadata,
@@ -98,11 +99,7 @@ export async function getBrandingDashboardData(): Promise<BrandingDashboardModel
   );
 
   return buildBrandingDashboardModel({
-    feed: {
-      hasMore: rows.length > BRANDING_DASHBOARD_ASSET_LIMIT,
-      limit: BRANDING_DASHBOARD_ASSET_LIMIT,
-      returnedCount: visibleRows.length,
-    },
+    feed: buildBrandingDashboardFeedMetadata(visibleRows, rows.length),
     items: visibleRows.map((row) =>
       normalizeBrandAsset(
         row,
@@ -163,6 +160,29 @@ async function loadChannels({
       (data as ChannelRow[]).map((channel) => [channel.id, channel]),
     ),
     issues: [],
+  };
+}
+
+function buildBrandingDashboardFeedMetadata(
+  visibleRows: BrandAssetRow[],
+  totalFetchedRowCount: number,
+): BrandingDashboardFeedMetadata {
+  const hasMore = totalFetchedRowCount > BRANDING_DASHBOARD_ASSET_LIMIT;
+  const lastVisibleRow = visibleRows.at(-1) ?? null;
+
+  return {
+    hasMore,
+    limit: BRANDING_DASHBOARD_ASSET_LIMIT,
+    nextCursor:
+      hasMore && lastVisibleRow
+        ? {
+            id: lastVisibleRow.id,
+            updatedAt: lastVisibleRow.updated_at,
+          }
+        : null,
+    returnedCount: visibleRows.length,
+    scope: hasMore ? "loaded_sample" : "full_result",
+    serverSort: "updated_desc" as const,
   };
 }
 

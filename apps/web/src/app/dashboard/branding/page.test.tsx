@@ -199,7 +199,7 @@ describe("BrandingPage", () => {
       'Sortierung: <span class="font-semibold text-white">Zuletzt erstellt</span>',
     );
     expect(html).toContain(
-      'Sichtbare Assets: <span class="font-semibold text-white">1</span> / 2',
+      'Zeige <span class="font-semibold text-white">1</span> von 2 Assets im Feed',
     );
     expect(html).toContain("Neon Logo");
     expect(html).toContain('alt="Neon Logo preview"');
@@ -244,6 +244,109 @@ describe("BrandingPage", () => {
 
     expect(html).toContain("Keine Assets fuer aktuelle Filter");
     expect(html).toContain("Kein Detail verfuegbar");
+  });
+
+  it("communicates loaded-sample scope when more assets exist outside the current feed window", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel(
+        [
+          createAsset({
+            id: "asset-1",
+            name: "Newest Logo",
+          }),
+        ],
+        [],
+        {
+          hasMore: true,
+          limit: 12,
+          nextCursor: {
+            id: "asset-1",
+            updatedAt: "2026-06-26T10:00:00.000Z",
+          },
+          returnedCount: 1,
+          scope: "loaded_sample",
+          serverSort: "updated_desc",
+        },
+      ),
+    );
+
+    const html = renderToStaticMarkup(await BrandingPage());
+
+    expect(html).toContain("Geladene Stichprobe");
+    expect(html).toContain(
+      "Filter und Sortierung wirken aktuell nur auf 1 geladene Brand Assets",
+    );
+    expect(html).toContain(
+      "Weitere Assets sind vorhanden; Explorer-Filter und Sortierung decken den Gesamtbestand noch nicht vollstaendig ab",
+    );
+  });
+
+  it("normalizes invalid search params back to safe defaults", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel([
+        createAsset({
+          id: "asset-a",
+          name: "Alpha Asset",
+          updatedAt: "2026-06-26T10:00:00.000Z",
+        }),
+        createAsset({
+          id: "asset-b",
+          name: "Beta Asset",
+          updatedAt: "2026-06-26T10:00:00.000Z",
+        }),
+      ]),
+    );
+
+    const html = renderToStaticMarkup(
+      await BrandingPage({
+        searchParams: Promise.resolve({
+          assetType: "not-real",
+          metadata: "broken",
+          preview: "maybe",
+          sort: "sideways",
+          statusFilter: "ghost",
+        }),
+      }),
+    );
+
+    expect(html).toContain(
+      'Sortierung: <span class="font-semibold text-white">Zuletzt aktualisiert</span>',
+    );
+    expect(html.indexOf("Alpha Asset")).toBeLessThan(
+      html.indexOf("Beta Asset"),
+    );
+  });
+
+  it("falls back to the first visible asset when the requested detail asset is filtered out", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel([
+        createAsset({
+          assetType: "logo",
+          id: "asset-1",
+          name: "Visible Logo",
+        }),
+        createAsset({
+          assetType: "overlay",
+          id: "asset-2",
+          name: "Hidden Overlay",
+          status: "draft",
+        }),
+      ]),
+    );
+
+    const html = renderToStaticMarkup(
+      await BrandingPage({
+        searchParams: Promise.resolve({
+          asset: "asset-2",
+          assetType: "logo",
+        }),
+      }),
+    );
+
+    expect(html).toContain(
+      "Das angeforderte Asset liegt nicht mehr im aktuell sichtbaren Feed",
+    );
+    expect(html).toContain("Visible Logo");
   });
 
   it("renders upload error feedback without exposing raw storage details", async () => {
@@ -426,12 +529,19 @@ describe("BrandingPage", () => {
 function createReadyModel(
   items: BrandingPageAsset[],
   lookupIssues: Array<{ code: "load-failed"; source: "channels" }> = [],
+  feedOverrides?: Partial<
+    ReturnType<typeof createEmptyBrandingDashboardModel>["feed"]
+  >,
 ) {
   return buildBrandingDashboardModel({
     feed: {
       hasMore: false,
       limit: 12,
+      nextCursor: null,
       returnedCount: items.length,
+      scope: "full_result",
+      serverSort: "updated_desc",
+      ...feedOverrides,
     },
     items,
     lookupIssues,

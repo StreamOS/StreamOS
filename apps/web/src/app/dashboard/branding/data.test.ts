@@ -78,6 +78,14 @@ describe("getBrandingDashboardData", () => {
     expect(data.state).toBe("ready");
     expect(data.items).toHaveLength(0);
     expect(data.lookupIssues).toHaveLength(0);
+    expect(data.feed).toMatchObject({
+      hasMore: false,
+      limit: 12,
+      nextCursor: null,
+      returnedCount: 0,
+      scope: "full_result",
+      serverSort: "updated_desc",
+    });
     expect(data.mutationContract.delete.available).toBe(false);
     expect(data.mutationContract.replace.reason).toBe(
       "requires_new_asset_row_strategy",
@@ -120,6 +128,14 @@ describe("getBrandingDashboardData", () => {
     const data = await getBrandingDashboardData();
 
     expect(data.state).toBe("ready");
+    expect(data.feed).toMatchObject({
+      hasMore: false,
+      limit: 12,
+      nextCursor: null,
+      returnedCount: 1,
+      scope: "full_result",
+      serverSort: "updated_desc",
+    });
     expect(data.items[0]).toMatchObject({
       assetType: "logo",
       futureActions: [
@@ -165,6 +181,36 @@ describe("getBrandingDashboardData", () => {
     expect(data.mutationContract["orphan_cleanup"].reason).toBe(
       "requires_scoped_manual_cleanup",
     );
+  });
+
+  it("marks the feed as a loaded sample and prepares a next cursor when more rows exist than the current limit", async () => {
+    const rows = Array.from({ length: 13 }, (_, index) =>
+      createBrandAssetRow({
+        asset_type: "logo",
+        channel_id: null,
+        id: `asset-${index + 1}`,
+        name: `Asset ${index + 1}`,
+        storage_bucket: null,
+        storage_path: null,
+      }),
+    );
+    const supabase = createSupabaseClientMock({ rows });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.feed).toEqual({
+      hasMore: true,
+      limit: 12,
+      nextCursor: {
+        id: "asset-12",
+        updatedAt: "2026-06-22T10:15:00.000Z",
+      },
+      returnedCount: 12,
+      scope: "loaded_sample",
+      serverSort: "updated_desc",
+    });
+    expect(data.items).toHaveLength(12);
   });
 
   it("keeps channel lookup failures as partial state instead of failing the main asset read", async () => {

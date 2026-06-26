@@ -30,9 +30,18 @@ export const BRANDING_DASHBOARD_MUTATION_BLOCK_REASONS = [
 ] as const;
 
 export const BRANDING_DASHBOARD_LOOKUP_SOURCES = ["channels"] as const;
+export const BRANDING_DASHBOARD_FEED_SCOPES = [
+  "full_result",
+  "loaded_sample",
+] as const;
+export const BRANDING_DASHBOARD_FEED_SERVER_SORTS = ["updated_desc"] as const;
 
 export type BrandingDashboardLookupSource =
   (typeof BRANDING_DASHBOARD_LOOKUP_SOURCES)[number];
+export type BrandingDashboardFeedScope =
+  (typeof BRANDING_DASHBOARD_FEED_SCOPES)[number];
+export type BrandingDashboardFeedServerSort =
+  (typeof BRANDING_DASHBOARD_FEED_SERVER_SORTS)[number];
 
 export type BrandingDashboardLookupIssue = {
   code: "load-failed";
@@ -109,10 +118,18 @@ export type BrandingDashboardDistributionItem = {
   key: string;
 };
 
+export type BrandingDashboardFeedCursor = {
+  id: string;
+  updatedAt: string;
+};
+
 export type BrandingDashboardFeedMetadata = {
   hasMore: boolean;
   limit: number;
+  nextCursor: BrandingDashboardFeedCursor | null;
   returnedCount: number;
+  scope: BrandingDashboardFeedScope;
+  serverSort: BrandingDashboardFeedServerSort;
 };
 
 export type BrandingDashboardCoverage = {
