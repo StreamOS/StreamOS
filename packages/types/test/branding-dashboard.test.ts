@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
   BRANDING_DASHBOARD_FEED_SCOPES,
+  BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
   BRANDING_DASHBOARD_FEED_SERVER_SORTS,
   BRANDING_DASHBOARD_LOOKUP_SOURCES,
   BRANDING_DASHBOARD_METADATA_FILTERS,
@@ -26,6 +27,7 @@ const sampleReadModel = {
     typeCount: 2,
   },
   feed: {
+    filterOwnership: BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
     hasMore: false,
     limit: BRANDING_DASHBOARD_ASSET_LIMIT,
     nextCursor: null,
@@ -190,6 +192,12 @@ void test("branding dashboard contract keeps the feed and lookup enums stable", 
     "asset_type",
     "status",
   ]);
+  assert.deepEqual(BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP, {
+    assetType: "server_query",
+    metadata: "client_window",
+    preview: "client_window",
+    status: "server_query",
+  });
   assert.deepEqual(BRANDING_DASHBOARD_PREVIEW_FILTERS, [
     "all",
     "available",
@@ -208,6 +216,12 @@ void test("branding dashboard read model stays read-only and tolerant of unknown
   assert.equal(sampleReadModel.feed.scope, "full_result");
   assert.equal(sampleReadModel.feed.serverSort, "updated_desc");
   assert.equal(sampleReadModel.feed.nextCursor, null);
+  assert.deepEqual(sampleReadModel.feed.filterOwnership, {
+    assetType: "server_query",
+    metadata: "client_window",
+    preview: "client_window",
+    status: "server_query",
+  });
   assert.deepEqual(sampleReadModel.feed.serverFilters, {
     assetType: null,
     status: null,

@@ -29,6 +29,16 @@ describe("buildBrandingDashboardViewModel", () => {
       });
 
       expect(view.feed.hasActiveServerFilters).toBe(true);
+      expect(view.feed.filterOwnership).toEqual({
+        assetType: "server_query",
+        metadata: "client_window",
+        preview: "client_window",
+        status: "server_query",
+      });
+      expect(view.feed.clientFilters).toEqual({
+        metadata: "invalid",
+        preview: "unavailable",
+      });
       expect(view.filters).toEqual({
         assetType: "logo",
         metadata: "invalid",

@@ -40,6 +40,12 @@ export const BRANDING_DASHBOARD_FEED_SERVER_SORTS = [
   "asset_type",
   "status",
 ] as const;
+export const BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP = {
+  assetType: "server_query",
+  metadata: "client_window",
+  preview: "client_window",
+  status: "server_query",
+} as const;
 export const BRANDING_DASHBOARD_PREVIEW_FILTERS = [
   "all",
   "available",
@@ -58,6 +64,7 @@ export type BrandingDashboardFeedScope =
   (typeof BRANDING_DASHBOARD_FEED_SCOPES)[number];
 export type BrandingDashboardFeedServerSort =
   (typeof BRANDING_DASHBOARD_FEED_SERVER_SORTS)[number];
+export type BrandingDashboardFeedFilterOwner = "client_window" | "server_query";
 export type BrandingDashboardPreviewFilter =
   (typeof BRANDING_DASHBOARD_PREVIEW_FILTERS)[number];
 export type BrandingDashboardMetadataFilter =
@@ -151,7 +158,20 @@ export type BrandingDashboardFeedServerFilters = {
   status: BrandAssetStatus | string | null;
 };
 
+export type BrandingDashboardFeedClientFilters = {
+  metadata: BrandingDashboardMetadataFilter;
+  preview: BrandingDashboardPreviewFilter;
+};
+
+export type BrandingDashboardFeedFilterOwnership = {
+  assetType: BrandingDashboardFeedFilterOwner;
+  metadata: BrandingDashboardFeedFilterOwner;
+  preview: BrandingDashboardFeedFilterOwner;
+  status: BrandingDashboardFeedFilterOwner;
+};
+
 export type BrandingDashboardFeedMetadata = {
+  filterOwnership: BrandingDashboardFeedFilterOwnership;
   hasMore: boolean;
   limit: number;
   nextCursor: BrandingDashboardFeedCursor | null;

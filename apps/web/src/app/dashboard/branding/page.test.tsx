@@ -300,10 +300,50 @@ describe("BrandingPage", () => {
 
     expect(html).toContain("Geladene Stichprobe");
     expect(html).toContain(
-      "Serverseitige Asset-Type-/Status-Filter und die Sortierung Zuletzt aktualisiert wirken auf das aktuelle Query-Fenster mit 1 geladenen Brand Assets",
+      "Serverseitige Asset-Type- und Status-Filter und die Sortierung Zuletzt aktualisiert wirken auf das aktuelle Query-Fenster mit 1 geladenen Brand Assets",
     );
     expect(html).toContain(
       "Weitere Assets im selben Query-Kontext sind vorhanden und koennen ueber `Mehr laden` schrittweise nachgeladen werden",
+    );
+  });
+
+  it("keeps preview and metadata explicitly marked as client-side window filters", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createReadyModel([
+        createAsset({
+          id: "asset-1",
+          name: "Filtered Logo",
+          preview: {
+            expiresAt: null,
+            reason: "signing_failed",
+            status: "failed",
+            url: null,
+          },
+          uploadMetadata: {
+            contentType: null,
+            fileExtension: null,
+            fileSizeBytes: null,
+            status: "invalid",
+            storedFilename: null,
+          },
+        }),
+      ]),
+    );
+
+    const html = renderToStaticMarkup(
+      await BrandingPage({
+        searchParams: Promise.resolve({
+          metadata: "invalid",
+          preview: "unavailable",
+        }),
+      }),
+    );
+
+    expect(html).toContain(
+      "Clientseitige Fensterfilter: Preview nicht verfuegbar, Metadata ungueltig",
+    );
+    expect(html).toContain(
+      "Preview und Metadata bleiben bewusst clientseitige Fensterfilter",
     );
   });
 
@@ -714,6 +754,12 @@ function createReadyModel(
 ) {
   return buildBrandingDashboardModel({
     feed: {
+      filterOwnership: {
+        assetType: "server_query",
+        metadata: "client_window",
+        preview: "client_window",
+        status: "server_query",
+      },
       hasMore: false,
       limit: 12,
       nextCursor: null,

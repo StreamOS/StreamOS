@@ -1,6 +1,7 @@
 import type { Tables } from "@streamos/database";
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
+  BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
   type BrandAssetStatus,
   type BrandAssetType,
   type BrandingDashboardAsset,
@@ -389,6 +390,7 @@ function buildBrandingDashboardFeedMetadata({
   query: BrandingDashboardServerQuery;
 }): BrandingDashboardFeedMetadata {
   return {
+    filterOwnership: BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
     hasMore,
     limit: BRANDING_DASHBOARD_ASSET_LIMIT,
     nextCursor: hasMore
