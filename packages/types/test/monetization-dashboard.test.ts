@@ -29,6 +29,11 @@ const sampleReadModel = {
   },
   lookupIssues: [],
   period: "last_30_days",
+  periodContext: {
+    periodCoverageNote: null,
+    periodLabel: "Last 30 days",
+    selectedPeriod: "last_30_days",
+  },
   recentEvents: [
     {
       amount: {
@@ -125,6 +130,7 @@ void test("monetization dashboard contract keeps enums and feed limits stable", 
 void test("monetization dashboard read model stays read-only and explicit about currency handling", () => {
   assert.equal(sampleReadModel.feed.limit, 12);
   assert.equal(sampleReadModel.lookupIssues.length, 0);
+  assert.equal(sampleReadModel.periodContext.periodLabel, "Last 30 days");
   assert.equal(sampleReadModel.summary.totalRevenue.currency, "USD");
   assert.equal(sampleReadModel.summary.totalConfirmedEvents, 146);
   assert.equal(sampleReadModel.coverage.summaryRowCount, 7);

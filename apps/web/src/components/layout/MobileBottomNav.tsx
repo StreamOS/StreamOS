@@ -2,22 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  BarChart2,
-  Clapperboard,
-  DollarSign,
-  Palette,
-  TrendingUp,
-} from "lucide-react";
+import { mobileBottomNavItems } from "@/components/layout/dashboardNavigation";
 import { cn } from "@/lib/utils/cn";
-
-const mobileNavItems = [
-  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart2 },
-  { href: "/dashboard/content", label: "Content", icon: Clapperboard },
-  { href: "/dashboard/monetization", label: "Monetization", icon: DollarSign },
-  { href: "/dashboard/growth", label: "Growth", icon: TrendingUp },
-  { href: "/dashboard/branding", label: "Branding", icon: Palette },
-] as const;
 
 export function MobileBottomNav() {
   const pathname = usePathname();
@@ -28,7 +14,7 @@ export function MobileBottomNav() {
       aria-label="Mobile Dashboard Navigation"
     >
       <div className="grid grid-cols-5 gap-1">
-        {mobileNavItems.map((item) => {
+        {mobileBottomNavItems.map((item) => {
           const isActive =
             pathname === item.href || pathname.startsWith(`${item.href}/`);
 

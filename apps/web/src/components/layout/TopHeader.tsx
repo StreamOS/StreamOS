@@ -1,36 +1,26 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   Bell,
-  BarChart2,
   CheckCheck,
   ChevronDown,
-  Clapperboard,
-  DollarSign,
-  Globe,
   LogOut,
   Menu,
-  Palette,
   Settings,
-  TrendingUp,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  getDashboardPageLabel,
+  mobileHeaderNavItems,
+} from "@/components/layout/dashboardNavigation";
 import { DarkModeToggle } from "@/components/layout/DarkModeToggle";
 import { cn } from "@/lib/utils/cn";
 import { createClient } from "@/lib/supabase/client";
 import { useUiStore } from "@/store/uiStore";
-
-const pageLabels = [
-  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart2 },
-  { href: "/dashboard/content", label: "Content", icon: Clapperboard },
-  { href: "/dashboard/monetization", label: "Monetization", icon: DollarSign },
-  { href: "/dashboard/growth", label: "Growth", icon: TrendingUp },
-  { href: "/dashboard/branding", label: "Branding", icon: Palette },
-  { href: "/dashboard/platforms", label: "Platforms", icon: Globe },
-] as const;
 
 type PlanName = "Free" | "Pro" | "Business";
 
@@ -99,7 +89,10 @@ export function TopHeader({
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
-  const currentPage = useMemo(() => getCurrentPageLabel(pathname), [pathname]);
+  const currentPage = useMemo(
+    () => getDashboardPageLabel(pathname),
+    [pathname],
+  );
   const initials = useMemo(
     () => getInitials(displayName, userEmail),
     [displayName, userEmail],
@@ -177,17 +170,9 @@ export function TopHeader({
             </button>
             {mobileMenuOpen && (
               <div className="absolute left-0 top-12 w-64 rounded-lg border border-white/10 bg-surface-900 p-2 shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
-                {pageLabels.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    <item.icon className="h-4 w-4" aria-hidden="true" />
-                    {item.label}
-                  </Link>
-                ))}
+                <MobileHeaderMenuLinks
+                  onNavigate={() => setMobileMenuOpen(false)}
+                />
               </div>
             )}
           </div>
@@ -256,6 +241,24 @@ export function TopHeader({
       </div>
     </header>
   );
+}
+
+export function MobileHeaderMenuLinks({
+  onNavigate,
+}: {
+  onNavigate?: () => void;
+}) {
+  return mobileHeaderNavItems.map((item) => (
+    <Link
+      key={item.href}
+      href={item.href}
+      className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+      onClick={onNavigate}
+    >
+      <item.icon className="h-4 w-4" aria-hidden="true" />
+      {item.label}
+    </Link>
+  ));
 }
 
 function NotificationsDropdown({
@@ -394,18 +397,6 @@ function Avatar({
     <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-signal-green text-xs font-black text-white">
       {initials}
     </span>
-  );
-}
-
-function getCurrentPageLabel(pathname: string): string {
-  if (pathname === "/dashboard") {
-    return "Command Center";
-  }
-
-  return (
-    pageLabels.find(
-      (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
-    )?.label ?? "Dashboard"
   );
 }
 

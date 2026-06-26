@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import { MONETIZATION_DASHBOARD_PERIOD_OPTIONS } from "@streamos/types";
 import {
   BadgeDollarSign,
   CalendarDays,
@@ -42,6 +43,9 @@ export function MonetizationDashboardConsole({
       {model.state === "unauthorized" && <UnauthorizedNotice />}
       {model.state === "auth-failed" && <AuthFailedNotice />}
       {model.state === "load-failed" && <LoadFailedNotice />}
+      {model.periodContext.periodCoverageNote && (
+        <PeriodCoverageNote note={model.periodContext.periodCoverageNote} />
+      )}
       {model.feed.hasMore && <FeedScopeNotice model={model} />}
       {showPartialLoadNotice && <PartialLoadNotice />}
 
@@ -58,6 +62,15 @@ export function MonetizationDashboardConsole({
             tenant-scoped und ohne Provider-Syncs, Payment-Writes oder externe
             Integrationen.
           </p>
+          <div className="mt-6 space-y-4">
+            <PeriodControls model={model} />
+            <p className="text-sm text-slate-400">
+              Aktive Revenue-Perspektive:{" "}
+              <span className="font-semibold text-white">
+                {model.periodContext.periodLabel}
+              </span>
+            </p>
+          </div>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link href="/dashboard/analytics" className="btn-primary">
               Analytics pruefen
@@ -85,6 +98,10 @@ export function MonetizationDashboardConsole({
             </li>
             <li>No service-role logic or secrets in browser code.</li>
             <li>
+              Period scope: {model.periodContext.periodLabel} mit expliziter
+              Coverage statt stillen Vollstaendigkeitsannahmen.
+            </li>
+            <li>
               Mixed oder fehlende Currencies bleiben explizit als unavailable
               markiert.
             </li>
@@ -97,28 +114,32 @@ export function MonetizationDashboardConsole({
           icon={BadgeDollarSign}
           label="Total Revenue"
           tone="emerald"
-          trend={periodLabel(model.period)}
+          trend={model.periodContext.periodLabel}
           value={formatMonetizationAmount(model.summary.totalRevenue)}
         />
         <StatCard
           icon={Coins}
           label="Net Revenue"
           tone="violet"
-          trend="Summary-backed"
+          trend={
+            model.period === "all_time"
+              ? "Weekly summaries in MVP"
+              : `${model.periodContext.periodLabel} summaries`
+          }
           value={formatMonetizationAmount(model.summary.netRevenue)}
         />
         <StatCard
           icon={CalendarDays}
           label="Avg Revenue / Day"
           tone="amber"
-          trend="Selected period"
+          trend={`Within ${model.periodContext.periodLabel}`}
           value={formatMonetizationAmount(model.summary.averageRevenuePerDay)}
         />
         <StatCard
           icon={RadioTower}
           label="Confirmed Events"
           tone="rose"
-          trend="Summary or aggregate count"
+          trend={`${model.periodContext.periodLabel} scope`}
           value={formatMonetizationCount(model.summary.totalConfirmedEvents)}
         />
       </section>
@@ -127,7 +148,7 @@ export function MonetizationDashboardConsole({
         <article className="card space-y-4">
           <SectionHeader
             title="Revenue Trend"
-            description="Zeitverlauf aus vorhandenen Summary- oder Event-Aggregates. Fehlende Daten bleiben explizit leer."
+            description={`Zeitverlauf fuer ${model.periodContext.periodLabel} aus vorhandenen Summary- oder Event-Aggregates. Fehlende Daten bleiben explizit leer.`}
           />
 
           {model.trend.length > 0 ? (
@@ -181,7 +202,7 @@ export function MonetizationDashboardConsole({
         <aside className="card space-y-4">
           <SectionHeader
             title="Coverage"
-            description="Abdeckung und Data-Source-Metadaten fuer die read-only Monetization-Surface."
+            description={`Abdeckung und Data-Source-Metadaten fuer ${model.periodContext.periodLabel}.`}
           />
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
@@ -232,6 +253,8 @@ export function MonetizationDashboardConsole({
             <p className="mt-2">
               {formatMonetizationDateTime(model.coverage.latestEventAt)}
             </p>
+            <p className="mt-4 font-semibold text-white">Selected period</p>
+            <p className="mt-2">{model.periodContext.periodLabel}</p>
           </div>
         </aside>
       </section>
@@ -240,7 +263,7 @@ export function MonetizationDashboardConsole({
         <article className="card space-y-4">
           <SectionHeader
             title="Revenue by Source"
-            description="Quelle oder Event-Typ mit expliziten Availability-Labels fuer fehlende Umsatzbetraege."
+            description={`Quelle oder Event-Typ fuer ${model.periodContext.periodLabel} mit expliziten Availability-Labels fuer fehlende Umsatzbetraege.`}
           />
 
           {model.revenueBySource.length > 0 ? (
@@ -292,7 +315,7 @@ export function MonetizationDashboardConsole({
         <article className="card space-y-4">
           <SectionHeader
             title="Recent Monetization Events"
-            description="Neueste Events aus einer begrenzten, user-scoped Feed-Abfrage."
+            description={`Neueste Events bei aktiver Revenue-Perspektive ${model.periodContext.periodLabel} aus einer begrenzten, user-scoped Feed-Abfrage.`}
           />
 
           {model.recentEvents.length > 0 ? (
@@ -360,7 +383,7 @@ export function MonetizationDashboardConsole({
       <section className="card space-y-4">
         <SectionHeader
           title="Top Revenue Sources"
-          description="Die staerksten Revenue-Gruppen im aktuellen Zeitraum, sofern Umsatzbetraege oder belastbare Count-only Summary-Daten vorliegen."
+          description={`Die staerksten Revenue-Gruppen fuer ${model.periodContext.periodLabel}, sofern Umsatzbetraege oder belastbare Count-only Summary-Daten vorliegen.`}
         />
 
         {model.topRevenueSources.length > 0 ? (
@@ -403,6 +426,32 @@ export function MonetizationDashboardConsole({
   );
 }
 
+function PeriodControls({ model }: { model: MonetizationDashboardModel }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {MONETIZATION_DASHBOARD_PERIOD_OPTIONS.map((option) => {
+        const isActive = option.id === model.periodContext.selectedPeriod;
+
+        return (
+          <Link
+            key={option.id}
+            href={`/dashboard/monetization?period=${option.id}`}
+            aria-current={isActive ? "page" : undefined}
+            className={cn(
+              "inline-flex min-h-10 items-center rounded-full border px-4 text-sm font-semibold transition-colors",
+              isActive
+                ? "border-signal-green/30 bg-signal-green/10 text-signal-green"
+                : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white",
+            )}
+          >
+            {option.label}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 function SectionHeader({
   description,
   title,
@@ -415,6 +464,14 @@ function SectionHeader({
       <h2 className="text-lg font-semibold text-white">{title}</h2>
       <p className="mt-1 text-sm leading-6 text-slate-400">{description}</p>
     </div>
+  );
+}
+
+function PeriodCoverageNote({ note }: { note: string }) {
+  return (
+    <section className="rounded-lg border border-slate-400/20 bg-slate-400/10 p-4 text-sm text-slate-200">
+      {note}
+    </section>
   );
 }
 
@@ -627,16 +684,4 @@ function statusTone(
   }
 
   return "slate";
-}
-
-function periodLabel(period: MonetizationDashboardModel["period"]): string {
-  if (period === "last_7_days") {
-    return "Last 7 days";
-  }
-
-  if (period === "all_time") {
-    return "All time";
-  }
-
-  return "Last 30 days";
 }

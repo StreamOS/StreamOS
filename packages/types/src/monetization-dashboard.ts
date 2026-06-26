@@ -9,6 +9,24 @@ export const MONETIZATION_DASHBOARD_PERIODS = [
 export type MonetizationDashboardPeriod =
   (typeof MONETIZATION_DASHBOARD_PERIODS)[number];
 
+export const MONETIZATION_DASHBOARD_PERIOD_OPTIONS = [
+  {
+    id: "last_7_days",
+    label: "Last 7 days",
+  },
+  {
+    id: "last_30_days",
+    label: "Last 30 days",
+  },
+  {
+    id: "all_time",
+    label: "All time",
+  },
+] as const;
+
+export type MonetizationDashboardPeriodOption =
+  (typeof MONETIZATION_DASHBOARD_PERIOD_OPTIONS)[number];
+
 export const MONETIZATION_DASHBOARD_EVENT_LIMIT = 12;
 
 export const MONETIZATION_DASHBOARD_LOOKUP_SOURCES = [
@@ -93,11 +111,18 @@ export type MonetizationDashboardSummary = {
   totalRevenue: MonetizationAmountValue;
 };
 
+export type MonetizationDashboardPeriodContext = {
+  periodCoverageNote: string | null;
+  periodLabel: string;
+  selectedPeriod: MonetizationDashboardPeriod;
+};
+
 export type MonetizationDashboardReadModel = {
   coverage: MonetizationDashboardCoverage;
   feed: MonetizationDashboardFeedMetadata;
   lookupIssues: MonetizationDashboardLookupIssue[];
   period: MonetizationDashboardPeriod;
+  periodContext: MonetizationDashboardPeriodContext;
   recentEvents: MonetizationRecentEvent[];
   revenueBySource: MonetizationRevenueSource[];
   summary: MonetizationDashboardSummary;

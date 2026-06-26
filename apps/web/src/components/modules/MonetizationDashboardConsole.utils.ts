@@ -1,9 +1,11 @@
 import type { Tables } from "@streamos/database";
 import {
+  MONETIZATION_DASHBOARD_PERIOD_OPTIONS,
   MONETIZATION_DASHBOARD_EVENT_LIMIT,
   type MonetizationAmountValue,
   type MonetizationDashboardLookupIssue,
   type MonetizationDashboardPeriod,
+  type MonetizationDashboardPeriodContext,
   type MonetizationDashboardReadModel,
   type MonetizationRecentEvent,
   type MonetizationRevenueSource,
@@ -113,6 +115,7 @@ export function buildMonetizationDashboardModel({
 }): MonetizationDashboardModel {
   const currencyState = resolveCurrencyState(aggregate, events, summaries);
   const recentEvents = normalizeRecentEvents(events);
+  const periodContext = buildPeriodContext(period);
   const revenueBySource = buildRevenueBySource({
     aggregate,
     currencyState,
@@ -164,6 +167,7 @@ export function buildMonetizationDashboardModel({
     feed,
     lookupIssues,
     period,
+    periodContext,
     recentEvents,
     revenueBySource,
     state,
@@ -199,6 +203,7 @@ export function createEmptyMonetizationDashboardModel(
     },
     lookupIssues,
     period,
+    periodContext: buildPeriodContext(period),
     recentEvents: [],
     revenueBySource: [],
     state,
@@ -321,6 +326,28 @@ export function getMonetizationStatusLabel(
     case "void":
       return "Void";
   }
+}
+
+function buildPeriodContext(
+  period: MonetizationDashboardPeriod,
+): MonetizationDashboardPeriodContext {
+  return {
+    periodCoverageNote:
+      period === "all_time"
+        ? "All time uses weekly summary buckets in this MVP. Recent events remain a limited latest-feed view."
+        : null,
+    periodLabel: getMonetizationDashboardPeriodLabel(period),
+    selectedPeriod: period,
+  };
+}
+
+export function getMonetizationDashboardPeriodLabel(
+  period: MonetizationDashboardPeriod,
+): string {
+  return (
+    MONETIZATION_DASHBOARD_PERIOD_OPTIONS.find((option) => option.id === period)
+      ?.label ?? "Last 30 days"
+  );
 }
 
 function buildSummaryMetrics({

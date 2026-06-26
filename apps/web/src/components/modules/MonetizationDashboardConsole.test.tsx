@@ -72,6 +72,7 @@ describe("MonetizationDashboardConsole.utils", () => {
     expect(model.summary.totalRevenue.amountCents).toBe(250800);
     expect(model.summary.netRevenue.amountCents).toBe(240000);
     expect(model.summary.latestEventAt).toBe("2026-06-25T10:30:00.000Z");
+    expect(model.periodContext.periodLabel).toBe("Last 30 days");
     expect(model.coverage.summaryRowCount).toBe(1);
     expect(model.coverage.trendSource).toBe("summaries");
     expect(model.revenueBySource[0]?.key).toBe("subscription");
@@ -176,6 +177,7 @@ describe("MonetizationDashboardConsole.utils", () => {
 
     expect(model.summary.totalRevenue.amountCents).toBe(63000);
     expect(model.summary.netRevenue.availability).toBe("unavailable");
+    expect(model.periodContext.periodLabel).toBe("Last 7 days");
     expect(model.coverage.trendSource).toBe("events");
     expect(model.revenueBySource[0]?.label).toBe("Sponsoring");
   });
@@ -228,6 +230,7 @@ describe("MonetizationDashboardConsole.utils", () => {
     expect(model.state).toBe("load-failed");
     expect(model.feed.hasMore).toBe(false);
     expect(model.feed.limit).toBe(12);
+    expect(model.periodContext.periodCoverageNote).toContain("weekly summary");
     expect(model.lookupIssues[0]?.source).toBe("events");
   });
 });

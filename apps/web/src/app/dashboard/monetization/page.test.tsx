@@ -13,7 +13,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./data", () => ({
   getMonetizationDashboardData: mocks.getMonetizationDashboardData,
   parseMonetizationDashboardPeriod: (value: string | undefined) =>
-    value === "all_time" ? "all_time" : "last_30_days",
+    value === "all_time"
+      ? "all_time"
+      : value === "last_7_days"
+        ? "last_7_days"
+        : "last_30_days",
 }));
 
 describe("MonetizationPage", () => {
@@ -30,8 +34,30 @@ describe("MonetizationPage", () => {
 
     expect(html).toContain("Monetization Dashboard");
     expect(html).toContain("Read-only monetization model");
+    expect(html).toContain("/dashboard/monetization?period=last_30_days");
+    expect(html).toContain("Aktive Revenue-Perspektive:");
     expect(html).toContain("Noch keine Monetization-Daten");
     expect(html).toContain("Keine Monetization Events im Zeitraum");
+  });
+
+  it("renders active all-time period controls with the weekly-summary note", async () => {
+    mocks.getMonetizationDashboardData.mockResolvedValue(
+      createEmptyMonetizationDashboardModel("all_time", "user-9"),
+    );
+
+    const html = renderToStaticMarkup(
+      await MonetizationPage({
+        searchParams: Promise.resolve({
+          period: "all_time",
+        }),
+      }),
+    );
+
+    expect(html).toContain('href="/dashboard/monetization?period=all_time"');
+    expect(html).toContain('aria-current="page"');
+    expect(html).toContain(
+      "All time uses weekly summary buckets in this MVP. Recent events remain a limited latest-feed view.",
+    );
   });
 
   it("renders partial-load warnings without hiding existing data", async () => {
