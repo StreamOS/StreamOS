@@ -124,6 +124,52 @@ describe("MonetizationPage", () => {
     expect(html).toContain("Brand Campaign");
   });
 
+  it("does not overstate a single uncategorized source in a tiny recent-event sample", async () => {
+    const model = buildMonetizationDashboardModel({
+      aggregate: {
+        activePlatforms: 1,
+        averageRevenuePerDayCents: 5000,
+        currency: "USD",
+        sourceBreakdown: [],
+        totalRevenueCents: 5000,
+        trend: [],
+      },
+      events: [
+        {
+          amount_cents: 5000,
+          currency: "USD",
+          event_type: "other",
+          id: "event-unknown-sample",
+          occurred_at: "2026-06-25T12:00:00.000Z",
+          provider: "youtube",
+          source: "mystery_drop",
+          status: "confirmed",
+        },
+      ],
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 1,
+      },
+      lookupIssues: [],
+      period: "last_30_days",
+      state: "ready",
+      summaries: [],
+      userId: "user-unknown-sample",
+    });
+
+    mocks.getMonetizationDashboardData.mockResolvedValue(model);
+
+    const html = renderToStaticMarkup(await MonetizationPage());
+
+    expect(html).toContain("Recent Monetization Events");
+    expect(html).toContain("Mystery Drop");
+    expect(html).toContain("Unknown");
+    expect(html).not.toContain(
+      "Some sampled revenue sources are uncategorized.",
+    );
+  });
+
   it("renders summary fallback as categories instead of sources", async () => {
     const model = buildMonetizationDashboardModel({
       aggregate: {

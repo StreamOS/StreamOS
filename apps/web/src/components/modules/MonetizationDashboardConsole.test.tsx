@@ -290,6 +290,108 @@ describe("MonetizationDashboardConsole.utils", () => {
     );
   });
 
+  it("avoids over-warning for a single unknown source in a tiny recent-event sample", () => {
+    const freshOccurredAt = new Date(Date.now() - 45 * 60 * 1000).toISOString();
+
+    const model = buildMonetizationDashboardModel({
+      aggregate: {
+        activePlatforms: 1,
+        averageRevenuePerDayCents: 5000,
+        currency: "USD",
+        sourceBreakdown: [],
+        totalRevenueCents: 5000,
+        trend: [],
+      },
+      events: [
+        {
+          amount_cents: 5000,
+          currency: "USD",
+          event_type: "other",
+          id: "event-sampled-unknown",
+          occurred_at: freshOccurredAt,
+          provider: "twitch",
+          source: "mystery_drop",
+          status: "confirmed",
+        },
+      ],
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 1,
+      },
+      lookupIssues: [],
+      period: "last_30_days",
+      state: "ready",
+      summaries: [],
+      userId: "user-sampled-unknown",
+    });
+
+    expect(model.dataQuality.sourceObservationScope).toBe(
+      "recent_event_sample",
+    );
+    expect(model.dataQuality.unknownSourceCount).toBe(1);
+    expect(model.dataQuality.unknownSourceRatio).toBe(1);
+    expect(
+      model.dataQuality.notices.map((notice) => notice.code),
+    ).not.toContain("unknown_sources");
+  });
+
+  it("keeps unknown-source warnings visible once the recent-event sample is no longer tiny", () => {
+    const freshOccurredAt = new Date(Date.now() - 45 * 60 * 1000).toISOString();
+
+    const model = buildMonetizationDashboardModel({
+      aggregate: {
+        activePlatforms: 1,
+        averageRevenuePerDayCents: 9000,
+        currency: "USD",
+        sourceBreakdown: [],
+        totalRevenueCents: 9000,
+        trend: [],
+      },
+      events: [
+        {
+          amount_cents: 5000,
+          currency: "USD",
+          event_type: "other",
+          id: "event-sampled-unknown-1",
+          occurred_at: freshOccurredAt,
+          provider: "twitch",
+          source: "mystery_drop",
+          status: "confirmed",
+        },
+        {
+          amount_cents: 4000,
+          currency: "USD",
+          event_type: "other",
+          id: "event-sampled-unknown-2",
+          occurred_at: freshOccurredAt,
+          provider: "youtube",
+          source: "platform_bonus",
+          status: "confirmed",
+        },
+      ],
+      feed: {
+        hasMore: false,
+        limit: 12,
+        returnedCount: 2,
+      },
+      lookupIssues: [],
+      period: "last_30_days",
+      state: "ready",
+      summaries: [],
+      userId: "user-sampled-unknowns",
+    });
+
+    expect(model.dataQuality.sourceObservationScope).toBe(
+      "recent_event_sample",
+    );
+    expect(model.dataQuality.unknownSourceCount).toBe(2);
+    expect(model.dataQuality.unknownSourceRatio).toBe(1);
+    expect(model.dataQuality.notices.map((notice) => notice.code)).toContain(
+      "unknown_sources",
+    );
+  });
+
   it("surfaces missing sources, mixed currency, partial reads, and stale latest events", () => {
     const staleOccurredAt = new Date(
       Date.now() - 40 * 24 * 60 * 60 * 1000,

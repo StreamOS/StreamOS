@@ -225,6 +225,59 @@ describe("monetization data loader", () => {
     ]);
   });
 
+  it("keeps a single sampled unknown source visible in data quality metrics without rendering the warning card", async () => {
+    mocks.isSupabaseConfigured.mockReturnValue(true);
+    mocks.createClient.mockResolvedValue(
+      createSupabaseClient({
+        rpcResult: {
+          data: {
+            active_platforms: 1,
+            avg_revenue_per_day_cents: 5000,
+            currency: "USD",
+            total_revenue_cents: 5000,
+          },
+          error: null,
+        },
+        tableResults: {
+          monetization_events: {
+            count: 1,
+            data: [
+              {
+                amount_cents: 5000,
+                currency: "USD",
+                event_type: "other",
+                id: "event-sampled-unknown",
+                occurred_at: "2026-06-25T10:30:00.000Z",
+                provider: "twitch",
+                source: "mystery_drop",
+                status: "confirmed",
+              },
+            ],
+            error: null,
+          },
+          monetization_summaries: {
+            data: [],
+            error: null,
+          },
+        },
+        user: {
+          id: "user-sampled-unknown",
+        },
+      }),
+    );
+
+    const model = await getMonetizationDashboardData("last_30_days");
+
+    expect(model.dataQuality.sourceObservationScope).toBe(
+      "recent_event_sample",
+    );
+    expect(model.dataQuality.unknownSourceCount).toBe(1);
+    expect(model.dataQuality.unknownSourceRatio).toBe(1);
+    expect(model.dataQuality.notices.map((notice) => notice.code)).toEqual([
+      "events_without_summaries",
+    ]);
+  });
+
   it("returns a load-failed state when aggregates, events and summaries fail together", async () => {
     mocks.isSupabaseConfigured.mockReturnValue(true);
     mocks.createClient.mockResolvedValue(

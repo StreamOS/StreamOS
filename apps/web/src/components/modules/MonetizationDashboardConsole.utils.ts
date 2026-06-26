@@ -672,6 +672,7 @@ function buildDataQuality({
     missingSourceCount,
     noRecentEvents,
     partialRead,
+    sourceObservationCount,
     sourceObservationScope,
     staleLatestEvent,
     summariesWithoutEvents,
@@ -701,6 +702,7 @@ function buildDataQualityNotices({
   missingSourceCount,
   noRecentEvents,
   partialRead,
+  sourceObservationCount,
   sourceObservationScope,
   staleLatestEvent,
   summariesWithoutEvents,
@@ -712,6 +714,7 @@ function buildDataQualityNotices({
   missingSourceCount: number;
   noRecentEvents: boolean;
   partialRead: boolean;
+  sourceObservationCount: number;
   sourceObservationScope: MonetizationDataQuality["sourceObservationScope"];
   staleLatestEvent: boolean;
   summariesWithoutEvents: boolean;
@@ -748,8 +751,12 @@ function buildDataQualityNotices({
   }
 
   if (
-    unknownSourceCount > 0 &&
-    (unknownSourceRatio === null || unknownSourceRatio >= 0.2)
+    shouldWarnUnknownSources({
+      sourceObservationCount,
+      sourceObservationScope,
+      unknownSourceCount,
+      unknownSourceRatio,
+    })
   ) {
     notices.push({
       code: "unknown_sources",
@@ -757,7 +764,10 @@ function buildDataQualityNotices({
         sourceObservationScope === "breakdown_events"
           ? "Some revenue sources are still uncategorized in the current period."
           : "Some sampled recent events use uncategorized revenue sources.",
-      title: "Some revenue sources are uncategorized.",
+      title:
+        sourceObservationScope === "recent_event_sample"
+          ? "Some sampled revenue sources are uncategorized."
+          : "Some revenue sources are uncategorized.",
     });
   }
 
@@ -798,6 +808,38 @@ function buildDataQualityNotices({
   }
 
   return notices;
+}
+
+function shouldWarnUnknownSources({
+  sourceObservationCount,
+  sourceObservationScope,
+  unknownSourceCount,
+  unknownSourceRatio,
+}: {
+  sourceObservationCount: number;
+  sourceObservationScope: MonetizationDataQuality["sourceObservationScope"];
+  unknownSourceCount: number;
+  unknownSourceRatio: number | null;
+}): boolean {
+  if (unknownSourceCount === 0) {
+    return false;
+  }
+
+  if (
+    sourceObservationScope === "recent_event_sample" &&
+    sourceObservationCount < 3 &&
+    unknownSourceCount < 2
+  ) {
+    return false;
+  }
+
+  if (unknownSourceRatio !== null) {
+    return unknownSourceRatio >= 0.2;
+  }
+
+  return sourceObservationScope === "recent_event_sample"
+    ? unknownSourceCount >= 2
+    : unknownSourceCount >= 1;
 }
 
 function buildTrend({

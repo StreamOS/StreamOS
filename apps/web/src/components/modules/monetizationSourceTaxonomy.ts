@@ -9,16 +9,22 @@ const EXACT_SOURCE_CATEGORY_MAP: Record<string, MonetizationSourceCategory> = {
   affiliate: "affiliate",
   bits: "platform_revenue",
   brand_campaign: "sponsorships",
+  brand_deal_bonus: "sponsorships",
   channel_membership: "subscriptions",
   channel_subscription: "subscriptions",
+  cheers: "platform_revenue",
   donation: "donations",
   gift_sub: "subscriptions",
   gifted_sub: "subscriptions",
+  membership: "subscriptions",
   merch_sale: "merch",
+  merch_store: "merch",
   monthly_sub: "subscriptions",
   other: "other",
+  platform_revenue: "platform_revenue",
   prime_sub: "subscriptions",
   sponsorship: "sponsorships",
+  stars: "platform_revenue",
   sub: "subscriptions",
   subscription: "subscriptions",
   super_chat: "platform_revenue",
@@ -37,7 +43,7 @@ const SOURCE_CATEGORY_PATTERNS: Array<{
   },
   {
     category: "donations",
-    pattern: /(^|[_-])(tip|tips|donation|donate|dono|support)([_-]|$)/,
+    pattern: /(^|[_-])(tip|tips|donation|donate|dono)([_-]|$)/,
   },
   {
     category: "sponsorships",
@@ -57,8 +63,7 @@ const SOURCE_CATEGORY_PATTERNS: Array<{
   },
   {
     category: "platform_revenue",
-    pattern:
-      /(^|[_-])(bits|cheer|superchat|superthanks|stars|platform)([_-]|$)/,
+    pattern: /(^|[_-])(bits|cheer|superchat|superthanks|stars)([_-]|$)/,
   },
 ];
 
