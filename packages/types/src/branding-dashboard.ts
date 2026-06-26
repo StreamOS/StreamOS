@@ -179,7 +179,7 @@ type BrandingDashboardTypeEqual<TLeft, TRight> =
     ? true
     : false;
 
-type BrandingDashboardFeedFilterOwnershipAssertions = [
+type _BrandingDashboardFeedFilterOwnershipAssertions = [
   BrandingDashboardTypeAssert<
     BrandingDashboardTypeEqual<
       BrandingDashboardFeedFilterOwnership["assetType"],
