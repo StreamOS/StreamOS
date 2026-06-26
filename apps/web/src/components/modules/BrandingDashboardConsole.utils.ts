@@ -266,7 +266,11 @@ export function formatBrandingUploadMetadataStatusLabel(
 export function formatBrandingUploadMetadataTypeLabel(
   metadata: BrandingDashboardUploadMetadata,
 ): string {
-  if (!metadata.contentType || !metadata.fileExtension) {
+  if (
+    metadata.status !== "available" ||
+    !metadata.contentType ||
+    !metadata.fileExtension
+  ) {
     return formatBrandingUploadMetadataStatusLabel(metadata);
   }
 

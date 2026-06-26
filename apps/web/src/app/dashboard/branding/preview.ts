@@ -187,11 +187,13 @@ function isSupportedMetadataPreviewCombination({
   fileExtension: string | null;
   pathExtension: string;
 }): boolean {
-  if (
-    !contentType ||
-    !fileExtension ||
-    !Object.hasOwn(PREVIEWABLE_MIME_EXTENSION_MAP, contentType)
-  ) {
+  if (!contentType || !fileExtension) {
+    return false;
+  }
+
+  const normalizedContentType = contentType.toLowerCase();
+
+  if (!Object.hasOwn(PREVIEWABLE_MIME_EXTENSION_MAP, normalizedContentType)) {
     return false;
   }
 
@@ -200,7 +202,7 @@ function isSupportedMetadataPreviewCombination({
   return (
     normalizedExtension === pathExtension &&
     PREVIEWABLE_MIME_EXTENSION_MAP[
-      contentType as keyof typeof PREVIEWABLE_MIME_EXTENSION_MAP
+      normalizedContentType as keyof typeof PREVIEWABLE_MIME_EXTENSION_MAP
     ].includes(normalizedExtension as never)
   );
 }

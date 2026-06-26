@@ -368,6 +368,7 @@ describe("BrandingPage", () => {
     const html = renderToStaticMarkup(await BrandingPage());
 
     expect(html).toContain("Metadata ungueltig");
+    expect(html).not.toContain("PNG (image/png)");
     expect(html).not.toContain("../unsafe-logo.png");
     expect(html).not.toContain("brand-assets/");
   });

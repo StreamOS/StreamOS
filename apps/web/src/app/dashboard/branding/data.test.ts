@@ -335,6 +335,35 @@ describe("getBrandingDashboardData", () => {
     expect(supabase.signedUrlRequests).toHaveLength(0);
   });
 
+  it("accepts uppercase content types in otherwise valid upload metadata", async () => {
+    const supabase = createSupabaseClientMock({
+      rows: [
+        createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: null,
+          metadata: {
+            upload: {
+              content_type: "IMAGE/PNG",
+              file_extension: "png",
+              file_size_bytes: 1200,
+              stored_filename: "brand-shot.png",
+            },
+          },
+          storage_bucket: "brand-assets",
+          storage_path:
+            "11111111-1111-4111-8111-111111111111/logo/asset-1/brand-shot.png",
+        }),
+      ],
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.items[0]?.uploadMetadata.status).toBe("available");
+    expect(data.items[0]?.preview.status).toBe("available");
+    expect(supabase.signedUrlRequests).toHaveLength(1);
+  });
+
   it("marks invalid upload metadata without crashing the page or exposing unsafe filenames", async () => {
     const supabase = createSupabaseClientMock({
       rows: [
