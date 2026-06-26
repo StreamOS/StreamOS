@@ -7,6 +7,7 @@ immutable
 as $$
 declare
   upload jsonb;
+  file_size_bytes_text text;
   normalized_filename text;
   has_invalid_field boolean := false;
   has_missing_field boolean := false;
@@ -45,12 +46,16 @@ begin
 
   if not (upload ? 'file_size_bytes') or upload -> 'file_size_bytes' is null then
     has_missing_field := true;
-  elsif
-    jsonb_typeof(upload -> 'file_size_bytes') <> 'number'
-    or (upload ->> 'file_size_bytes') !~ '^[0-9]+$'
-    or (upload ->> 'file_size_bytes')::numeric <= 0
-  then
+  elsif jsonb_typeof(upload -> 'file_size_bytes') <> 'number' then
     has_invalid_field := true;
+  else
+    file_size_bytes_text := upload ->> 'file_size_bytes';
+
+    if file_size_bytes_text !~ '^[0-9]+$' then
+      has_invalid_field := true;
+    elsif file_size_bytes_text::numeric <= 0 then
+      has_invalid_field := true;
+    end if;
   end if;
 
   if not (upload ? 'stored_filename') or upload -> 'stored_filename' is null then

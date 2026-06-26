@@ -71,6 +71,22 @@ tenant-scoped query paths. This package does not enable those filters by
 itself: activate server-side preview/metadata filtering only after the
 migration rollout and the dedicated server-filter slice are complete.
 
+Hosted rollout evidence for that Branding slice is separate from the static
+repo validator. Use the read-only helper only against an approved hosted DB
+environment:
+
+```bash
+pnpm db:branding-evidence -- --env-file .env --format text
+```
+
+The helper prints only env names, statuses, and findings. It never prints DB
+URL values, secrets, tokens, or private asset URLs. If `psql` is unavailable,
+print the same read-only SQL for a manual operator audit:
+
+```bash
+pnpm db:branding-evidence -- --print-sql
+```
+
 `content_jobs.queue_job_id` links BullMQ job attempts to durable database state.
 Workers and server actions mutate runtime status, result, error, and retry
 fields with the Supabase service role, while user-facing access remains scoped

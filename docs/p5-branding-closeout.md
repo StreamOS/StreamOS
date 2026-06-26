@@ -22,10 +22,10 @@ Secret-Aenderungen ausgefuehrt.
 
 ## 2. Repo-Status
 
-- Branch: `codex/p5-5-branding-metadata-hardening`
-- HEAD SHA: `9d218d274c14a3963253cab25ca4ee81830e17a8`
-- Worktree clean vor Report-Aktualisierung: ja
-- Report-Diff: nur diese Dokumentationsdatei
+- Branch und HEAD-SHA: vor Sign-off lokal erfassen; dieser Report ist kein
+  Commit-Marker
+- Worktree clean vor finaler Freigabe: erforderlich
+- Report-Diff: keine unrelated `docs/ai`-Aenderungen
 - Empfehlung: Branding MVP kann mit dokumentierten Warnings geschlossen werden
 
 ## 3. Scope-Abdeckung
@@ -123,6 +123,9 @@ Secret-Aenderungen ausgefuehrt.
   backfilled; `signing_failed` bleibt ein rein transientes Preview-Ergebnis
 - P5.13 ergaenzt tenant-scoped Query-Indizes und einen maschinenlesbaren
   Feed-Gate, der die spaetere Server-Filter-Aktivierung weiter explizit blockt
+- P5.13.1 ergaenzt einen read-only Hosted-Evidence-Check und eine explizite
+  Freigabematrix fuer P5.14: Repo-Contract bereit, Hosted-Migrations- und
+  Index-Evidence aber weiterhin separat nachzuweisen
 - `preview` und `metadata` bleiben trotzdem `client_window`, bis ein
   dedizierter Backfill-/Index-/Activation-Gate die spaetere serverseitige
   Filterung freigibt
@@ -169,6 +172,32 @@ Secret-Aenderungen ausgefuehrt.
   `packages/database/supabase/migrations/20260627120000_brand_assets_derived_status_contract.sql`
 - Derived-Status-Query-Indizes:
   `packages/database/supabase/migrations/20260627133000_brand_assets_derived_status_query_indexes.sql`
+
+### P5.14 Freigabematrix
+
+| Gate                   | Repo-Status              | Hosted-Evidence    | Bedeutung                                                                                               |
+| ---------------------- | ------------------------ | ------------------ | ------------------------------------------------------------------------------------------------------- |
+| `repoReady`            | `true`                   | nicht erforderlich | Shared-Type, Read-Model und Migrations-Slices liegen im Repo vor                                        |
+| `hostedMigrationReady` | `false` per Default-Gate | erforderlich       | Zielumgebung muss beide Derived-Status-Spalten, Constraints und Generated-Logic enthalten               |
+| `hostedIndexReady`     | `false` per Default-Gate | erforderlich       | Zielumgebung muss beide tenant-scoped Query-Indizes enthalten                                           |
+| `serverFilterReady`    | `false`                  | nicht vor P5.14    | `preview` und `metadata` bleiben `client_window`, bis der dedizierte Activation-Slice abgeschlossen ist |
+
+Repo-seitiger Hosted-Check:
+
+```bash
+pnpm db:branding-evidence -- --env-file .env --format text
+```
+
+Fallback ohne `psql`:
+
+```bash
+pnpm db:branding-evidence -- --print-sql
+```
+
+P5.14 ist erst startbar, wenn `hostedMigrationReady` und
+`hostedIndexReady` in der Zielumgebung gruen sind. Auch dann bleibt
+`serverFilterReady = false`, bis die spaetere Aktivierung den Feed-Gate
+bewusst umstellt.
 
 ## 5. Security Closeout
 
@@ -219,6 +248,8 @@ Diese Tests decken insbesondere ab:
 - Feed-Scope, `serverFilters`, `serverSort` und Cursor-Metadaten
 - maschinenlesbaren Derived-Status-Query-Gate mit geblockter
   Server-Filter-Aktivierung
+- die neue Repo-/Hosted-Freigabematrix mit weiter geblocktem
+  `serverFilterReady`
 - maschinenlesbare Filter-Ownership fuer `assetType`, `status`, `preview` und
   `metadata`
 - `Mehr laden`-UX und Cursor-Normalisierung
@@ -232,19 +263,22 @@ Ausgefuehrte lokale Validierung:
 
 - `pnpm --filter @streamos/types test` - passed
 - `pnpm --filter @streamos/types build` - passed
+- `pnpm db:validate-security` - passed
 - `pnpm --filter @streamos/web test` - passed, 35 Testdateien / 213 Tests
 - `pnpm --filter @streamos/web build` - passed
 - `coderabbit review --agent --base main -c AGENTS.md` - passed, `0 issues`
 
 Optional nicht ausgefuehrt:
 
+- `pnpm db:branding-evidence`
 - `pnpm validate`
 
 Begruendung:
 
-- Der Closeout-Slice fuehrt nur eine Dokumentationsdatei ein.
-- Die Produktcode-Validierung fuer den aktuellen P5.10-Stand ist bereits gruen.
-- Fuer die reine Report-Datei war kein erneuter Build- oder Testlauf noetig.
+- `pnpm db:branding-evidence` benoetigt eine echte Hosted-DB-URL und ist
+  deshalb env-abhaengig statt Teil der reinen Repo-Evidence.
+- `pnpm validate` bleibt fuer Cross-Package-/Merge-Kontext optional, nicht fuer
+  den Dokumentationsreport selbst.
 
 ## 9. Akzeptierte Restrisiken
 
@@ -269,8 +303,8 @@ Begruendung:
 ## 10. Empfohlene naechste Slices
 
 1. P5.14: Preview-/Metadata-Serverfilter im Feed-Query aktivieren, nachdem die
-   Generated-Column-Migration und die Query-Indizes in Zielumgebungen
-   ausgerollt und validiert wurden
+   Generated-Column-Migration und die Query-Indizes in Zielumgebungen mit
+   `pnpm db:branding-evidence` nachweislich ausgerollt und validiert wurden
 2. Brand Kit Structure Read Model fuer hoehere semantische Vollstaendigkeit im
    Dashboard
 

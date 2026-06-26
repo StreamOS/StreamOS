@@ -58,6 +58,7 @@ export const BRANDING_DASHBOARD_PREVIEW_CAPABILITY_STATUSES = [
   "invalid_storage",
 ] as const;
 export const BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_BLOCKERS = [
+  "requires_hosted_migration_evidence",
   "requires_server_filter_activation",
 ] as const;
 
@@ -146,18 +147,37 @@ export const BRANDING_DASHBOARD_DERIVED_STATUS_OWNERSHIP = {
   uploadMetadataStatus: "server_managed",
 } as const satisfies BrandingDashboardDerivedStatusOwnership;
 
+export type BrandingDashboardDerivedStatusQueryGateReadiness = Readonly<{
+  hostedIndexReady: false;
+  hostedMigrationReady: false;
+  repoReady: true;
+  serverFilterReady: false;
+}>;
+
+export const BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_READINESS = {
+  hostedIndexReady: false,
+  hostedMigrationReady: false,
+  repoReady: true,
+  serverFilterReady: false,
+} as const satisfies BrandingDashboardDerivedStatusQueryGateReadiness;
+
 export type BrandingDashboardDerivedStatusQueryGate = Readonly<{
   blockedBy: readonly BrandingDashboardDerivedStatusQueryGateBlocker[];
   historicalBackfill: "generated_columns";
   indexesReady: true;
+  readiness: BrandingDashboardDerivedStatusQueryGateReadiness;
   metadataServerQueryable: false;
   previewServerQueryable: false;
 }>;
 
 export const BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE = {
-  blockedBy: ["requires_server_filter_activation"],
+  blockedBy: [
+    "requires_hosted_migration_evidence",
+    "requires_server_filter_activation",
+  ],
   historicalBackfill: "generated_columns",
   indexesReady: true,
+  readiness: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_READINESS,
   metadataServerQueryable: false,
   previewServerQueryable: false,
 } as const satisfies BrandingDashboardDerivedStatusQueryGate;
@@ -278,6 +298,30 @@ type _BrandingDashboardDerivedStatusQueryGateAssertions = [
     BrandingDashboardTypeEqual<
       BrandingDashboardDerivedStatusQueryGate["indexesReady"],
       true
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["readiness"]["hostedIndexReady"],
+      false
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["readiness"]["hostedMigrationReady"],
+      false
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["readiness"]["repoReady"],
+      true
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["readiness"]["serverFilterReady"],
+      false
     >
   >,
   BrandingDashboardTypeAssert<
