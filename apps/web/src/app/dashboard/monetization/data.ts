@@ -18,17 +18,6 @@ import {
   type MonetizationSummaryRow,
 } from "@/components/modules/MonetizationDashboardConsole.utils";
 
-type RpcSourceRevenue = {
-  amount_cents?: unknown;
-  event_count?: unknown;
-  source?: unknown;
-};
-
-type RpcTrendPoint = {
-  amount_cents?: unknown;
-  day?: unknown;
-};
-
 type RpcMonetizationDashboard = {
   active_platforms?: unknown;
   avg_revenue_per_day_cents?: unknown;
