@@ -427,12 +427,29 @@ tests with:
 pnpm --filter @streamos/api-gateway test
 ```
 
+## Current Product Status
+
+The active dashboard product surfaces after P4 are:
+
+1. Growth / SEO Intelligence at `/dashboard/growth`
+2. Analytics Expansion at `/dashboard/analytics`
+3. Monetization Dashboard at `/dashboard/monetization`
+
+The repo-side closeout and the updated post-P4 roadmap live in:
+
+- [`docs/p4-product-closeout.md`](docs/p4-product-closeout.md)
+- [`docs/p4-product-roadmap-update.md`](docs/p4-product-roadmap-update.md)
+
+These surfaces stay tenant-scoped, read-first, and browser-safe: no provider
+writes, payment writes, OpenAI calls, or service-role logic move into client
+code.
+
 ## Next Implementation Steps
 
-1. Expand integration coverage for gateway-owned OAuth handoff, callback
-   failure paths, and encrypted token persistence across all providers.
-2. Harden media storage and export automation around the existing
-   transcription, clip generation, and retry workers.
-3. Build the user-facing branding and monetization workflows on top of the
-   existing `brand_assets`, `monetization_events`, and `monetization_summaries`
-   schema.
+1. Build a creator-safe Growth -> Monetization insight link so SEO and
+   monetization signals can be reviewed together without inventing backend
+   writes or AI side effects.
+2. Harden monetization coverage and provenance before any real sync slice so
+   freshness, source confidence, and summary completeness are explicit.
+3. Ship the Branding MVP as a read-first asset surface on top of the existing
+   `brand_assets` contract and private storage model.
