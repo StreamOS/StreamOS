@@ -487,6 +487,9 @@ describe("BrandingPage", () => {
       "Das angeforderte Asset liegt nicht mehr im aktuell sichtbaren Feed",
     );
     expect(html).toContain("Visible Logo");
+    expect(html).toMatch(
+      /border-brand-500\/40 bg-brand-500\/10[\s\S]*Visible Logo/,
+    );
     expect(mocks.getBrandingDashboardData).toHaveBeenCalledWith({
       assetType: "logo",
       cursor: null,
@@ -672,6 +675,33 @@ describe("BrandingPage", () => {
 
     expect(html).toContain("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
     expect(html).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+  });
+
+  it("preserves URL-driven filter and sort state in disabled branding views", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createEmptyBrandingDashboardModel(null, "disabled"),
+    );
+
+    const html = renderToStaticMarkup(
+      await BrandingPage({
+        searchParams: Promise.resolve({
+          assetType: "logo",
+          sort: "created_desc",
+          statusFilter: "draft",
+        }),
+      }),
+    );
+
+    expect(html).toContain('<option value="logo" selected="">Logo</option>');
+    expect(html).toContain(
+      '<option value="draft" selected="">Entwurf</option>',
+    );
+    expect(html).toContain(
+      '<option value="created_desc" selected="">Zuletzt erstellt</option>',
+    );
+    expect(html).toContain(
+      "Serverseitige Explorer-Filter: Asset Type Logo, Status Entwurf",
+    );
   });
 });
 

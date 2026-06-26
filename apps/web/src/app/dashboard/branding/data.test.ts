@@ -447,6 +447,42 @@ describe("getBrandingDashboardData", () => {
     });
   });
 
+  it("keeps brand asset reads tenant-scoped to the authenticated user", async () => {
+    const currentUserId = "11111111-1111-4111-8111-111111111111";
+    const foreignUserId = "99999999-9999-4999-8999-999999999999";
+    const supabase = createSupabaseClientMock({
+      rows: [
+        createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: null,
+          id: "asset-current-user",
+          name: "Current User Asset",
+          storage_bucket: null,
+          storage_path: null,
+          user_id: currentUserId,
+        }),
+        createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: null,
+          id: "asset-foreign-user",
+          name: "Foreign User Asset",
+          storage_bucket: null,
+          storage_path: null,
+          user_id: foreignUserId,
+        }),
+      ],
+      user: {
+        id: currentUserId,
+      },
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData();
+
+    expect(data.items.map((item) => item.id)).toEqual(["asset-current-user"]);
+    expect(data.items[0]?.name).toBe("Current User Asset");
+  });
+
   it("applies server-side asset type sorting with a deterministic id tie-breaker", async () => {
     const supabase = createSupabaseClientMock({
       rows: [
@@ -833,6 +869,7 @@ function createBrandAssetRow({
   storage_bucket,
   storage_path,
   updated_at = "2026-06-22T10:15:00.000Z",
+  user_id = "11111111-1111-4111-8111-111111111111",
 }: {
   asset_type: string;
   channel_id: string | null;
@@ -844,6 +881,7 @@ function createBrandAssetRow({
   storage_bucket: string | null;
   storage_path: string | null;
   updated_at?: string;
+  user_id?: string;
 }) {
   return {
     asset_type,
@@ -857,6 +895,7 @@ function createBrandAssetRow({
     storage_bucket,
     storage_path,
     updated_at,
+    user_id,
   };
 }
 
@@ -897,9 +936,7 @@ function createSupabaseClientMock({
 
   const brandAssetBuilder = {
     eq: vi.fn((column: string, value: string) => {
-      if (column !== "user_id") {
-        brandAssetQueryState.filters[column] = value;
-      }
+      brandAssetQueryState.filters[column] = value;
 
       return brandAssetBuilder;
     }),
@@ -1026,6 +1063,10 @@ function evaluateBrandAssetRows({
       Object.entries(filters).every(([column, value]) => {
         if (column === "asset_type") {
           return row.asset_type === value;
+        }
+
+        if (column === "user_id") {
+          return row.user_id === value;
         }
 
         if (column === "status") {

@@ -417,7 +417,7 @@ export function BrandingDashboardConsole({
                 <div className="space-y-3">
                   {view.items.map((item) => (
                     <AssetExplorerCard
-                      isSelected={view.detailAssetId === item.id}
+                      isSelected={view.selectedAsset?.id === item.id}
                       item={item}
                       view={view}
                       key={item.id}

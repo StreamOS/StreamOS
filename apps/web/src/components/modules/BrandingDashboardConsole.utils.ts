@@ -294,21 +294,24 @@ export function buildBrandingDashboardViewModel(
       cursorToken: input.cursorToken,
       hasActiveClientFilters:
         input.preview !== "all" || input.metadata !== "all",
-      hasActiveServerFilters:
-        model.feed.serverFilters.assetType !== null ||
-        model.feed.serverFilters.status !== null,
+      hasActiveServerFilters: input.assetType !== null || input.status !== null,
+      serverFilters: {
+        assetType: input.assetType,
+        status: input.status,
+      },
+      serverSort: input.sort,
       visibleCount: items.length,
       windowCount: input.windowCount,
     },
     filters: {
-      assetType: model.feed.serverFilters.assetType,
+      assetType: input.assetType,
       metadata: input.metadata,
       preview: input.preview,
-      status: model.feed.serverFilters.status,
+      status: input.status,
     },
     items,
     selectedAsset,
-    sort: model.feed.serverSort,
+    sort: input.sort,
     statusOptions,
   };
 }
