@@ -6,6 +6,7 @@ const { consumeValueFlag } = require("./lib/cli-args.cjs");
 const BRAND_ASSET_STORAGE_BUCKET = "brand-assets";
 const DEFAULT_FORMAT = "text";
 const DEFAULT_PAGE_SIZE = 1000;
+const DEFAULT_REPORT_SCHEMA_VERSION = "branding_orphan_dry_run/v2";
 const DEFAULT_SUPABASE_SERVICE_ROLE_ENV = "SUPABASE_SERVICE_ROLE_KEY";
 const DEFAULT_SUPABASE_URL_ENV = "SUPABASE_URL";
 const DEFAULT_TARGET_ENVIRONMENT = "auto";
@@ -561,6 +562,7 @@ async function readAllStorageListEntries({
 
 function buildBrandingOrphanDryRunReport({
   bucket = BRAND_ASSET_STORAGE_BUCKET,
+  generatedAt = new Date().toISOString(),
   storageObjects,
   targetEnvironment,
   userId,
@@ -631,8 +633,10 @@ function buildBrandingOrphanDryRunReport({
       mutationAllowed: false,
       nextExecutionSliceBlocked: true,
     },
+    generatedAt,
     objects,
     referenceFindings,
+    schemaVersion: DEFAULT_REPORT_SCHEMA_VERSION,
     scope: {
       prefix: `${userId}/`,
       userId,
@@ -649,12 +653,21 @@ function classifyBrandingStorageObject({
   userId,
 }) {
   const normalizedPath = normalizeStoragePath(object.path);
+  const tenantScopedPrefix =
+    normalizedPath !== null && isTenantScopedPrefix(normalizedPath, userId);
+  const recognizedShape =
+    normalizedPath !== null &&
+    isRecognizedBrandAssetStoragePath(normalizedPath, userId);
 
-  if (!normalizedPath || !isTenantScopedPrefix(normalizedPath, userId)) {
+  if (!tenantScopedPrefix) {
     return buildObjectReport({
       bucket,
       classification: "out_of_scope",
       object,
+      pathContract: {
+        recognizedShape: false,
+        tenantScopedPrefix: false,
+      },
       reason:
         "Storage object lies outside the expected tenant-scoped prefix or uses an unsafe path shape.",
       userId,
@@ -666,17 +679,25 @@ function classifyBrandingStorageObject({
       bucket,
       classification: "referenced",
       object,
+      pathContract: {
+        recognizedShape,
+        tenantScopedPrefix,
+      },
       reason:
         "Storage object is still referenced by an active brand_assets.storage_path value.",
       userId,
     });
   }
 
-  if (!isRecognizedBrandAssetStoragePath(normalizedPath, userId)) {
+  if (!recognizedShape) {
     return buildObjectReport({
       bucket,
       classification: "unknown",
       object,
+      pathContract: {
+        recognizedShape,
+        tenantScopedPrefix,
+      },
       reason:
         "Storage object is tenant-scoped but uses an unexpected or legacy path shape, so dry-run keeps it fail-safe.",
       userId,
@@ -687,6 +708,10 @@ function classifyBrandingStorageObject({
     bucket,
     classification: "orphan_candidate",
     object,
+    pathContract: {
+      recognizedShape,
+      tenantScopedPrefix,
+    },
     reason: normalizedPath.includes("/replacements/")
       ? "Tenant-scoped replacement object has no active brand_assets reference."
       : "Tenant-scoped brand-assets object has no active brand_assets reference.",
@@ -694,13 +719,21 @@ function classifyBrandingStorageObject({
   });
 }
 
-function buildObjectReport({ bucket, classification, object, reason, userId }) {
+function buildObjectReport({
+  bucket,
+  classification,
+  object,
+  pathContract,
+  reason,
+  userId,
+}) {
   return {
     bucket,
     classification,
     createdAt: object.createdAt,
     lastAccessedAt: object.lastAccessedAt,
     objectSizeBytes: extractObjectSize(object.metadata),
+    pathContract,
     reason,
     redactedPath: redactStoragePath(object.path, userId),
     updatedAt: object.updatedAt,
@@ -828,6 +861,8 @@ function renderTextReport(report) {
   const lines = [
     "StreamOS brand asset orphan cleanup dry-run",
     "",
+    `- schema version: ${report.schemaVersion}`,
+    `- generated at: ${report.generatedAt}`,
     `- target environment: ${report.targetEnvironment.environment}`,
     `- target source: ${report.targetEnvironment.source}`,
     `- bucket: ${report.bucket}`,
@@ -965,6 +1000,7 @@ module.exports = {
   BRAND_ASSET_STORAGE_BUCKET,
   DEFAULT_FORMAT,
   DEFAULT_PAGE_SIZE,
+  DEFAULT_REPORT_SCHEMA_VERSION,
   DEFAULT_SUPABASE_SERVICE_ROLE_ENV,
   DEFAULT_SUPABASE_URL_ENV,
   DEFAULT_TARGET_ENVIRONMENT,
