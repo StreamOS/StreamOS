@@ -1,5 +1,5 @@
 import React from "react";
-import { uploadBrandAssetAction } from "./actions";
+import { replaceBrandAssetAction, uploadBrandAssetAction } from "./actions";
 import {
   BrandingDashboardConsole,
   type BrandingDashboardConsoleView,
@@ -39,15 +39,17 @@ export default async function BrandingPage({
     status: parsedView.status,
     windowCount: parsedView.windowCount,
   });
-  const uploadFeedback = resolveBrandingUploadFeedback(resolvedSearchParams);
+  const mutationFeedback =
+    resolveBrandingMutationFeedback(resolvedSearchParams);
   const view = buildBrandingDashboardViewModel(model, parsedView);
 
   return (
     <BrandingDashboardConsole
       model={model}
+      replaceAction={replaceBrandAssetAction}
       view={view as BrandingDashboardConsoleView}
       uploadAction={uploadBrandAssetAction}
-      uploadFeedback={uploadFeedback}
+      mutationFeedback={mutationFeedback}
     />
   );
 }
@@ -74,7 +76,7 @@ function parseBrandingDashboardView(
   };
 }
 
-function resolveBrandingUploadFeedback(
+function resolveBrandingMutationFeedback(
   searchParams?: Record<string, string | string[] | undefined>,
 ): {
   message: string;
@@ -86,6 +88,14 @@ function resolveBrandingUploadFeedback(
     return {
       message:
         "Brand Asset wurde privat gespeichert. Die Preview bleibt kurzlebig und serverseitig signiert.",
+      tone: "success",
+    };
+  }
+
+  if (status === "brand-asset-replaced") {
+    return {
+      message:
+        "Brand Asset wurde auf ein neues privates Storage-Objekt umgebunden. Das bisherige Objekt bleibt fuer einen spaeteren separaten Cleanup-Slice unberuehrt.",
       tone: "success",
     };
   }
@@ -155,6 +165,30 @@ function resolveBrandingUploadFeedback(
       return {
         message:
           "Der Upload konnte nach einem Persistenzfehler nicht vollstaendig rueckabgewickelt werden. StreamOS hat keine privaten Storage-Details offengelegt.",
+        tone: "error",
+      };
+    case "brand-asset-replace-target-invalid":
+      return {
+        message:
+          "Das zu ersetzende Brand Asset konnte nicht sicher bestimmt werden. Lade die Detailansicht neu und versuche es erneut.",
+        tone: "error",
+      };
+    case "brand-asset-replace-not-found":
+      return {
+        message:
+          "Das ausgewaehlte Brand Asset ist nicht mehr verfuegbar oder gehoert nicht zur aktuellen Session.",
+        tone: "error",
+      };
+    case "brand-asset-replace-upload-failed":
+      return {
+        message:
+          "Der neue private Storage-Upload fuer Replace ist fehlgeschlagen. Es wurden keine oeffentlichen Asset-URLs erzeugt.",
+        tone: "error",
+      };
+    case "brand-asset-replace-persist-failed":
+      return {
+        message:
+          "Das neue Storage-Objekt wurde hochgeladen, aber der Asset-Datensatz konnte nicht umgebunden werden. StreamOS loescht das bisherige oder neue Objekt in diesem Slice nicht blind.",
         tone: "error",
       };
     default:

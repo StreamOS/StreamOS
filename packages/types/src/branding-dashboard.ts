@@ -89,11 +89,16 @@ export type BrandingDashboardMutationAction =
   (typeof BRANDING_DASHBOARD_MUTATION_ACTIONS)[number];
 export type BrandingDashboardMutationBlockReason =
   (typeof BRANDING_DASHBOARD_MUTATION_BLOCK_REASONS)[number];
-export type BrandingDashboardFutureAction = {
-  action: BrandingDashboardMutationAction;
-  available: false;
-  reason: BrandingDashboardMutationBlockReason;
-};
+export type BrandingDashboardFutureAction =
+  | {
+      action: BrandingDashboardMutationAction;
+      available: true;
+    }
+  | {
+      action: BrandingDashboardMutationAction;
+      available: false;
+      reason: BrandingDashboardMutationBlockReason;
+    };
 export type BrandingDashboardMutationContract = {
   delete: BrandingDashboardFutureAction;
   orphan_cleanup: BrandingDashboardFutureAction;
