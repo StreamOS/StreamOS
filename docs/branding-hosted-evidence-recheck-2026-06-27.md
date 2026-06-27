@@ -7,21 +7,24 @@ branch-governance triage, and unique-history branch decision audit.
 
 ## Decision
 
-`blocked`
+`passed_with_warnings`
 
-- Hosted evidence is no longer missing, but it is not clean.
-- The Vercel production environment inventory currently violates the documented
-  `apps/web` env-ownership policy.
-- The hosted branding evidence script still reports
-  `serverFilterReady: blocked`, while the active web read model on `main`
-  already treats the P5.14 derived-status gate as enabled.
-- `Brand Asset Replace Contract Hardening` should not start until both drifts
-  are reconciled.
+- The Vercel `apps/web` production inventory now validates clean against the
+  documented env-ownership policy.
+- The hosted branding evidence script now evaluates the active P5.14 server
+  filter activation consistently with the branding web read path instead of
+  hard-blocking `serverFilterReady`.
+- The hosted DB target environment is now bound explicitly as `production`
+  during the read-only evidence run.
+- `Brand Asset Replace Contract Hardening` may start as the next slice, but the
+  DB target proof still relies on the configured `SUPABASE_DB_URL` plus the
+  explicit target-environment binding rather than a separately pinned hosted
+  project/ref identifier.
 
 ## Current Repo State
 
-- current branch: `main`
-- current `main` SHA: `9760cf628489c9e77678eca30fbfc27be2add24c`
+- current branch: `codex/fix-branding-hosted-evidence-closeout`
+- current `main` SHA: `da9748f3e51c3197df86874f6761adb2ae3ba8f4`
 - `main == origin/main`: yes
 - worktree at start: clean
 - `pnpm branch:audit`:
@@ -35,12 +38,14 @@ branch-governance triage, and unique-history branch decision audit.
 
 Evidence in this report comes from:
 
-- pulled Vercel `production` env inventory under `.vercel`
+- pulled Vercel `production` env inventory under `apps/web/.vercel`
 - read-only hosted branding DB evidence via `SUPABASE_DB_URL`
+  plus `--target-environment production`
 
-The Vercel side is explicitly `production`. The DB side is hosted and
-successful, but this report does not independently prove a canonical hosted
-project/ref binding beyond the configured `SUPABASE_DB_URL` target.
+The Vercel side is explicitly `production`. The DB side is also explicitly
+bound as `production` for this recheck, but this report still does not
+independently prove a canonical hosted project/ref binding beyond the
+configured `SUPABASE_DB_URL` target plus the explicit target-environment flag.
 
 ## Sources Reviewed
 
@@ -86,39 +91,27 @@ Command:
 pnpm vercel:audit -- --vercel-dir .vercel --environment production
 ```
 
-Result: `blocked`
+Result: `passed`
 
-Observed forbidden env names in the pulled Vercel `production` inventory:
+Observed result in the pulled Vercel `production` inventory:
 
-- `SB_POSTGRES_DATABASE`
-- `SB_POSTGRES_HOST`
-- `SB_POSTGRES_PASSWORD`
-- `SB_POSTGRES_PRISMA_URL`
-- `SB_POSTGRES_URL`
-- `SB_POSTGRES_URL_NON_POOLING`
-- `SB_POSTGRES_USER`
-- `SB_SUPABASE_JWT_SECRET`
-- `SB_SUPABASE_SECRET_KEY`
-- `SB_SUPABASE_SERVICE_ROLE_KEY`
-- `TWITCH_CLIENT_ID`
-- `TWITCH_REDIRECT_URI`
-- `TWITCH_SCOPES`
+- no forbidden `SB_POSTGRES_*` keys remain
+- no forbidden `SB_SUPABASE_*` keys remain
+- no forbidden `TWITCH_*` keys remain
 
 Interpretation:
 
-- `apps/web` is currently carrying privileged Supabase integration/database env
-  names that belong in Railway services/workers, not in Vercel.
-- the pulled Vercel inventory also carries gateway-owned Twitch OAuth config
-  names that belong in `services/api-gateway`, not in `apps/web`
-- no secret values were printed, but the key ownership drift is real and
-  blocking for the next branding mutation slice
+- `apps/web` now validates down to the web-owned env contract only
+- no secret values were printed and no forbidden provider-/DB-/service-secret
+  names remain in the pulled Vercel production inventory
+- the previous env-ownership blocker is closed for this recheck
 
 ### Hosted Branding DB Evidence
 
 Command:
 
 ```bash
-pnpm db:branding-evidence -- --env-file .env --format text
+pnpm db:branding-evidence -- --env-file .env --target-environment production --format text
 ```
 
 Result:
@@ -126,16 +119,18 @@ Result:
 - `repoReady: passed`
 - `hostedMigrationReady: passed`
 - `hostedIndexReady: passed`
-- `serverFilterReady: blocked`
+- `hostedBindingReady: passed`
+- `serverFilterReady: passed`
 - `readyForP514: yes`
 
 Interpretation:
 
 - the hosted DB contract for derived branding statuses and tenant-scoped query
   indexes is present
-- the same script still hardcodes `requires_server_filter_activation` and
-  reports `previewServerQueryable: false` and `metadataServerQueryable: false`
-- this is inconsistent with the active web branding read model on current
+- the same script now validates the active P5.14 server-filter activation
+  against the repo read path and reports `previewServerQueryable: true` and
+  `metadataServerQueryable: true`
+- this is now consistent with the active web branding read model on current
   `main`
 
 ## Env Ownership Status
@@ -167,15 +162,16 @@ The documented denylist includes:
 
 ### Current Status
 
-`blocked`
+`passed`
 
-- actual pulled Vercel production env inventory contains forbidden
-  Supabase-admin and gateway-owned provider keys
+- actual pulled Vercel production env inventory is clean for the documented
+  denylist
 - code search in `apps/web` found no active runtime dependency on
   `SUPABASE_SERVICE_ROLE_KEY`, `APP_ENCRYPTION_KEY`, `OPENAI_API_KEY`,
   `REDIS_URL`, `RAILWAY_*`, `TWITCH_*`, `YOUTUBE_*`, `TIKTOK_*`, or `KICK_*`
   outside redaction/tests
-- the blocker is hosted env ownership drift, not a newly introduced code path
+- the previously blocked inventory drift was environmental, not a newly
+  introduced code path, and is now closed
 
 ## Schema / Storage Readiness
 
@@ -201,12 +197,12 @@ Repo contract remains consistent with branding storage rules:
 
 Residual warning:
 
-- hosted DB evidence and active app activation evidence are not represented by
-  the same gate model yet
+- hosted DB target provenance is explicit for this run, but still not pinned to
+  a separately surfaced hosted project/ref identifier inside the report
 
 ## Branding UI / Read-Model Status
 
-Status: `passed_with_warnings`
+Status: `passed`
 
 Confirmed on current `main`:
 
@@ -229,11 +225,8 @@ Confirmed on current `main`:
   - SVG upload remains blocked
   - `replace` and `orphan_cleanup` stay disabled
 
-Warning:
-
-- the active web slice enables the P5.14 gate through
-  `BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE`, but the hosted branding
-  evidence script still reports the activation step as blocked
+The active web slice and the hosted branding evidence script now agree on the
+P5.14 activation state.
 
 ## Consistency Findings
 
@@ -247,50 +240,33 @@ Warning:
 
 ### Inconsistent Evidence
 
-- [docs/p5-branding-closeout.md](./p5-branding-closeout.md) records
-  `serverFilterReady` as activated in P5.14
-- the active web implementation on `main` uses the P5.14 gate override and
-  server-side derived-status filters
-- [scripts/branding-hosted-evidence.cjs](../scripts/branding-hosted-evidence.cjs)
-  still hardcodes:
-  - `serverFilterReady: blocked`
-  - `requires_server_filter_activation`
-  - `previewServerQueryable: false`
-  - `metadataServerQueryable: false`
-
-This is an evidence-contract drift. Even without the Vercel blocker, it would
-need reconciliation before a clean hosted-readiness pass could be claimed.
+None after this fix slice. The hosted branding evidence script now checks the
+active P5.14 web gate and derived-status filter path instead of carrying a
+hard-coded pre-activation assumption.
 
 ## Warnings
 
 - `pnpm branch:audit` still reports `7` accepted `needs rename` cases
-- the hosted DB target is only identified through the configured
-  `SUPABASE_DB_URL`; this report does not add a stronger hosted project binding
-- the branding DB evidence script and the active P5.14 web gate disagree on
-  activation state
+- the hosted DB target still depends on the configured `SUPABASE_DB_URL` plus
+  the explicit `--target-environment production` binding, not on a separately
+  surfaced hosted project/ref identifier
 
 ## Blockers
 
-- Vercel `production` env ownership drift:
-  forbidden Supabase-admin and Twitch gateway-owned env names are present in
-  the pulled `apps/web` Vercel environment
-- hosted evidence contract drift:
-  the branding hosted evidence script still models `serverFilterReady` as
-  blocked while the active web slice models it as enabled
+None for this recheck.
 
 ## Final Recommendation
 
 Decision for next slice:
-`Brand Asset Replace Contract Hardening` is `not_recommended_yet`
+`Brand Asset Replace Contract Hardening` is `recommended_with_warnings`
 
 Required follow-up before that slice:
 
-1. run a dedicated env-ownership cleanup / evidence slice for the Vercel web
-   project so `apps/web` no longer carries forbidden hosted env names
-2. reconcile the hosted branding evidence script with the active P5.14 web gate
-   so hosted-readiness reporting and runtime behavior describe the same state
-3. only after those two blockers are closed, open a fresh mutation branch from
-   `main` for `Brand Asset Replace Contract Hardening`
+1. open a fresh mutation branch from current `main` for
+   `Brand Asset Replace Contract Hardening`
+2. keep the explicit hosted target-environment binding in the evidence command
+   until a stronger canonical hosted project/ref proof is surfaced
+3. keep `Brand Asset Replace / Orphan-Cleanup` as a separate later slice
 
 `Brand Asset Replace / Orphan-Cleanup` is not released by this report.
 Orphan cleanup remains a later separate slice.
