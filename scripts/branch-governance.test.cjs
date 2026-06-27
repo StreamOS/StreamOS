@@ -57,6 +57,8 @@ test("branch governance helpers classify protected, temporary, and compliant nam
   assert.equal(isProtectedBranch("main"), true);
   assert.equal(isProtectedBranch("release/1.4.0"), true);
   assert.equal(isTemporaryOpsBranch("backup/pre-cleanup"), true);
+  assert.equal(isTemporaryOpsBranch("archive/pre-cleanup-snapshot"), true);
+  assert.equal(isTemporaryOpsBranch("railway/fix-deploy-ab5e91"), true);
   assert.equal(isDependabotBranch("dependabot/npm_and_yarn/pnpm-11.6.0"), true);
   assert.equal(isNamingCompliant("feature/web/branding-module-ui"), true);
   assert.equal(isNamingCompliant("feature/branding-module-ui"), false);

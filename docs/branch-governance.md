@@ -64,14 +64,17 @@ Examples:
 - `fix/database/publication-rls`
 - `release/publishing-scheduling-rc`
 
-Automation-managed prefixes are exempt from the human naming convention:
+Automation-managed or archival prefixes are exempt from the human naming convention:
 
 - `dependabot/*`
 - `codex/*`
 - `railway/*`
+- `archive/*`
 
-These branches should remain short-lived and should be merged, closed, or
-deleted only after their PR and release evidence are resolved.
+These branches should remain short-lived where possible. `archive/*` is the
+explicit snapshot exception: keep it only for deliberate retention or recovery
+cases, and review it in cleanup slices instead of renaming it into the active
+human branch convention.
 
 ## Review Ownership
 
