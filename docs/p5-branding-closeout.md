@@ -180,7 +180,7 @@ ausgewiesen.
 Repo-seitiger Hosted-Check:
 
 ```bash
-pnpm db:branding-evidence -- --env-file .env --format text
+pnpm db:branding-evidence -- --env-file .env --target-environment production --format text
 ```
 
 Fallback ohne `psql`:
@@ -191,6 +191,13 @@ pnpm db:branding-evidence -- --print-sql
 
 P5.14 durfte erst nach gruenem Hosted-Evidence-Run starten. Dieser Slice
 stellt den Feed-Gate jetzt bewusst auf aktiv um.
+
+Der read-only Hosted-Evidence-Check verlangt seit dem Recheck vom
+`2026-06-27` ausserdem eine eindeutige Zielumgebungsbindung. Wenn
+`SUPABASE_DB_URL` die Zielumgebung nicht selbst beweist, muss der Run explizit
+mit `--target-environment <local|development|staging|production>` gebunden
+werden. Der Check verifiziert ausserdem den aktiven P5.14-Web-Read-Path
+fail-closed gegen die repo-seitige Derived-Status-Gate-Aktivierung.
 
 ### Redacted Hosted-Evidence-Stand
 

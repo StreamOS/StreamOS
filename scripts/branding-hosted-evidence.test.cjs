@@ -10,11 +10,13 @@ const {
   DEFAULT_PSQL_TIMEOUT_MS,
   executeEvidenceQuery,
   escapePgpassValue,
+  inspectRepoServerFilterActivationEvidence,
   matchesExpectedGenerationExpression,
   matchesIdentityArguments,
   parseArgs,
   parseEvidencePayload,
   requireDatabaseUrl,
+  resolveDatabaseTargetEnvironment,
   validateEvidencePayload,
 } = require("./branding-hosted-evidence.cjs");
 
@@ -91,12 +93,25 @@ const hostedCatalogPayload = {
   indexes: validPayload.indexes,
 };
 
-test("branding evidence parser accepts split env-file syntax and print-sql flag", () => {
+const productionBinding = {
+  environment: "production",
+  findings: [],
+  source: "explicit",
+};
+const readyRepoActivationEvidence = {
+  findings: [],
+  metadataServerQueryable: true,
+  previewServerQueryable: true,
+};
+
+test("branding evidence parser accepts split env-file syntax, target binding, and print-sql flag", () => {
   const options = parseArgs([
     "--env-file",
     ".env",
     "--database-url-env",
     "SUPABASE_DB_URL_STAGING",
+    "--target-environment",
+    "production",
     "--format",
     "json",
     "--print-sql",
@@ -104,6 +119,7 @@ test("branding evidence parser accepts split env-file syntax and print-sql flag"
 
   assert.equal(options.envFile, ".env");
   assert.equal(options.databaseUrlEnv, "SUPABASE_DB_URL_STAGING");
+  assert.equal(options.targetEnvironment, "production");
   assert.equal(options.format, "json");
   assert.equal(options.printSql, true);
 });
@@ -194,32 +210,71 @@ test("branding evidence payload parser keeps the final JSON row", () => {
   assert.deepEqual(payload, validPayload);
 });
 
-test("branding evidence report passes hosted migration and index readiness when the contract matches", () => {
+test("branding evidence resolves explicit and inferred hosted target environments fail-closed", () => {
+  assert.deepEqual(
+    resolveDatabaseTargetEnvironment({
+      databaseUrl: "postgres://user:secret@db-production.example.test/postgres",
+      databaseUrlEnv: "SUPABASE_DB_URL",
+      targetEnvironment: "production",
+    }),
+    productionBinding,
+  );
+
+  assert.equal(
+    resolveDatabaseTargetEnvironment({
+      databaseUrl: "postgres://user:secret@db-staging.example.test/postgres",
+      databaseUrlEnv: "SUPABASE_DB_URL_STAGING",
+    }).environment,
+    "staging",
+  );
+
+  assert.equal(
+    resolveDatabaseTargetEnvironment({
+      databaseUrl: "postgres://user:secret@db.example.test/postgres",
+      databaseUrlEnv: "SUPABASE_DB_URL",
+    }).environment,
+    "unknown",
+  );
+});
+
+test("branding evidence repo activation evidence matches the active P5.14 web read path", () => {
+  const evidence = inspectRepoServerFilterActivationEvidence();
+
+  assert.deepEqual(evidence, readyRepoActivationEvidence);
+});
+
+test("branding evidence report passes hosted migration, binding, and server-filter readiness when the contract matches", () => {
   const report = validateEvidencePayload(validPayload, {
+    databaseTargetEnvironment: productionBinding,
     databaseUrlEnv: "SUPABASE_DB_URL",
+    repoActivationEvidence: readyRepoActivationEvidence,
   });
 
   assert.equal(report.databaseUrlEnv, "SUPABASE_DB_URL");
+  assert.deepEqual(report.databaseTargetEnvironment, productionBinding);
   assert.equal(report.readyForP514, true);
   assert.equal(report.releaseMatrix.repoReady.status, "passed");
+  assert.equal(report.releaseMatrix.hostedBindingReady.status, "passed");
   assert.equal(report.releaseMatrix.hostedMigrationReady.status, "passed");
   assert.equal(report.releaseMatrix.hostedIndexReady.status, "passed");
-  assert.equal(report.releaseMatrix.serverFilterReady.status, "blocked");
-  assert.equal(report.feedGate.previewServerQueryable, false);
-  assert.equal(report.feedGate.metadataServerQueryable, false);
-  assert.deepEqual(report.feedGate.blockedBy, [
-    "requires_server_filter_activation",
-  ]);
+  assert.equal(report.releaseMatrix.serverFilterReady.status, "passed");
+  assert.equal(report.feedGate.previewServerQueryable, true);
+  assert.equal(report.feedGate.metadataServerQueryable, true);
+  assert.deepEqual(report.feedGate.blockedBy, []);
 });
 
 test("branding evidence report accepts hosted catalog formatting after rollout", () => {
   const report = validateEvidencePayload(hostedCatalogPayload, {
+    databaseTargetEnvironment: productionBinding,
     databaseUrlEnv: "SUPABASE_DB_URL",
+    repoActivationEvidence: readyRepoActivationEvidence,
   });
 
   assert.equal(report.readyForP514, true);
+  assert.equal(report.releaseMatrix.hostedBindingReady.status, "passed");
   assert.equal(report.releaseMatrix.hostedMigrationReady.status, "passed");
   assert.equal(report.releaseMatrix.hostedIndexReady.status, "passed");
+  assert.equal(report.releaseMatrix.serverFilterReady.status, "passed");
 });
 
 test("branding evidence report rejects generated-column resolvers from the wrong schema", () => {
@@ -236,7 +291,9 @@ test("branding evidence report rejects generated-column resolvers from the wrong
       },
     },
     {
+      databaseTargetEnvironment: productionBinding,
       databaseUrlEnv: "SUPABASE_DB_URL",
+      repoActivationEvidence: readyRepoActivationEvidence,
     },
   );
 
@@ -366,13 +423,16 @@ test("branding evidence report blocks P5.14 when generated columns or indexes dr
       indexes: {},
     },
     {
+      databaseTargetEnvironment: productionBinding,
       databaseUrlEnv: "SUPABASE_DB_URL",
+      repoActivationEvidence: readyRepoActivationEvidence,
     },
   );
 
   assert.equal(report.readyForP514, false);
   assert.equal(report.releaseMatrix.hostedMigrationReady.status, "blocked");
   assert.equal(report.releaseMatrix.hostedIndexReady.status, "blocked");
+  assert.equal(report.releaseMatrix.serverFilterReady.status, "blocked");
   assert.deepEqual(report.feedGate.blockedBy, [
     "requires_hosted_migration_evidence",
     "requires_server_filter_activation",
@@ -385,6 +445,50 @@ test("branding evidence report blocks P5.14 when generated columns or indexes dr
     report.releaseMatrix.hostedIndexReady.findings.join("\n"),
     /brand_assets_user_/,
   );
+});
+
+test("branding evidence report blocks when hosted DB target binding is unknown", () => {
+  const report = validateEvidencePayload(validPayload, {
+    databaseTargetEnvironment: {
+      environment: "unknown",
+      findings: ["Hosted target environment is not explicit."],
+      source: "unknown",
+    },
+    databaseUrlEnv: "SUPABASE_DB_URL",
+    repoActivationEvidence: readyRepoActivationEvidence,
+  });
+
+  assert.equal(report.readyForP514, false);
+  assert.equal(report.releaseMatrix.hostedBindingReady.status, "blocked");
+  assert.equal(report.releaseMatrix.serverFilterReady.status, "passed");
+  assert.equal(report.feedGate.previewServerQueryable, false);
+  assert.equal(report.feedGate.metadataServerQueryable, false);
+  assert.deepEqual(report.feedGate.blockedBy, [
+    "requires_hosted_environment_binding",
+  ]);
+});
+
+test("branding evidence report blocks server filter readiness when repo activation evidence drifts", () => {
+  const report = validateEvidencePayload(validPayload, {
+    databaseTargetEnvironment: productionBinding,
+    databaseUrlEnv: "SUPABASE_DB_URL",
+    repoActivationEvidence: {
+      findings: [
+        "Repo evidence drift: active read path no longer matches P5.14.",
+      ],
+      metadataServerQueryable: false,
+      previewServerQueryable: false,
+    },
+  });
+
+  assert.equal(report.readyForP514, false);
+  assert.equal(report.releaseMatrix.hostedBindingReady.status, "passed");
+  assert.equal(report.releaseMatrix.hostedMigrationReady.status, "passed");
+  assert.equal(report.releaseMatrix.hostedIndexReady.status, "passed");
+  assert.equal(report.releaseMatrix.serverFilterReady.status, "blocked");
+  assert.deepEqual(report.feedGate.blockedBy, [
+    "requires_server_filter_activation",
+  ]);
 });
 
 test("branding evidence requires the configured DB URL env name without printing values", () => {
@@ -418,7 +522,9 @@ test("branding evidence report blocks drifted generation expressions even when t
       },
     },
     {
+      databaseTargetEnvironment: productionBinding,
       databaseUrlEnv: "SUPABASE_DB_URL",
+      repoActivationEvidence: readyRepoActivationEvidence,
     },
   );
 

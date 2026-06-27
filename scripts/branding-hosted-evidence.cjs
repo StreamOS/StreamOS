@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require("node:child_process");
-const { chmodSync, mkdtempSync, rmSync, writeFileSync } = require("node:fs");
+const {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -13,6 +20,15 @@ const DEFAULT_FORMAT = "text";
 const DEFAULT_PG_CONNECT_TIMEOUT_SECONDS = "10";
 const DEFAULT_PSQL_COMMAND = "psql";
 const DEFAULT_PSQL_TIMEOUT_MS = 15_000;
+const DEFAULT_TARGET_ENVIRONMENT = "auto";
+const VALID_TARGET_ENVIRONMENTS = [
+  "auto",
+  "local",
+  "development",
+  "staging",
+  "production",
+  "unknown",
+];
 
 const EXPECTED_UPLOAD_METADATA_STATUSES = [
   "available",
@@ -65,6 +81,7 @@ function parseArgs(argv) {
     help: false,
     printSql: false,
     psqlCommand: DEFAULT_PSQL_COMMAND,
+    targetEnvironment: DEFAULT_TARGET_ENVIRONMENT,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -120,6 +137,20 @@ function parseArgs(argv) {
       continue;
     }
 
+    const targetEnvironmentMatch = consumeValueFlag(
+      argv,
+      index,
+      "target-environment",
+    );
+
+    if (targetEnvironmentMatch.matched) {
+      options.targetEnvironment = normalizeTargetEnvironmentName(
+        targetEnvironmentMatch.value.trim(),
+      );
+      index = targetEnvironmentMatch.nextIndex;
+      continue;
+    }
+
     throw new Error(`Unknown argument: ${arg}`);
   }
 
@@ -133,6 +164,12 @@ function parseArgs(argv) {
 
   if (!options.psqlCommand) {
     throw new Error("--psql-command must not be empty.");
+  }
+
+  if (!VALID_TARGET_ENVIRONMENTS.includes(options.targetEnvironment)) {
+    throw new Error(
+      `--target-environment must be one of: ${VALID_TARGET_ENVIRONMENTS.join(", ")}.`,
+    );
   }
 
   return options;
@@ -151,9 +188,252 @@ Options:
   --database-url-env NAME      Environment variable that stores the hosted DB URL.
                                Default: ${DEFAULT_DATABASE_URL_ENV}
   --psql-command COMMAND       psql executable to use. Default: ${DEFAULT_PSQL_COMMAND}
+  --target-environment ENV     Explicit hosted target environment binding.
+                               Allowed: ${VALID_TARGET_ENVIRONMENTS.join(", ")}.
+                               Default: ${DEFAULT_TARGET_ENVIRONMENT}
   --format text|json           Output format. Default: ${DEFAULT_FORMAT}
   --print-sql                  Print the read-only SQL evidence query and exit.
 `);
+}
+
+function normalizeTargetEnvironmentName(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (normalized === "dev") {
+    return "development";
+  }
+
+  if (normalized === "prod") {
+    return "production";
+  }
+
+  return normalized;
+}
+
+function inferTargetEnvironmentFromDatabaseUrlEnvName(name) {
+  const normalized = String(name ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (normalized.includes("local")) {
+    return "local";
+  }
+
+  if (normalized.includes("development") || normalized.includes("_dev")) {
+    return "development";
+  }
+
+  if (normalized.includes("staging")) {
+    return "staging";
+  }
+
+  if (normalized.includes("production") || normalized.includes("_prod")) {
+    return "production";
+  }
+
+  return undefined;
+}
+
+function inferTargetEnvironmentFromDatabaseUrl(databaseUrl) {
+  let parsedUrl;
+
+  try {
+    parsedUrl = new URL(databaseUrl);
+  } catch {
+    return undefined;
+  }
+
+  const host = parsedUrl.hostname.trim().toLowerCase();
+
+  if (!host) {
+    return undefined;
+  }
+
+  if (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host.endsWith(".local")
+  ) {
+    return "local";
+  }
+
+  if (host.includes("development") || host.includes("-dev")) {
+    return "development";
+  }
+
+  if (host.includes("staging")) {
+    return "staging";
+  }
+
+  if (host.includes("production") || host.includes("-prod")) {
+    return "production";
+  }
+
+  return undefined;
+}
+
+function resolveDatabaseTargetEnvironment({
+  databaseUrl,
+  databaseUrlEnv = DEFAULT_DATABASE_URL_ENV,
+  targetEnvironment = DEFAULT_TARGET_ENVIRONMENT,
+}) {
+  const explicitEnvironment = normalizeTargetEnvironmentName(targetEnvironment);
+  const inferredFromEnvName =
+    inferTargetEnvironmentFromDatabaseUrlEnvName(databaseUrlEnv);
+  const inferredFromUrl = inferTargetEnvironmentFromDatabaseUrl(databaseUrl);
+  const findings = [];
+
+  if (
+    explicitEnvironment &&
+    explicitEnvironment !== DEFAULT_TARGET_ENVIRONMENT &&
+    explicitEnvironment !== "unknown"
+  ) {
+    const conflictingInference = [inferredFromEnvName, inferredFromUrl].find(
+      (value) => value && value !== explicitEnvironment,
+    );
+
+    if (conflictingInference) {
+      findings.push(
+        `The explicit target environment (${explicitEnvironment}) conflicts with inferred hosted evidence (${conflictingInference}).`,
+      );
+      return {
+        environment: "unknown",
+        findings,
+        source: "explicit_conflict",
+      };
+    }
+
+    return {
+      environment: explicitEnvironment,
+      findings,
+      source: "explicit",
+    };
+  }
+
+  if (
+    inferredFromEnvName &&
+    inferredFromUrl &&
+    inferredFromEnvName !== inferredFromUrl
+  ) {
+    findings.push(
+      `The hosted DB target environment could not be proven because ${databaseUrlEnv} and the configured DB host imply different environments.`,
+    );
+    return {
+      environment: "unknown",
+      findings,
+      source: "inference_conflict",
+    };
+  }
+
+  if (inferredFromEnvName && inferredFromUrl) {
+    return {
+      environment: inferredFromEnvName,
+      findings,
+      source: "env_name_and_host",
+    };
+  }
+
+  if (inferredFromEnvName) {
+    return {
+      environment: inferredFromEnvName,
+      findings,
+      source: "env_name",
+    };
+  }
+
+  if (inferredFromUrl) {
+    return {
+      environment: inferredFromUrl,
+      findings,
+      source: "db_host",
+    };
+  }
+
+  findings.push(
+    `The hosted DB target environment is not explicit. Pass --target-environment <local|development|staging|production> when ${databaseUrlEnv} alone does not prove the intended hosted target.`,
+  );
+
+  return {
+    environment: "unknown",
+    findings,
+    source: "unknown",
+  };
+}
+
+function inspectRepoServerFilterActivationEvidence() {
+  const repoRoot = path.resolve(__dirname, "..");
+  const evidenceChecks = [
+    {
+      file: path.join(
+        repoRoot,
+        "apps",
+        "web",
+        "src",
+        "components",
+        "modules",
+        "BrandingDashboardConsole.utils.ts",
+      ),
+      patterns: [
+        "export const BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE = {",
+        "blockedBy: [],",
+        "hostedIndexReady: true,",
+        "hostedMigrationReady: true,",
+        "serverFilterReady: true,",
+        "metadataServerQueryable: true,",
+        "previewServerQueryable: true,",
+      ],
+      label: "active P5.14 derived-status gate override",
+    },
+    {
+      file: path.join(
+        repoRoot,
+        "apps",
+        "web",
+        "src",
+        "app",
+        "dashboard",
+        "branding",
+        "data.ts",
+      ),
+      patterns: [
+        "derivedStatusQueryGate: BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE,",
+        '.eq("preview_capability_status", "previewable");',
+        '.eq("upload_metadata_status", query.metadata);',
+      ],
+      label: "active branding server-side read path",
+    },
+  ];
+  const findings = [];
+
+  for (const check of evidenceChecks) {
+    if (!existsSync(check.file)) {
+      findings.push(`Missing repo evidence file: ${check.file}.`);
+      continue;
+    }
+
+    const content = readFileSync(check.file, "utf8");
+
+    for (const pattern of check.patterns) {
+      if (!content.includes(pattern)) {
+        findings.push(
+          `Repo evidence drift: ${check.label} no longer contains \`${pattern}\`.`,
+        );
+      }
+    }
+  }
+
+  return {
+    findings,
+    metadataServerQueryable: findings.length === 0,
+    previewServerQueryable: findings.length === 0,
+  };
 }
 
 function buildEvidenceSql() {
@@ -625,25 +905,55 @@ function collectIndexFindings(payload) {
   return findings;
 }
 
-function validateEvidencePayload(payload, { databaseUrlEnv }) {
+function validateEvidencePayload(
+  payload,
+  {
+    databaseTargetEnvironment,
+    databaseUrlEnv,
+    repoActivationEvidence = inspectRepoServerFilterActivationEvidence(),
+  },
+) {
   const migrationFindings = collectMigrationFindings(payload);
   const indexFindings = collectIndexFindings(payload);
-  const readyForP514 =
+  const bindingFindings = databaseTargetEnvironment?.findings ?? [];
+  const hostedBindingReady = bindingFindings.length === 0;
+  const hostedEvidenceReady =
     migrationFindings.length === 0 && indexFindings.length === 0;
+  const serverFilterFindings = [];
+
+  if (!hostedEvidenceReady) {
+    serverFilterFindings.push(
+      "Derived-status server filters require green hosted migration and index evidence before activation can be claimed.",
+    );
+  }
+
+  serverFilterFindings.push(...(repoActivationEvidence?.findings ?? []));
+
+  const serverFilterReady = serverFilterFindings.length === 0;
+  const readyForP514 =
+    hostedBindingReady && hostedEvidenceReady && serverFilterReady;
   const feedGateBlockedBy = [
-    ...(readyForP514 ? [] : ["requires_hosted_migration_evidence"]),
-    "requires_server_filter_activation",
+    ...(hostedBindingReady ? [] : ["requires_hosted_environment_binding"]),
+    ...(hostedEvidenceReady ? [] : ["requires_hosted_migration_evidence"]),
+    ...(serverFilterReady ? [] : ["requires_server_filter_activation"]),
   ];
 
   return {
+    databaseTargetEnvironment,
     databaseUrlEnv,
     feedGate: {
       blockedBy: feedGateBlockedBy,
-      metadataServerQueryable: false,
-      previewServerQueryable: false,
+      metadataServerQueryable:
+        hostedBindingReady && repoActivationEvidence.metadataServerQueryable,
+      previewServerQueryable:
+        hostedBindingReady && repoActivationEvidence.previewServerQueryable,
     },
     readyForP514,
     releaseMatrix: {
+      hostedBindingReady: buildCheck(
+        hostedBindingReady ? "passed" : "blocked",
+        bindingFindings,
+      ),
       hostedIndexReady: buildCheck(
         indexFindings.length === 0 ? "passed" : "blocked",
         indexFindings,
@@ -655,9 +965,10 @@ function validateEvidencePayload(payload, { databaseUrlEnv }) {
       repoReady: buildCheck("passed", [
         "Repo contract contains the generated-column and index slices, but hosted evidence is still required per environment.",
       ]),
-      serverFilterReady: buildCheck("blocked", [
-        "preview and metadata remain client_window until the dedicated server-filter activation slice lands.",
-      ]),
+      serverFilterReady: buildCheck(
+        serverFilterReady ? "passed" : "blocked",
+        serverFilterFindings,
+      ),
     },
   };
 }
@@ -667,7 +978,10 @@ function renderTextReport(report) {
     "StreamOS branding hosted migration evidence",
     "",
     `- database URL env: ${report.databaseUrlEnv}`,
+    `- database target environment: ${report.databaseTargetEnvironment.environment}`,
+    `- database target source: ${report.databaseTargetEnvironment.source}`,
     `- repoReady: ${report.releaseMatrix.repoReady.status}`,
+    `- hostedBindingReady: ${report.releaseMatrix.hostedBindingReady.status}`,
     `- hostedMigrationReady: ${report.releaseMatrix.hostedMigrationReady.status}`,
     `- hostedIndexReady: ${report.releaseMatrix.hostedIndexReady.status}`,
     `- serverFilterReady: ${report.releaseMatrix.serverFilterReady.status}`,
@@ -719,12 +1033,18 @@ async function main() {
     ...process.env,
   };
   const databaseUrl = requireDatabaseUrl(env, options.databaseUrlEnv);
+  const databaseTargetEnvironment = resolveDatabaseTargetEnvironment({
+    databaseUrl,
+    databaseUrlEnv: options.databaseUrlEnv,
+    targetEnvironment: options.targetEnvironment,
+  });
   const payload = executeEvidenceQuery({
     databaseUrl,
     databaseUrlEnv: options.databaseUrlEnv,
     psqlCommand: options.psqlCommand,
   });
   const report = validateEvidencePayload(payload, {
+    databaseTargetEnvironment,
     databaseUrlEnv: options.databaseUrlEnv,
   });
 
@@ -748,6 +1068,7 @@ module.exports = {
   DEFAULT_PG_CONNECT_TIMEOUT_SECONDS,
   DEFAULT_PSQL_COMMAND,
   DEFAULT_PSQL_TIMEOUT_MS,
+  DEFAULT_TARGET_ENVIRONMENT,
   EXPECTED_CONSTRAINTS,
   EXPECTED_COLUMN_GENERATION_PATTERNS,
   EXPECTED_FUNCTIONS,
@@ -758,13 +1079,18 @@ module.exports = {
   escapePgpassValue,
   executeEvidenceQuery,
   formatReport,
+  inferTargetEnvironmentFromDatabaseUrl,
+  inferTargetEnvironmentFromDatabaseUrlEnvName,
+  inspectRepoServerFilterActivationEvidence,
   matchesIdentityArguments,
   normalizeGenerationExpression,
+  normalizeTargetEnvironmentName,
   matchesExpectedGenerationExpression,
   parseArgs,
   parseEvidencePayload,
   printHelp,
   renderTextReport,
   requireDatabaseUrl,
+  resolveDatabaseTargetEnvironment,
   validateEvidencePayload,
 };
