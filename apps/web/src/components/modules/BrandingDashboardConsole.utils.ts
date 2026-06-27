@@ -5,7 +5,6 @@ import {
   BRANDING_DASHBOARD_METADATA_FILTERS,
   BRANDING_DASHBOARD_PREVIEW_FILTERS,
   type BrandingDashboardFeedCursor,
-  type BrandingDashboardFeedClientFilters,
   type BrandingDashboardFeedServerFilters,
   type BrandingDashboardFeedServerSort,
   type BrandingDashboardFutureAction,
@@ -15,6 +14,7 @@ import {
   type BrandingDashboardCoverage,
   type BrandingDashboardDistributionItem,
   type BrandingDashboardFeedMetadata,
+  type BrandingDashboardDerivedStatusQueryGate,
   type BrandingDashboardLookupIssue,
   type BrandingDashboardMetadataFilter as SharedBrandingDashboardMetadataFilter,
   type BrandingDashboardPreviewFilter as SharedBrandingDashboardPreviewFilter,
@@ -92,9 +92,7 @@ export type BrandingDashboardViewModel = {
     requestedAssetId: string | null;
   };
   feed: BrandingDashboardModel["feed"] & {
-    clientFilters: BrandingDashboardFeedClientFilters;
     cursorToken: string | null;
-    hasActiveClientFilters: boolean;
     hasActiveServerFilters: boolean;
     visibleCount: number;
     windowCount: number;
@@ -145,6 +143,19 @@ const mutationContract: BrandingDashboardMutationContract = {
     reason: "requires_new_asset_row_strategy",
   },
 };
+
+export const BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE = {
+  ...BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+  blockedBy: [],
+  readiness: {
+    ...BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE.readiness,
+    hostedIndexReady: true,
+    hostedMigrationReady: true,
+    serverFilterReady: true,
+  },
+  metadataServerQueryable: true,
+  previewServerQueryable: true,
+} as const satisfies BrandingDashboardDerivedStatusQueryGate;
 
 export function buildBrandingDashboardModel({
   feed,
@@ -212,7 +223,7 @@ export function createEmptyBrandingDashboardModel(
       typeCount: 0,
     },
     feed: {
-      derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+      derivedStatusQueryGate: BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE,
       filterOwnership: BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
       hasMore: false,
       limit: BRANDING_DASHBOARD_ASSET_LIMIT,
@@ -220,6 +231,8 @@ export function createEmptyBrandingDashboardModel(
       returnedCount: 0,
       serverFilters: {
         assetType: null,
+        metadata: "all",
+        preview: "all",
         status: null,
       },
       scope: "full_result",
@@ -260,19 +273,7 @@ export function buildBrandingDashboardViewModel(
       ...model.items.map((item) => item.status),
     ]),
   ].sort((left, right) => left.localeCompare(right));
-  const items = [...model.items]
-    .filter((item) =>
-      input.preview === "available"
-        ? item.preview.status === "available"
-        : input.preview === "unavailable"
-          ? item.preview.status !== "available"
-          : true,
-    )
-    .filter((item) =>
-      input.metadata === "all"
-        ? true
-        : item.uploadMetadata.status === input.metadata,
-    );
+  const items = [...model.items];
   const selectedAsset =
     items.find((item) => item.id === input.detailAssetId) ?? items[0] ?? null;
   const fellBackToVisibleItem =
@@ -289,16 +290,16 @@ export function buildBrandingDashboardViewModel(
     },
     feed: {
       ...model.feed,
-      clientFilters: {
-        metadata: input.metadata,
-        preview: input.preview,
-      },
       cursorToken: input.cursorToken,
-      hasActiveClientFilters:
-        input.preview !== "all" || input.metadata !== "all",
-      hasActiveServerFilters: input.assetType !== null || input.status !== null,
+      hasActiveServerFilters:
+        input.assetType !== null ||
+        input.status !== null ||
+        input.preview !== "all" ||
+        input.metadata !== "all",
       serverFilters: {
         assetType: input.assetType,
+        metadata: input.metadata,
+        preview: input.preview,
         status: input.status,
       },
       serverSort: input.sort,
@@ -352,10 +353,28 @@ export function decodeBrandingDashboardCursorToken(value: string | null): {
       };
       serverFilters?: {
         assetType?: unknown;
+        metadata?: unknown;
+        preview?: unknown;
         status?: unknown;
       };
       serverSort?: unknown;
     };
+    const metadataFilter =
+      parsed.serverFilters?.metadata == null
+        ? "all"
+        : BRANDING_DASHBOARD_METADATA_FILTERS.includes(
+              parsed.serverFilters.metadata as never,
+            )
+          ? (parsed.serverFilters.metadata as BrandingDashboardMetadataFilter)
+          : null;
+    const previewFilter =
+      parsed.serverFilters?.preview == null
+        ? "all"
+        : BRANDING_DASHBOARD_PREVIEW_FILTERS.includes(
+              parsed.serverFilters.preview as never,
+            )
+          ? (parsed.serverFilters.preview as BrandingDashboardPreviewFilter)
+          : null;
 
     if (
       !parsed.cursor ||
@@ -365,7 +384,13 @@ export function decodeBrandingDashboardCursorToken(value: string | null): {
       !isNullableString(parsed.cursor.status) ||
       !isNullableString(parsed.cursor.updatedAt) ||
       !isNullableString(parsed.serverFilters?.assetType) ||
+      (parsed.serverFilters?.metadata !== undefined &&
+        !isNullableString(parsed.serverFilters.metadata)) ||
+      (parsed.serverFilters?.preview !== undefined &&
+        !isNullableString(parsed.serverFilters.preview)) ||
       !isNullableString(parsed.serverFilters?.status) ||
+      metadataFilter === null ||
+      previewFilter === null ||
       !isValidCursorDate(parsed.cursor.createdAt) ||
       !isValidCursorDate(parsed.cursor.updatedAt) ||
       !BRANDING_DASHBOARD_SORT_OPTIONS.includes(parsed.serverSort as never) ||
@@ -396,6 +421,8 @@ export function decodeBrandingDashboardCursorToken(value: string | null): {
       },
       serverFilters: {
         assetType: parsed.serverFilters?.assetType ?? null,
+        metadata: metadataFilter,
+        preview: previewFilter,
         status: parsed.serverFilters?.status ?? null,
       },
       serverSort: parsed.serverSort as BrandingDashboardFeedServerSort,

@@ -10,6 +10,8 @@ const {
   DEFAULT_PSQL_TIMEOUT_MS,
   executeEvidenceQuery,
   escapePgpassValue,
+  matchesExpectedGenerationExpression,
+  matchesIdentityArguments,
   parseArgs,
   parseEvidencePayload,
   requireDatabaseUrl,
@@ -61,6 +63,34 @@ const validPayload = {
   },
 };
 
+const hostedCatalogPayload = {
+  columns: {
+    preview_capability_status: {
+      generationExpression:
+        "resolve_brand_asset_preview_capability_status(storage_bucket, storage_path, user_id, metadata)",
+      isGenerated: "ALWAYS",
+    },
+    upload_metadata_status: {
+      generationExpression:
+        "resolve_brand_asset_upload_metadata_status(metadata)",
+      isGenerated: "ALWAYS",
+    },
+  },
+  constraints: validPayload.constraints,
+  functions: {
+    resolve_brand_asset_preview_capability_status: {
+      identityArguments:
+        "asset_storage_bucket text, asset_storage_path text, asset_user_id uuid, asset_metadata jsonb",
+      immutable: true,
+    },
+    resolve_brand_asset_upload_metadata_status: {
+      identityArguments: "asset_metadata jsonb",
+      immutable: true,
+    },
+  },
+  indexes: validPayload.indexes,
+};
+
 test("branding evidence parser accepts split env-file syntax and print-sql flag", () => {
   const options = parseArgs([
     "--env-file",
@@ -91,6 +121,45 @@ test("branding evidence SQL stays read-only and targets branding derived-status 
   assert.match(sql, /pg_indexes/);
   assert.match(sql, /upload_metadata_status/);
   assert.match(sql, /preview_capability_status/);
+});
+
+test("branding evidence normalizers accept unqualified expressions and named identity arguments", () => {
+  assert.equal(
+    matchesExpectedGenerationExpression(
+      "public.resolve_brand_asset_upload_metadata_status(metadata)",
+      "public.resolve_brand_asset_upload_metadata_status(metadata)",
+    ),
+    true,
+  );
+  assert.equal(
+    matchesExpectedGenerationExpression(
+      "resolve_brand_asset_upload_metadata_status(metadata)",
+      "public.resolve_brand_asset_upload_metadata_status(metadata)",
+    ),
+    true,
+  );
+  assert.equal(
+    matchesExpectedGenerationExpression(
+      "other_schema.resolve_brand_asset_upload_metadata_status(metadata)",
+      "public.resolve_brand_asset_upload_metadata_status(metadata)",
+    ),
+    false,
+  );
+  assert.equal(matchesIdentityArguments("asset_metadata jsonb", "jsonb"), true);
+  assert.equal(
+    matchesIdentityArguments(
+      "asset_storage_bucket text, asset_storage_path text, asset_user_id uuid, asset_metadata jsonb",
+      "text, text, uuid, jsonb",
+    ),
+    true,
+  );
+  assert.equal(
+    matchesIdentityArguments(
+      "asset_storage_bucket text, asset_storage_path text, asset_metadata jsonb, asset_user_id uuid",
+      "text, text, uuid, jsonb",
+    ),
+    false,
+  );
 });
 
 test("branding evidence psql connection config uses pgpass instead of a URI argv", () => {
@@ -141,6 +210,41 @@ test("branding evidence report passes hosted migration and index readiness when 
   assert.deepEqual(report.feedGate.blockedBy, [
     "requires_server_filter_activation",
   ]);
+});
+
+test("branding evidence report accepts hosted catalog formatting after rollout", () => {
+  const report = validateEvidencePayload(hostedCatalogPayload, {
+    databaseUrlEnv: "SUPABASE_DB_URL",
+  });
+
+  assert.equal(report.readyForP514, true);
+  assert.equal(report.releaseMatrix.hostedMigrationReady.status, "passed");
+  assert.equal(report.releaseMatrix.hostedIndexReady.status, "passed");
+});
+
+test("branding evidence report rejects generated-column resolvers from the wrong schema", () => {
+  const report = validateEvidencePayload(
+    {
+      ...validPayload,
+      columns: {
+        ...validPayload.columns,
+        upload_metadata_status: {
+          generationExpression:
+            "other_schema.resolve_brand_asset_upload_metadata_status(metadata)",
+          isGenerated: "ALWAYS",
+        },
+      },
+    },
+    {
+      databaseUrlEnv: "SUPABASE_DB_URL",
+    },
+  );
+
+  assert.equal(report.releaseMatrix.hostedMigrationReady.status, "blocked");
+  assert.match(
+    report.releaseMatrix.hostedMigrationReady.findings.join("\n"),
+    /expected derived-status resolver/,
+  );
 });
 
 test("branding evidence execution keeps DB credentials out of argv and cleans up pgpass files", () => {

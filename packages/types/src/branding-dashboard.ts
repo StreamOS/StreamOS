@@ -148,10 +148,10 @@ export const BRANDING_DASHBOARD_DERIVED_STATUS_OWNERSHIP = {
 } as const satisfies BrandingDashboardDerivedStatusOwnership;
 
 export type BrandingDashboardDerivedStatusQueryGateReadiness = Readonly<{
-  hostedIndexReady: false;
-  hostedMigrationReady: false;
+  hostedIndexReady: boolean;
+  hostedMigrationReady: boolean;
   repoReady: true;
-  serverFilterReady: false;
+  serverFilterReady: boolean;
 }>;
 
 export const BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_READINESS = {
@@ -166,8 +166,8 @@ export type BrandingDashboardDerivedStatusQueryGate = Readonly<{
   historicalBackfill: "generated_columns";
   indexesReady: true;
   readiness: BrandingDashboardDerivedStatusQueryGateReadiness;
-  metadataServerQueryable: false;
-  previewServerQueryable: false;
+  metadataServerQueryable: boolean;
+  previewServerQueryable: boolean;
 }>;
 
 export const BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE = {
@@ -215,6 +215,8 @@ export type BrandingDashboardFeedCursor = {
 
 export type BrandingDashboardFeedServerFilters = {
   assetType: BrandAssetType | string | null;
+  metadata: BrandingDashboardMetadataFilter;
+  preview: BrandingDashboardPreviewFilter;
   status: BrandAssetStatus | string | null;
 };
 
@@ -225,15 +227,15 @@ export type BrandingDashboardFeedClientFilters = {
 
 export type BrandingDashboardFeedFilterOwnership = Readonly<{
   assetType: "server_query";
-  metadata: "client_window";
-  preview: "client_window";
+  metadata: "server_query";
+  preview: "server_query";
   status: "server_query";
 }>;
 
 export const BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP = {
   assetType: "server_query",
-  metadata: "client_window",
-  preview: "client_window",
+  metadata: "server_query",
+  preview: "server_query",
   status: "server_query",
 } as const satisfies BrandingDashboardFeedFilterOwnership;
 
@@ -255,13 +257,13 @@ type _BrandingDashboardFeedFilterOwnershipAssertions = [
   BrandingDashboardTypeAssert<
     BrandingDashboardTypeEqual<
       BrandingDashboardFeedFilterOwnership["metadata"],
-      "client_window"
+      "server_query"
     >
   >,
   BrandingDashboardTypeAssert<
     BrandingDashboardTypeEqual<
       BrandingDashboardFeedFilterOwnership["preview"],
-      "client_window"
+      "server_query"
     >
   >,
   BrandingDashboardTypeAssert<
@@ -303,13 +305,13 @@ type _BrandingDashboardDerivedStatusQueryGateAssertions = [
   BrandingDashboardTypeAssert<
     BrandingDashboardTypeEqual<
       BrandingDashboardDerivedStatusQueryGate["readiness"]["hostedIndexReady"],
-      false
+      boolean
     >
   >,
   BrandingDashboardTypeAssert<
     BrandingDashboardTypeEqual<
       BrandingDashboardDerivedStatusQueryGate["readiness"]["hostedMigrationReady"],
-      false
+      boolean
     >
   >,
   BrandingDashboardTypeAssert<
@@ -321,19 +323,19 @@ type _BrandingDashboardDerivedStatusQueryGateAssertions = [
   BrandingDashboardTypeAssert<
     BrandingDashboardTypeEqual<
       BrandingDashboardDerivedStatusQueryGate["readiness"]["serverFilterReady"],
-      false
+      boolean
     >
   >,
   BrandingDashboardTypeAssert<
     BrandingDashboardTypeEqual<
       BrandingDashboardDerivedStatusQueryGate["metadataServerQueryable"],
-      false
+      boolean
     >
   >,
   BrandingDashboardTypeAssert<
     BrandingDashboardTypeEqual<
       BrandingDashboardDerivedStatusQueryGate["previewServerQueryable"],
-      false
+      boolean
     >
   >,
 ];

@@ -40,6 +40,8 @@ const sampleReadModel = {
     returnedCount: 2,
     serverFilters: {
       assetType: null,
+      metadata: "all",
+      preview: "all",
       status: null,
     },
     scope: "full_result",
@@ -208,8 +210,8 @@ void test("branding dashboard contract keeps the feed enums and exact filter own
   ]);
   assert.deepEqual(BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP, {
     assetType: "server_query",
-    metadata: "client_window",
-    preview: "client_window",
+    metadata: "server_query",
+    preview: "server_query",
     status: "server_query",
   });
   assert.deepEqual(
@@ -284,12 +286,14 @@ void test("branding dashboard read model stays read-only and tolerant of unknown
   });
   assert.deepEqual(sampleReadModel.feed.filterOwnership, {
     assetType: "server_query",
-    metadata: "client_window",
-    preview: "client_window",
+    metadata: "server_query",
+    preview: "server_query",
     status: "server_query",
   });
   assert.deepEqual(sampleReadModel.feed.serverFilters, {
     assetType: null,
+    metadata: "all",
+    preview: "all",
     status: null,
   });
   assert.equal(sampleReadModel.items[0]?.storageState, "attached");

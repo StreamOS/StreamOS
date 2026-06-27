@@ -32,7 +32,7 @@
     "test": "turbo test",
     "test:gateway": "pnpm --filter @streamos/api-gateway typecheck && pnpm --filter @streamos/api-gateway test",
     "test:fastapi": "node scripts/with-python-312.cjs python -m pytest services/automation-service",
-    "test:railway-audit": "node --test scripts/private-automation-url.test.cjs scripts/e2e-transcription-job.test.cjs scripts/railway-audit-core.test.cjs scripts/audit-railway-env.test.cjs scripts/operator-cli.test.cjs scripts/deploy-production-workflow.test.cjs scripts/production-gate-proof.test.cjs scripts/branding-hosted-evidence.test.cjs",
+    "test:railway-audit": "node --test scripts/private-automation-url.test.cjs scripts/e2e-transcription-job.test.cjs scripts/railway-audit-core.test.cjs scripts/audit-railway-env.test.cjs scripts/operator-cli.test.cjs scripts/deploy-production-workflow.test.cjs scripts/production-gate-proof.test.cjs scripts/branding-hosted-evidence.test.cjs scripts/validate-database-security.test.cjs",
     "test:branch-audit": "node --test scripts/branch-governance.test.cjs",
     "test:turbo-env-policy": "node --test scripts/turbo-env-policy.test.cjs",
     "test:vercel-audit": "node --test scripts/vercel-env-policy.test.cjs",

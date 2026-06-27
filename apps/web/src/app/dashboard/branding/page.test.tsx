@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE } from "@streamos/types";
 import BrandingPage from "./page";
 import {
+  BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE,
   buildBrandingDashboardModel,
   createEmptyBrandingDashboardModel,
 } from "@/components/modules/BrandingDashboardConsole.utils";
@@ -165,6 +165,8 @@ describe("BrandingPage", () => {
         {
           serverFilters: {
             assetType: "logo",
+            metadata: "available",
+            preview: "available",
             status: "active",
           },
           serverSort: "created_desc",
@@ -201,35 +203,24 @@ describe("BrandingPage", () => {
       cursor: null,
       cursorServerFilters: null,
       cursorServerSort: null,
+      metadata: "available",
+      preview: "available",
       serverSort: "created_desc",
       status: "active",
       windowCount: 1,
     });
   });
 
-  it("renders a filtered empty state when the current feed has no matching assets", async () => {
+  it("renders a filtered empty state when the current server query has no matching assets", async () => {
     mocks.getBrandingDashboardData.mockResolvedValue(
-      createReadyModel([
-        createAsset({
-          assetType: "overlay",
-          id: "asset-1",
-          name: "Overlay Only",
-          preview: {
-            expiresAt: null,
-            reason: "signing_failed",
-            status: "failed",
-            url: null,
-          },
-          status: "draft",
-          uploadMetadata: {
-            contentType: null,
-            fileExtension: null,
-            fileSizeBytes: null,
-            status: "unavailable",
-            storedFilename: null,
-          },
-        }),
-      ]),
+      createReadyModel([], [], {
+        serverFilters: {
+          assetType: null,
+          metadata: "all",
+          preview: "available",
+          status: null,
+        },
+      }),
     );
 
     const html = renderToStaticMarkup(
@@ -249,6 +240,8 @@ describe("BrandingPage", () => {
       createReadyModel([], [], {
         serverFilters: {
           assetType: "logo",
+          metadata: "all",
+          preview: "all",
           status: null,
         },
       }),
@@ -289,6 +282,8 @@ describe("BrandingPage", () => {
           returnedCount: 1,
           serverFilters: {
             assetType: null,
+            metadata: "all",
+            preview: "all",
             status: null,
           },
           scope: "loaded_sample",
@@ -301,14 +296,14 @@ describe("BrandingPage", () => {
 
     expect(html).toContain("Geladene Stichprobe");
     expect(html).toContain(
-      "Serverseitige Asset-Type- und Status-Filter und die Sortierung Zuletzt aktualisiert wirken auf das aktuelle Query-Fenster mit 1 geladenen Brand Assets",
+      "Serverseitige Asset-Type-, Status-, Preview- und Metadata-Filter und die Sortierung Zuletzt aktualisiert wirken auf das aktuelle Query-Fenster mit 1 geladenen Brand Assets",
     );
     expect(html).toContain(
       "Weitere Assets im selben Query-Kontext sind vorhanden und koennen ueber `Mehr laden` schrittweise nachgeladen werden",
     );
   });
 
-  it("keeps preview and metadata explicitly marked as client-side window filters", async () => {
+  it("marks preview and metadata as serverseitige derived-status filter", async () => {
     mocks.getBrandingDashboardData.mockResolvedValue(
       createReadyModel([
         createAsset({
@@ -341,10 +336,10 @@ describe("BrandingPage", () => {
     );
 
     expect(html).toContain(
-      "Clientseitige Fensterfilter: Preview nicht verfuegbar, Metadata ungueltig",
+      "Serverseitige Explorer-Filter: Preview nicht verfuegbar, Metadata ungueltig",
     );
     expect(html).toContain(
-      "Preview und Metadata bleiben bewusst clientseitige Fensterfilter",
+      "Preview mappt serverseitig auf `preview_capability_status`, Metadata serverseitig auf `upload_metadata_status`",
     );
   });
 
@@ -385,6 +380,8 @@ describe("BrandingPage", () => {
           returnedCount: 12,
           serverFilters: {
             assetType: null,
+            metadata: "all",
+            preview: "all",
             status: null,
           },
           scope: "loaded_sample",
@@ -466,6 +463,8 @@ describe("BrandingPage", () => {
       cursor: null,
       cursorServerFilters: null,
       cursorServerSort: null,
+      metadata: "all",
+      preview: "all",
       serverSort: "updated_desc",
       status: null,
       windowCount: 1,
@@ -497,6 +496,8 @@ describe("BrandingPage", () => {
       cursor: null,
       cursorServerFilters: null,
       cursorServerSort: null,
+      metadata: "all",
+      preview: "all",
       serverSort: "updated_desc",
       status: null,
       windowCount: 1,
@@ -536,6 +537,8 @@ describe("BrandingPage", () => {
       cursor: null,
       cursorServerFilters: null,
       cursorServerSort: null,
+      metadata: "all",
+      preview: "all",
       serverSort: "updated_desc",
       status: null,
       windowCount: 1,
@@ -755,11 +758,11 @@ function createReadyModel(
 ) {
   return buildBrandingDashboardModel({
     feed: {
-      derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+      derivedStatusQueryGate: BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE,
       filterOwnership: {
         assetType: "server_query",
-        metadata: "client_window",
-        preview: "client_window",
+        metadata: "server_query",
+        preview: "server_query",
         status: "server_query",
       },
       hasMore: false,
@@ -768,6 +771,8 @@ function createReadyModel(
       returnedCount: items.length,
       serverFilters: {
         assetType: null,
+        metadata: "all",
+        preview: "all",
         status: null,
       },
       scope: "full_result",

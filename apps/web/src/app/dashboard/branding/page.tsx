@@ -33,6 +33,8 @@ export default async function BrandingPage({
     cursor: parsedView.loadMoreCursor,
     cursorServerFilters: parsedView.cursorServerFilters,
     cursorServerSort: parsedView.cursorServerSort,
+    metadata: parsedView.metadata,
+    preview: parsedView.preview,
     serverSort: parsedView.sort,
     status: parsedView.status,
     windowCount: parsedView.windowCount,
