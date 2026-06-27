@@ -8,8 +8,10 @@ const {
   createSupabaseReadonlyClient,
   formatReport,
   isRecognizedBrandAssetStoragePath,
+  normalizeStorageListPrefix,
   normalizeStoragePath,
   parseArgs,
+  readAllStorageListEntries,
   readBrandAssetReferences,
   readBrandAssetStorageObjects,
   redactStoragePath,
@@ -163,6 +165,7 @@ test("recognized brand asset storage path accepts create and replacement shapes 
 test("normalize and redact storage paths keep unsafe or cross-tenant paths secret-safe", () => {
   assert.equal(normalizeStoragePath(`/bad/path.png`), null);
   assert.equal(normalizeStoragePath(`bad\\path.png`), null);
+  assert.equal(normalizeStorageListPrefix(`${tenantId}/`), tenantId);
   assert.equal(redactStoragePath(`/bad/path.png`, tenantId), "<invalid-path>");
   assert.equal(
     redactStoragePath(`${tenantId}/logo/asset-live/neon-logo.png`, tenantId),
@@ -181,7 +184,10 @@ test("storage listing and DB lookups stay read-only and tenant-scoped", async ()
   const calls = [];
   const client = createSupabaseReadonlyClient({
     fetchImpl: async (url, options) => {
+      const body = options.body ? JSON.parse(options.body) : null;
+
       calls.push({
+        body,
         method: options.method,
         url: String(url),
       });
@@ -208,24 +214,97 @@ test("storage listing and DB lookups stay read-only and tenant-scoped", async ()
 
   assert.deepEqual(
     calls.map((call) => call.method),
-    ["GET", "GET"],
+    ["GET", "POST"],
   );
   assert.equal(
-    calls.every((call) => !/(delete|remove|patch|post|put)/i.test(call.method)),
+    calls.every((call) => !/(delete|remove|patch|put)/i.test(call.method)),
     true,
   );
   assert.match(
     calls[0].url,
     /user_id=eq\.11111111-1111-4111-8111-111111111111/,
   );
-  assert.match(calls[1].url, /bucket_id=eq\.brand-assets/);
-  assert.match(
-    calls[1].url,
-    /name=like\.11111111-1111-4111-8111-111111111111%2F%25/,
+  assert.match(calls[1].url, /\/storage\/v1\/object\/list\/brand-assets$/);
+  assert.equal(calls[1].body.prefix, tenantId);
+  assert.equal(calls[1].body.limit, 1000);
+  assert.equal(calls[1].body.offset, 0);
+});
+
+test("storage list API walks tenant-scoped prefixes recursively", async () => {
+  const seenPrefixes = [];
+  const client = createSupabaseReadonlyClient({
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body);
+
+      seenPrefixes.push(body.prefix);
+
+      return {
+        ok: true,
+        async json() {
+          if (body.prefix === tenantId) {
+            return [{ id: null, name: "logo" }];
+          }
+
+          if (body.prefix === `${tenantId}/logo`) {
+            return [{ id: null, name: "asset-live" }];
+          }
+
+          if (body.prefix === `${tenantId}/logo/asset-live`) {
+            return [
+              {
+                created_at: "2026-06-27T10:00:00.000Z",
+                id: "file-1",
+                last_accessed_at: null,
+                metadata: { size: 1234 },
+                name: "neon-logo.png",
+                updated_at: "2026-06-27T11:00:00.000Z",
+              },
+              { id: null, name: "replacements" },
+            ];
+          }
+
+          if (body.prefix === `${tenantId}/logo/asset-live/replacements`) {
+            return [
+              {
+                created_at: "2026-06-27T12:00:00.000Z",
+                id: "file-2",
+                last_accessed_at: null,
+                metadata: { size: 5678 },
+                name: "uuid-neon-logo.png",
+                updated_at: "2026-06-27T13:00:00.000Z",
+              },
+            ];
+          }
+
+          return [];
+        },
+      };
+    },
+    serviceRoleKey: "service-role-key",
+    supabaseUrl: "https://streamos.supabase.co",
+  });
+
+  const objects = await readBrandAssetStorageObjects({
+    client,
+    userId: tenantId,
+  });
+
+  assert.deepEqual(seenPrefixes, [
+    tenantId,
+    `${tenantId}/logo`,
+    `${tenantId}/logo/asset-live`,
+    `${tenantId}/logo/asset-live/replacements`,
+  ]);
+  assert.deepEqual(
+    objects.map((object) => object.path),
+    [
+      `${tenantId}/logo/asset-live/neon-logo.png`,
+      `${tenantId}/logo/asset-live/replacements/uuid-neon-logo.png`,
+    ],
   );
 });
 
-test("storage listing failure is secret-safe", async () => {
+test("storage list API failure is secret-safe and classifies unsupported read paths clearly", async () => {
   await assert.rejects(
     () =>
       runBrandingOrphanDryRun({
@@ -234,8 +313,8 @@ test("storage listing failure is secret-safe", async () => {
           SUPABASE_URL: "https://streamos.supabase.co",
         },
         fetchImpl: async (url) => ({
-          ok: !String(url).includes("storage.objects"),
-          status: 503,
+          ok: !String(url).includes("/storage/v1/object/list/"),
+          status: 404,
           async json() {
             return [];
           },
@@ -248,8 +327,43 @@ test("storage listing failure is secret-safe", async () => {
           userId: tenantId,
         },
       }),
-    /Supabase storage\.objects lookup failed with status 503/,
+    /Supabase Storage list API lookup failed with status 404/,
   );
+});
+
+test("storage list API exposes POST-only list metadata reads", async () => {
+  const calls = [];
+  const client = createSupabaseReadonlyClient({
+    fetchImpl: async (url, options) => {
+      calls.push({
+        method: options.method,
+        url: String(url),
+      });
+
+      return {
+        ok: true,
+        async json() {
+          return [];
+        },
+      };
+    },
+    serviceRoleKey: "service-role-key",
+    supabaseUrl: "https://streamos.supabase.co",
+  });
+
+  const entries = await readAllStorageListEntries({
+    bucket: BRAND_ASSET_STORAGE_BUCKET,
+    client,
+    prefix: tenantId,
+  });
+
+  assert.deepEqual(entries, []);
+  assert.deepEqual(calls, [
+    {
+      method: "POST",
+      url: "https://streamos.supabase.co/storage/v1/object/list/brand-assets",
+    },
+  ]);
 });
 
 test("DB failure is secret-safe", async () => {
