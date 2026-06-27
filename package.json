@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "StreamOS monorepo for creator discoverability, monetization, automation, branding, multi-platform management, and analytics.",
   "private": true,
-  "packageManager": "pnpm@11.7.0",
+  "packageManager": "pnpm@11.8.0",
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
@@ -69,7 +69,7 @@
     "husky": "^9.1.7",
     "is-ci": "^4.1.0",
     "lint-staged": "^17.0.7",
-    "pnpm": "11.7.0",
+    "pnpm": "11.8.0",
     "prettier": "^3.5.3",
     "turbo": "^2.5.4",
     "typescript": "^6.0.3"

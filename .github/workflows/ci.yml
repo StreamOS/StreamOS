@@ -23,7 +23,7 @@ concurrency:
 env:
   CI: "true"
   NODE_VERSION: "22"
-  PNPM_VERSION: "11.7.0"
+  PNPM_VERSION: "11.8.0"
   PYTHON_VERSION: "3.12"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
