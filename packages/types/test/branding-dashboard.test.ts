@@ -3,6 +3,10 @@ import test from "node:test";
 
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
+  BRANDING_DASHBOARD_DERIVED_STATUS_OWNERSHIP,
+  BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+  BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_BLOCKERS,
+  BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_READINESS,
   BRANDING_DASHBOARD_FEED_SCOPES,
   BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
   BRANDING_DASHBOARD_FEED_SERVER_SORTS,
@@ -10,6 +14,7 @@ import {
   BRANDING_DASHBOARD_METADATA_FILTERS,
   BRANDING_DASHBOARD_MUTATION_ACTIONS,
   BRANDING_DASHBOARD_MUTATION_BLOCK_REASONS,
+  BRANDING_DASHBOARD_PREVIEW_CAPABILITY_STATUSES,
   BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS,
   BRANDING_DASHBOARD_PREVIEW_FILTERS,
   BRANDING_DASHBOARD_UPLOAD_ALLOWED_EXTENSIONS,
@@ -27,6 +32,7 @@ const sampleReadModel = {
     typeCount: 2,
   },
   feed: {
+    derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
     filterOwnership: BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
     hasMore: false,
     limit: BRANDING_DASHBOARD_ASSET_LIMIT,
@@ -45,6 +51,10 @@ const sampleReadModel = {
       channelId: "channel-1",
       createdAt: "2026-06-26T08:00:00.000Z",
       description: "Primary logo",
+      derivedStatuses: {
+        previewCapabilityStatus: "previewable",
+        uploadMetadataStatus: "available",
+      },
       futureActions: [
         {
           action: "replace",
@@ -83,6 +93,10 @@ const sampleReadModel = {
       channelId: null,
       createdAt: "2026-06-25T08:00:00.000Z",
       description: null,
+      derivedStatuses: {
+        previewCapabilityStatus: "unsupported",
+        uploadMetadataStatus: "unavailable",
+      },
       futureActions: [
         {
           action: "replace",
@@ -202,6 +216,43 @@ void test("branding dashboard contract keeps the feed enums and exact filter own
     Object.keys(BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP).sort(),
     ["assetType", "metadata", "preview", "status"],
   );
+  assert.deepEqual(BRANDING_DASHBOARD_DERIVED_STATUS_OWNERSHIP, {
+    previewCapabilityStatus: "server_managed",
+    uploadMetadataStatus: "server_managed",
+  });
+  assert.deepEqual(BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE, {
+    blockedBy: [
+      "requires_hosted_migration_evidence",
+      "requires_server_filter_activation",
+    ],
+    historicalBackfill: "generated_columns",
+    indexesReady: true,
+    readiness: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_READINESS,
+    metadataServerQueryable: false,
+    previewServerQueryable: false,
+  });
+  assert.deepEqual(BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_BLOCKERS, [
+    "requires_hosted_migration_evidence",
+    "requires_server_filter_activation",
+  ]);
+  assert.deepEqual(BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_READINESS, {
+    hostedIndexReady: false,
+    hostedMigrationReady: false,
+    repoReady: true,
+    serverFilterReady: false,
+  });
+  assert.deepEqual(BRANDING_DASHBOARD_PREVIEW_CAPABILITY_STATUSES, [
+    "previewable",
+    "unsupported",
+    "missing_storage",
+    "invalid_storage",
+  ]);
+  assert.equal(
+    BRANDING_DASHBOARD_PREVIEW_CAPABILITY_STATUSES.includes(
+      "signing_failed" as never,
+    ),
+    false,
+  );
   assert.deepEqual(BRANDING_DASHBOARD_PREVIEW_FILTERS, [
     "all",
     "available",
@@ -220,6 +271,17 @@ void test("branding dashboard read model stays read-only and tolerant of unknown
   assert.equal(sampleReadModel.feed.scope, "full_result");
   assert.equal(sampleReadModel.feed.serverSort, "updated_desc");
   assert.equal(sampleReadModel.feed.nextCursor, null);
+  assert.deepEqual(sampleReadModel.feed.derivedStatusQueryGate, {
+    blockedBy: [
+      "requires_hosted_migration_evidence",
+      "requires_server_filter_activation",
+    ],
+    historicalBackfill: "generated_columns",
+    indexesReady: true,
+    readiness: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_READINESS,
+    metadataServerQueryable: false,
+    previewServerQueryable: false,
+  });
   assert.deepEqual(sampleReadModel.feed.filterOwnership, {
     assetType: "server_query",
     metadata: "client_window",
@@ -232,6 +294,14 @@ void test("branding dashboard read model stays read-only and tolerant of unknown
   });
   assert.equal(sampleReadModel.items[0]?.storageState, "attached");
   assert.equal(sampleReadModel.items[0]?.futureActions[0]?.available, false);
+  assert.equal(
+    sampleReadModel.items[0]?.derivedStatuses.previewCapabilityStatus,
+    "previewable",
+  );
+  assert.equal(
+    sampleReadModel.items[0]?.derivedStatuses.uploadMetadataStatus,
+    "available",
+  );
   assert.equal(sampleReadModel.items[0]?.preview.status, "available");
   assert.equal(
     sampleReadModel.items[0]?.uploadMetadata.contentType,
@@ -242,6 +312,10 @@ void test("branding dashboard read model stays read-only and tolerant of unknown
   assert.equal(
     sampleReadModel.items[1]?.preview.reason,
     "unsupported_file_type",
+  );
+  assert.equal(
+    sampleReadModel.items[1]?.derivedStatuses.previewCapabilityStatus,
+    "unsupported",
   );
   assert.equal(sampleReadModel.items[1]?.uploadMetadata.status, "unavailable");
   assert.equal(sampleReadModel.summary.unknownTypeCount, 1);

@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE } from "@streamos/types";
 import BrandingPage from "./page";
 import {
   buildBrandingDashboardModel,
@@ -754,6 +755,7 @@ function createReadyModel(
 ) {
   return buildBrandingDashboardModel({
     feed: {
+      derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
       filterOwnership: {
         assetType: "server_query",
         metadata: "client_window",
@@ -785,6 +787,10 @@ function createAsset(overrides: Partial<BrandingPageAsset>): BrandingPageAsset {
     channelId: null,
     createdAt: "2026-06-26T08:00:00.000Z",
     description: "Primary logo.",
+    derivedStatuses: {
+      previewCapabilityStatus: "missing_storage",
+      uploadMetadataStatus: "unavailable",
+    },
     id: "asset-default",
     name: "Default Asset",
     platform: null,

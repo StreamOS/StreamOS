@@ -1,5 +1,6 @@
 import {
   BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS,
+  type BrandingDashboardPreviewCapabilityStatus,
   type BrandingDashboardPreview,
   type BrandingDashboardUploadMetadata,
 } from "@streamos/types";
@@ -34,39 +35,21 @@ export async function createBrandingAssetPreview({
   uploadMetadata: BrandingDashboardUploadMetadata;
   userId: string;
 }): Promise<BrandingDashboardPreview> {
-  const storage = parsePreviewStorage({
+  const previewCapabilityStatus = resolveBrandingAssetPreviewCapability({
     storageBucket,
     storagePath,
+    uploadMetadata,
     userId,
   });
 
-  if (!storage.ok) {
-    return {
-      expiresAt: null,
-      reason: storage.reason,
-      status: "unavailable",
-      url: null,
-    };
-  }
-
-  if (
-    !isPreviewableBrandingAsset({
-      storagePath: storage.path,
-      uploadMetadata,
-    })
-  ) {
-    return {
-      expiresAt: null,
-      reason: "unsupported_file_type",
-      status: "unsupported",
-      url: null,
-    };
+  if (previewCapabilityStatus !== "previewable") {
+    return createUnavailablePreviewFromCapability(previewCapabilityStatus);
   }
 
   try {
     const { data, error } = await client.storage
-      .from(storage.bucket)
-      .createSignedUrl(storage.path, ttlSeconds);
+      .from(BRAND_ASSET_STORAGE_BUCKET)
+      .createSignedUrl(storagePath as string, ttlSeconds);
 
     if (error || !data?.signedUrl) {
       return {
@@ -93,6 +76,66 @@ export async function createBrandingAssetPreview({
   }
 }
 
+export function resolveBrandingAssetPreviewCapability({
+  storageBucket,
+  storagePath,
+  uploadMetadata,
+  userId,
+}: {
+  storageBucket: string | null;
+  storagePath: string | null;
+  uploadMetadata: BrandingDashboardUploadMetadata;
+  userId: string;
+}): BrandingDashboardPreviewCapabilityStatus {
+  const storage = parsePreviewStorage({
+    storageBucket,
+    storagePath,
+    userId,
+  });
+
+  if (!storage.ok) {
+    return storage.reason;
+  }
+
+  return isPreviewableBrandingAsset({
+    storagePath: storage.path,
+    uploadMetadata,
+  })
+    ? "previewable"
+    : "unsupported";
+}
+
+function createUnavailablePreviewFromCapability(
+  previewCapabilityStatus: Exclude<
+    BrandingDashboardPreviewCapabilityStatus,
+    "previewable"
+  >,
+): BrandingDashboardPreview {
+  switch (previewCapabilityStatus) {
+    case "missing_storage":
+      return {
+        expiresAt: null,
+        reason: "missing_storage",
+        status: "unavailable",
+        url: null,
+      };
+    case "invalid_storage":
+      return {
+        expiresAt: null,
+        reason: "invalid_storage_metadata",
+        status: "unavailable",
+        url: null,
+      };
+    case "unsupported":
+      return {
+        expiresAt: null,
+        reason: "unsupported_file_type",
+        status: "unsupported",
+        url: null,
+      };
+  }
+}
+
 function parsePreviewStorage({
   storageBucket,
   storagePath,
@@ -109,7 +152,7 @@ function parsePreviewStorage({
     }
   | {
       ok: false;
-      reason: "invalid_storage_metadata" | "missing_storage";
+      reason: "invalid_storage" | "missing_storage";
     } {
   if (!storageBucket && !storagePath) {
     return {
@@ -121,14 +164,14 @@ function parsePreviewStorage({
   if (storageBucket !== BRAND_ASSET_STORAGE_BUCKET || !storagePath) {
     return {
       ok: false,
-      reason: "invalid_storage_metadata",
+      reason: "invalid_storage",
     };
   }
 
   if (!isTenantScopedBrandingStoragePath(storagePath, userId)) {
     return {
       ok: false,
-      reason: "invalid_storage_metadata",
+      reason: "invalid_storage",
     };
   }
 

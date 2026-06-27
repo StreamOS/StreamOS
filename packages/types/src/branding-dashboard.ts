@@ -51,6 +51,16 @@ export const BRANDING_DASHBOARD_METADATA_FILTERS = [
   "invalid",
   "unavailable",
 ] as const;
+export const BRANDING_DASHBOARD_PREVIEW_CAPABILITY_STATUSES = [
+  "previewable",
+  "unsupported",
+  "missing_storage",
+  "invalid_storage",
+] as const;
+export const BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_BLOCKERS = [
+  "requires_hosted_migration_evidence",
+  "requires_server_filter_activation",
+] as const;
 
 export type BrandingDashboardLookupSource =
   (typeof BRANDING_DASHBOARD_LOOKUP_SOURCES)[number];
@@ -59,10 +69,15 @@ export type BrandingDashboardFeedScope =
 export type BrandingDashboardFeedServerSort =
   (typeof BRANDING_DASHBOARD_FEED_SERVER_SORTS)[number];
 export type BrandingDashboardFeedFilterOwner = "client_window" | "server_query";
+export type BrandingDashboardDerivedStatusOwner = "server_managed";
 export type BrandingDashboardPreviewFilter =
   (typeof BRANDING_DASHBOARD_PREVIEW_FILTERS)[number];
 export type BrandingDashboardMetadataFilter =
   (typeof BRANDING_DASHBOARD_METADATA_FILTERS)[number];
+export type BrandingDashboardPreviewCapabilityStatus =
+  (typeof BRANDING_DASHBOARD_PREVIEW_CAPABILITY_STATUSES)[number];
+export type BrandingDashboardDerivedStatusQueryGateBlocker =
+  (typeof BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_BLOCKERS)[number];
 
 export type BrandingDashboardLookupIssue = {
   code: "load-failed";
@@ -117,11 +132,62 @@ export type BrandingDashboardUploadMetadata = {
   storedFilename: string | null;
 };
 
+export type BrandingDashboardDerivedStatuses = Readonly<{
+  previewCapabilityStatus: BrandingDashboardPreviewCapabilityStatus;
+  uploadMetadataStatus: BrandingDashboardUploadMetadataStatus;
+}>;
+
+export type BrandingDashboardDerivedStatusOwnership = Readonly<{
+  previewCapabilityStatus: "server_managed";
+  uploadMetadataStatus: "server_managed";
+}>;
+
+export const BRANDING_DASHBOARD_DERIVED_STATUS_OWNERSHIP = {
+  previewCapabilityStatus: "server_managed",
+  uploadMetadataStatus: "server_managed",
+} as const satisfies BrandingDashboardDerivedStatusOwnership;
+
+export type BrandingDashboardDerivedStatusQueryGateReadiness = Readonly<{
+  hostedIndexReady: false;
+  hostedMigrationReady: false;
+  repoReady: true;
+  serverFilterReady: false;
+}>;
+
+export const BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_READINESS = {
+  hostedIndexReady: false,
+  hostedMigrationReady: false,
+  repoReady: true,
+  serverFilterReady: false,
+} as const satisfies BrandingDashboardDerivedStatusQueryGateReadiness;
+
+export type BrandingDashboardDerivedStatusQueryGate = Readonly<{
+  blockedBy: readonly BrandingDashboardDerivedStatusQueryGateBlocker[];
+  historicalBackfill: "generated_columns";
+  indexesReady: true;
+  readiness: BrandingDashboardDerivedStatusQueryGateReadiness;
+  metadataServerQueryable: false;
+  previewServerQueryable: false;
+}>;
+
+export const BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE = {
+  blockedBy: [
+    "requires_hosted_migration_evidence",
+    "requires_server_filter_activation",
+  ],
+  historicalBackfill: "generated_columns",
+  indexesReady: true,
+  readiness: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE_READINESS,
+  metadataServerQueryable: false,
+  previewServerQueryable: false,
+} as const satisfies BrandingDashboardDerivedStatusQueryGate;
+
 export type BrandingDashboardAsset = {
   assetType: BrandAssetType | string;
   channelId: string | null;
   createdAt: string;
   description: string | null;
+  derivedStatuses: BrandingDashboardDerivedStatuses;
   futureActions: BrandingDashboardFutureAction[];
   id: string;
   name: string;
@@ -206,7 +272,74 @@ type _BrandingDashboardFeedFilterOwnershipAssertions = [
   >,
 ];
 
+type _BrandingDashboardDerivedStatusOwnershipAssertions = [
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusOwnership["previewCapabilityStatus"],
+      "server_managed"
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusOwnership["uploadMetadataStatus"],
+      "server_managed"
+    >
+  >,
+];
+
+type _BrandingDashboardDerivedStatusQueryGateAssertions = [
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["historicalBackfill"],
+      "generated_columns"
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["indexesReady"],
+      true
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["readiness"]["hostedIndexReady"],
+      false
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["readiness"]["hostedMigrationReady"],
+      false
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["readiness"]["repoReady"],
+      true
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["readiness"]["serverFilterReady"],
+      false
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["metadataServerQueryable"],
+      false
+    >
+  >,
+  BrandingDashboardTypeAssert<
+    BrandingDashboardTypeEqual<
+      BrandingDashboardDerivedStatusQueryGate["previewServerQueryable"],
+      false
+    >
+  >,
+];
+
 export type BrandingDashboardFeedMetadata = {
+  derivedStatusQueryGate: BrandingDashboardDerivedStatusQueryGate;
   filterOwnership: BrandingDashboardFeedFilterOwnership;
   hasMore: boolean;
   limit: number;

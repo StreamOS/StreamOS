@@ -1,4 +1,7 @@
-import { BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS } from "@streamos/types";
+import {
+  BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+  BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS,
+} from "@streamos/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -79,6 +82,7 @@ describe("getBrandingDashboardData", () => {
     expect(data.items).toHaveLength(0);
     expect(data.lookupIssues).toHaveLength(0);
     expect(data.feed).toMatchObject({
+      derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
       hasMore: false,
       limit: 12,
       nextCursor: null,
@@ -120,6 +124,10 @@ describe("getBrandingDashboardData", () => {
       status: "draft",
     });
     expect(data.feed.serverSort).toBe("status");
+    expect(data.feed.derivedStatusQueryGate.previewServerQueryable).toBe(false);
+    expect(data.feed.derivedStatusQueryGate.metadataServerQueryable).toBe(
+      false,
+    );
   });
 
   it("loads read-only brand assets with server-signed previews and without selecting public URLs", async () => {
@@ -143,9 +151,11 @@ describe("getBrandingDashboardData", () => {
               stored_filename: "neon-logo.png",
             },
           },
+          preview_capability_status: "previewable",
           storage_bucket: "brand-assets",
           storage_path:
             "11111111-1111-4111-8111-111111111111/logo/asset-1/neon-logo.png",
+          upload_metadata_status: "available",
         }),
       ],
     });
@@ -155,6 +165,7 @@ describe("getBrandingDashboardData", () => {
 
     expect(data.state).toBe("ready");
     expect(data.feed).toMatchObject({
+      derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
       hasMore: false,
       limit: 12,
       nextCursor: null,
@@ -168,6 +179,10 @@ describe("getBrandingDashboardData", () => {
     });
     expect(data.items[0]).toMatchObject({
       assetType: "logo",
+      derivedStatuses: {
+        previewCapabilityStatus: "previewable",
+        uploadMetadataStatus: "available",
+      },
       futureActions: [
         expect.objectContaining({
           action: "replace",
@@ -197,7 +212,7 @@ describe("getBrandingDashboardData", () => {
     });
     expect(data.items[0]?.preview.expiresAt).toEqual(expect.any(String));
     expect(supabase.selects[0]).toEqual(
-      "asset_type,channel_id,created_at,description,id,metadata,name,status,storage_bucket,storage_path,updated_at",
+      "asset_type,channel_id,created_at,description,id,metadata,name,preview_capability_status,status,storage_bucket,storage_path,upload_metadata_status,updated_at",
     );
     expect(supabase.selects[0]).not.toContain("public_url");
     expect(supabase.signedUrlRequests).toEqual([
@@ -230,6 +245,7 @@ describe("getBrandingDashboardData", () => {
     const data = await getBrandingDashboardData();
 
     expect(data.feed).toEqual({
+      derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
       filterOwnership: {
         assetType: "server_query",
         metadata: "client_window",
@@ -306,6 +322,7 @@ describe("getBrandingDashboardData", () => {
     expect(data.items).toHaveLength(14);
     expect(new Set(data.items.map((item) => item.id)).size).toBe(14);
     expect(data.feed).toEqual({
+      derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
       filterOwnership: {
         assetType: "server_query",
         metadata: "client_window",
@@ -368,6 +385,7 @@ describe("getBrandingDashboardData", () => {
       ),
     );
     expect(data.feed).toEqual({
+      derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
       filterOwnership: {
         assetType: "server_query",
         metadata: "client_window",
@@ -580,6 +598,9 @@ describe("getBrandingDashboardData", () => {
 
     expect(data.feed.serverSort).toBe("created_desc");
     expect(data.feed.returnedCount).toBe(12);
+    expect(data.feed.derivedStatusQueryGate).toEqual(
+      BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+    );
     expect(data.feed.nextCursor).toEqual({
       assetType: null,
       createdAt: "2026-06-22T10:00:00.000Z",
@@ -640,6 +661,10 @@ describe("getBrandingDashboardData", () => {
       status: "unavailable",
       url: null,
     });
+    expect(data.items[0]?.derivedStatuses).toEqual({
+      previewCapabilityStatus: "missing_storage",
+      uploadMetadataStatus: "unavailable",
+    });
     expect(data.items[0]?.uploadMetadata.status).toBe("unavailable");
     expect(supabase.signedUrlRequests).toHaveLength(0);
     expect(supabase.storageTouched).toBe(false);
@@ -669,6 +694,10 @@ describe("getBrandingDashboardData", () => {
       status: "unavailable",
       storedFilename: null,
     });
+    expect(data.items[0]?.derivedStatuses).toEqual({
+      previewCapabilityStatus: "previewable",
+      uploadMetadataStatus: "unavailable",
+    });
     expect(data.items[0]?.preview.status).toBe("available");
     expect(supabase.signedUrlRequests).toHaveLength(1);
   });
@@ -695,6 +724,9 @@ describe("getBrandingDashboardData", () => {
       status: "unavailable",
       url: null,
     });
+    expect(data.items[0]?.derivedStatuses.previewCapabilityStatus).toBe(
+      "invalid_storage",
+    );
     expect(supabase.signedUrlRequests).toHaveLength(0);
   });
 
@@ -720,6 +752,9 @@ describe("getBrandingDashboardData", () => {
       status: "unsupported",
       url: null,
     });
+    expect(data.items[0]?.derivedStatuses.previewCapabilityStatus).toBe(
+      "unsupported",
+    );
     expect(supabase.signedUrlRequests).toHaveLength(0);
   });
 
@@ -818,6 +853,10 @@ describe("getBrandingDashboardData", () => {
       status: "invalid",
       storedFilename: null,
     });
+    expect(data.items[0]?.derivedStatuses).toEqual({
+      previewCapabilityStatus: "unsupported",
+      uploadMetadataStatus: "invalid",
+    });
     expect(data.items[0]?.preview.status).toBe("unsupported");
     expect(supabase.signedUrlRequests).toHaveLength(0);
   });
@@ -859,6 +898,9 @@ describe("getBrandingDashboardData", () => {
       status: "failed",
       url: null,
     });
+    expect(data.items[1]?.derivedStatuses.previewCapabilityStatus).toBe(
+      "previewable",
+    );
   });
 
   it("returns a load-failed state when the main brand asset read fails", async () => {
@@ -883,10 +925,12 @@ function createBrandAssetRow({
   id = "22222222-2222-4222-8222-222222222222",
   metadata = null,
   name = "Neon Logo",
+  preview_capability_status,
   status = "active",
   storage_bucket,
   storage_path,
   updated_at = "2026-06-22T10:15:00.000Z",
+  upload_metadata_status,
   user_id = "11111111-1111-4111-8111-111111111111",
 }: {
   asset_type: string;
@@ -895,10 +939,12 @@ function createBrandAssetRow({
   id?: string;
   metadata?: Record<string, unknown> | null;
   name?: string;
+  preview_capability_status?: string;
   status?: string;
   storage_bucket: string | null;
   storage_path: string | null;
   updated_at?: string;
+  upload_metadata_status?: string;
   user_id?: string;
 }) {
   return {
@@ -909,12 +955,197 @@ function createBrandAssetRow({
     id,
     metadata,
     name,
+    preview_capability_status:
+      preview_capability_status ??
+      derivePreviewCapabilityStatus({
+        metadata,
+        storage_bucket,
+        storage_path,
+        upload_metadata_status:
+          upload_metadata_status ?? deriveUploadMetadataStatus(metadata),
+        user_id,
+      }),
     status,
     storage_bucket,
     storage_path,
+    upload_metadata_status:
+      upload_metadata_status ?? deriveUploadMetadataStatus(metadata),
     updated_at,
     user_id,
   };
+}
+
+function deriveUploadMetadataStatus(metadata: Record<string, unknown> | null) {
+  if (!isPlainObject(metadata) || !Object.hasOwn(metadata, "upload")) {
+    return "unavailable";
+  }
+
+  const upload = metadata.upload;
+
+  if (!isPlainObject(upload)) {
+    return "invalid";
+  }
+
+  const contentType = readUploadString(upload, "content_type");
+  const fileExtension = readUploadString(upload, "file_extension");
+  const fileSizeBytes = readUploadFileSize(upload, "file_size_bytes");
+  const storedFilename = readUploadString(upload, "stored_filename");
+
+  if (
+    contentType === "invalid" ||
+    fileExtension === "invalid" ||
+    fileSizeBytes === "invalid" ||
+    storedFilename === "invalid"
+  ) {
+    return "invalid";
+  }
+
+  if (
+    contentType === null ||
+    fileExtension === null ||
+    fileSizeBytes === null ||
+    storedFilename === null
+  ) {
+    return "unavailable";
+  }
+
+  if (
+    storedFilename.includes("/") ||
+    storedFilename.includes("\\") ||
+    storedFilename.includes("://") ||
+    storedFilename.includes("?") ||
+    storedFilename.includes("#")
+  ) {
+    return "invalid";
+  }
+
+  return "available";
+}
+
+function derivePreviewCapabilityStatus({
+  metadata,
+  storage_bucket,
+  storage_path,
+  upload_metadata_status,
+  user_id,
+}: {
+  metadata: Record<string, unknown> | null;
+  storage_bucket: string | null;
+  storage_path: string | null;
+  upload_metadata_status: string;
+  user_id: string;
+}) {
+  if (!storage_bucket && !storage_path) {
+    return "missing_storage";
+  }
+
+  if (
+    storage_bucket !== "brand-assets" ||
+    !storage_path ||
+    storage_path.startsWith("/") ||
+    storage_path.includes("\\") ||
+    storage_path.includes("://") ||
+    storage_path.includes("?") ||
+    storage_path.includes("#")
+  ) {
+    return "invalid_storage";
+  }
+
+  const segments = storage_path.split("/");
+
+  if (
+    segments.length < 4 ||
+    segments[0] !== user_id ||
+    segments.some(
+      (segment) => segment.length === 0 || segment === "." || segment === "..",
+    )
+  ) {
+    return "invalid_storage";
+  }
+
+  const extension = storage_path.split(".").at(-1)?.toLowerCase() ?? "";
+
+  if (!["png", "jpg", "jpeg", "webp"].includes(extension)) {
+    return "unsupported";
+  }
+
+  if (upload_metadata_status === "invalid") {
+    return "unsupported";
+  }
+
+  if (upload_metadata_status !== "available") {
+    return "previewable";
+  }
+
+  const upload =
+    isPlainObject(metadata) && isPlainObject(metadata.upload)
+      ? metadata.upload
+      : null;
+  const contentType = readUploadString(upload, "content_type");
+  const fileExtension = readUploadString(upload, "file_extension");
+
+  if (
+    typeof contentType !== "string" ||
+    typeof fileExtension !== "string" ||
+    fileExtension.toLowerCase() !== extension
+  ) {
+    return "unsupported";
+  }
+
+  const normalizedContentType = contentType.toLowerCase();
+  const normalizedExtension = fileExtension.toLowerCase();
+
+  if (normalizedContentType === "image/png") {
+    return normalizedExtension === "png" ? "previewable" : "unsupported";
+  }
+
+  if (normalizedContentType === "image/jpeg") {
+    return ["jpg", "jpeg"].includes(normalizedExtension)
+      ? "previewable"
+      : "unsupported";
+  }
+
+  if (normalizedContentType === "image/webp") {
+    return normalizedExtension === "webp" ? "previewable" : "unsupported";
+  }
+
+  return "unsupported";
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readUploadString(upload: Record<string, unknown> | null, key: string) {
+  if (!upload || !Object.hasOwn(upload, key) || upload[key] == null) {
+    return null;
+  }
+
+  if (typeof upload[key] !== "string") {
+    return "invalid";
+  }
+
+  const normalized = upload[key].trim();
+  return normalized.length > 0 ? normalized : "invalid";
+}
+
+function readUploadFileSize(
+  upload: Record<string, unknown> | null,
+  key: string,
+) {
+  if (!upload || !Object.hasOwn(upload, key) || upload[key] == null) {
+    return null;
+  }
+
+  if (
+    typeof upload[key] !== "number" ||
+    !Number.isSafeInteger(upload[key]) ||
+    upload[key] <= 0
+  ) {
+    return "invalid";
+  }
+
+  return upload[key];
 }
 
 function createSupabaseClientMock({

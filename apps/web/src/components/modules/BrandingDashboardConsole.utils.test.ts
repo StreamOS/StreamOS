@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE } from "@streamos/types";
 import {
   buildBrandingDashboardViewModel,
   createEmptyBrandingDashboardModel,
@@ -35,6 +36,9 @@ describe("buildBrandingDashboardViewModel", () => {
         preview: "client_window",
         status: "server_query",
       });
+      expect(view.feed.derivedStatusQueryGate).toEqual(
+        BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+      );
       expect(view.feed.clientFilters).toEqual({
         metadata: "invalid",
         preview: "unavailable",

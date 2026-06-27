@@ -56,7 +56,36 @@ only `storage_bucket` and `storage_path` when upload runtime is added later;
 durable `public_url` persistence is intentionally avoided. SVG remains blocked
 for the upload MVP because uploaded SVG can carry script-capable content, and
 previews should use short-lived server-generated signed URLs from the private
-bucket instead of public bucket URLs.
+bucket instead of public bucket URLs. The `brand_assets` table also carries the
+server-managed derived status columns `upload_metadata_status` and
+`preview_capability_status`. They are database-derived columns, so app writes
+do not set them directly; PostgreSQL computes them from `metadata`,
+`storage_bucket`, `storage_path`, and `user_id`. They exist to make future
+server-queryable Branding Explorer filters possible without trusting
+client-window heuristics. Historical `brand_assets` rows are backfilled
+implicitly when the generated columns are added: there is no separate live
+storage probe, no signed-URL generation, and no durable runtime-only status
+such as `signing_failed`. A follow-up index migration prepares
+`upload_metadata_status` and `preview_capability_status` for future
+tenant-scoped query paths. This package does not enable those filters by
+itself: activate server-side preview/metadata filtering only after the
+migration rollout and the dedicated server-filter slice are complete.
+
+Hosted rollout evidence for that Branding slice is separate from the static
+repo validator. Use the read-only helper only against an approved hosted DB
+environment:
+
+```bash
+pnpm db:branding-evidence -- --env-file .env --format text
+```
+
+The helper prints only env names, statuses, and findings. It never prints DB
+URL values, secrets, tokens, or private asset URLs. If `psql` is unavailable,
+print the same read-only SQL for a manual operator audit:
+
+```bash
+pnpm db:branding-evidence -- --print-sql
+```
 
 `content_jobs.queue_job_id` links BullMQ job attempts to durable database state.
 Workers and server actions mutate runtime status, result, error, and retry

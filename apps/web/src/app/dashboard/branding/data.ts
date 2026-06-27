@@ -1,6 +1,7 @@
 import type { Tables } from "@streamos/database";
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
+  BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
   BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
   type BrandAssetStatus,
   type BrandAssetType,
@@ -35,9 +36,11 @@ type BrandAssetRow = Omit<
     | "id"
     | "metadata"
     | "name"
+    | "preview_capability_status"
     | "status"
     | "storage_bucket"
     | "storage_path"
+    | "upload_metadata_status"
     | "updated_at"
   >,
   "asset_type" | "status"
@@ -289,7 +292,7 @@ async function fetchBrandingAssetWindow({
   let request = supabase
     .from("brand_assets")
     .select(
-      "asset_type,channel_id,created_at,description,id,metadata,name,status,storage_bucket,storage_path,updated_at",
+      "asset_type,channel_id,created_at,description,id,metadata,name,preview_capability_status,status,storage_bucket,storage_path,upload_metadata_status,updated_at",
     )
     .eq("user_id", userId);
 
@@ -390,6 +393,7 @@ function buildBrandingDashboardFeedMetadata({
   query: BrandingDashboardServerQuery;
 }): BrandingDashboardFeedMetadata {
   return {
+    derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
     filterOwnership: BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
     hasMore,
     limit: BRANDING_DASHBOARD_ASSET_LIMIT,
@@ -541,6 +545,10 @@ function normalizeBrandAsset(
     channelId: row.channel_id,
     createdAt: row.created_at,
     description: row.description,
+    derivedStatuses: {
+      previewCapabilityStatus: row.preview_capability_status,
+      uploadMetadataStatus: row.upload_metadata_status,
+    },
     id: row.id,
     name: row.name,
     platform: channel?.platform ?? null,
