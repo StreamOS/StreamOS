@@ -9,16 +9,18 @@ Der Branding MVP kann repo-seitig geschlossen werden. Die aktive Route
 Contract, Delete/Replace/Orphan Cleanup bleiben deaktivierte Future-Contracts,
 und die finalen Branding-Regressionen aus P5.10 sind ueber Types-, Data-,
 Actions-, Page- und Utils-Tests abgesichert. P5.10 erweitert den Explorer um
-serverseitige DB-basierte Filter-/Sort-Pagination; nur `preview` und
-`metadata` bleiben bewusst clientseitige Fensterfilter. P5.11 prueft den
-verbleibenden Query-Contract und bestaetigt: Mit dem aktuellen persistierten
-Schema sind weder `preview` noch `metadata` als zuverlaessige
-server-querybare Statusfilter abbildbar, ohne einen neuen server-managed
-Status-Contract einzufuehren.
+serverseitige DB-basierte Filter-/Sort-Pagination. P5.11 bis P5.13 fuehren den
+maschinenlesbaren Derived-Status-/Evidence-Gate ein. P5.14 aktiviert diesen
+Gate jetzt kontrolliert: `preview` wird serverseitig ueber
+`preview_capability_status` gefiltert, `metadata` serverseitig ueber
+`upload_metadata_status`.
 
-Dieser Closeout ist reine Repo- und lokale Test-Evidence. Es wurden keine neuen
-Mutationen, keine Storage-/Policy-/DB-Aenderungen, keine Deployments und keine
-Secret-Aenderungen ausgefuehrt.
+Dieser Closeout kombiniert Repo-/lokale Test-Evidence mit redacted
+Hosted-Rollout- und Recheck-Evidence. Die Repo-Aenderungen selbst fuehren keine
+neuen Storage-/Policy-Aenderungen oder Secret-Aenderungen ein; der bereits
+dokumentierte Hosted-Migrationsrollout bleibt ein separater Operator-Schritt
+und wird unten getrennt von read-only Evidence und lokaler Validierung
+ausgewiesen.
 
 ## 2. Repo-Status
 
@@ -94,25 +96,19 @@ Secret-Aenderungen ausgefuehrt.
 - Explorer-Card-Highlight folgt dem tatsaechlich ausgewaehlten Detail-Asset
 - Metadata, Preview und Future-Actions werden explizit angezeigt
 
-### P5.10 Server-Side Filter / Sort Pagination
+### P5.10 und P5.14 Server-Side Filter / Sort Pagination
 
-- serverseitige Filter: `assetType`, `status`
+- serverseitige Filter: `assetType`, `status`, `preview`, `metadata`
 - serverseitige Sortierungen: `updated_desc`, `created_desc`, `asset_type`,
   `status`
 - Cursor ist an `serverFilters` und `serverSort` gebunden
 - ungueltige oder unpassende Cursor fallen sicher auf Fenster 1 zurueck
-- `preview` und `metadata` bleiben bewusst clientseitige Fensterfilter
+- `preview` und `metadata` sind jetzt echte serverseitige Feed-Filter
 
 ### P5.11 Preview / Metadata Queryability Contract
 
-- `assetType` und `status` bleiben die einzigen echten `server_query`-Filter
-- `preview` bleibt `client_window`, weil `preview.status = available` erst nach
-  tenant-sicherer Storage-Pruefung, Dateityp-Entscheidung und erfolgreicher
-  Signed-URL-Erzeugung feststeht
-- `metadata` bleibt `client_window`, weil `uploadMetadata.status` aktuell aus
-  verschachtelter JSON-Shape-, Feld-, Integer- und Safe-Filename-Validierung
-  abgeleitet wird, ohne persistierten `upload_metadata_status`
-- der Explorer-Contract markiert Filter-Ownership jetzt maschinenlesbar als
+- P5.11 hat den Bedarf fuer persistierte server-managed Statusfelder belegt
+- der Explorer-Contract markiert Filter-Ownership maschinenlesbar als
   `server_query` vs. `client_window`
 - P5.12 fuehrt diesen persistierten Follow-up-Contract jetzt als
   server-managed `upload_metadata_status`- und
@@ -126,9 +122,8 @@ Secret-Aenderungen ausgefuehrt.
 - P5.13.1 ergaenzt einen read-only Hosted-Evidence-Check und eine explizite
   Freigabematrix fuer P5.14: Repo-Contract bereit, Hosted-Migrations- und
   Index-Evidence aber weiterhin separat nachzuweisen
-- `preview` und `metadata` bleiben trotzdem `client_window`, bis ein
-  dedizierter Backfill-/Index-/Activation-Gate die spaetere serverseitige
-  Filterung freigibt
+- P5.14 schaltet nach gruenem Hosted-Evidence-Run beide Filter kontrolliert auf
+  `server_query`
 
 ### Feed Scope / Cursor / Load More
 
@@ -175,12 +170,12 @@ Secret-Aenderungen ausgefuehrt.
 
 ### P5.14 Freigabematrix
 
-| Gate                   | Repo-Status              | Hosted-Evidence    | Bedeutung                                                                                               |
-| ---------------------- | ------------------------ | ------------------ | ------------------------------------------------------------------------------------------------------- |
-| `repoReady`            | `true`                   | nicht erforderlich | Shared-Type, Read-Model und Migrations-Slices liegen im Repo vor                                        |
-| `hostedMigrationReady` | `false` per Default-Gate | erforderlich       | Zielumgebung muss beide Derived-Status-Spalten, Constraints und Generated-Logic enthalten               |
-| `hostedIndexReady`     | `false` per Default-Gate | erforderlich       | Zielumgebung muss beide tenant-scoped Query-Indizes enthalten                                           |
-| `serverFilterReady`    | `false`                  | nicht vor P5.14    | `preview` und `metadata` bleiben `client_window`, bis der dedizierte Activation-Slice abgeschlossen ist |
+| Gate                   | Repo-Status | Hosted-Evidence    | Bedeutung                                                                           |
+| ---------------------- | ----------- | ------------------ | ----------------------------------------------------------------------------------- |
+| `repoReady`            | `true`      | nicht erforderlich | Shared-Type, Read-Model und Migrations-Slices liegen im Repo vor                    |
+| `hostedMigrationReady` | `true`      | erbracht           | Zielumgebung enthaelt beide Derived-Status-Spalten, Constraints und Generated-Logic |
+| `hostedIndexReady`     | `true`      | erbracht           | Zielumgebung enthaelt beide tenant-scoped Query-Indizes                             |
+| `serverFilterReady`    | `true`      | in P5.14 aktiviert | `preview` und `metadata` sind auf echte serverseitige Feed-Filter umgestellt        |
 
 Repo-seitiger Hosted-Check:
 
@@ -194,10 +189,76 @@ Fallback ohne `psql`:
 pnpm db:branding-evidence -- --print-sql
 ```
 
-P5.14 ist erst startbar, wenn `hostedMigrationReady` und
-`hostedIndexReady` in der Zielumgebung gruen sind. Auch dann bleibt
-`serverFilterReady = false`, bis die spaetere Aktivierung den Feed-Gate
-bewusst umstellt.
+P5.14 durfte erst nach gruenem Hosted-Evidence-Run starten. Dieser Slice
+stellt den Feed-Gate jetzt bewusst auf aktiv um.
+
+### Redacted Hosted-Evidence-Stand
+
+- letzter repo-seitiger Evidence-Versuch:
+  read-only Recheck ueber den SQL-Fallback mit derselben
+  `SUPABASE_DB_URL`-Zielumgebung
+- Ergebnis: `passed`
+- redacted Befund:
+  die Zielumgebungs-Verbindung ueber `SUPABASE_DB_URL` war vorhanden und der
+  finale Hosted-Recheck war fuer Migrationen und Indizes gruen
+- keine DB-URL, keine Tokens, keine Secrets und keine privaten Hostnames wurden
+  ausgegeben oder in diesen Report uebernommen
+- Folge:
+  `hostedMigrationReady` und `hostedIndexReady` sind jetzt mit echtem
+  Zielumgebungs-Report explizit `passed`; P5.14 aktiviert darauf aufbauend
+  `serverFilterReady` repo-seitig auf `true`
+- manueller Fallback fuer Operatoren:
+  `pnpm db:branding-evidence -- --print-sql`
+
+### P5.13.2 Rollout- und Recheck-Runbook
+
+- Zielumgebung geprueft:
+  ja; die lokale Zielkonfiguration war intern konsistent, weil
+  `SUPABASE_DB_URL` und die vorhandene Supabase-Web-URL auf dasselbe Hosted
+  Projekt zeigten
+- wichtiger Zusatz:
+  das Repo pinnt keinen kanonischen Hosted-Project-Ref; die Aussage
+  "richtige Zielumgebung" stuetzt sich deshalb auf den konsistenten lokalen
+  Env-Abgleich plus die reale Hosted-Migrationshistorie
+- redacted Hosted-Migrationshistorie:
+  `public.brand_assets` existiert; nach dem erfolgreichen Re-Rollout sind die
+  Branding-Versionen `20260627120000` und `20260627133000` in der
+  Zielumgebung sichtbar
+- Drift-Befund:
+  der urspruengliche Blocker in `20260625161515` wurde repo-seitig behoben;
+  danach konnte die verbleibende Kette bis einschliesslich der Branding-
+  Migrationen erfolgreich ausgerollt werden
+- Interpretation:
+  die Zielumgebung war zunaechst veraltet und dann durch einen
+  Metrics-Snapshots-Kompatibilitaetsblocker aufgehalten; dieser Pfad ist jetzt
+  fuer den Branding-Slice ausgeraeumt
+- exakter Rollout-Blocker:
+  `20260625161515_p4_creator_growth_intelligence_contract.sql` kann in der
+  Zielumgebung keine Foreign-Key-Referenz auf
+  `public.metrics_snapshots(id, user_id)` anlegen, weil dort keine passende
+  `UNIQUE`- oder `PRIMARY KEY`-Constraint existiert
+- repo-seitige Folge:
+  fuer diesen Blocker wurde ein migrationssicherer Kompatibilitaets-Fix im
+  P5.13.3-Slice umgesetzt; der Hosted-Rollout und der Branding-Evidence-
+  Recheck wurden danach erfolgreich erneut ausgefuehrt
+- Operator-Gate fuer den Rollout:
+  der kontrollierte Re-Rollout hat die verbleibenden Pending-Migrationen bis
+  `20260627133000_brand_assets_derived_status_query_indexes.sql`
+  erfolgreich angewendet
+- Recheck nach Operator-Rollout:
+  1. bevorzugt
+     `pnpm db:branding-evidence -- --env-file .env --format text`
+  2. falls im Operator-Runtime kein `psql` vorhanden ist:
+     `pnpm db:branding-evidence -- --print-sql`
+     und danach dieselbe read-only SQL via
+     `supabase db query --db-url <redacted> --file <sql-file> --output json`
+  3. in den Report duerfen nur redacted Status, Versionsnummern und Findings
+     uebernommen werden; keine DB-URL, keine Tokens, keine Secrets und keine
+     privaten Hostnames
+- P5.14-Freigabe:
+  ist aus Hosted-Migrationssicht jetzt vorbereitet, weil
+  `hostedMigrationReady = passed` und `hostedIndexReady = passed` vorliegen;
+  die Aktivierung ist in diesem Slice erfolgt
 
 ## 5. Security Closeout
 
@@ -223,9 +284,9 @@ bewusst umstellt.
 - `Mehr laden` ist vorhanden, wenn `hasMore` und `nextCursor` vorliegen
 - Sample-/loaded-window-Copy macht den begrenzten Feed-Scope explizit
 - DB-basierte Filter und Sortierungen wirken serverseitig auf den Feed-Query
-- nur `preview` und `metadata` bleiben fensterlokale Client-Filter
-- die UI weist diese Trennung jetzt explizit als `server_query` vs.
-  `client_window` aus
+- `preview` mappt global auf `preview_capability_status`
+- `metadata` mappt global auf `upload_metadata_status`
+- die UI beschreibt `preview` und `metadata` nicht mehr als Fensterfilter
 
 ## 7. Test- und Contract-Evidence
 
@@ -246,10 +307,8 @@ Diese Tests decken insbesondere ab:
 - tenant-sichere Storage-Handhabung
 - disabled Future-Actions
 - Feed-Scope, `serverFilters`, `serverSort` und Cursor-Metadaten
-- maschinenlesbaren Derived-Status-Query-Gate mit geblockter
-  Server-Filter-Aktivierung
-- die neue Repo-/Hosted-Freigabematrix mit weiter geblocktem
-  `serverFilterReady`
+- den fail-closed Shared-Gate-Default und die explizite P5.14-Aktivierung im
+  Web-Slice
 - maschinenlesbare Filter-Ownership fuer `assetType`, `status`, `preview` und
   `metadata`
 - `Mehr laden`-UX und Cursor-Normalisierung
@@ -257,37 +316,41 @@ Diese Tests decken insbesondere ab:
 - URL-getriebenen Filter-/Sort-State auch in Empty/Error/Auth-Modellen
 - Explorer-Highlight fuer das tatsaechlich ausgewaehlte Detail-Asset
 
-## 8. Validierung
+## 8. Rollout, Evidence und Validierung
 
-Ausgefuehrte lokale Validierung:
+### Operator-Rollout (mutierend, nicht read-only)
+
+- `supabase db push --db-url <redacted> --include-all --yes --workdir .` -
+  passed, die verbleibenden Pending-Migrationen bis einschliesslich
+  `20260627133000_brand_assets_derived_status_query_indexes.sql` wurden
+  erfolgreich angewendet
+
+### Read-only Hosted Evidence
+
+- `pnpm db:branding-evidence -- --env-file .env --format text` - lokal im
+  Workspace weiter `blocked`, weil `psql` hier fehlt; der read-only
+  Hosted-Recheck selbst wurde anschliessend ueber den dokumentierten
+  SQL-Fallback gegen dieselbe Zielumgebung ausgefuehrt
+- read-only Hosted-Migrationsaudit ueber `supabase db query` - passed,
+  Branding-Versionen, Derived-Status-Spalten, Constraints, Funktionen und
+  Query-Indizes sind in der Zielumgebung vorhanden
+
+### Lokale Repo-Validierung
 
 - `pnpm --filter @streamos/types test` - passed
 - `pnpm --filter @streamos/types build` - passed
 - `pnpm db:validate-security` - passed
-- `pnpm --filter @streamos/web test` - passed, 35 Testdateien / 213 Tests
+- `node --test scripts/branding-hosted-evidence.test.cjs` - passed
+- `pnpm test:railway-audit` - passed
+- `pnpm --filter @streamos/web test` - passed, 35 Testdateien / 217 Tests
 - `pnpm --filter @streamos/web build` - passed
+- `pnpm validate` - passed
 - `coderabbit review --agent --base main -c AGENTS.md` - passed, `0 issues`
-
-Optional nicht ausgefuehrt:
-
-- `pnpm db:branding-evidence`
-- `pnpm validate`
-
-Begruendung:
-
-- `pnpm db:branding-evidence` benoetigt eine echte Hosted-DB-URL und ist
-  deshalb env-abhaengig statt Teil der reinen Repo-Evidence.
-- `pnpm validate` bleibt fuer Cross-Package-/Merge-Kontext optional, nicht fuer
-  den Dokumentationsreport selbst.
 
 ## 9. Akzeptierte Restrisiken
 
 - `accepted`
   Load More ist auf 5 Feed-Fenster begrenzt
-- `accepted`
-  `preview` und `metadata` wirken weiter nur auf das geladene Fenster, bis ein
-  persistierter Query-Status-Contract produktiv ausgerollt und serverseitig
-  aktiviert ist
 - `accepted`
   Delete/Replace/Orphan Cleanup bleiben reine Future-Contracts
 - `accepted`
@@ -302,10 +365,7 @@ Begruendung:
 
 ## 10. Empfohlene naechste Slices
 
-1. P5.14: Preview-/Metadata-Serverfilter im Feed-Query aktivieren, nachdem die
-   Generated-Column-Migration und die Query-Indizes in Zielumgebungen mit
-   `pnpm db:branding-evidence` nachweislich ausgerollt und validiert wurden
-2. Brand Kit Structure Read Model fuer hoehere semantische Vollstaendigkeit im
+1. Brand Kit Structure Read Model fuer hoehere semantische Vollstaendigkeit im
    Dashboard
 
 ## 11. Schlussentscheidung

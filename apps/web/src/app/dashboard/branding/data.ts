@@ -1,12 +1,13 @@
 import type { Tables } from "@streamos/database";
 import {
   BRANDING_DASHBOARD_ASSET_LIMIT,
-  BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
   BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
   type BrandAssetStatus,
   type BrandAssetType,
   type BrandingDashboardAsset,
   type BrandingDashboardFeedCursor,
+  type BrandingDashboardMetadataFilter,
+  type BrandingDashboardPreviewFilter,
   type BrandingDashboardFeedServerFilters,
   type BrandingDashboardFeedServerSort,
   type BrandingDashboardFeedMetadata,
@@ -15,6 +16,7 @@ import {
   type BrandingDashboardUploadMetadata,
 } from "@streamos/types";
 import {
+  BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE,
   buildBrandingDashboardModel,
   createEmptyBrandingDashboardModel,
   type BrandingDashboardModel,
@@ -53,6 +55,8 @@ type BrandingDashboardBaseAsset = Omit<BrandingDashboardAsset, "futureActions">;
 type ChannelRow = Pick<Tables<"channels">, "display_name" | "id" | "platform">;
 type BrandingDashboardServerQuery = {
   assetType: BrandAssetType | null;
+  metadata: BrandingDashboardMetadataFilter;
+  preview: BrandingDashboardPreviewFilter;
   sort: BrandingDashboardFeedServerSort;
   status: BrandAssetStatus | null;
 };
@@ -62,6 +66,8 @@ export async function getBrandingDashboardData({
   cursor = null,
   cursorServerFilters = null,
   cursorServerSort = null,
+  metadata = "all",
+  preview = "all",
   serverSort = BRANDING_DASHBOARD_DEFAULT_SERVER_SORT,
   status = null,
   windowCount = 1,
@@ -70,6 +76,8 @@ export async function getBrandingDashboardData({
   cursor?: BrandingDashboardFeedCursor | null;
   cursorServerFilters?: BrandingDashboardFeedServerFilters | null;
   cursorServerSort?: BrandingDashboardFeedServerSort | null;
+  metadata?: BrandingDashboardMetadataFilter;
+  preview?: BrandingDashboardPreviewFilter;
   serverSort?: BrandingDashboardFeedServerSort;
   status?: string | null;
   windowCount?: number;
@@ -94,6 +102,8 @@ export async function getBrandingDashboardData({
     cursorServerSort,
     query: {
       assetType: assetType as BrandAssetType | null,
+      metadata,
+      preview,
       sort: serverSort,
       status: status as BrandAssetStatus | null,
     },
@@ -112,6 +122,8 @@ export async function getBrandingDashboardData({
     return createEmptyBrandingDashboardModel(userData.user.id, "ready", [], {
       serverFilters: buildBrandingServerFilters({
         assetType: assetType as BrandAssetType | null,
+        metadata,
+        preview,
         sort: serverSort,
         status: status as BrandAssetStatus | null,
       }),
@@ -304,6 +316,20 @@ async function fetchBrandingAssetWindow({
     request = request.eq("status", query.status);
   }
 
+  if (query.preview === "available") {
+    request = request.eq("preview_capability_status", "previewable");
+  } else if (query.preview === "unavailable") {
+    request = request.in("preview_capability_status", [
+      "unsupported",
+      "missing_storage",
+      "invalid_storage",
+    ]);
+  }
+
+  if (query.metadata !== "all") {
+    request = request.eq("upload_metadata_status", query.metadata);
+  }
+
   request = applyBrandingSortOrders(request, query.sort);
 
   if (cursor && isValidBrandingCursorForSort(cursor, query.sort)) {
@@ -393,7 +419,7 @@ function buildBrandingDashboardFeedMetadata({
   query: BrandingDashboardServerQuery;
 }): BrandingDashboardFeedMetadata {
   return {
-    derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+    derivedStatusQueryGate: BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE,
     filterOwnership: BRANDING_DASHBOARD_FEED_FILTER_OWNERSHIP,
     hasMore,
     limit: BRANDING_DASHBOARD_ASSET_LIMIT,
@@ -433,6 +459,8 @@ function buildBrandingServerFilters(
 ): BrandingDashboardFeedServerFilters {
   return {
     assetType: query.assetType,
+    metadata: query.metadata,
+    preview: query.preview,
     status: query.status,
   };
 }
@@ -443,6 +471,8 @@ function brandingServerFiltersEqual(
 ): boolean {
   return (
     (left?.assetType ?? null) === right.assetType &&
+    (left?.metadata ?? "all") === right.metadata &&
+    (left?.preview ?? "all") === right.preview &&
     (left?.status ?? null) === right.status
   );
 }

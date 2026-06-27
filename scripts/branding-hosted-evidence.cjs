@@ -449,6 +449,47 @@ function normalizeWhitespace(value) {
     .toLowerCase();
 }
 
+function normalizeGenerationExpression(value) {
+  return normalizeWhitespace(value);
+}
+
+function toUnqualifiedGenerationExpression(value) {
+  return normalizeGenerationExpression(value).replace(/^public\./, "");
+}
+
+function matchesExpectedGenerationExpression(actual, expected) {
+  const normalizedActual = normalizeGenerationExpression(actual);
+  const normalizedExpected = normalizeGenerationExpression(expected);
+
+  return (
+    normalizedActual === normalizedExpected ||
+    normalizedActual === toUnqualifiedGenerationExpression(normalizedExpected)
+  );
+}
+
+function splitIdentityArguments(value) {
+  return String(value ?? "")
+    .split(",")
+    .map((part) => normalizeWhitespace(part))
+    .filter(Boolean);
+}
+
+function matchesIdentityArguments(actual, expected) {
+  const actualParts = splitIdentityArguments(actual);
+  const expectedParts = splitIdentityArguments(expected);
+
+  if (actualParts.length !== expectedParts.length) {
+    return false;
+  }
+
+  return actualParts.every((actualPart, index) => {
+    const expectedPart = expectedParts[index];
+    return (
+      actualPart === expectedPart || actualPart.endsWith(` ${expectedPart}`)
+    );
+  });
+}
+
 function extractQuotedStatuses(definition) {
   return Array.from(String(definition ?? "").matchAll(/'([^']+)'/g))
     .map((match) => match[1])
@@ -485,11 +526,8 @@ function collectMigrationFindings(payload) {
       );
     }
 
-    const normalizedExpression = normalizeWhitespace(
+    const normalizedExpression = normalizeGenerationExpression(
       column.generationExpression ?? "",
-    );
-    const expectedGenerationPattern = normalizeWhitespace(
-      EXPECTED_COLUMN_GENERATION_PATTERNS[columnName],
     );
 
     if (!normalizedExpression) {
@@ -499,7 +537,12 @@ function collectMigrationFindings(payload) {
       continue;
     }
 
-    if (!normalizedExpression.includes(expectedGenerationPattern)) {
+    if (
+      !matchesExpectedGenerationExpression(
+        normalizedExpression,
+        EXPECTED_COLUMN_GENERATION_PATTERNS[columnName],
+      )
+    ) {
       findings.push(
         `Column public.brand_assets.${columnName} does not use the expected derived-status resolver.`,
       );
@@ -534,7 +577,12 @@ function collectMigrationFindings(payload) {
       continue;
     }
 
-    if (fn.identityArguments !== expected.identityArguments) {
+    if (
+      !matchesIdentityArguments(
+        fn.identityArguments,
+        expected.identityArguments,
+      )
+    ) {
       findings.push(
         `Function public.${functionName} uses unexpected arguments: ${fn.identityArguments || "<missing>"}.`,
       );
@@ -710,6 +758,9 @@ module.exports = {
   escapePgpassValue,
   executeEvidenceQuery,
   formatReport,
+  matchesIdentityArguments,
+  normalizeGenerationExpression,
+  matchesExpectedGenerationExpression,
   parseArgs,
   parseEvidencePayload,
   printHelp,

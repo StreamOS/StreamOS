@@ -1,7 +1,4 @@
-import {
-  BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
-  BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS,
-} from "@streamos/types";
+import { BRANDING_DASHBOARD_PREVIEW_TTL_SECONDS } from "@streamos/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -18,6 +15,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: mocks.createClient,
 }));
 
+import { BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE } from "@/components/modules/BrandingDashboardConsole.utils";
 import { getBrandingDashboardData } from "./data";
 
 describe("getBrandingDashboardData", () => {
@@ -82,13 +80,15 @@ describe("getBrandingDashboardData", () => {
     expect(data.items).toHaveLength(0);
     expect(data.lookupIssues).toHaveLength(0);
     expect(data.feed).toMatchObject({
-      derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+      derivedStatusQueryGate: BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE,
       hasMore: false,
       limit: 12,
       nextCursor: null,
       returnedCount: 0,
       serverFilters: {
         assetType: null,
+        metadata: "all",
+        preview: "all",
         status: null,
       },
       scope: "full_result",
@@ -113,6 +113,8 @@ describe("getBrandingDashboardData", () => {
 
     const data = await getBrandingDashboardData({
       assetType: "logo",
+      metadata: "invalid",
+      preview: "unavailable",
       serverSort: "status",
       status: "draft",
     });
@@ -121,13 +123,13 @@ describe("getBrandingDashboardData", () => {
     expect(data.items).toHaveLength(0);
     expect(data.feed.serverFilters).toEqual({
       assetType: "logo",
+      metadata: "invalid",
+      preview: "unavailable",
       status: "draft",
     });
     expect(data.feed.serverSort).toBe("status");
-    expect(data.feed.derivedStatusQueryGate.previewServerQueryable).toBe(false);
-    expect(data.feed.derivedStatusQueryGate.metadataServerQueryable).toBe(
-      false,
-    );
+    expect(data.feed.derivedStatusQueryGate.previewServerQueryable).toBe(true);
+    expect(data.feed.derivedStatusQueryGate.metadataServerQueryable).toBe(true);
   });
 
   it("loads read-only brand assets with server-signed previews and without selecting public URLs", async () => {
@@ -165,13 +167,15 @@ describe("getBrandingDashboardData", () => {
 
     expect(data.state).toBe("ready");
     expect(data.feed).toMatchObject({
-      derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+      derivedStatusQueryGate: BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE,
       hasMore: false,
       limit: 12,
       nextCursor: null,
       returnedCount: 1,
       serverFilters: {
         assetType: null,
+        metadata: "all",
+        preview: "all",
         status: null,
       },
       scope: "full_result",
@@ -245,11 +249,11 @@ describe("getBrandingDashboardData", () => {
     const data = await getBrandingDashboardData();
 
     expect(data.feed).toEqual({
-      derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+      derivedStatusQueryGate: BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE,
       filterOwnership: {
         assetType: "server_query",
-        metadata: "client_window",
-        preview: "client_window",
+        metadata: "server_query",
+        preview: "server_query",
         status: "server_query",
       },
       hasMore: true,
@@ -264,6 +268,8 @@ describe("getBrandingDashboardData", () => {
       returnedCount: 12,
       serverFilters: {
         assetType: null,
+        metadata: "all",
+        preview: "all",
         status: null,
       },
       scope: "loaded_sample",
@@ -310,6 +316,8 @@ describe("getBrandingDashboardData", () => {
       cursor,
       cursorServerFilters: {
         assetType: null,
+        metadata: "all",
+        preview: "all",
         status: null,
       },
       cursorServerSort: "updated_desc",
@@ -322,11 +330,11 @@ describe("getBrandingDashboardData", () => {
     expect(data.items).toHaveLength(14);
     expect(new Set(data.items.map((item) => item.id)).size).toBe(14);
     expect(data.feed).toEqual({
-      derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+      derivedStatusQueryGate: BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE,
       filterOwnership: {
         assetType: "server_query",
-        metadata: "client_window",
-        preview: "client_window",
+        metadata: "server_query",
+        preview: "server_query",
         status: "server_query",
       },
       hasMore: false,
@@ -335,6 +343,8 @@ describe("getBrandingDashboardData", () => {
       returnedCount: 14,
       serverFilters: {
         assetType: null,
+        metadata: "all",
+        preview: "all",
         status: null,
       },
       scope: "full_result",
@@ -368,6 +378,8 @@ describe("getBrandingDashboardData", () => {
       },
       cursorServerFilters: {
         assetType: null,
+        metadata: "all",
+        preview: "all",
         status: null,
       },
       cursorServerSort: "updated_desc",
@@ -385,11 +397,11 @@ describe("getBrandingDashboardData", () => {
       ),
     );
     expect(data.feed).toEqual({
-      derivedStatusQueryGate: BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+      derivedStatusQueryGate: BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE,
       filterOwnership: {
         assetType: "server_query",
-        metadata: "client_window",
-        preview: "client_window",
+        metadata: "server_query",
+        preview: "server_query",
         status: "server_query",
       },
       hasMore: true,
@@ -404,6 +416,8 @@ describe("getBrandingDashboardData", () => {
       returnedCount: 12,
       serverFilters: {
         assetType: null,
+        metadata: "all",
+        preview: "all",
         status: null,
       },
       scope: "loaded_sample",
@@ -441,6 +455,8 @@ describe("getBrandingDashboardData", () => {
     expect(data.items.map((item) => item.assetType)).toEqual(["logo"]);
     expect(data.feed.serverFilters).toEqual({
       assetType: "logo",
+      metadata: "all",
+      preview: "all",
       status: null,
     });
     expect(supabase.from).toHaveBeenCalledWith("brand_assets");
@@ -479,7 +495,122 @@ describe("getBrandingDashboardData", () => {
     expect(data.items.map((item) => item.status)).toEqual(["draft"]);
     expect(data.feed.serverFilters).toEqual({
       assetType: null,
+      metadata: "all",
+      preview: "all",
       status: "draft",
+    });
+  });
+
+  it("maps preview and metadata to persisted derived-status server filters", async () => {
+    const supabase = createSupabaseClientMock({
+      rows: [
+        createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: null,
+          id: "asset-match",
+          metadata: {
+            upload: {
+              content_type: "image/png",
+              file_extension: "png",
+              file_size_bytes: 1024,
+              stored_filename: "match.png",
+            },
+          },
+          preview_capability_status: "previewable",
+          status: "active",
+          storage_bucket: "brand-assets",
+          storage_path:
+            "11111111-1111-4111-8111-111111111111/logo/asset-match/match.png",
+          upload_metadata_status: "available",
+        }),
+        createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: null,
+          id: "asset-preview-blocked",
+          preview_capability_status: "unsupported",
+          status: "active",
+          storage_bucket: "brand-assets",
+          storage_path:
+            "11111111-1111-4111-8111-111111111111/logo/asset-preview-blocked/block.png",
+        }),
+        createBrandAssetRow({
+          asset_type: "logo",
+          channel_id: null,
+          id: "asset-metadata-blocked",
+          preview_capability_status: "previewable",
+          status: "active",
+          storage_bucket: "brand-assets",
+          storage_path:
+            "11111111-1111-4111-8111-111111111111/logo/asset-metadata-blocked/meta.png",
+          upload_metadata_status: "invalid",
+        }),
+      ],
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData({
+      assetType: "logo",
+      metadata: "available",
+      preview: "available",
+      serverSort: "asset_type",
+      status: "active",
+    });
+
+    expect(data.items.map((item) => item.id)).toEqual(["asset-match"]);
+    expect(data.feed.serverFilters).toEqual({
+      assetType: "logo",
+      metadata: "available",
+      preview: "available",
+      status: "active",
+    });
+    expect(data.feed.serverSort).toBe("asset_type");
+  });
+
+  it("binds the cursor window to preview and metadata server filters", async () => {
+    const rows = Array.from({ length: 13 }, (_, index) =>
+      createBrandAssetRow({
+        asset_type: "logo",
+        channel_id: null,
+        id: `asset-${String(index + 1).padStart(2, "0")}`,
+        name: `Asset ${index + 1}`,
+        preview_capability_status: "previewable",
+        status: "active",
+        storage_bucket: "brand-assets",
+        storage_path: `11111111-1111-4111-8111-111111111111/logo/asset-${String(index + 1).padStart(2, "0")}/asset.png`,
+        upload_metadata_status: "available",
+      }),
+    );
+    const supabase = createSupabaseClientMock({ rows });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    const data = await getBrandingDashboardData({
+      cursor: {
+        assetType: null,
+        createdAt: null,
+        id: "asset-12",
+        status: null,
+        updatedAt: "2026-06-22T10:15:00.000Z",
+      },
+      cursorServerFilters: {
+        assetType: null,
+        metadata: "all",
+        preview: "all",
+        status: null,
+      },
+      cursorServerSort: "updated_desc",
+      metadata: "available",
+      preview: "available",
+      serverSort: "updated_desc",
+      status: "active",
+      windowCount: 2,
+    });
+
+    expect(data.items).toHaveLength(12);
+    expect(data.feed.serverFilters).toEqual({
+      assetType: null,
+      metadata: "available",
+      preview: "available",
+      status: "active",
     });
   });
 
@@ -589,6 +720,8 @@ describe("getBrandingDashboardData", () => {
       },
       cursorServerFilters: {
         assetType: null,
+        metadata: "all",
+        preview: "all",
         status: null,
       },
       cursorServerSort: "updated_desc",
@@ -599,7 +732,7 @@ describe("getBrandingDashboardData", () => {
     expect(data.feed.serverSort).toBe("created_desc");
     expect(data.feed.returnedCount).toBe(12);
     expect(data.feed.derivedStatusQueryGate).toEqual(
-      BRANDING_DASHBOARD_DERIVED_STATUS_QUERY_GATE,
+      BRANDING_DASHBOARD_P514_DERIVED_STATUS_QUERY_GATE,
     );
     expect(data.feed.nextCursor).toEqual({
       assetType: null,
@@ -1176,7 +1309,7 @@ function createSupabaseClientMock({
   let currentTable = "";
   const brandAssetQueryState = {
     cursorFilter: null as string | null,
-    filters: {} as Record<string, string>,
+    filters: {} as Record<string, string | string[]>,
     orders: [] as Array<{
       ascending: boolean;
       column: string;
@@ -1186,6 +1319,11 @@ function createSupabaseClientMock({
   const brandAssetBuilder = {
     eq: vi.fn((column: string, value: string) => {
       brandAssetQueryState.filters[column] = value;
+
+      return brandAssetBuilder;
+    }),
+    in: vi.fn((column: string, values: string[]) => {
+      brandAssetQueryState.filters[column] = values;
 
       return brandAssetBuilder;
     }),
@@ -1295,7 +1433,7 @@ function evaluateBrandAssetRows({
   rows,
 }: {
   cursorFilter: string | null;
-  filters: Record<string, string>;
+  filters: Record<string, string | string[]>;
   limit: number;
   orders: Array<{
     ascending: boolean;
@@ -1310,16 +1448,29 @@ function evaluateBrandAssetRows({
   const filteredRows = (rows as ReturnType<typeof createBrandAssetRow>[])
     .filter((row) =>
       Object.entries(filters).every(([column, value]) => {
+        const matches = (candidate: string) =>
+          Array.isArray(value)
+            ? value.includes(candidate)
+            : candidate === value;
+
         if (column === "asset_type") {
-          return row.asset_type === value;
+          return matches(row.asset_type);
         }
 
         if (column === "user_id") {
-          return row.user_id === value;
+          return matches(row.user_id);
         }
 
         if (column === "status") {
-          return row.status === value;
+          return matches(row.status);
+        }
+
+        if (column === "preview_capability_status") {
+          return matches(row.preview_capability_status);
+        }
+
+        if (column === "upload_metadata_status") {
+          return matches(row.upload_metadata_status);
         }
 
         return true;

@@ -53,8 +53,7 @@ export function BrandingDashboardConsole({
   const showPartialNotice = model.state === "ready" && hasLookupIssues;
   const hasData = model.items.length > 0;
   const hasVisibleItems = view.items.length > 0;
-  const hasAnyExplorerFilters =
-    view.feed.hasActiveClientFilters || view.feed.hasActiveServerFilters;
+  const hasAnyExplorerFilters = view.feed.hasActiveServerFilters;
   const previewReadyCount = model.items.filter(
     (item) => item.preview.status === "available",
   ).length;
@@ -380,7 +379,7 @@ export function BrandingDashboardConsole({
         <article className="card space-y-4">
           <SectionHeader
             title="Asset Explorer"
-            description="Read-only Feed mit Filterung, Sortierung und klarer Asset-Auswahl auf Basis der bereits geladenen Branding-Stichprobe."
+            description="Read-only Feed mit serverseitiger Filterung, Sortierung und klarer Asset-Auswahl ueber den gesamten Branding-Query."
           />
 
           <BrandingFilterForm view={view} />
@@ -429,11 +428,7 @@ export function BrandingDashboardConsole({
             ) : (
               <EmptyState
                 title="Keine Assets fuer aktuelle Filter"
-                body={
-                  view.feed.hasActiveClientFilters
-                    ? "Preview und Metadata wirken bewusst nur auf das geladene Feed-Fenster. Passe diese Fensterfilter an oder lade weitere Assets nach."
-                    : "Passe Asset Type oder Status an, um wieder Ergebnisse zu sehen."
-                }
+                body="Passe Asset Type, Status, Preview oder Metadata an, um wieder Ergebnisse zu sehen."
               />
             )
           ) : model.state !== "ready" ? (
@@ -441,11 +436,7 @@ export function BrandingDashboardConsole({
           ) : hasAnyExplorerFilters ? (
             <EmptyState
               title="Keine Assets fuer aktuelle Filter"
-              body={
-                view.feed.hasActiveClientFilters
-                  ? "Die aktuellen Preview- oder Metadata-Fensterfilter wirken weiter nur auf das geladene Feed-Fenster. Loese diese Filter oder passe Asset Type bzw. Status an."
-                  : "Fuer die aktuelle serverseitige Asset-Type-/Status-Kombination sind keine Brand Assets vorhanden."
-              }
+              body="Fuer die aktuelle serverseitige Asset-Type-/Status-/Preview-/Metadata-Kombination sind keine Brand Assets vorhanden."
             />
           ) : hasLookupIssues ? (
             <EmptyState
@@ -506,7 +497,6 @@ function getTrustedUploadMetadataFields(
 
 function ExplorerFeedNotice({ view }: { view: BrandingDashboardConsoleView }) {
   const serverFilterSummary = formatBrandingServerFilterSummary(view);
-  const clientFilterSummary = formatBrandingClientFilterSummary(view);
   const serverFilterCapabilities =
     formatBrandingServerFilterCapabilitySummary(view);
 
@@ -518,11 +508,10 @@ function ExplorerFeedNotice({ view }: { view: BrandingDashboardConsoleView }) {
           : `Serverseitige ${serverFilterCapabilities} und die Sortierung ${formatBrandingDashboardSortLabel(view.feed.serverSort)} wirken auf den aktuell vollstaendig geladenen Branding-Feed mit ${view.feed.returnedCount} Assets.`}
       </p>
       <p className="mt-2 text-xs text-slate-500">{serverFilterSummary}</p>
-      <p className="mt-2 text-xs text-slate-500">{clientFilterSummary}</p>
       <p className="mt-2 text-xs text-slate-500">
-        {view.feed.hasActiveClientFilters
-          ? "Preview und Metadata bleiben bewusst clientseitige Fensterfilter, weil der aktuelle Persistenz-Contract keinen zuverlaessigen server-querybaren Status traegt."
-          : "Alle aktuell aktiven serverseitigen Explorer-Filter werden vom Cursor-Query respektiert; Preview und Metadata bleiben davon getrennte Fensterfilter."}
+        Preview mappt serverseitig auf `preview_capability_status`, Metadata
+        serverseitig auf `upload_metadata_status`. Alle aktuell aktiven
+        Explorer-Filter werden vom Cursor-Query respektiert.
         {view.feed.scope === "loaded_sample" && view.feed.hasMore
           ? " Weitere Assets aus demselben serverseitigen Query-Kontext koennen schrittweise nachgeladen werden."
           : ""}
@@ -1219,6 +1208,12 @@ function formatBrandingServerFilterSummary(
     view.feed.serverFilters.status
       ? `Status ${formatBrandingAssetStatusLabel(view.feed.serverFilters.status)}`
       : null,
+    view.feed.serverFilters.preview !== "all"
+      ? formatBrandingPreviewFilterLabel(view.feed.serverFilters.preview)
+      : null,
+    view.feed.serverFilters.metadata !== "all"
+      ? formatBrandingMetadataFilterLabel(view.feed.serverFilters.metadata)
+      : null,
   ].filter((entry): entry is string => entry !== null);
 
   return `Serverseitige Explorer-Filter: ${entries.join(", ")}`;
@@ -1234,30 +1229,21 @@ function formatBrandingServerFilterCapabilitySummary(
     view.feed.filterOwnership.status === "server_query"
       ? "Status-Filter"
       : null,
+    view.feed.filterOwnership.preview === "server_query"
+      ? "Preview-Filter"
+      : null,
+    view.feed.filterOwnership.metadata === "server_query"
+      ? "Metadata-Filter"
+      : null,
   ].filter((entry): entry is string => entry !== null);
+
+  if (entries.length === 4) {
+    return "Asset-Type-, Status-, Preview- und Metadata-Filter";
+  }
 
   if (entries.length === 2) {
-    return "Asset-Type- und Status-Filter";
+    return `${entries[0]} und ${entries[1]}`;
   }
 
-  return entries[0] ?? "Explorer-Filter";
-}
-
-function formatBrandingClientFilterSummary(
-  view: BrandingDashboardConsoleView,
-): string {
-  if (!view.feed.hasActiveClientFilters) {
-    return "Clientseitige Fensterfilter: keine";
-  }
-
-  const entries = [
-    view.feed.clientFilters.preview !== "all"
-      ? formatBrandingPreviewFilterLabel(view.feed.clientFilters.preview)
-      : null,
-    view.feed.clientFilters.metadata !== "all"
-      ? formatBrandingMetadataFilterLabel(view.feed.clientFilters.metadata)
-      : null,
-  ].filter((entry): entry is string => entry !== null);
-
-  return `Clientseitige Fensterfilter: ${entries.join(", ")}`;
+  return entries.join(", ") || "Explorer-Filter";
 }

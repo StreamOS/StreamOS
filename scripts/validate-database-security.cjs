@@ -1,6 +1,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+const {
+  hasExactCompositeUniqueCoverageGuard,
+} = require("./lib/composite-unique-coverage.cjs");
+
 const repoRoot = path.resolve(__dirname, "..");
 const migrationsDir = path.join(
   repoRoot,
@@ -8,6 +12,10 @@ const migrationsDir = path.join(
   "database",
   "supabase",
   "migrations",
+);
+const metricsSnapshotsCompatibilityMigrationPath = path.join(
+  migrationsDir,
+  "20260625161515_p4_creator_growth_intelligence_contract.sql",
 );
 
 const tenantTables = [
@@ -162,6 +170,10 @@ const normalizedSql = rawSql
   .replace(/\s+/g, " ")
   .trim()
   .toLowerCase();
+const metricsSnapshotsCompatibilityMigrationSql = fs.readFileSync(
+  metricsSnapshotsCompatibilityMigrationPath,
+  "utf8",
+);
 
 const failures = [];
 
@@ -624,6 +636,13 @@ for (const constraint of compositeTenantConstraints) {
     `${constraint}: composite tenant foreign key must include user_id`,
   );
 }
+
+assertPattern(
+  hasExactCompositeUniqueCoverageGuard(
+    metricsSnapshotsCompatibilityMigrationSql,
+  ),
+  "metrics_snapshots: creator-growth compatibility guard must detect exact unique coverage on (id, user_id) via constraints or unique indexes",
+);
 
 assertPattern(
   lastPatternIndex(monetizationProviderEventDropIndexRegex) >

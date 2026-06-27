@@ -1,5 +1,65 @@
 do $$
 begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.metrics_snapshots'::regclass
+      and contype in ('p', 'u')
+      and conkey = array[
+        (
+          select attnum
+          from pg_attribute
+          where attrelid = 'public.metrics_snapshots'::regclass
+            and attname = 'id'
+            and attnum > 0
+            and not attisdropped
+        ),
+        (
+          select attnum
+          from pg_attribute
+          where attrelid = 'public.metrics_snapshots'::regclass
+            and attname = 'user_id'
+            and attnum > 0
+            and not attisdropped
+        )
+      ]::smallint[]
+  )
+  and not exists (
+    select 1
+    from pg_index
+    where indrelid = 'public.metrics_snapshots'::regclass
+      and indisunique
+      and indpred is null
+      and indexprs is null
+      and indnkeyatts = 2
+      and indnatts = 2
+      and indkey::smallint[] = array[
+        (
+          select attnum
+          from pg_attribute
+          where attrelid = 'public.metrics_snapshots'::regclass
+            and attname = 'id'
+            and attnum > 0
+            and not attisdropped
+        ),
+        (
+          select attnum
+          from pg_attribute
+          where attrelid = 'public.metrics_snapshots'::regclass
+            and attname = 'user_id'
+            and attnum > 0
+            and not attisdropped
+        )
+      ]::smallint[]
+  ) then
+    alter table public.metrics_snapshots
+    add constraint metrics_snapshots_id_user_id_unique unique (id, user_id);
+  end if;
+end
+$$;
+
+do $$
+begin
   if to_regclass('public.creator_growth_intelligence') is null then
     create table public.creator_growth_intelligence (
       id uuid primary key default gen_random_uuid(),
