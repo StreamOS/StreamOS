@@ -29,6 +29,7 @@ const KNOWN_BRAND_ASSET_TYPES = new Set([
   "scene",
 ]);
 const KNOWN_BRAND_ASSET_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"]);
+const STORAGE_LIST_UNSUPPORTED_STATUS_CODES = new Set([400, 404, 405, 501]);
 
 function parseArgs(argv) {
   const options = {
@@ -374,6 +375,13 @@ function createSupabaseRestUrl({ client, table }) {
   return new URL(`/rest/v1/${table}`, client.supabaseUrl);
 }
 
+function createSupabaseStorageListUrl({ bucket, client }) {
+  return new URL(
+    `/storage/v1/object/list/${encodeURIComponent(bucket)}`,
+    client.supabaseUrl,
+  );
+}
+
 async function readAllSupabaseRows({
   client,
   pageSize = DEFAULT_PAGE_SIZE,
@@ -446,27 +454,109 @@ async function readBrandAssetReferences({
 async function readBrandAssetStorageObjects({
   bucket = BRAND_ASSET_STORAGE_BUCKET,
   client,
+  pageSize = DEFAULT_PAGE_SIZE,
   userId,
 }) {
-  const prefix = `${userId}/`;
-  const rows = await readAllSupabaseRows({
-    client,
-    params: {
-      bucket_id: `eq.${bucket}`,
-      order: "name.asc",
-      select: "name,metadata,created_at,updated_at,last_accessed_at",
-      name: `like.${prefix}%`,
-    },
-    table: "storage.objects",
-  });
+  const rootPrefix = normalizeStorageListPrefix(userId);
+  const visitedPrefixes = new Set();
+  const collectedObjects = [];
+  const prefixesToVisit = [rootPrefix];
 
-  return rows.map((row) => ({
-    createdAt: normalizeTimestamp(row.created_at),
-    lastAccessedAt: normalizeTimestamp(row.last_accessed_at),
-    metadata: isPlainObject(row.metadata) ? row.metadata : null,
-    path: typeof row.name === "string" ? row.name : "",
-    updatedAt: normalizeTimestamp(row.updated_at),
-  }));
+  while (prefixesToVisit.length > 0) {
+    const currentPrefix = prefixesToVisit.shift();
+
+    if (!currentPrefix || visitedPrefixes.has(currentPrefix)) {
+      continue;
+    }
+
+    visitedPrefixes.add(currentPrefix);
+
+    const entries = await readAllStorageListEntries({
+      bucket,
+      client,
+      pageSize,
+      prefix: currentPrefix,
+    });
+
+    for (const entry of entries) {
+      const entryName = typeof entry.name === "string" ? entry.name.trim() : "";
+
+      if (!entryName) {
+        continue;
+      }
+
+      const fullPath = normalizeStoragePath(`${currentPrefix}/${entryName}`);
+
+      if (!fullPath || !isTenantScopedPrefix(fullPath, userId)) {
+        continue;
+      }
+
+      if (entry.id === null) {
+        prefixesToVisit.push(fullPath);
+        continue;
+      }
+
+      collectedObjects.push({
+        createdAt: normalizeTimestamp(entry.created_at),
+        lastAccessedAt: normalizeTimestamp(entry.last_accessed_at),
+        metadata: isPlainObject(entry.metadata) ? entry.metadata : null,
+        path: fullPath,
+        updatedAt: normalizeTimestamp(entry.updated_at),
+      });
+    }
+  }
+
+  return collectedObjects.sort((left, right) =>
+    left.path.localeCompare(right.path),
+  );
+}
+
+async function readAllStorageListEntries({
+  bucket,
+  client,
+  pageSize = DEFAULT_PAGE_SIZE,
+  prefix,
+}) {
+  const rows = [];
+
+  for (let offset = 0; ; offset += pageSize) {
+    const url = createSupabaseStorageListUrl({ bucket, client });
+    const response = await client.fetchImpl(url, {
+      body: JSON.stringify({
+        limit: pageSize,
+        offset,
+        prefix,
+        sortBy: {
+          column: "name",
+          order: "asc",
+        },
+      }),
+      headers: client.headers,
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      const message = STORAGE_LIST_UNSUPPORTED_STATUS_CODES.has(response.status)
+        ? `Supabase Storage list API lookup failed with status ${response.status}. The configured storage metadata read path may be unsupported for this project.`
+        : `Supabase Storage list API lookup failed with status ${response.status}.`;
+
+      throw new Error(message);
+    }
+
+    const page = await response.json();
+
+    if (!Array.isArray(page)) {
+      throw new Error(
+        "Supabase Storage list API lookup returned malformed JSON.",
+      );
+    }
+
+    rows.push(...page);
+
+    if (page.length < pageSize) {
+      return rows;
+    }
+  }
 }
 
 function buildBrandingOrphanDryRunReport({
@@ -642,6 +732,15 @@ function normalizeStoragePath(value) {
   }
 
   return normalized;
+}
+
+function normalizeStorageListPrefix(value) {
+  const normalizedCandidate = String(value ?? "")
+    .trim()
+    .replace(/\/+$/, "");
+  const normalized = normalizeStoragePath(normalizedCandidate);
+
+  return normalized ?? null;
 }
 
 function isTenantScopedPrefix(storagePath, userId) {
@@ -878,11 +977,13 @@ module.exports = {
   inferTargetEnvironmentFromSupabaseUrl,
   inferTargetEnvironmentFromSupabaseUrlEnvName,
   isRecognizedBrandAssetStoragePath,
+  normalizeStorageListPrefix,
   normalizeStoragePath,
   normalizeTargetEnvironmentName,
   parseArgs,
   readAllSupabaseRows,
   readBrandAssetReferences,
+  readAllStorageListEntries,
   readBrandAssetStorageObjects,
   redactStoragePath,
   renderTextReport,
