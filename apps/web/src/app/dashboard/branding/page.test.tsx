@@ -9,6 +9,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
   getBrandingDashboardData: vi.fn(),
+  replaceBrandAssetAction: vi.fn(),
   uploadBrandAssetAction: vi.fn(),
 }));
 
@@ -17,6 +18,7 @@ vi.mock("./data", () => ({
 }));
 
 vi.mock("./actions", () => ({
+  replaceBrandAssetAction: mocks.replaceBrandAssetAction,
   uploadBrandAssetAction: mocks.uploadBrandAssetAction,
 }));
 
@@ -27,10 +29,11 @@ type BrandingPageAsset = Parameters<
 describe("BrandingPage", () => {
   beforeEach(() => {
     mocks.getBrandingDashboardData.mockReset();
+    mocks.replaceBrandAssetAction.mockReset();
     mocks.uploadBrandAssetAction.mockReset();
   });
 
-  it("renders the upload and explorer surfaces without enabling destructive actions when no brand assets exist yet", async () => {
+  it("renders the upload and explorer surfaces without exposing delete or orphan cleanup when no brand assets exist yet", async () => {
     mocks.getBrandingDashboardData.mockResolvedValue(
       createEmptyBrandingDashboardModel("user-1"),
     );
@@ -43,7 +46,8 @@ describe("BrandingPage", () => {
     expect(html).toContain("Asset Detail");
     expect(html).toContain("Noch keine Brand Assets");
     expect(html).toContain("Brand Asset hochladen");
-    expect(html).toContain("Future Mutation Contract");
+    expect(html).toContain("Verbleibende Mutation Blocker");
+    expect(html).toContain("Delete");
     expect(html).toContain("Orphan Cleanup");
     expect(html).toContain("Filter anwenden");
     expect(html).toContain("Filter zuruecksetzen");
@@ -52,11 +56,12 @@ describe("BrandingPage", () => {
     expect(html).toContain("blocked");
     expect(html).toContain('type="file"');
     expect(html).not.toContain("formaction=");
+    expect(html).not.toContain("Asset ersetzen");
     expect(html).not.toContain("Asset bearbeiten");
     expect(html).not.toContain("loeschen");
   });
 
-  it("renders a read-only asset detail panel with safe metadata and disabled future actions", async () => {
+  it("renders a replace-ready asset detail panel with safe metadata and blocked cleanup actions", async () => {
     mocks.getBrandingDashboardData.mockResolvedValue(
       createReadyModel([
         createAsset({
@@ -123,7 +128,8 @@ describe("BrandingPage", () => {
     expect(html).toContain("neon-overlay.png");
     expect(html).toContain("Twitch");
     expect(html).toContain("NovaPlays Live");
-    expect(html).toContain("Replace");
+    expect(html).toContain("Replace Asset");
+    expect(html).toContain("Asset ersetzen");
     expect(html).toContain("Delete");
     expect(html).toContain("Orphan Cleanup");
     expect(html).toContain("blocked");
@@ -561,6 +567,26 @@ describe("BrandingPage", () => {
     expect(html).toContain("Der private Storage-Upload ist fehlgeschlagen");
     expect(html).not.toContain("storage.objects");
     expect(html).not.toContain("brand-assets/");
+  });
+
+  it("renders replace persistence failures without exposing private storage details", async () => {
+    mocks.getBrandingDashboardData.mockResolvedValue(
+      createEmptyBrandingDashboardModel("user-7"),
+    );
+
+    const html = renderToStaticMarkup(
+      await BrandingPage({
+        searchParams: Promise.resolve({
+          error: "brand-asset-replace-persist-failed",
+        }),
+      }),
+    );
+
+    expect(html).toContain(
+      "Das neue Storage-Objekt wurde hochgeladen, aber der Asset-Datensatz konnte nicht umgebunden werden",
+    );
+    expect(html).not.toContain("brand-assets/");
+    expect(html).not.toContain("signed");
   });
 
   it("renders a hard load-failed state separately from the empty state", async () => {

@@ -76,6 +76,10 @@ describe("buildBrandingDashboardViewModel", () => {
         preview: "unavailable",
         status: "draft",
       });
+      expect(model.mutationContract.replace).toEqual({
+        action: "replace",
+        available: true,
+      });
       expect(view.filters).toEqual({
         assetType: "logo",
         metadata: "invalid",

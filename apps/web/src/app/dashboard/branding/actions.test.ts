@@ -25,7 +25,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: mocks.createClient,
 }));
 
-import { uploadBrandAssetAction } from "./actions";
+import { replaceBrandAssetAction, uploadBrandAssetAction } from "./actions";
 
 describe("uploadBrandAssetAction", () => {
   beforeEach(() => {
@@ -325,6 +325,186 @@ describe("uploadBrandAssetAction", () => {
   });
 });
 
+describe("replaceBrandAssetAction", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.isSupabaseConfigured.mockReturnValue(true);
+    mocks.createClient.mockResolvedValue(createSupabaseClientMock() as never);
+  });
+
+  it("uploads a replacement object on a fresh private path and updates only safe asset fields", async () => {
+    const supabase = createSupabaseClientMock({
+      brandAssetRow: createBrandAssetRow(),
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      replaceBrandAssetAction(
+        createReplaceFormData({
+          assetId: "asset-existing",
+          file: createImageFile("replacement-logo.png", "image/png"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?status=brand-asset-replaced",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(1);
+    expect(supabase.storageUploads[0]?.bucket).toBe("brand-assets");
+    expect(supabase.storageUploads[0]?.path).toMatch(
+      /^11111111-1111-4111-8111-111111111111\/logo\/asset-existing\/replacements\/[0-9a-f-]{36}-replacement-logo\.png$/,
+    );
+    expect(supabase.storageRemoves).toHaveLength(0);
+    expect(supabase.updates).toEqual([
+      expect.objectContaining({
+        public_url: null,
+        storage_bucket: "brand-assets",
+        storage_path: supabase.storageUploads[0]?.path,
+      }),
+    ]);
+    expect(supabase.updates[0]).not.toHaveProperty("preview_capability_status");
+    expect(supabase.updates[0]).not.toHaveProperty("upload_metadata_status");
+    expect(supabase.updates[0]?.metadata).toEqual({
+      origin: "seeded",
+      upload: {
+        content_type: "image/png",
+        file_extension: "png",
+        file_size_bytes: 8,
+        stored_filename: "replacement-logo.png",
+      },
+    });
+    expect(JSON.stringify(supabase.updates[0]?.metadata)).not.toContain(
+      "signed.example",
+    );
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/dashboard/branding");
+  });
+
+  it("blocks replace when the target asset is missing or cross-tenant", async () => {
+    const supabase = createSupabaseClientMock({
+      brandAssetRow: null,
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      replaceBrandAssetAction(
+        createReplaceFormData({
+          assetId: "asset-missing",
+          file: createImageFile("replacement-logo.png", "image/png"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-replace-not-found",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(0);
+    expect(supabase.updates).toHaveLength(0);
+  });
+
+  it("blocks unauthenticated replace attempts", async () => {
+    mocks.createClient.mockResolvedValue(
+      createSupabaseClientMock({
+        user: null,
+      }) as never,
+    );
+
+    await expect(
+      replaceBrandAssetAction(
+        createReplaceFormData({
+          assetId: "asset-existing",
+          file: createImageFile("replacement-logo.png", "image/png"),
+        }),
+      ),
+    ).rejects.toThrow("REDIRECT:/login");
+  });
+
+  it("blocks unsupported replace file types before storage writes", async () => {
+    const supabase = createSupabaseClientMock({
+      brandAssetRow: createBrandAssetRow(),
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      replaceBrandAssetAction(
+        createReplaceFormData({
+          assetId: "asset-existing",
+          file: createFile("brand-brief.pdf", "application/pdf"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-file-type-not-supported",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(0);
+    expect(supabase.updates).toHaveLength(0);
+  });
+
+  it("blocks SVG replace attempts before storage writes", async () => {
+    const supabase = createSupabaseClientMock({
+      brandAssetRow: createBrandAssetRow(),
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      replaceBrandAssetAction(
+        createReplaceFormData({
+          assetId: "asset-existing",
+          file: createFile("brand-mark.svg", "image/svg+xml"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-svg-not-supported",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(0);
+    expect(supabase.updates).toHaveLength(0);
+  });
+
+  it("returns a secret-safe storage failure during replace", async () => {
+    const supabase = createSupabaseClientMock({
+      brandAssetRow: createBrandAssetRow(),
+      uploadError: new Error("storage internals"),
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      replaceBrandAssetAction(
+        createReplaceFormData({
+          assetId: "asset-existing",
+          file: createImageFile("replacement-logo.png", "image/png"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-replace-upload-failed",
+    );
+
+    expect(supabase.updates).toHaveLength(0);
+    expect(supabase.storageRemoves).toHaveLength(0);
+  });
+
+  it("surfaces DB update failures after replace upload without deleting old or new objects", async () => {
+    const supabase = createSupabaseClientMock({
+      brandAssetRow: createBrandAssetRow(),
+      updateError: new Error("db exploded"),
+    });
+    mocks.createClient.mockResolvedValue(supabase as never);
+
+    await expect(
+      replaceBrandAssetAction(
+        createReplaceFormData({
+          assetId: "asset-existing",
+          file: createImageFile("replacement-logo.png", "image/png"),
+        }),
+      ),
+    ).rejects.toThrow(
+      "REDIRECT:/dashboard/branding?error=brand-asset-replace-persist-failed",
+    );
+
+    expect(supabase.storageUploads).toHaveLength(1);
+    expect(supabase.storageRemoves).toHaveLength(0);
+    expect(supabase.updates).toHaveLength(1);
+  });
+});
+
 function createUploadFormData({
   assetType,
   file,
@@ -339,6 +519,19 @@ function createUploadFormData({
   formData.set("assetFile", file);
   formData.set("description", "Primary brand asset.");
   formData.set("name", name);
+  return formData;
+}
+
+function createReplaceFormData({
+  assetId,
+  file,
+}: {
+  assetId: string;
+  file: File;
+}) {
+  const formData = new FormData();
+  formData.set("assetId", assetId);
+  formData.set("assetFile", file);
   return formData;
 }
 
@@ -368,21 +561,37 @@ function toArrayBuffer(bytes: number[]): ArrayBuffer {
 }
 
 function createSupabaseClientMock({
+  brandAssetRow = createBrandAssetRow(),
+  brandAssetLookupError = null,
   insertError = null,
   removeError = null,
   uploadError = null,
+  updateError = null,
   user = {
     id: "11111111-1111-4111-8111-111111111111",
   },
   userError = null,
 }: {
+  brandAssetRow?: {
+    asset_type: string;
+    id: string;
+    metadata: Record<string, unknown> | null;
+    storage_path: string | null;
+    user_id: string;
+  } | null;
+  brandAssetLookupError?: unknown;
   insertError?: unknown;
   removeError?: unknown;
   uploadError?: unknown;
+  updateError?: unknown;
   user?: { id: string } | null;
   userError?: unknown;
 } = {}) {
   const inserts: Array<Record<string, unknown>> = [];
+  const selects: Array<{
+    columns: string;
+    filters: Array<{ column: string; value: unknown }>;
+  }> = [];
   const storageUploads: Array<{
     bucket: string;
     options: {
@@ -395,6 +604,7 @@ function createSupabaseClientMock({
     bucket: string;
     paths: Array<string | undefined>;
   }> = [];
+  const updates: Array<Record<string, unknown>> = [];
 
   return {
     auth: {
@@ -414,8 +624,89 @@ function createSupabaseClientMock({
           error: insertError,
         };
       }),
+      select: vi.fn((columns: string) => ({
+        eq: vi.fn((firstColumn: string, firstValue: unknown) => ({
+          eq: vi.fn((secondColumn: string, secondValue: unknown) => ({
+            maybeSingle: vi.fn(async () => {
+              const filters = [
+                { column: firstColumn, value: firstValue },
+                { column: secondColumn, value: secondValue },
+              ];
+              const filterMap = new Map(
+                filters.map(({ column, value }) => [column, value]),
+              );
+              selects.push({
+                columns,
+                filters,
+              });
+
+              if (brandAssetLookupError) {
+                return {
+                  data: null,
+                  error: brandAssetLookupError,
+                };
+              }
+
+              if (
+                !brandAssetRow ||
+                firstColumn !== "id" ||
+                secondColumn !== "user_id" ||
+                filterMap.get("id") !== brandAssetRow.id ||
+                filterMap.get("user_id") !== brandAssetRow.user_id
+              ) {
+                return {
+                  data: null,
+                  error: null,
+                };
+              }
+
+              return {
+                data: {
+                  asset_type: brandAssetRow.asset_type,
+                  metadata: brandAssetRow.metadata,
+                },
+                error: null,
+              };
+            }),
+          })),
+        })),
+      })),
+      update: vi.fn((payload: Record<string, unknown>) => {
+        updates.push(payload);
+
+        return {
+          eq: vi.fn((firstColumn: string, firstValue: unknown) => ({
+            eq: vi.fn((secondColumn: string, secondValue: unknown) => ({
+              select: vi.fn((_columns: string) => ({
+                maybeSingle: vi.fn(async () => ({
+                  data:
+                    updateError ||
+                    !brandAssetRow ||
+                    firstColumn !== "id" ||
+                    secondColumn !== "user_id" ||
+                    brandAssetRow.id !== firstValue ||
+                    brandAssetRow.user_id !== secondValue
+                      ? null
+                      : { id: brandAssetRow.id },
+                  error:
+                    updateError ||
+                    !brandAssetRow ||
+                    firstColumn !== "id" ||
+                    secondColumn !== "user_id" ||
+                    brandAssetRow.id !== firstValue ||
+                    brandAssetRow.user_id !== secondValue
+                      ? (updateError ??
+                        new Error("brand asset update target missing"))
+                      : null,
+                })),
+              })),
+            })),
+          })),
+        };
+      }),
     })),
     inserts,
+    selects,
     storage: {
       from: vi.fn((bucket: string) => ({
         remove: vi.fn(async (paths: Array<string | undefined>) => {
@@ -451,5 +742,25 @@ function createSupabaseClientMock({
     },
     storageRemoves,
     storageUploads,
+    updates,
+  };
+}
+
+function createBrandAssetRow() {
+  return {
+    asset_type: "logo",
+    id: "asset-existing",
+    metadata: {
+      origin: "seeded",
+      upload: {
+        content_type: "image/png",
+        file_extension: "png",
+        file_size_bytes: 2048,
+        stored_filename: "old-logo.png",
+      },
+    },
+    storage_path:
+      "11111111-1111-4111-8111-111111111111/logo/asset-existing/old-logo.png",
+    user_id: "11111111-1111-4111-8111-111111111111",
   };
 }

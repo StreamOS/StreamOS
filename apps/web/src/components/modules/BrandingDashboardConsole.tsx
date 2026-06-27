@@ -33,8 +33,9 @@ import {
 
 type BrandingDashboardConsoleProps = {
   model: BrandingDashboardModel;
+  replaceAction: (formData: FormData) => Promise<void>;
   uploadAction: (formData: FormData) => Promise<void>;
-  uploadFeedback: {
+  mutationFeedback: {
     message: string;
     tone: "error" | "success";
   } | null;
@@ -45,8 +46,9 @@ export type BrandingDashboardConsoleView = BrandingDashboardViewModel;
 
 export function BrandingDashboardConsole({
   model,
+  replaceAction,
   uploadAction,
-  uploadFeedback,
+  mutationFeedback,
   view,
 }: BrandingDashboardConsoleProps) {
   const hasLookupIssues = model.lookupIssues.length > 0;
@@ -65,7 +67,7 @@ export function BrandingDashboardConsole({
       {model.state === "unauthorized" && <UnauthorizedNotice />}
       {model.state === "auth-failed" && <AuthFailedNotice />}
       {model.state === "load-failed" && <LoadFailedNotice />}
-      {uploadFeedback && <UploadFeedbackNotice feedback={uploadFeedback} />}
+      {mutationFeedback && <UploadFeedbackNotice feedback={mutationFeedback} />}
       {model.feed.scope === "loaded_sample" && (
         <FeedScopeNotice model={model} />
       )}
@@ -77,13 +79,15 @@ export function BrandingDashboardConsole({
             Branding MVP
           </p>
           <h1 className="mt-3 max-w-3xl text-4xl font-semibold tracking-normal text-white md:text-5xl">
-            Brand Assets mit server-owned Upload und privaten Preview-Sichten
+            Brand Assets mit server-owned Upload, Replace und privaten
+            Preview-Sichten
           </h1>
           <p className="mt-4 max-w-3xl text-base leading-7 text-slate-400">
             Diese Surface zeigt vorhandene `brand_assets` tenant-scoped, erlaubt
-            neue Create-Uploads und haelt Replace-, Delete- und Edit-Semantik
-            bewusst nur als disabled Future-Contract sichtbar. Private Previews
-            werden nur serverseitig und kurzlebig signiert.
+            neue Create-Uploads, bietet einen minimalen Replace-Flow fuer
+            bestehende Assets und haelt Delete- sowie Orphan-Cleanup-Semantik
+            weiter bewusst getrennt. Private Previews werden nur serverseitig
+            und kurzlebig signiert.
           </p>
         </div>
 
@@ -104,19 +108,19 @@ export function BrandingDashboardConsole({
           <ul className="mt-4 space-y-2 text-sm leading-6 text-slate-300">
             <li>Owner boundary: `user_id` via authenticated Supabase reads.</li>
             <li>
-              Keine Storage-Writes, keine Service-Role, keine persistente
-              oeffentliche Asset-URL.
+              Keine browserseitigen Storage-Writes, keine Service-Role, keine
+              persistente oeffentliche Asset-URL.
             </li>
             <li>
               Signed Preview URLs werden nur serverseitig und kurzlebig erzeugt.
             </li>
             <li>
-              Uploads bleiben create-only, tenant-scoped und ohne dauerhafte
+              Uploads und Replace bleiben tenant-scoped und ohne dauerhafte
               oeffentliche Asset-URL.
             </li>
             <li>
-              Replace, Delete und Orphan Cleanup bleiben bewusst contract-only
-              und ohne aktive Mutation.
+              Delete und Orphan Cleanup bleiben bewusst separate, blockierte
+              Spaeter-Slices.
             </li>
           </ul>
         </aside>
@@ -196,8 +200,8 @@ export function BrandingDashboardConsole({
                     )}
                   </p>
                   <p className="text-xs text-slate-500">
-                    SVG, Replace, Delete, Edit und Public-URL-Logik bleiben
-                    ausserhalb dieses Slices.
+                    SVG, Delete, Edit und Public-URL-Logik bleiben ausserhalb
+                    dieses Slices.
                   </p>
                 </div>
                 <button
@@ -213,7 +217,7 @@ export function BrandingDashboardConsole({
           <article className="card space-y-4">
             <SectionHeader
               title="Upload Contract"
-              description="Die Upload-Runtime bleibt minimal, tenant-scoped und ohne implizite Replace-, Delete- oder Orphan-Cleanup-Semantik."
+              description="Die Upload-Runtime bleibt minimal, tenant-scoped und ohne implizite Delete- oder Orphan-Cleanup-Semantik."
             />
 
             <div className="space-y-3 rounded-lg border border-white/10 bg-white/5 p-4 text-sm leading-6 text-slate-300">
@@ -231,26 +235,28 @@ export function BrandingDashboardConsole({
 
             <div className="space-y-3 rounded-lg border border-dashed border-white/10 bg-surface-950/70 p-4 text-sm leading-6 text-slate-300">
               <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                Future Mutation Contract
+                Verbleibende Mutation Blocker
               </p>
-              {Object.values(model.mutationContract).map((entry) => (
-                <div
-                  key={entry.action}
-                  className="rounded-lg border border-white/10 bg-white/5 p-3"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-white">
-                      {formatBrandingFutureActionLabel(entry.action)}
+              {Object.values(model.mutationContract)
+                .filter((entry) => !entry.available)
+                .map((entry) => (
+                  <div
+                    key={entry.action}
+                    className="rounded-lg border border-white/10 bg-white/5 p-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-white">
+                        {formatBrandingFutureActionLabel(entry.action)}
+                      </p>
+                      <span className="rounded-full border border-white/10 bg-surface-950/70 px-3 py-1 text-xs font-semibold text-slate-300">
+                        blocked
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-slate-400">
+                      {formatBrandingMutationReasonLabel(entry.reason)}
                     </p>
-                    <span className="rounded-full border border-white/10 bg-surface-950/70 px-3 py-1 text-xs font-semibold text-slate-300">
-                      blocked
-                    </span>
                   </div>
-                  <p className="mt-2 text-xs leading-5 text-slate-400">
-                    {formatBrandingMutationReasonLabel(entry.reason)}
-                  </p>
-                </div>
-              ))}
+                ))}
             </div>
           </article>
         </section>
@@ -462,7 +468,10 @@ export function BrandingDashboardConsole({
           ) : null}
 
           {view.selectedAsset ? (
-            <AssetDetailPanel item={view.selectedAsset} />
+            <AssetDetailPanel
+              item={view.selectedAsset}
+              replaceAction={replaceAction}
+            />
           ) : (
             <EmptyState
               title="Kein Detail verfuegbar"
@@ -736,8 +745,10 @@ function AssetExplorerCard({
 
 function AssetDetailPanel({
   item,
+  replaceAction,
 }: {
   item: BrandingDashboardViewModel["selectedAsset"];
+  replaceAction: (formData: FormData) => Promise<void>;
 }) {
   if (!item) {
     return null;
@@ -865,29 +876,78 @@ function AssetDetailPanel({
         />
       </section>
 
-      <section className="rounded-lg border border-dashed border-white/10 bg-surface-950/70 p-4">
+      <section className="rounded-lg border border-white/10 bg-white/5 p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-          Future Actions
+          Replace Asset
         </p>
-        <div className="mt-3 space-y-3">
-          {item.futureActions.map((action) => (
-            <div
-              key={action.action}
-              className="rounded-lg border border-white/10 bg-white/5 p-3"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-white">
-                  {formatBrandingFutureActionLabel(action.action)}
-                </p>
-                <span className="rounded-full border border-white/10 bg-surface-950/70 px-3 py-1 text-xs font-semibold text-slate-300">
-                  blocked
-                </span>
-              </div>
-              <p className="mt-2 text-xs leading-5 text-slate-400">
-                {formatBrandingMutationReasonLabel(action.reason)}
+        <p className="mt-2 text-sm leading-6 text-slate-300">
+          Replace schreibt ein neues privates Objekt auf einen frischen
+          tenant-scoped Pfad und bindet diesen Datensatz darauf um. Das
+          bisherige Objekt bleibt in diesem Slice bewusst unangetastet und wird
+          nicht blind geloescht.
+        </p>
+
+        <form action={replaceAction} className="mt-4 grid gap-4">
+          <input name="assetId" type="hidden" value={item.id} />
+          <label className="grid gap-2 text-sm font-semibold text-slate-300">
+            Neue Datei
+            <input
+              accept={BRANDING_DASHBOARD_UPLOAD_ALLOWED_MIME_TYPES.join(",")}
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 file:mr-4 file:rounded-md file:border-0 file:bg-brand-500/15 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-brand-500"
+              name="assetFile"
+              required
+              type="file"
+            />
+          </label>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-surface-950/70 p-4">
+            <div className="space-y-1 text-sm leading-6 text-slate-300">
+              <p>
+                Erlaubte Formate:{" "}
+                {BRANDING_DASHBOARD_UPLOAD_ALLOWED_MIME_TYPES.join(", ")}
+              </p>
+              <p>
+                Maximale Groesse:{" "}
+                {formatBrandingUploadSizeLabel(
+                  BRANDING_DASHBOARD_UPLOAD_MAX_FILE_SIZE_BYTES,
+                )}
+              </p>
+              <p className="text-xs text-slate-500">
+                SVG bleibt blockiert. Orphan Cleanup bleibt ein spaeterer
+                separater Slice.
               </p>
             </div>
-          ))}
+            <button className="btn-primary min-h-10 px-4 py-2" type="submit">
+              Asset ersetzen
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section className="rounded-lg border border-dashed border-white/10 bg-surface-950/70 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+          Blockierte Folgeaktionen
+        </p>
+        <div className="mt-3 space-y-3">
+          {item.futureActions
+            .filter((action) => !action.available)
+            .map((action) => (
+              <div
+                key={action.action}
+                className="rounded-lg border border-white/10 bg-white/5 p-3"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-white">
+                    {formatBrandingFutureActionLabel(action.action)}
+                  </p>
+                  <span className="rounded-full border border-white/10 bg-surface-950/70 px-3 py-1 text-xs font-semibold text-slate-300">
+                    blocked
+                  </span>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-slate-400">
+                  {formatBrandingMutationReasonLabel(action.reason)}
+                </p>
+              </div>
+            ))}
           <div className="rounded-lg border border-white/10 bg-white/5 p-3">
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-white">Orphan Cleanup</p>

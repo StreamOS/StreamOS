@@ -45,6 +45,26 @@ type BrandingUploadValues = {
   storedFilename: string;
 };
 
+type BrandingReplaceValues = {
+  assetId: string;
+  file: File;
+  fileExtension: (typeof BRANDING_DASHBOARD_UPLOAD_ALLOWED_EXTENSIONS)[number];
+  storedFilename: string;
+};
+
+export type BrandingUploadMetadata = {
+  content_type: string;
+  file_extension: (typeof BRANDING_DASHBOARD_UPLOAD_ALLOWED_EXTENSIONS)[number];
+  file_size_bytes: number;
+  stored_filename: string;
+};
+
+type BrandingParsedFile = {
+  file: File;
+  fileExtension: (typeof BRANDING_DASHBOARD_UPLOAD_ALLOWED_EXTENSIONS)[number];
+  storedFilename: string;
+};
+
 export type BrandingUploadParseResult =
   | {
       error:
@@ -63,6 +83,24 @@ export type BrandingUploadParseResult =
       values: BrandingUploadValues;
     };
 
+export type BrandingReplaceParseResult =
+  | {
+      error:
+        | "brand-asset-file-extension-mismatch"
+        | "brand-asset-file-extension-missing"
+        | "brand-asset-file-required"
+        | "brand-asset-file-too-large"
+        | "brand-asset-file-type-missing"
+        | "brand-asset-file-type-not-supported"
+        | "brand-asset-replace-target-invalid"
+        | "brand-asset-svg-not-supported";
+      ok: false;
+    }
+  | {
+      ok: true;
+      values: BrandingReplaceValues;
+    };
+
 const uploadFormSchema = z.object({
   assetType: z.enum(BRANDING_ASSET_TYPE_VALUES),
   description: z.string().trim().max(1000).optional(),
@@ -70,10 +108,154 @@ const uploadFormSchema = z.object({
   name: z.string().trim().max(160).optional(),
 });
 
+const replaceFormSchema = z.object({
+  assetId: z.string().trim().min(1),
+});
+
 export async function parseBrandingAssetUploadFormData(
   formData: FormData,
   createAssetId: () => string,
 ): Promise<BrandingUploadParseResult> {
+  const parsedFile = await parseBrandingAssetFile(formData);
+
+  if (!parsedFile.ok) {
+    return parsedFile;
+  }
+
+  const parsed = uploadFormSchema.safeParse({
+    assetType: String(formData.get("assetType") ?? "").trim(),
+    description: String(formData.get("description") ?? "").trim(),
+    id: createAssetId(),
+    name: String(formData.get("name") ?? "").trim() || undefined,
+  });
+
+  if (!parsed.success) {
+    return {
+      error: "invalid-brand-asset-form",
+      ok: false,
+    };
+  }
+
+  return {
+    ok: true,
+    values: {
+      assetId: parsed.data.id,
+      assetType: parsed.data.assetType,
+      description: parsed.data.description || null,
+      file: parsedFile.values.file,
+      fileExtension: parsedFile.values.fileExtension,
+      name:
+        parsed.data.name ??
+        titleFromFilename(parsedFile.values.storedFilename) ??
+        "Brand Asset",
+      storedFilename: parsedFile.values.storedFilename,
+    },
+  };
+}
+
+export async function parseBrandingAssetReplaceFormData(
+  formData: FormData,
+): Promise<BrandingReplaceParseResult> {
+  const parsedFile = await parseBrandingAssetFile(formData);
+
+  if (!parsedFile.ok) {
+    return parsedFile;
+  }
+
+  const parsed = replaceFormSchema.safeParse({
+    assetId: String(formData.get("assetId") ?? "").trim(),
+  });
+
+  if (!parsed.success) {
+    return {
+      error: "brand-asset-replace-target-invalid",
+      ok: false,
+    };
+  }
+
+  return {
+    ok: true,
+    values: {
+      assetId: parsed.data.assetId,
+      file: parsedFile.values.file,
+      fileExtension: parsedFile.values.fileExtension,
+      storedFilename: parsedFile.values.storedFilename,
+    },
+  };
+}
+
+export function buildBrandingAssetStoragePath({
+  assetId,
+  assetType,
+  filename,
+  userId,
+}: {
+  assetId: string;
+  assetType: BrandAssetType;
+  filename: string;
+  userId: string;
+}) {
+  return `${userId}/${assetType}/${assetId}/${filename}`;
+}
+
+export function buildBrandingAssetReplacementStoragePath({
+  assetId,
+  assetType,
+  filename,
+  replacementId,
+  userId,
+}: {
+  assetId: string;
+  assetType: BrandAssetType;
+  filename: string;
+  replacementId: string;
+  userId: string;
+}) {
+  return `${userId}/${assetType}/${assetId}/replacements/${replacementId}-${filename}`;
+}
+
+export function buildBrandingAssetUploadMetadata({
+  file,
+  fileExtension,
+  storedFilename,
+}: {
+  file: File;
+  fileExtension: (typeof BRANDING_DASHBOARD_UPLOAD_ALLOWED_EXTENSIONS)[number];
+  storedFilename: string;
+}): BrandingUploadMetadata {
+  return {
+    content_type: file.type,
+    file_extension: fileExtension,
+    file_size_bytes: file.size,
+    stored_filename: storedFilename,
+  };
+}
+
+export function mergeBrandingAssetMetadataWithUpload(
+  metadata: unknown,
+  uploadMetadata: BrandingUploadMetadata,
+): Record<string, unknown> {
+  const baseMetadata = isPlainObject(metadata) ? { ...metadata } : {};
+  return {
+    ...baseMetadata,
+    upload: uploadMetadata,
+  };
+}
+
+async function parseBrandingAssetFile(formData: FormData): Promise<
+  | { ok: true; values: BrandingParsedFile }
+  | {
+      error:
+        | "brand-asset-file-extension-mismatch"
+        | "brand-asset-file-extension-missing"
+        | "brand-asset-file-required"
+        | "brand-asset-file-too-large"
+        | "brand-asset-file-type-missing"
+        | "brand-asset-file-type-not-supported"
+        | "brand-asset-svg-not-supported";
+      ok: false;
+    }
+> {
   const file = formData.get("assetFile");
 
   if (!(file instanceof File) || file.size === 0) {
@@ -159,48 +341,15 @@ export async function parseBrandingAssetUploadFormData(
     };
   }
 
-  const parsed = uploadFormSchema.safeParse({
-    assetType: String(formData.get("assetType") ?? "").trim(),
-    description: String(formData.get("description") ?? "").trim(),
-    id: createAssetId(),
-    name: String(formData.get("name") ?? "").trim() || undefined,
-  });
-
-  if (!parsed.success) {
-    return {
-      error: "invalid-brand-asset-form",
-      ok: false,
-    };
-  }
-
   return {
     ok: true,
     values: {
-      assetId: parsed.data.id,
-      assetType: parsed.data.assetType,
-      description: parsed.data.description || null,
       file,
       fileExtension:
         extension as (typeof BRANDING_DASHBOARD_UPLOAD_ALLOWED_EXTENSIONS)[number],
-      name:
-        parsed.data.name ?? titleFromFilename(storedFilename) ?? "Brand Asset",
       storedFilename,
     },
   };
-}
-
-export function buildBrandingAssetStoragePath({
-  assetId,
-  assetType,
-  filename,
-  userId,
-}: {
-  assetId: string;
-  assetType: BrandAssetType;
-  filename: string;
-  userId: string;
-}) {
-  return `${userId}/${assetType}/${assetId}/${filename}`;
 }
 
 export function isTenantScopedBrandingStoragePath(
@@ -334,4 +483,8 @@ function hasPrefix(bytes: Uint8Array, expected: number[]): boolean {
     bytes.length >= expected.length &&
     expected.every((byte, index) => bytes[index] === byte)
   );
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

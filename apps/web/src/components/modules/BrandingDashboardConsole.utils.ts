@@ -139,8 +139,7 @@ const mutationContract: BrandingDashboardMutationContract = {
   },
   replace: {
     action: "replace",
-    available: false,
-    reason: "requires_new_asset_row_strategy",
+    available: true,
   },
 };
 

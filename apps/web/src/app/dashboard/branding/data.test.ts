@@ -95,12 +95,15 @@ describe("getBrandingDashboardData", () => {
       serverSort: "updated_desc",
     });
     expect(data.mutationContract.delete.available).toBe(false);
-    expect(data.mutationContract.replace.reason).toBe(
-      "requires_new_asset_row_strategy",
-    );
-    expect(data.mutationContract["orphan_cleanup"].reason).toBe(
-      "requires_scoped_manual_cleanup",
-    );
+    expect(data.mutationContract.replace).toEqual({
+      action: "replace",
+      available: true,
+    });
+    expect(data.mutationContract["orphan_cleanup"]).toEqual({
+      action: "orphan_cleanup",
+      available: false,
+      reason: "requires_scoped_manual_cleanup",
+    });
     expect("orphanCleanup" in data.mutationContract).toBe(false);
   });
 
@@ -190,7 +193,7 @@ describe("getBrandingDashboardData", () => {
       futureActions: [
         expect.objectContaining({
           action: "replace",
-          available: false,
+          available: true,
         }),
         expect.objectContaining({
           action: "delete",
@@ -227,9 +230,11 @@ describe("getBrandingDashboardData", () => {
       },
     ]);
     expect(supabase.storageTouched).toBe(true);
-    expect(data.mutationContract["orphan_cleanup"].reason).toBe(
-      "requires_scoped_manual_cleanup",
-    );
+    expect(data.mutationContract["orphan_cleanup"]).toEqual({
+      action: "orphan_cleanup",
+      available: false,
+      reason: "requires_scoped_manual_cleanup",
+    });
   });
 
   it("marks the feed as a loaded sample and prepares a next cursor when more rows exist than the current limit", async () => {
