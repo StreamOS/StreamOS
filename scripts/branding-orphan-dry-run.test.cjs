@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const {
   BRAND_ASSET_STORAGE_BUCKET,
+  DEFAULT_REPORT_SCHEMA_VERSION,
   buildBrandingOrphanDryRunReport,
   classifyBrandingStorageObject,
   createSupabaseReadonlyClient,
@@ -73,6 +74,10 @@ test("referenced object is not marked as orphan", () => {
   assert.equal(result.classification, "referenced");
   assert.equal(result.redactedPath, "<tenant>/logo/asset-live/neon-logo.png");
   assert.equal(result.objectSizeBytes, 2048);
+  assert.deepEqual(result.pathContract, {
+    recognizedShape: true,
+    tenantScopedPrefix: true,
+  });
 });
 
 test("old replace object without DB reference is marked as orphan_candidate", () => {
@@ -112,6 +117,10 @@ test("out-of-prefix object is classified out_of_scope without leaking the foreig
 
   assert.equal(result.classification, "out_of_scope");
   assert.equal(result.redactedPath, "<out-of-scope>");
+  assert.deepEqual(result.pathContract, {
+    recognizedShape: false,
+    tenantScopedPrefix: false,
+  });
 });
 
 test("legacy or unexpected tenant-scoped path stays fail-safe as unknown", () => {
@@ -129,6 +138,10 @@ test("legacy or unexpected tenant-scoped path stays fail-safe as unknown", () =>
   });
 
   assert.equal(result.classification, "unknown");
+  assert.deepEqual(result.pathContract, {
+    recognizedShape: false,
+    tenantScopedPrefix: true,
+  });
 });
 
 test("recognized brand asset storage path accepts create and replacement shapes only", () => {
@@ -417,6 +430,8 @@ test("empty bucket and DB states render a stable dry-run report", async () => {
   assert.equal(report.execution.dryRun, true);
   assert.equal(report.execution.mutationAllowed, false);
   assert.equal(report.execution.nextExecutionSliceBlocked, true);
+  assert.equal(report.schemaVersion, DEFAULT_REPORT_SCHEMA_VERSION);
+  assert.match(report.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(report.summary.totalObjects, 0);
   assert.equal(report.summary.orphanCandidateCount, 0);
   assert.equal(report.scope.prefix, `${tenantId}/`);
@@ -426,6 +441,7 @@ test("empty bucket and DB states render a stable dry-run report", async () => {
 
 test("text report includes safe object metadata when available", () => {
   const report = buildBrandingOrphanDryRunReport({
+    generatedAt: "2026-06-28T00:00:00.000Z",
     references: [],
     storageObjects: [
       {
@@ -447,6 +463,8 @@ test("text report includes safe object metadata when available", () => {
   const textReport = formatReport(report, "text");
 
   assert.match(textReport, /size=512B/);
+  assert.match(textReport, /schema version: branding_orphan_dry_run\/v2/);
+  assert.match(textReport, /generated at: 2026-06-28T00:00:00.000Z/);
   assert.match(textReport, /created=2026-06-27T10:00:00.000Z/);
   assert.match(textReport, /updated=2026-06-27T11:00:00.000Z/);
   assert.match(textReport, /last_accessed=2026-06-27T12:00:00.000Z/);
