@@ -1,6 +1,6 @@
 const protectedBranches = new Set(["main", "develop", "staging", "production"]);
 const protectedPatterns = [/^release\/.+$/];
-const temporaryOpsPrefixes = ["backup/", "codex/"];
+const temporaryOpsPrefixes = ["archive/", "backup/", "codex/", "railway/"];
 const allowedTypes = new Set(["feature", "fix", "chore", "release"]);
 const allowedScopes = new Set([
   "web",
