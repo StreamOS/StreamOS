@@ -4,7 +4,6 @@ const { consumeValueFlag } = require("./lib/cli-args.cjs");
 const {
   DEFAULT_FORMAT,
   evaluateExecutionContract,
-  formatReport: formatExecutionContractReport,
 } = require("./branding-orphan-execution-contract.cjs");
 const {
   EXECUTION_ALLOWED_TARGET_ENVIRONMENTS,
