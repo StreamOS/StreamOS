@@ -89,6 +89,54 @@ export type MonetizationDashboardModel = MonetizationDashboardReadModel & {
   userId: string | null;
 };
 
+export const MONETIZATION_EVENT_LIST_FILTER_EVENT_TYPES = [
+  "subscription",
+  "tip",
+  "donation",
+  "ad_revenue",
+  "sponsorship",
+  "merch_sale",
+  "affiliate",
+  "membership",
+  "bits",
+  "other",
+] as const;
+
+export const MONETIZATION_EVENT_LIST_FILTER_STATUSES = [
+  "confirmed",
+  "pending",
+  "failed",
+  "disputed",
+  "refunded",
+  "void",
+] as const;
+
+export const MONETIZATION_EVENT_LIST_FILTER_PROVIDERS = [
+  "twitch",
+  "youtube",
+  "tiktok",
+  "kick",
+] as const;
+
+export const MONETIZATION_EVENT_LIST_WINDOW_MAX = 3;
+
+export type MonetizationEventListFilterEventType =
+  (typeof MONETIZATION_EVENT_LIST_FILTER_EVENT_TYPES)[number];
+
+export type MonetizationEventListFilterProvider =
+  (typeof MONETIZATION_EVENT_LIST_FILTER_PROVIDERS)[number];
+
+export type MonetizationEventListFilterStatus =
+  (typeof MONETIZATION_EVENT_LIST_FILTER_STATUSES)[number];
+
+export type MonetizationEventListView = {
+  eventType: MonetizationEventListFilterEventType | null;
+  provider: MonetizationEventListFilterProvider | null;
+  source: string | null;
+  status: MonetizationEventListFilterStatus | null;
+  windowCount: number;
+};
+
 const SUMMARY_CATEGORY_KEYS = [
   "subscription",
   "tip",
