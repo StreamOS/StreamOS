@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MonetizationPage from "./page";
+import { dynamic } from "./page";
 import {
   buildMonetizationDashboardModel,
   createEmptyMonetizationDashboardModel,
@@ -25,6 +26,10 @@ describe("MonetizationPage", () => {
     mocks.getMonetizationDashboardData.mockReset();
   });
 
+  it("renders as a dynamic dashboard route", () => {
+    expect(dynamic).toBe("force-dynamic");
+  });
+
   it("renders the empty read-only monetization surface", async () => {
     mocks.getMonetizationDashboardData.mockResolvedValue(
       createEmptyMonetizationDashboardModel("last_30_days", "user-1"),
@@ -38,6 +43,9 @@ describe("MonetizationPage", () => {
     expect(html).toContain("Aktive Revenue-Perspektive:");
     expect(html).toContain("Noch keine Monetization-Daten");
     expect(html).toContain("Keine Monetization Events im Zeitraum");
+    expect(html).toContain(
+      "Plattformverbindungen und serverseitige Monetization-Ingestion",
+    );
     expect(html).not.toContain("Data Quality");
   });
 
@@ -218,6 +226,7 @@ describe("MonetizationPage", () => {
     expect(html).toContain("Revenue Categories");
     expect(html).toContain("Donations");
     expect(html).toContain("Recent events are missing for this period.");
+    expect(html).toContain("Latest Summary");
     expect(html).not.toContain("Revenue by Source");
     expect(html).toContain(
       "Summary rows expose category counts without source-level revenue amounts in this MVP.",
