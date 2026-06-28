@@ -3,6 +3,7 @@ import {
   getMonetizationDashboardData,
   parseMonetizationEventListView,
 } from "./data";
+import { encodeMonetizationEventCursorToken } from "@/components/modules/MonetizationDashboardConsole.utils";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -109,37 +110,63 @@ describe("monetization data loader", () => {
     expect(model.lookupIssues).toHaveLength(0);
   });
 
-  it("parses event list filters conservatively and clamps the sample window", () => {
+  it("parses event list filters conservatively and resets invalid cursors", () => {
     expect(
       parseMonetizationEventListView({
+        cursor: encodeMonetizationEventCursorToken({
+          cursor: {
+            id: "event-123",
+            occurredAt: "2026-06-25T10:30:00.000Z",
+          },
+          period: "last_30_days",
+          serverFilters: {
+            eventType: "sponsorship",
+            provider: "youtube",
+            source: "brand_campaign",
+            status: "confirmed",
+          },
+        }),
         eventType: "sponsorship",
         provider: "youtube",
         source: "brand_campaign",
         status: "confirmed",
-        window: "99",
       }),
     ).toEqual({
+      cursor: {
+        id: "event-123",
+        occurredAt: "2026-06-25T10:30:00.000Z",
+      },
+      cursorPeriod: "last_30_days",
+      cursorServerFilters: {
+        eventType: "sponsorship",
+        provider: "youtube",
+        source: "brand_campaign",
+        status: "confirmed",
+      },
+      cursorToken: expect.any(String),
       eventType: "sponsorship",
       provider: "youtube",
       source: "brand_campaign",
       status: "confirmed",
-      windowCount: 3,
     });
 
     expect(
       parseMonetizationEventListView({
+        cursor: "not-a-valid-token",
         eventType: "not-real",
         provider: "not-real",
         source: "not valid with spaces",
         status: "not-real",
-        window: "-1",
       }),
     ).toEqual({
+      cursor: null,
+      cursorPeriod: null,
+      cursorServerFilters: null,
+      cursorToken: null,
       eventType: null,
       provider: null,
       source: null,
       status: null,
-      windowCount: 1,
     });
   });
 
@@ -168,11 +195,14 @@ describe("monetization data loader", () => {
     mocks.createClient.mockResolvedValue(client);
 
     await getMonetizationDashboardData("last_7_days", {
+      cursor: null,
+      cursorPeriod: null,
+      cursorServerFilters: null,
+      cursorToken: null,
       eventType: "sponsorship",
       provider: "youtube",
       source: "brand_campaign",
       status: "confirmed",
-      windowCount: 2,
     });
 
     const eventBuilder = client.__builders.monetization_events;
@@ -193,18 +223,25 @@ describe("monetization data loader", () => {
     expect(summaryBuilder.eq).toHaveBeenCalledWith("period", "daily");
     expect(eventBuilder.gte).toHaveBeenCalled();
     expect(summaryBuilder.gte).toHaveBeenCalled();
+    expect(eventBuilder.order).toHaveBeenCalledWith("occurred_at", {
+      ascending: false,
+    });
+    expect(eventBuilder.order).toHaveBeenCalledWith("id", {
+      ascending: true,
+    });
     expect(eventBuilder.eq).toHaveBeenCalledWith("event_type", "sponsorship");
     expect(eventBuilder.eq).toHaveBeenCalledWith("provider", "youtube");
     expect(eventBuilder.eq).toHaveBeenCalledWith("status", "confirmed");
     expect(eventBuilder.eq).toHaveBeenCalledWith("source", "brand_campaign");
-    expect(eventBuilder.limit).toHaveBeenCalledWith(25);
+    expect(eventBuilder.limit).toHaveBeenCalledWith(13);
+    expect(eventBuilder.or).not.toHaveBeenCalled();
     expect(eventBuilder.delete).not.toHaveBeenCalled();
     expect(eventBuilder.update).not.toHaveBeenCalled();
     expect(summaryBuilder.delete).not.toHaveBeenCalled();
     expect(summaryBuilder.update).not.toHaveBeenCalled();
   });
 
-  it("expands the recent-event sample window without changing summary scope", async () => {
+  it("loads a bounded first server page without changing summary scope", async () => {
     mocks.isSupabaseConfigured.mockReturnValue(true);
     const client = createSupabaseClient({
       rpcResult: {
@@ -219,7 +256,7 @@ describe("monetization data loader", () => {
       tableResults: {
         monetization_events: {
           count: 30,
-          data: Array.from({ length: 25 }, (_, index) => ({
+          data: Array.from({ length: 13 }, (_, index) => ({
             amount_cents: 1000 + index,
             currency: "USD",
             event_type: "subscription",
@@ -243,22 +280,163 @@ describe("monetization data loader", () => {
     mocks.createClient.mockResolvedValue(client);
 
     const model = await getMonetizationDashboardData("last_30_days", {
+      cursor: null,
+      cursorPeriod: null,
+      cursorServerFilters: null,
+      cursorToken: null,
       eventType: null,
       provider: null,
       source: null,
       status: null,
-      windowCount: 2,
     });
 
     const eventBuilder = client.__builders.monetization_events;
     const summaryBuilder = client.__builders.monetization_summaries;
 
-    expect(model.feed.limit).toBe(24);
+    expect(model.feed.limit).toBe(12);
     expect(model.feed.hasMore).toBe(true);
-    expect(model.recentEvents).toHaveLength(24);
+    expect(model.feed.nextCursor).toEqual({
+      id: "event-12",
+      occurredAt: "2026-06-25T10:30:00.000Z",
+    });
+    expect(model.feed.scope).toBe("server_page");
+    expect(model.recentEvents).toHaveLength(12);
     expect(model.coverage.summaryRowCount).toBe(0);
-    expect(eventBuilder?.limit).toHaveBeenCalledWith(25);
+    expect(eventBuilder?.limit).toHaveBeenCalledWith(13);
     expect(summaryBuilder?.eq).toHaveBeenCalledWith("period", "daily");
+  });
+
+  it("loads the next cursor-bound page and keeps filters tenant-scoped", async () => {
+    mocks.isSupabaseConfigured.mockReturnValue(true);
+    const client = createSupabaseClient({
+      rpcResult: {
+        data: {
+          active_platforms: 1,
+          avg_revenue_per_day_cents: 5000,
+          currency: "USD",
+          total_revenue_cents: 5000,
+        },
+        error: null,
+      },
+      tableResults: {
+        monetization_events: {
+          count: 18,
+          data: Array.from({ length: 13 }, (_, index) => ({
+            amount_cents: 1000 + index,
+            currency: "USD",
+            event_type: "sponsorship",
+            id: `event-page-2-${index + 1}`,
+            occurred_at: "2026-06-24T10:30:00.000Z",
+            provider: "youtube",
+            source: "brand_campaign",
+            status: "confirmed",
+          })),
+          error: null,
+        },
+        monetization_summaries: {
+          data: [],
+          error: null,
+        },
+      },
+      user: {
+        id: "user-page-2",
+      },
+    });
+    mocks.createClient.mockResolvedValue(client);
+
+    const cursorToken = encodeMonetizationEventCursorToken({
+      cursor: {
+        id: "event-page-1-12",
+        occurredAt: "2026-06-25T10:30:00.000Z",
+      },
+      period: "last_30_days",
+      serverFilters: {
+        eventType: "sponsorship",
+        provider: "youtube",
+        source: "brand_campaign",
+        status: "confirmed",
+      },
+    });
+
+    const model = await getMonetizationDashboardData(
+      "last_30_days",
+      parseMonetizationEventListView({
+        cursor: cursorToken,
+        eventType: "sponsorship",
+        provider: "youtube",
+        source: "brand_campaign",
+        status: "confirmed",
+      }),
+    );
+
+    const eventBuilder = client.__builders.monetization_events;
+
+    expect(model.feed.currentCursor).toEqual({
+      id: "event-page-1-12",
+      occurredAt: "2026-06-25T10:30:00.000Z",
+    });
+    expect(model.feed.hasMore).toBe(true);
+    expect(model.feed.nextCursor).toEqual({
+      id: "event-page-2-12",
+      occurredAt: "2026-06-24T10:30:00.000Z",
+    });
+    expect(model.feed.scope).toBe("server_page");
+    expect(model.feed.totalCount).toBeUndefined();
+    expect(model.recentEvents).toHaveLength(12);
+    expect(eventBuilder?.or).toHaveBeenCalledWith(
+      "occurred_at.lt.2026-06-25T10:30:00.000Z,and(occurred_at.eq.2026-06-25T10:30:00.000Z,id.gt.event-page-1-12)",
+    );
+  });
+
+  it("falls back to the first page when the cursor belongs to different server filters", async () => {
+    mocks.isSupabaseConfigured.mockReturnValue(true);
+    const client = createSupabaseClient({
+      rpcResult: {
+        data: {},
+        error: null,
+      },
+      tableResults: {
+        monetization_events: {
+          count: 0,
+          data: [],
+          error: null,
+        },
+        monetization_summaries: {
+          data: [],
+          error: null,
+        },
+      },
+      user: {
+        id: "user-cursor-mismatch",
+      },
+    });
+    mocks.createClient.mockResolvedValue(client);
+
+    const model = await getMonetizationDashboardData(
+      "last_30_days",
+      parseMonetizationEventListView({
+        cursor: encodeMonetizationEventCursorToken({
+          cursor: {
+            id: "event-page-1-12",
+            occurredAt: "2026-06-25T10:30:00.000Z",
+          },
+          period: "last_30_days",
+          serverFilters: {
+            eventType: "tip",
+            provider: "youtube",
+            source: "brand_campaign",
+            status: "confirmed",
+          },
+        }),
+        eventType: "sponsorship",
+        provider: "youtube",
+        source: "brand_campaign",
+        status: "confirmed",
+      }),
+    );
+
+    expect(model.feed.currentCursor).toBeNull();
+    expect(client.__builders.monetization_events?.or).not.toHaveBeenCalled();
   });
 
   it("prefers revenue_by_source aggregates when the RPC exposes real source buckets", async () => {
@@ -583,6 +761,7 @@ function createQueryBuilder(result?: QueryResult) {
     eq: vi.fn(() => chain),
     gte: vi.fn(() => chain),
     limit: vi.fn(() => chain),
+    or: vi.fn(() => chain),
     order: vi.fn(() => chain),
     select: vi.fn(() => chain),
     delete: vi.fn(() => chain),

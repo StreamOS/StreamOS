@@ -5,10 +5,12 @@ import {
   type MonetizationAmountValue,
   type MonetizationDataQuality,
   type MonetizationDataQualityNotice,
+  type MonetizationDashboardFeedScope,
   type MonetizationDashboardLookupIssue,
   type MonetizationDashboardPeriod,
   type MonetizationDashboardPeriodContext,
   type MonetizationDashboardReadModel,
+  type MonetizationEventFeedCursor,
   type MonetizationRecentEvent,
   type MonetizationRevenueCategoryItem,
   type MonetizationRevenueBreakdownContext,
@@ -118,8 +120,6 @@ export const MONETIZATION_EVENT_LIST_FILTER_PROVIDERS = [
   "kick",
 ] as const;
 
-export const MONETIZATION_EVENT_LIST_WINDOW_MAX = 3;
-
 export type MonetizationEventListFilterEventType =
   (typeof MONETIZATION_EVENT_LIST_FILTER_EVENT_TYPES)[number];
 
@@ -129,12 +129,18 @@ export type MonetizationEventListFilterProvider =
 export type MonetizationEventListFilterStatus =
   (typeof MONETIZATION_EVENT_LIST_FILTER_STATUSES)[number];
 
-export type MonetizationEventListView = {
+export type MonetizationEventListServerFilters = {
   eventType: MonetizationEventListFilterEventType | null;
   provider: MonetizationEventListFilterProvider | null;
   source: string | null;
   status: MonetizationEventListFilterStatus | null;
-  windowCount: number;
+};
+
+export type MonetizationEventListView = MonetizationEventListServerFilters & {
+  cursor: MonetizationEventFeedCursor | null;
+  cursorPeriod: MonetizationDashboardPeriod | null;
+  cursorServerFilters: MonetizationEventListServerFilters | null;
+  cursorToken: string | null;
 };
 
 const SUMMARY_CATEGORY_KEYS = [
@@ -274,9 +280,12 @@ export function createEmptyMonetizationDashboardModel(
     },
     dataQuality: createEmptyDataQuality(),
     feed: {
+      currentCursor: null,
       hasMore: false,
       limit: MONETIZATION_DASHBOARD_EVENT_LIMIT,
+      nextCursor: null,
       returnedCount: 0,
+      scope: "full_result",
     },
     lookupIssues,
     period,
@@ -301,6 +310,100 @@ export function createEmptyMonetizationDashboardModel(
     trend: [],
     userId,
   };
+}
+
+export function encodeMonetizationEventCursorToken(input: {
+  cursor: MonetizationEventFeedCursor;
+  period: MonetizationDashboardPeriod;
+  serverFilters: MonetizationEventListServerFilters;
+}): string {
+  return Buffer.from(JSON.stringify(input), "utf8").toString("base64url");
+}
+
+export function decodeMonetizationEventCursorToken(value: string | null): {
+  cursor: MonetizationEventFeedCursor | null;
+  period: MonetizationDashboardPeriod | null;
+  serverFilters: MonetizationEventListServerFilters | null;
+} {
+  if (!value) {
+    return {
+      cursor: null,
+      period: null,
+      serverFilters: null,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as {
+      cursor?: {
+        id?: unknown;
+        occurredAt?: unknown;
+      };
+      period?: unknown;
+      serverFilters?: {
+        eventType?: unknown;
+        provider?: unknown;
+        source?: unknown;
+        status?: unknown;
+      };
+    };
+    const eventType = parseMonetizationFilterValue(
+      parsed.serverFilters?.eventType,
+      MONETIZATION_EVENT_LIST_FILTER_EVENT_TYPES,
+    );
+    const provider = parseMonetizationFilterValue(
+      parsed.serverFilters?.provider,
+      MONETIZATION_EVENT_LIST_FILTER_PROVIDERS,
+    );
+    const status = parseMonetizationFilterValue(
+      parsed.serverFilters?.status,
+      MONETIZATION_EVENT_LIST_FILTER_STATUSES,
+    );
+    const source = parseMonetizationCursorSource(parsed.serverFilters?.source);
+
+    if (
+      !parsed.cursor ||
+      typeof parsed.cursor.id !== "string" ||
+      !isSafeCursorId(parsed.cursor.id) ||
+      typeof parsed.cursor.occurredAt !== "string" ||
+      !isValidCursorDate(parsed.cursor.occurredAt) ||
+      !MONETIZATION_DASHBOARD_PERIOD_OPTIONS.some(
+        (option) => option.id === parsed.period,
+      ) ||
+      eventType === undefined ||
+      provider === undefined ||
+      status === undefined ||
+      source === undefined
+    ) {
+      return {
+        cursor: null,
+        period: null,
+        serverFilters: null,
+      };
+    }
+
+    return {
+      cursor: {
+        id: parsed.cursor.id,
+        occurredAt: parsed.cursor.occurredAt,
+      },
+      period: parsed.period as MonetizationDashboardPeriod,
+      serverFilters: {
+        eventType,
+        provider,
+        source,
+        status,
+      },
+    };
+  } catch {
+    return {
+      cursor: null,
+      period: null,
+      serverFilters: null,
+    };
+  }
 }
 
 export function formatMonetizationAmount(
@@ -1221,6 +1324,15 @@ function mergeAmountValues(
   return unavailableAmount();
 }
 
+export function resolveMonetizationFeedScope(input: {
+  currentCursor: MonetizationEventFeedCursor | null;
+  hasMore: boolean;
+}): MonetizationDashboardFeedScope {
+  return input.currentCursor !== null || input.hasMore
+    ? "server_page"
+    : "full_result";
+}
+
 function isCurrencyCode(value: string | null): value is string {
   return typeof value === "string" && /^[A-Z]{3}$/.test(value);
 }
@@ -1266,4 +1378,51 @@ function formatTrendLabel(value: string): string {
     month: "short",
     timeZone: "Europe/Berlin",
   }).format(date);
+}
+
+function parseMonetizationFilterValue<const T extends readonly string[]>(
+  value: unknown,
+  allowedValues: T,
+): T[number] | null | undefined {
+  if (value == null) {
+    return null;
+  }
+
+  return typeof value === "string" && allowedValues.includes(value as T[number])
+    ? (value as T[number])
+    : undefined;
+}
+
+function parseMonetizationCursorSource(
+  value: unknown,
+): string | null | undefined {
+  if (value == null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+
+  if (
+    normalized.length < 1 ||
+    normalized.length > 120 ||
+    !/^[a-z0-9_-]+$/i.test(normalized)
+  ) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
+function isSafeCursorId(value: string): boolean {
+  return (
+    value.length > 0 && value.length <= 120 && /^[a-z0-9_-]+$/i.test(value)
+  );
+}
+
+function isValidCursorDate(value: string): boolean {
+  return !Number.isNaN(new Date(value).getTime());
 }

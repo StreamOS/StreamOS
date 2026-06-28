@@ -14,7 +14,7 @@ import {
   MONETIZATION_EVENT_LIST_FILTER_EVENT_TYPES,
   MONETIZATION_EVENT_LIST_FILTER_PROVIDERS,
   MONETIZATION_EVENT_LIST_FILTER_STATUSES,
-  MONETIZATION_EVENT_LIST_WINDOW_MAX,
+  encodeMonetizationEventCursorToken,
   formatMonetizationAmount,
   formatMonetizationCount,
   formatMonetizationDateTime,
@@ -75,7 +75,7 @@ export function MonetizationDashboardConsole({
       {model.periodContext.periodCoverageNote && (
         <PeriodCoverageNote note={model.periodContext.periodCoverageNote} />
       )}
-      {model.feed.hasMore && <FeedScopeNotice model={model} />}
+      {model.feed.scope === "server_page" && <FeedScopeNotice model={model} />}
       {showPartialLoadNotice && <PartialLoadNotice />}
       {showDataQualityNotice && <DataQualityNotice model={model} />}
 
@@ -372,7 +372,7 @@ export function MonetizationDashboardConsole({
         <article className="card space-y-4">
           <SectionHeader
             title="Recent Monetization Events"
-            description={`Neueste Events bei aktiver Revenue-Perspektive ${model.periodContext.periodLabel} aus einer begrenzten, user-scoped Feed-Abfrage.`}
+            description={`Neueste Events bei aktiver Revenue-Perspektive ${model.periodContext.periodLabel} aus einer serverseitig begrenzten, user-scoped Feed-Abfrage.`}
           />
           <EventFeedControls
             eventListView={eventListView}
@@ -518,9 +518,33 @@ function EventFeedControls({
   model: MonetizationDashboardModel;
   visibleSources: string[];
 }) {
-  const canExpandWindow =
-    model.feed.hasMore &&
-    eventListView.windowCount < MONETIZATION_EVENT_LIST_WINDOW_MAX;
+  const loadMoreHref =
+    model.feed.hasMore && model.feed.nextCursor
+      ? buildMonetizationEventListHref({
+          overrides: {
+            cursor: model.feed.nextCursor,
+            cursorPeriod: model.period,
+            cursorServerFilters: {
+              eventType: eventListView.eventType,
+              provider: eventListView.provider,
+              source: eventListView.source,
+              status: eventListView.status,
+            },
+            cursorToken: encodeMonetizationEventCursorToken({
+              cursor: model.feed.nextCursor,
+              period: model.period,
+              serverFilters: {
+                eventType: eventListView.eventType,
+                provider: eventListView.provider,
+                source: eventListView.source,
+                status: eventListView.status,
+              },
+            }),
+          },
+          period: model.period,
+          view: eventListView,
+        })
+      : null;
 
   return (
     <section className="rounded-lg border border-white/10 bg-white/5 p-4">
@@ -531,13 +555,13 @@ function EventFeedControls({
           </p>
           <p className="mt-2 text-sm leading-6 text-slate-400">
             Diese Filter bleiben read-only, tenant-scoped und wirken nur auf den
-            Monetization Event Feed. Das Feed-Fenster erweitert lediglich den
-            geladenen Sample-Scope.
+            Monetization Event Feed. Die Summary-Reads bleiben unveraendert,
+            waehrend der Feed serverseitig begrenzt und cursor-basiert erweitert
+            wird.
           </p>
         </div>
         <Pill tone="slate">
-          Sample window {eventListView.windowCount} /{" "}
-          {MONETIZATION_EVENT_LIST_WINDOW_MAX}
+          {model.feed.scope === "server_page" ? "Server page" : "Full result"}
         </Pill>
       </div>
 
@@ -583,8 +607,11 @@ function EventFeedControls({
             (eventType) => ({
               href: buildMonetizationEventListHref({
                 overrides: {
+                  cursor: null,
+                  cursorPeriod: null,
+                  cursorServerFilters: null,
+                  cursorToken: null,
                   eventType,
-                  windowCount: 1,
                 },
                 period: model.period,
                 view: eventListView,
@@ -595,8 +622,11 @@ function EventFeedControls({
           )}
           resetHref={buildMonetizationEventListHref({
             overrides: {
+              cursor: null,
+              cursorPeriod: null,
+              cursorServerFilters: null,
+              cursorToken: null,
               eventType: null,
-              windowCount: 1,
             },
             period: model.period,
             view: eventListView,
@@ -608,8 +638,11 @@ function EventFeedControls({
           options={MONETIZATION_EVENT_LIST_FILTER_PROVIDERS.map((provider) => ({
             href: buildMonetizationEventListHref({
               overrides: {
+                cursor: null,
+                cursorPeriod: null,
+                cursorServerFilters: null,
+                cursorToken: null,
                 provider,
-                windowCount: 1,
               },
               period: model.period,
               view: eventListView,
@@ -619,8 +652,11 @@ function EventFeedControls({
           }))}
           resetHref={buildMonetizationEventListHref({
             overrides: {
+              cursor: null,
+              cursorPeriod: null,
+              cursorServerFilters: null,
+              cursorToken: null,
               provider: null,
-              windowCount: 1,
             },
             period: model.period,
             view: eventListView,
@@ -632,8 +668,11 @@ function EventFeedControls({
           options={MONETIZATION_EVENT_LIST_FILTER_STATUSES.map((status) => ({
             href: buildMonetizationEventListHref({
               overrides: {
+                cursor: null,
+                cursorPeriod: null,
+                cursorServerFilters: null,
+                cursorToken: null,
                 status,
-                windowCount: 1,
               },
               period: model.period,
               view: eventListView,
@@ -643,8 +682,11 @@ function EventFeedControls({
           }))}
           resetHref={buildMonetizationEventListHref({
             overrides: {
+              cursor: null,
+              cursorPeriod: null,
+              cursorServerFilters: null,
+              cursorToken: null,
               status: null,
-              windowCount: 1,
             },
             period: model.period,
             view: eventListView,
@@ -657,8 +699,11 @@ function EventFeedControls({
             options={visibleSources.map((source) => ({
               href: buildMonetizationEventListHref({
                 overrides: {
+                  cursor: null,
+                  cursorPeriod: null,
+                  cursorServerFilters: null,
+                  cursorToken: null,
                   source,
-                  windowCount: 1,
                 },
                 period: model.period,
                 view: eventListView,
@@ -668,8 +713,11 @@ function EventFeedControls({
             }))}
             resetHref={buildMonetizationEventListHref({
               overrides: {
+                cursor: null,
+                cursorPeriod: null,
+                cursorServerFilters: null,
+                cursorToken: null,
                 source: null,
-                windowCount: 1,
               },
               period: model.period,
               view: eventListView,
@@ -680,19 +728,24 @@ function EventFeedControls({
 
       <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-400">
         <span>
-          Sample scope: {model.feed.returnedCount} von{" "}
-          {model.feed.totalCount ?? model.feed.returnedCount} Events in{" "}
-          {getMonetizationDashboardPeriodLabel(model.period)}
+          Server page: {model.feed.returnedCount}
+          {model.feed.totalCount !== undefined
+            ? ` von ${model.feed.totalCount}`
+            : ""}{" "}
+          Events in {getMonetizationDashboardPeriodLabel(model.period)}
         </span>
         {hasActiveEventFilters ? (
           <Link
             href={buildMonetizationEventListHref({
               overrides: {
+                cursor: null,
+                cursorPeriod: null,
+                cursorServerFilters: null,
+                cursorToken: null,
                 eventType: null,
                 provider: null,
                 source: null,
                 status: null,
-                windowCount: 1,
               },
               period: model.period,
               view: eventListView,
@@ -702,26 +755,21 @@ function EventFeedControls({
             Clear event filters
           </Link>
         ) : null}
-        {canExpandWindow ? (
+        {loadMoreHref ? (
           <Link
-            href={buildMonetizationEventListHref({
-              overrides: {
-                windowCount: eventListView.windowCount + 1,
-              },
-              period: model.period,
-              view: eventListView,
-            })}
+            href={loadMoreHref}
             className="text-sm font-semibold text-signal-green hover:text-emerald-300"
           >
-            Show more sample events
+            Load older events
           </Link>
         ) : null}
       </div>
 
-      {model.feed.hasMore && !canExpandWindow ? (
+      {eventListView.cursorToken ? (
         <p className="mt-3 text-xs uppercase tracking-[0.08em] text-slate-500">
-          Der aktuelle Event-Sample-Scope ist ausgereizt. Echte serverseitige
-          Pagination bleibt ein separater Folgeslice.
+          Diese Ansicht wurde ueber einen servergebundenen Cursor geladen.
+          Filterwechsel oder Reset fuehren fail-safe auf die erste Feed-Seite
+          zurueck.
         </p>
       ) : null}
     </section>
@@ -843,9 +891,10 @@ function PeriodCoverageNote({ note }: { note: string }) {
 function FeedScopeNotice({ model }: { model: MonetizationDashboardModel }) {
   return (
     <section className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
-      Diese Surface zeigt die neuesten {model.feed.returnedCount} Monetization
-      Events bei einem Feed-Limit von {model.feed.limit}. Der Recent-Events
-      Bereich bleibt deshalb sample-scoped.
+      Diese Surface zeigt pro serverseitiger Feed-Seite maximal{" "}
+      {model.feed.limit} Monetization Events. Recent Events bleiben read-only
+      und tenant-scoped; Summary-, Trend- und Breakdown-Reads werden davon nicht
+      beeinflusst.
     </section>
   );
 }
@@ -1202,8 +1251,8 @@ function buildMonetizationEventListHref({
     searchParams.set("source", nextView.source);
   }
 
-  if (nextView.windowCount > 1) {
-    searchParams.set("window", String(nextView.windowCount));
+  if (nextView.cursorToken) {
+    searchParams.set("cursor", nextView.cursorToken);
   }
 
   return `/dashboard/monetization?${searchParams.toString()}`;

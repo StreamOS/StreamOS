@@ -28,6 +28,10 @@ export type MonetizationDashboardPeriodOption =
   (typeof MONETIZATION_DASHBOARD_PERIOD_OPTIONS)[number];
 
 export const MONETIZATION_DASHBOARD_EVENT_LIMIT = 12;
+export const MONETIZATION_DASHBOARD_FEED_SCOPES = [
+  "full_result",
+  "server_page",
+] as const;
 
 export const MONETIZATION_DASHBOARD_LOOKUP_SOURCES = [
   "aggregates",
@@ -37,6 +41,8 @@ export const MONETIZATION_DASHBOARD_LOOKUP_SOURCES = [
 
 export type MonetizationDashboardLookupSource =
   (typeof MONETIZATION_DASHBOARD_LOOKUP_SOURCES)[number];
+export type MonetizationDashboardFeedScope =
+  (typeof MONETIZATION_DASHBOARD_FEED_SCOPES)[number];
 
 export type MonetizationDashboardLookupIssue = {
   code: "load-failed";
@@ -157,10 +163,18 @@ export type MonetizationRecentEvent = {
   status: MonetizationEventStatus;
 };
 
+export type MonetizationEventFeedCursor = {
+  id: string;
+  occurredAt: string;
+};
+
 export type MonetizationDashboardFeedMetadata = {
+  currentCursor?: MonetizationEventFeedCursor | null;
   hasMore: boolean;
   limit: number;
+  nextCursor?: MonetizationEventFeedCursor | null;
   returnedCount: number;
+  scope?: MonetizationDashboardFeedScope;
   totalCount?: number;
 };
 

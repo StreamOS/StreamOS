@@ -5,6 +5,7 @@ import {
   MONETIZATION_AMOUNT_AVAILABILITIES,
   MONETIZATION_DATA_QUALITY_CODES,
   MONETIZATION_DASHBOARD_EVENT_LIMIT,
+  MONETIZATION_DASHBOARD_FEED_SCOPES,
   MONETIZATION_DASHBOARD_LOOKUP_SOURCES,
   MONETIZATION_DASHBOARD_PERIODS,
   MONETIZATION_REVENUE_BREAKDOWN_DIMENSIONS,
@@ -40,9 +41,12 @@ const sampleReadModel = {
     unknownSourceRatio: 0,
   },
   feed: {
+    currentCursor: null,
     hasMore: false,
     limit: MONETIZATION_DASHBOARD_EVENT_LIMIT,
+    nextCursor: null,
     returnedCount: 2,
+    scope: "full_result",
     totalCount: 2,
   },
   lookupIssues: [],
@@ -151,6 +155,10 @@ void test("monetization dashboard contract keeps enums and feed limits stable", 
     "all_time",
   ]);
   assert.equal(MONETIZATION_DASHBOARD_EVENT_LIMIT, 12);
+  assert.deepEqual(MONETIZATION_DASHBOARD_FEED_SCOPES, [
+    "full_result",
+    "server_page",
+  ]);
   assert.deepEqual(MONETIZATION_DASHBOARD_LOOKUP_SOURCES, [
     "aggregates",
     "events",
@@ -180,6 +188,7 @@ void test("monetization dashboard contract keeps enums and feed limits stable", 
 
 void test("monetization dashboard read model stays read-only and explicit about currency handling", () => {
   assert.equal(sampleReadModel.feed.limit, 12);
+  assert.equal(sampleReadModel.feed.currentCursor, null);
   assert.equal(sampleReadModel.lookupIssues.length, 0);
   assert.equal(sampleReadModel.periodContext.periodLabel, "Last 30 days");
   assert.equal(sampleReadModel.summary.totalRevenue.currency, "USD");
@@ -202,6 +211,8 @@ void test("monetization dashboard read model stays read-only and explicit about 
     sampleReadModel.revenueBreakdown[0]?.rawSource,
     "channel_subscription",
   );
+  assert.equal(sampleReadModel.feed.nextCursor, null);
+  assert.equal(sampleReadModel.feed.scope, "full_result");
   assert.equal(sampleReadModel.revenueBreakdownContext.dataSource, "events");
   assert.equal(sampleReadModel.recentEvents[0]?.status, "confirmed");
 });

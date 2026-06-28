@@ -16,11 +16,17 @@ vi.mock("./data", () => ({
   parseMonetizationEventListView: (
     value: Record<string, string | string[] | undefined> | undefined,
   ) => ({
+    cursor: null,
+    cursorPeriod: null,
+    cursorServerFilters: null,
+    cursorToken:
+      typeof value?.cursor === "string" && value.cursor.length > 0
+        ? value.cursor
+        : null,
     eventType: typeof value?.eventType === "string" ? value.eventType : null,
     provider: typeof value?.provider === "string" ? value.provider : null,
     source: typeof value?.source === "string" ? value.source : null,
     status: typeof value?.status === "string" ? value.status : null,
-    windowCount: typeof value?.window === "string" ? Number(value.window) : 1,
   }),
   parseMonetizationDashboardPeriod: (value: string | undefined) =>
     value === "all_time"
@@ -100,12 +106,17 @@ describe("MonetizationPage", () => {
           status: "confirmed",
         },
       ],
-      feed: {
+      feed: createFeed({
         hasMore: true,
-        limit: 24,
+        limit: 12,
+        nextCursor: {
+          id: "event-filter-1",
+          occurredAt: "2026-06-25T12:00:00.000Z",
+        },
         returnedCount: 1,
+        scope: "server_page",
         totalCount: 25,
-      },
+      }),
       lookupIssues: [],
       period: "last_30_days",
       state: "ready",
@@ -118,11 +129,11 @@ describe("MonetizationPage", () => {
     const html = renderToStaticMarkup(
       await MonetizationPage({
         searchParams: Promise.resolve({
+          cursor: "cursor-token",
           eventType: "sponsorship",
           provider: "youtube",
           source: "brand_campaign",
           status: "confirmed",
-          window: "2",
         }),
       }),
     );
@@ -130,22 +141,24 @@ describe("MonetizationPage", () => {
     expect(mocks.getMonetizationDashboardData).toHaveBeenCalledWith(
       "last_30_days",
       {
+        cursor: null,
+        cursorPeriod: null,
+        cursorServerFilters: null,
+        cursorToken: "cursor-token",
         eventType: "sponsorship",
         provider: "youtube",
         source: "brand_campaign",
         status: "confirmed",
-        windowCount: 2,
       },
     );
     expect(html).toContain("Event Feed Controls");
-    expect(html).toContain("Sample window 2 / 3");
     expect(html).toContain("Clear event filters");
-    expect(html).toContain("Show more sample events");
+    expect(html).toContain("Load older events");
     expect(html).toContain("eventType=sponsorship");
     expect(html).toContain("provider=youtube");
     expect(html).toContain("source=brand_campaign");
     expect(html).toContain("status=confirmed");
-    expect(html).toContain("window=3");
+    expect(html).toContain("cursor=");
   });
 
   it("renders partial-load warnings without hiding existing data", async () => {
@@ -176,12 +189,17 @@ describe("MonetizationPage", () => {
           status: "confirmed",
         },
       ],
-      feed: {
+      feed: createFeed({
         hasMore: true,
         limit: 12,
+        nextCursor: {
+          id: "event-1",
+          occurredAt: "2026-06-25T12:00:00.000Z",
+        },
         returnedCount: 1,
+        scope: "server_page",
         totalCount: 14,
-      },
+      }),
       lookupIssues: [
         {
           code: "load-failed",
@@ -203,7 +221,9 @@ describe("MonetizationPage", () => {
     );
     expect(html).toContain("Data Quality");
     expect(html).toContain("This view is based on partial data.");
-    expect(html).toContain("Diese Surface zeigt die neuesten 1 Monetization");
+    expect(html).toContain(
+      "Diese Surface zeigt pro serverseitiger Feed-Seite maximal 12",
+    );
     expect(html).toContain("Recent Monetization Events");
     expect(html).toContain("Revenue by Category");
     expect(html).toContain("Sponsorships");
@@ -233,11 +253,9 @@ describe("MonetizationPage", () => {
           status: "confirmed",
         },
       ],
-      feed: {
-        hasMore: false,
-        limit: 12,
+      feed: createFeed({
         returnedCount: 1,
-      },
+      }),
       lookupIssues: [],
       period: "last_30_days",
       state: "ready",
@@ -268,11 +286,9 @@ describe("MonetizationPage", () => {
         trend: [],
       },
       events: [],
-      feed: {
-        hasMore: false,
-        limit: 12,
+      feed: createFeed({
         returnedCount: 0,
-      },
+      }),
       lookupIssues: [],
       period: "last_30_days",
       state: "ready",
@@ -338,3 +354,19 @@ describe("MonetizationPage", () => {
     expect(html).not.toContain("Data Quality");
   });
 });
+
+function createFeed(
+  overrides: Partial<
+    ReturnType<typeof buildMonetizationDashboardModel>["feed"]
+  > = {},
+) {
+  return {
+    currentCursor: null,
+    hasMore: false,
+    limit: 12,
+    nextCursor: null,
+    returnedCount: 0,
+    scope: "full_result" as const,
+    ...overrides,
+  };
+}

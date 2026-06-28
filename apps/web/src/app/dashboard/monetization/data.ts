@@ -1,6 +1,7 @@
 import {
   MONETIZATION_DASHBOARD_EVENT_LIMIT,
   MONETIZATION_DASHBOARD_PERIODS,
+  type MonetizationEventFeedCursor,
   type MonetizationDashboardLookupIssue,
   type MonetizationDashboardPeriod,
   type MonetizationSummaryPeriod,
@@ -11,14 +12,16 @@ import {
   MONETIZATION_EVENT_LIST_FILTER_EVENT_TYPES,
   MONETIZATION_EVENT_LIST_FILTER_PROVIDERS,
   MONETIZATION_EVENT_LIST_FILTER_STATUSES,
-  MONETIZATION_EVENT_LIST_WINDOW_MAX,
   buildMonetizationDashboardModel,
   createEmptyMonetizationDashboardModel,
+  decodeMonetizationEventCursorToken,
+  resolveMonetizationFeedScope,
   type MonetizationAggregateSnapshot,
   type MonetizationAggregateSourceRow,
   type MonetizationAggregateTrendRow,
   type MonetizationDashboardModel,
   type MonetizationEventRow,
+  type MonetizationEventListServerFilters,
   type MonetizationEventListView,
   type MonetizationSummaryRow,
 } from "@/components/modules/MonetizationDashboardConsole.utils";
@@ -44,6 +47,7 @@ type MonetizationRpcClient = {
 
 type EventResult = {
   count: number | null;
+  currentCursor: MonetizationEventFeedCursor | null;
   data: MonetizationEventRow[] | null;
   error: unknown;
 };
@@ -66,7 +70,14 @@ export function parseMonetizationDashboardPeriod(
 export function parseMonetizationEventListView(
   searchParams?: Record<string, string | string[] | undefined>,
 ): MonetizationEventListView {
+  const cursorToken = readSingleSearchParam(searchParams?.cursor);
+  const decodedCursor = decodeMonetizationEventCursorToken(cursorToken);
+
   return {
+    cursor: decodedCursor.cursor,
+    cursorPeriod: decodedCursor.period,
+    cursorServerFilters: decodedCursor.serverFilters,
+    cursorToken: decodedCursor.cursor ? cursorToken : null,
     eventType: parseFilterValue(
       readSingleSearchParam(searchParams?.eventType),
       MONETIZATION_EVENT_LIST_FILTER_EVENT_TYPES,
@@ -82,20 +93,20 @@ export function parseMonetizationEventListView(
       readSingleSearchParam(searchParams?.status),
       MONETIZATION_EVENT_LIST_FILTER_STATUSES,
     ),
-    windowCount: parseMonetizationEventWindowCount(
-      readSingleSearchParam(searchParams?.window),
-    ),
   };
 }
 
 export async function getMonetizationDashboardData(
   period: MonetizationDashboardPeriod,
   eventListView: MonetizationEventListView = {
+    cursor: null,
+    cursorPeriod: null,
+    cursorServerFilters: null,
+    cursorToken: null,
     eventType: null,
     provider: null,
     source: null,
     status: null,
-    windowCount: 1,
   },
 ): Promise<MonetizationDashboardModel> {
   if (!isSupabaseConfigured()) {
@@ -117,21 +128,20 @@ export async function getMonetizationDashboardData(
   const summaryPeriod: MonetizationSummaryPeriod =
     period === "all_time" ? "weekly" : "daily";
   const rpcClient = supabase as unknown as MonetizationRpcClient;
-  const eventFeedLimit = getMonetizationEventFeedLimit(
-    eventListView.windowCount,
-  );
+  const eventFeedLimit = MONETIZATION_DASHBOARD_EVENT_LIMIT;
 
   const [aggregateResult, eventsResult, summariesResult] = await Promise.all([
     rpcClient.rpc("get_monetization_dashboard", {
       p_period: period,
     }),
-    loadRecentEvents(supabase, userData.user.id, since, eventListView),
+    loadRecentEvents(supabase, userData.user.id, period, since, eventListView),
     loadSummaries(supabase, userData.user.id, summaryPeriod, since),
   ]);
 
   const aggregate = sanitizeAggregate(aggregateResult);
   const events = sanitizePrimaryRows(eventsResult, "events");
   const summaries = sanitizePrimaryRows(summariesResult, "summaries");
+  const eventCursor = eventsResult.currentCursor;
 
   if (
     aggregate.issue &&
@@ -149,6 +159,12 @@ export async function getMonetizationDashboardData(
   }
 
   const visibleEvents = events.rows.slice(0, eventFeedLimit);
+  const hasMore = events.rows.length > eventFeedLimit;
+  const nextCursor = hasMore
+    ? buildMonetizationEventFeedCursor(
+        visibleEvents[visibleEvents.length - 1] ?? null,
+      )
+    : null;
   const lookupIssues: MonetizationDashboardLookupIssue[] = [
     aggregate.issue,
     events.issue,
@@ -176,12 +192,17 @@ export async function getMonetizationDashboardData(
     aggregate: aggregate.snapshot,
     events: visibleEvents,
     feed: {
-      hasMore:
-        events.rows.length > eventFeedLimit ||
-        (events.totalCount ?? 0) > eventFeedLimit,
+      currentCursor: eventCursor,
+      hasMore,
       limit: eventFeedLimit,
+      nextCursor,
       returnedCount: visibleEvents.length,
-      totalCount: events.totalCount ?? undefined,
+      scope: resolveMonetizationFeedScope({
+        currentCursor: eventCursor,
+        hasMore,
+      }),
+      totalCount:
+        eventCursor === null ? (events.totalCount ?? undefined) : undefined,
     },
     lookupIssues,
     period,
@@ -194,9 +215,11 @@ export async function getMonetizationDashboardData(
 async function loadRecentEvents(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
+  period: MonetizationDashboardPeriod,
   since: string | null,
   eventListView: MonetizationEventListView,
 ): Promise<EventResult> {
+  const activeCursor = resolveActiveMonetizationCursor(period, eventListView);
   let query = supabase
     .from("monetization_events")
     .select(
@@ -204,7 +227,8 @@ async function loadRecentEvents(
       { count: "exact" },
     )
     .eq("user_id", userId)
-    .order("occurred_at", { ascending: false });
+    .order("occurred_at", { ascending: false })
+    .order("id", { ascending: true });
 
   if (since) {
     query = query.gte("occurred_at", since);
@@ -226,9 +250,18 @@ async function loadRecentEvents(
     query = query.eq("source", eventListView.source);
   }
 
-  return (await query.limit(
-    getMonetizationEventFeedLimit(eventListView.windowCount) + 1,
-  )) as EventResult;
+  if (activeCursor) {
+    query = query.or(buildMonetizationEventCursorFilter(activeCursor));
+  }
+
+  const result = (await query.limit(
+    MONETIZATION_DASHBOARD_EVENT_LIMIT + 1,
+  )) as Omit<EventResult, "currentCursor">;
+
+  return {
+    ...result,
+    currentCursor: activeCursor,
+  };
 }
 
 async function loadSummaries(
@@ -383,20 +416,6 @@ function getSinceIso(period: MonetizationDashboardPeriod): string | null {
   return null;
 }
 
-function getMonetizationEventFeedLimit(windowCount: number) {
-  return MONETIZATION_DASHBOARD_EVENT_LIMIT * windowCount;
-}
-
-function parseMonetizationEventWindowCount(value: string | null): number {
-  const parsed = value ? Number.parseInt(value, 10) : 1;
-
-  if (!Number.isSafeInteger(parsed) || parsed < 1) {
-    return 1;
-  }
-
-  return Math.min(parsed, MONETIZATION_EVENT_LIST_WINDOW_MAX);
-}
-
 function readSingleSearchParam(
   value: string | string[] | undefined,
 ): string | null {
@@ -432,6 +451,68 @@ function parseFilterValue<const T extends readonly string[]>(
   return allowedValues.includes(value as T[number])
     ? (value as T[number])
     : null;
+}
+
+function resolveActiveMonetizationCursor(
+  period: MonetizationDashboardPeriod,
+  eventListView: MonetizationEventListView,
+): MonetizationEventFeedCursor | null {
+  if (
+    eventListView.cursor === null ||
+    eventListView.cursorPeriod !== period ||
+    eventListView.cursorServerFilters === null
+  ) {
+    return null;
+  }
+
+  return monetizationServerFiltersEqual(
+    eventListView.cursorServerFilters,
+    pickMonetizationServerFilters(eventListView),
+  )
+    ? eventListView.cursor
+    : null;
+}
+
+function pickMonetizationServerFilters(
+  eventListView: MonetizationEventListView,
+): MonetizationEventListServerFilters {
+  return {
+    eventType: eventListView.eventType,
+    provider: eventListView.provider,
+    source: eventListView.source,
+    status: eventListView.status,
+  };
+}
+
+function monetizationServerFiltersEqual(
+  left: MonetizationEventListServerFilters,
+  right: MonetizationEventListServerFilters,
+): boolean {
+  return (
+    left.eventType === right.eventType &&
+    left.provider === right.provider &&
+    left.source === right.source &&
+    left.status === right.status
+  );
+}
+
+function buildMonetizationEventCursorFilter(
+  cursor: MonetizationEventFeedCursor,
+): string {
+  return `occurred_at.lt.${cursor.occurredAt},and(occurred_at.eq.${cursor.occurredAt},id.gt.${cursor.id})`;
+}
+
+function buildMonetizationEventFeedCursor(
+  row: MonetizationEventRow | null,
+): MonetizationEventFeedCursor | null {
+  if (!row?.id || !row.occurred_at) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    occurredAt: row.occurred_at,
+  };
 }
 
 function isAggregatePayload(value: unknown): value is RpcMonetizationDashboard {
