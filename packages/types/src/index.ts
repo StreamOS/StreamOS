@@ -746,6 +746,7 @@ export * from "./publication-scheduling.js";
 export * from "./creator-growth.js";
 export * from "./content-performance-analytics.js";
 export * from "./feature-gates.js";
+export * from "./plan-model.js";
 export * from "./branding-dashboard.js";
 export * from "./monetization-dashboard.js";
 import type {
