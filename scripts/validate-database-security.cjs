@@ -20,6 +20,7 @@ const metricsSnapshotsCompatibilityMigrationPath = path.join(
 
 const tenantTables = [
   "user_profiles",
+  "user_plan_models",
   "creators",
   "channels",
   "platform_connections",
@@ -73,6 +74,7 @@ const authenticatedReadOnlyTables = [
   "monetization_events",
   "monetization_summaries",
   "youtube_websub_subscriptions",
+  "user_plan_models",
 ];
 
 const authenticatedAppendOnlyTables = ["content_job_export_events"];
@@ -112,6 +114,11 @@ const authenticatedReadOnlyWritePolicies = {
     delete: "YouTube WebSub subscriptions can be deleted by their user",
     insert: "YouTube WebSub subscriptions can be inserted by their user",
     update: "YouTube WebSub subscriptions can be updated by their user",
+  },
+  user_plan_models: {
+    delete: "User plan models can be deleted by their user",
+    insert: "User plan models can be inserted by their user",
+    update: "User plan models can be updated by their user",
   },
   stream_transcripts: {
     delete: "Stream transcripts can be deleted by their user",

@@ -240,6 +240,57 @@ export type Database = {
         };
         Relationships: [];
       };
+      user_plan_models: {
+        Row: {
+          id: string;
+          user_id: string;
+          plan: "free" | "pro" | "agency";
+          source: "persisted_server_plan" | "server_verified_billing";
+          billing_status:
+            | "active"
+            | "trialing"
+            | "past_due"
+            | "canceled"
+            | "incomplete"
+            | "unknown"
+            | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          plan?: "free" | "pro" | "agency";
+          source?: "persisted_server_plan" | "server_verified_billing";
+          billing_status?:
+            | "active"
+            | "trialing"
+            | "past_due"
+            | "canceled"
+            | "incomplete"
+            | "unknown"
+            | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          plan?: "free" | "pro" | "agency";
+          source?: "persisted_server_plan" | "server_verified_billing";
+          billing_status?:
+            | "active"
+            | "trialing"
+            | "past_due"
+            | "canceled"
+            | "incomplete"
+            | "unknown"
+            | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       creators: {
         Row: {
           id: string;
