@@ -75,8 +75,10 @@ API_GATEWAY_SECRET=
 
 Do not set `APP_ENCRYPTION_KEY`, `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
 `SUPABASE_DB_URL`, Redis URLs, Railway private service URLs, provider client
-secrets, provider webhook secrets, `STREAM_EVENT_WEBHOOK_SECRET`, or any
-`NEXT_PUBLIC_OPENAI*` variable in the Vercel browser-facing app.
+secrets, provider webhook secrets, `STREAM_EVENT_WEBHOOK_SECRET`,
+`AUTOMATION_ENTITLEMENT_ASSERTION_SECRET`,
+`AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE`, or any `NEXT_PUBLIC_OPENAI*`
+variable in the Vercel browser-facing app.
 
 Twitch, YouTube, TikTok, and Kick OAuth are gateway-owned. Provider secrets and
 webhook secrets must be configured on the API gateway only. Provider OAuth
@@ -193,6 +195,8 @@ Optional Railway overrides:
 ```bash
 HOST=::
 PORT=4000
+AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE=unsigned_internal_contract
+AUTOMATION_ENTITLEMENT_ASSERTION_SECRET=
 QUEUE_DEFAULT_NAME=streamos-media
 CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
@@ -239,6 +243,10 @@ Security model:
 - `API_GATEWAY_SECRET` and `STREAM_EVENT_WEBHOOK_SECRET` are mandatory when `NODE_ENV=production`; the service fails during startup if either is missing.
 - `YOUTUBE_WEBSUB_VERIFY_TOKEN` is mandatory when `NODE_ENV=production`; the
   service fails during startup if it is missing.
+- `AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE` defaults to
+  `unsigned_internal_contract`. If it is set to `hmac_sha256`,
+  `AUTOMATION_ENTITLEMENT_ASSERTION_SECRET` must also be set on
+  `services/api-gateway` and must stay server-only.
 - `REDIS_URL` is mandatory when `NODE_ENV=production`; the gateway fails during startup if it is missing so observability, rate limiting, and replay protection cannot silently fall back to in-memory.
 - CORS allows only `API_GATEWAY_ALLOWED_ORIGINS`; server-to-server calls without an `Origin` header are allowed.
 - Rate limits are fixed-window per client IP, method, and URL. Start with `120` requests per `60000` ms and tighten per endpoint once production traffic is measured.
@@ -283,6 +291,8 @@ Optional Railway overrides:
 ```bash
 HOST=::
 PORT=8000
+AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE=unsigned_internal_contract
+AUTOMATION_ENTITLEMENT_ASSERTION_SECRET=
 OPENAI_MODEL=gpt-4o
 OPENAI_TITLE_MODEL=gpt-4o-mini
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
@@ -296,6 +306,14 @@ RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
 ```
 
 Keep public networking disabled for steady-state production. During first deploy only, you may temporarily enable a Railway public domain to smoke-test `/health`, then remove it and verify from the dedicated `release-gate-runner` Railway shell with `node scripts/check-deployment.cjs --expect-private-automation`.
+
+`AUTOMATION_ENTITLEMENT_ASSERTION_SECRET` is owned jointly by
+`services/api-gateway` and `services/automation-service` only for internal
+assertion signing and verification. If
+`AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE=hmac_sha256` is enabled on
+either service, the same secret must be configured on both services. Do not set
+either variable in `apps/web`, `NEXT_PUBLIC_*`, browser bundles, logs, or
+reports.
 
 Validation:
 

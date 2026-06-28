@@ -31,6 +31,8 @@ from schemas import (
 from settings import Settings, SettingsError, load_settings
 from ssrf import UnsafeAssetUrlError
 
+ASSERTION_SIGNING_TEST_SECRET = "a" * 32
+
 
 async def post_json(path: str, payload: dict[str, object]) -> httpx.Response:
     transport = httpx.ASGITransport(app=app)
@@ -330,6 +332,47 @@ def test_settings_reject_public_openai_keys() -> None:
                 "OPENAI_API_KEY": "sk-server",
             }
         )
+
+
+def test_settings_reject_public_assertion_signing_env_names() -> None:
+    with pytest.raises(
+        SettingsError, match="NEXT_PUBLIC_AUTOMATION_ENTITLEMENT_ASSERTION_SECRET"
+    ):
+        load_settings(
+            {
+                "NEXT_PUBLIC_AUTOMATION_ENTITLEMENT_ASSERTION_SECRET": "leak",
+                "OPENAI_API_KEY": "sk-server",
+            }
+        )
+
+
+def test_settings_require_assertion_secret_when_hmac_signing_mode_is_enabled() -> None:
+    with pytest.raises(
+        SettingsError,
+        match="AUTOMATION_ENTITLEMENT_ASSERTION_SECRET is required when AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE=hmac_sha256",
+    ):
+        load_settings(
+            {
+                "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE": "hmac_sha256",
+                "OPENAI_API_KEY": "sk-server",
+            }
+        )
+
+
+def test_settings_accept_hmac_signing_mode_with_server_only_secret() -> None:
+    settings = load_settings(
+        {
+            "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET": ASSERTION_SIGNING_TEST_SECRET,
+            "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE": "hmac_sha256",
+            "OPENAI_API_KEY": "sk-server",
+        }
+    )
+
+    assert settings.automation_entitlement_assertion_signing_mode == "hmac_sha256"
+    assert (
+        settings.automation_entitlement_assertion_secret
+        == ASSERTION_SIGNING_TEST_SECRET
+    )
 
 
 def test_transcription_e2e_mode_requires_explicit_guard() -> None:

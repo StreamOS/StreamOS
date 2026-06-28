@@ -7,12 +7,23 @@ from entitlement_assertions import (
     ASSERTION_CLOCK_SKEW_SECONDS,
     ASSERTION_ISSUERS,
     ASSERTION_MAX_TTL_SECONDS,
+    ASSERTION_MIN_SECRET_LENGTH,
     ASSERTION_PURPOSES,
     ASSERTION_REASON_CODES,
+    ASSERTION_SECRET_ENV_NAME,
+    ASSERTION_SIGNATURE_ALGORITHM,
+    ASSERTION_SIGNING_MODE_ENV_NAME,
+    ASSERTION_SIGNING_MODES,
     AutomationEntitlementAssertion,
     build_entitlement_assertion_error_detail,
+    serialize_automation_entitlement_assertion,
+    sign_automation_entitlement_assertion,
     validate_automation_entitlement_assertion,
+    validate_signed_automation_entitlement_assertion,
+    verify_automation_entitlement_assertion_signature,
 )
+
+ASSERTION_SIGNING_TEST_SECRET = "a" * 32
 
 
 def valid_assertion_payload(
@@ -49,12 +60,31 @@ def test_assertion_contract_keeps_canonical_constants_stable() -> None:
         "entitlement_assertion_missing",
         "entitlement_assertion_expired",
         "entitlement_assertion_malformed",
+        "entitlement_assertion_signature_invalid",
+        "entitlement_assertion_signature_missing",
         "entitlement_feature_not_allowed",
         "entitlement_plan_source_untrusted",
         "entitlement_user_context_mismatch",
     )
+    assert ASSERTION_SIGNING_MODES == ("unsigned_internal_contract", "hmac_sha256")
+    assert ASSERTION_SECRET_ENV_NAME == "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET"
+    assert (
+        ASSERTION_SIGNING_MODE_ENV_NAME
+        == "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE"
+    )
+    assert ASSERTION_SIGNATURE_ALGORITHM == "hmac-sha256"
+    assert ASSERTION_MIN_SECRET_LENGTH == 32
     assert ASSERTION_MAX_TTL_SECONDS == 120
     assert ASSERTION_CLOCK_SKEW_SECONDS == 15
+
+
+def test_assertion_contract_serializes_canonically_for_cross_runtime_signing() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+
+    assert (
+        serialize_automation_entitlement_assertion(assertion)
+        == '{"audience":"automation-service","expires_at":"2026-06-28T12:01:30.000Z","feature":"ai_assistant","issued_at":"2026-06-28T12:00:00.000Z","issuer":"api-gateway","plan":"pro","plan_source":"persisted_server_plan","purpose":"premium_ai_access","request_id":"req-123","user_id":"user-123"}'
+    )
 
 
 def test_valid_pro_assertion_is_accepted_for_premium_feature() -> None:
@@ -217,6 +247,91 @@ def test_oversized_ttl_is_rejected() -> None:
 
     assert result.allowed is False
     assert result.reason == "entitlement_assertion_malformed"
+
+
+def test_signed_assertion_is_verified_for_premium_feature() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    secret = ASSERTION_SIGNING_TEST_SECRET
+    signature = sign_automation_entitlement_assertion(assertion, secret=secret)
+
+    result = validate_signed_automation_entitlement_assertion(
+        assertion.model_dump(mode="python"),
+        feature="ai_assistant",
+        now=fixed_now(),
+        signature=signature,
+        secret=secret,
+        user_id="user-123",
+    )
+
+    assert result.allowed is True
+    assert result.reason == "allowed"
+    assert (
+        verify_automation_entitlement_assertion_signature(
+            assertion, secret=secret, signature=signature
+        )
+        is True
+    )
+
+
+def test_signed_assertion_denies_missing_or_invalid_signatures() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(
+        valid_assertion_payload(feature="branding_ai")
+    )
+    secret = ASSERTION_SIGNING_TEST_SECRET
+
+    missing_signature = validate_signed_automation_entitlement_assertion(
+        assertion.model_dump(mode="python"),
+        feature="branding_ai",
+        now=fixed_now(),
+        signature=None,
+        secret=secret,
+        user_id="user-123",
+    )
+    invalid_signature = validate_signed_automation_entitlement_assertion(
+        assertion.model_dump(mode="python"),
+        feature="branding_ai",
+        now=fixed_now(),
+        signature="bad-signature",
+        secret=secret,
+        user_id="user-123",
+    )
+
+    assert missing_signature.allowed is False
+    assert missing_signature.reason == "entitlement_assertion_signature_missing"
+    assert invalid_signature.allowed is False
+    assert invalid_signature.reason == "entitlement_assertion_signature_invalid"
+
+
+def test_signed_assertion_still_denies_wrong_issuer_or_audience() -> None:
+    secret = ASSERTION_SIGNING_TEST_SECRET
+
+    wrong_issuer = valid_assertion_payload(feature="branding_ai")
+    wrong_issuer["issuer"] = "other-service"
+    wrong_audience = valid_assertion_payload(feature="branding_ai")
+    wrong_audience["audience"] = "other-audience"
+
+    assert (
+        validate_signed_automation_entitlement_assertion(
+            wrong_issuer,
+            feature="branding_ai",
+            now=fixed_now(),
+            signature="placeholder",
+            secret=secret,
+            user_id="user-123",
+        ).reason
+        == "entitlement_assertion_malformed"
+    )
+    assert (
+        validate_signed_automation_entitlement_assertion(
+            wrong_audience,
+            feature="branding_ai",
+            now=fixed_now(),
+            signature="placeholder",
+            secret=secret,
+            user_id="user-123",
+        ).reason
+        == "entitlement_assertion_malformed"
+    )
 
 
 def test_error_details_stay_secret_safe() -> None:

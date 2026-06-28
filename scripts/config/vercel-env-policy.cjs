@@ -21,6 +21,8 @@ const ALLOWED_VERCEL_ENV_PREFIXES = ["NODE_", "VERCEL_", "npm_"];
 const FORBIDDEN_VERCEL_ENV_NAMES = new Set([
   "ADMIN_SECRET",
   "APP_ENCRYPTION_KEY",
+  "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET",
+  "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE",
   "AUTOMATION_SERVICE_URL",
   "CRON_SECRET",
   "KICK_CLIENT_SECRET",
@@ -207,6 +209,13 @@ function isForbiddenVercelEnvName(name) {
 function getForbiddenVercelEnvReason(name) {
   if (name === "APP_ENCRYPTION_KEY") {
     return "Encryption keys belong in trusted Railway services, not apps/web on Vercel.";
+  }
+
+  if (
+    name === "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET" ||
+    name === "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE"
+  ) {
+    return "Automation entitlement assertion signing belongs in services/api-gateway and services/automation-service on Railway, not apps/web on Vercel.";
   }
 
   if (

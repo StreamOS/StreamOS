@@ -16,6 +16,8 @@ const YOUTUBE_WEBHOOK_SECRET = "test-youtube-webhook-secret-123";
 const WEBHOOK_NOW = new Date("2026-06-06T10:00:00.000Z");
 const SUPABASE_URL = "https://supabase.streamos.test";
 const SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
+const TEST_ASSERTION_SIGNING_SECRET = "a".repeat(32);
+const SHORT_ASSERTION_SIGNING_SECRET = "short";
 const publicAssetResolver = () => ["93.184.216.34"];
 const API_GATEWAY_PRODUCTION_ENV_KEYS = [
   "NODE_ENV",
@@ -23,6 +25,8 @@ const API_GATEWAY_PRODUCTION_ENV_KEYS = [
   "NEXT_PUBLIC_APP_URL",
   "REDIS_URL",
   "API_GATEWAY_SECRET",
+  "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET",
+  "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE",
   "STREAM_EVENT_WEBHOOK_SECRET",
   "TWITCH_EVENTSUB_SECRET",
   "TWITCH_WEBHOOK_SECRET",
@@ -98,6 +102,8 @@ function applyApiGatewayProductionEnv(
     NEXT_PUBLIC_APP_URL: "https://app.streamos.test",
     REDIS_URL,
     API_GATEWAY_SECRET: API_SECRET,
+    AUTOMATION_ENTITLEMENT_ASSERTION_SECRET: TEST_ASSERTION_SIGNING_SECRET,
+    AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE: undefined,
     STREAM_EVENT_WEBHOOK_SECRET: WEBHOOK_SECRET,
     TWITCH_EVENTSUB_SECRET,
     TWITCH_WEBHOOK_SECRET: TWITCH_EVENTSUB_SECRET,
@@ -244,6 +250,60 @@ describe("api-gateway", () => {
           youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
           streamEventWebhookSecret: WEBHOOK_SECRET,
           clipGenerationQueue: createClipGenerationQueue(),
+        },
+      });
+
+      expectProductionStartupError({
+        envOverrides: {
+          AUTOMATION_ENTITLEMENT_ASSERTION_SECRET: undefined,
+          AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE: "hmac_sha256",
+        },
+        expectedMessage:
+          "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET is required when AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE=hmac_sha256.",
+        options: {
+          allowedOrigins: ["https://app.streamos.test"],
+          apiGatewaySecret: API_SECRET,
+          clipGenerationQueue: createClipGenerationQueue(),
+          nodeEnv: "production",
+          streamEventWebhookSecret: WEBHOOK_SECRET,
+          twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+          youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+        },
+      });
+
+      expectProductionStartupError({
+        envOverrides: {
+          AUTOMATION_ENTITLEMENT_ASSERTION_SECRET:
+            SHORT_ASSERTION_SIGNING_SECRET,
+          AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE: "hmac_sha256",
+        },
+        expectedMessage:
+          "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET must be at least 32 characters for hmac-sha256.",
+        options: {
+          allowedOrigins: ["https://app.streamos.test"],
+          apiGatewaySecret: API_SECRET,
+          clipGenerationQueue: createClipGenerationQueue(),
+          nodeEnv: "production",
+          streamEventWebhookSecret: WEBHOOK_SECRET,
+          twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+          youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
+        },
+      });
+
+      expectProductionStartupError({
+        envOverrides: {
+          AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE: "jwt",
+        },
+        expectedMessage:
+          "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE must be one of: unsigned_internal_contract, hmac_sha256.",
+        options: {
+          allowedOrigins: ["https://app.streamos.test"],
+          apiGatewaySecret: API_SECRET,
+          clipGenerationQueue: createClipGenerationQueue(),
+          nodeEnv: "production",
+          streamEventWebhookSecret: WEBHOOK_SECRET,
+          twitchEventSubSecret: TWITCH_EVENTSUB_SECRET,
+          youtubeWebhookSecret: YOUTUBE_WEBHOOK_SECRET,
         },
       });
 

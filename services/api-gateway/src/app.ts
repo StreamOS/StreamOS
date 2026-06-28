@@ -52,6 +52,7 @@ import {
   createSupabaseRestClient,
   readSupabaseRows,
 } from "./lib/supabaseRest.js";
+import { resolveAutomationEntitlementAssertionSigningConfig } from "./lib/automation-entitlement-signing.js";
 import type { ApiGatewayRuntimeProvenance } from "./runtimeProvenance.js";
 import { createProviderWebhookRouter } from "./webhooks/providerRoutes.js";
 import type { ProviderWebhookDispatcher } from "./webhooks/providerEvents.js";
@@ -195,6 +196,7 @@ function isProduction(nodeEnv: string | undefined) {
 
 function resolveSecurityConfig(options: CreateAppOptions): SecurityConfig {
   const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
+  resolveAutomationEntitlementAssertionSigningConfig();
   const apiGatewaySecret = (
     options.apiGatewaySecret ?? process.env.API_GATEWAY_SECRET
   )?.trim();

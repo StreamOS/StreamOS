@@ -6,8 +6,15 @@ import {
   AUTOMATION_ENTITLEMENT_ASSERTION_CLOCK_SKEW_SECONDS,
   AUTOMATION_ENTITLEMENT_ASSERTION_ISSUERS,
   AUTOMATION_ENTITLEMENT_ASSERTION_MAX_TTL_SECONDS,
+  AUTOMATION_ENTITLEMENT_ASSERTION_MIN_SECRET_LENGTH,
   AUTOMATION_ENTITLEMENT_ASSERTION_PURPOSES,
   AUTOMATION_ENTITLEMENT_ASSERTION_REASON_CODES,
+  AUTOMATION_ENTITLEMENT_ASSERTION_SECRET_ENV_NAME,
+  AUTOMATION_ENTITLEMENT_ASSERTION_SERIALIZED_KEYS,
+  AUTOMATION_ENTITLEMENT_ASSERTION_SIGNATURE_ALGORITHM,
+  AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODES,
+  AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE_ENV_NAME,
+  serializeAutomationEntitlementAssertion,
   validateAutomationEntitlementAssertion,
 } from "../src/automation-entitlement-assertions.js";
 
@@ -24,12 +31,61 @@ void test("automation entitlement assertion contract keeps canonical values stab
     "entitlement_assertion_missing",
     "entitlement_assertion_expired",
     "entitlement_assertion_malformed",
+    "entitlement_assertion_signature_invalid",
+    "entitlement_assertion_signature_missing",
     "entitlement_feature_not_allowed",
     "entitlement_plan_source_untrusted",
     "entitlement_user_context_mismatch",
   ]);
+  assert.deepEqual(AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODES, [
+    "unsigned_internal_contract",
+    "hmac_sha256",
+  ]);
+  assert.equal(
+    AUTOMATION_ENTITLEMENT_ASSERTION_SECRET_ENV_NAME,
+    "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET",
+  );
+  assert.equal(
+    AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE_ENV_NAME,
+    "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE",
+  );
+  assert.equal(
+    AUTOMATION_ENTITLEMENT_ASSERTION_SIGNATURE_ALGORITHM,
+    "hmac-sha256",
+  );
+  assert.equal(AUTOMATION_ENTITLEMENT_ASSERTION_MIN_SECRET_LENGTH, 32);
   assert.equal(AUTOMATION_ENTITLEMENT_ASSERTION_MAX_TTL_SECONDS, 120);
   assert.equal(AUTOMATION_ENTITLEMENT_ASSERTION_CLOCK_SKEW_SECONDS, 15);
+  assert.deepEqual(AUTOMATION_ENTITLEMENT_ASSERTION_SERIALIZED_KEYS, [
+    "audience",
+    "expires_at",
+    "feature",
+    "issued_at",
+    "issuer",
+    "plan",
+    "plan_source",
+    "purpose",
+    "request_id",
+    "user_id",
+  ]);
+});
+
+void test("automation entitlement assertions serialize canonically for cross-runtime signing", () => {
+  assert.equal(
+    serializeAutomationEntitlementAssertion({
+      audience: "automation-service",
+      expires_at: "2026-06-28T12:01:30.000Z",
+      feature: "ai_assistant",
+      issued_at: "2026-06-28T12:00:00.000Z",
+      issuer: "api-gateway",
+      plan: "pro",
+      plan_source: "persisted_server_plan",
+      purpose: "premium_ai_access",
+      request_id: "req-123",
+      user_id: "user-123",
+    }),
+    '{"audience":"automation-service","expires_at":"2026-06-28T12:01:30.000Z","feature":"ai_assistant","issued_at":"2026-06-28T12:00:00.000Z","issuer":"api-gateway","plan":"pro","plan_source":"persisted_server_plan","purpose":"premium_ai_access","request_id":"req-123","user_id":"user-123"}',
+  );
 });
 
 void test("valid trusted pro assertion is accepted for a premium automation feature", () => {

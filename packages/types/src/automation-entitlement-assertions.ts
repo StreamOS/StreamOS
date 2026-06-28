@@ -36,6 +36,8 @@ export const AUTOMATION_ENTITLEMENT_ASSERTION_REASON_CODES = [
   "entitlement_assertion_missing",
   "entitlement_assertion_expired",
   "entitlement_assertion_malformed",
+  "entitlement_assertion_signature_invalid",
+  "entitlement_assertion_signature_missing",
   "entitlement_feature_not_allowed",
   "entitlement_plan_source_untrusted",
   "entitlement_user_context_mismatch",
@@ -44,9 +46,25 @@ export const AUTOMATION_ENTITLEMENT_ASSERTION_REASON_CODES = [
 export type AutomationEntitlementAssertionReasonCode =
   (typeof AUTOMATION_ENTITLEMENT_ASSERTION_REASON_CODES)[number];
 
+export const AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODES = [
+  "unsigned_internal_contract",
+  "hmac_sha256",
+] as const;
+
+export type AutomationEntitlementAssertionSigningMode =
+  (typeof AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODES)[number];
+
+export const AUTOMATION_ENTITLEMENT_ASSERTION_SECRET_ENV_NAME =
+  "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET";
+export const AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE_ENV_NAME =
+  "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE";
+export const AUTOMATION_ENTITLEMENT_ASSERTION_SIGNATURE_ALGORITHM =
+  "hmac-sha256";
+export const AUTOMATION_ENTITLEMENT_ASSERTION_MIN_SECRET_LENGTH = 32;
+
 export const AUTOMATION_ENTITLEMENT_ASSERTION_MAX_TTL_SECONDS = 120;
 export const AUTOMATION_ENTITLEMENT_ASSERTION_CLOCK_SKEW_SECONDS = 15;
-const AUTOMATION_ENTITLEMENT_ASSERTION_ALLOWED_KEYS = new Set([
+export const AUTOMATION_ENTITLEMENT_ASSERTION_SERIALIZED_KEYS = [
   "audience",
   "expires_at",
   "feature",
@@ -57,6 +75,9 @@ const AUTOMATION_ENTITLEMENT_ASSERTION_ALLOWED_KEYS = new Set([
   "purpose",
   "request_id",
   "user_id",
+] as const;
+const AUTOMATION_ENTITLEMENT_ASSERTION_ALLOWED_KEYS = new Set<string>([
+  ...AUTOMATION_ENTITLEMENT_ASSERTION_SERIALIZED_KEYS,
 ]);
 
 export type AutomationEntitlementAssertion = {
@@ -70,6 +91,15 @@ export type AutomationEntitlementAssertion = {
   purpose?: AutomationEntitlementAssertionPurpose;
   request_id?: string;
   user_id: string;
+};
+
+export type SignedAutomationEntitlementAssertion = {
+  assertion: AutomationEntitlementAssertion;
+  signature: string;
+  signing_mode: Extract<
+    AutomationEntitlementAssertionSigningMode,
+    "hmac_sha256"
+  >;
 };
 
 export type AutomationEntitlementAssertionValidation = {
@@ -287,6 +317,33 @@ export function isAutomationEntitlementAssertionPurpose(
   return AUTOMATION_ENTITLEMENT_ASSERTION_PURPOSES.includes(
     value as AutomationEntitlementAssertionPurpose,
   );
+}
+
+export function isAutomationEntitlementAssertionSigningMode(
+  value: string,
+): value is AutomationEntitlementAssertionSigningMode {
+  return AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODES.includes(
+    value as AutomationEntitlementAssertionSigningMode,
+  );
+}
+
+export function serializeAutomationEntitlementAssertion(
+  assertion: AutomationEntitlementAssertion,
+): string {
+  return JSON.stringify({
+    audience: assertion.audience,
+    expires_at: assertion.expires_at,
+    feature: assertion.feature,
+    issued_at: assertion.issued_at,
+    issuer: assertion.issuer,
+    plan: assertion.plan,
+    plan_source: assertion.plan_source,
+    ...(assertion.purpose === undefined ? {} : { purpose: assertion.purpose }),
+    ...(assertion.request_id === undefined
+      ? {}
+      : { request_id: assertion.request_id }),
+    user_id: assertion.user_id,
+  });
 }
 
 function deny(params: {
