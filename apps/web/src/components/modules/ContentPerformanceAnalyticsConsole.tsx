@@ -10,6 +10,7 @@ import {
 import { StatCard } from "@streamos/ui";
 import { cn } from "@/lib/utils/cn";
 import {
+  CONTENT_PERFORMANCE_ANALYTICS_PERIOD_OPTIONS,
   formatContentPerformanceMetric,
   formatContentPerformanceTimestamp,
   getContentPerformanceCoverageLabel,
@@ -54,6 +55,9 @@ export function ContentPerformanceAnalyticsConsole({
             auszufuehren. Fehlende Metriken bleiben explizit als unavailable
             oder not tracked markiert.
           </p>
+          <div className="mt-6">
+            <PeriodControls model={model} />
+          </div>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
               href="/dashboard/publications/analytics"
@@ -75,6 +79,19 @@ export function ContentPerformanceAnalyticsConsole({
             Read-only sample join
           </h2>
           <ul className="mt-4 space-y-2 text-sm leading-6 text-slate-300">
+            <li>Aktiver Zeitraum: {model.periodContext.periodLabel}</li>
+            <li>
+              Letzte Aktivitaet:{" "}
+              {formatContentPerformanceTimestamp(
+                model.summary.latestActivityAt,
+              )}
+            </li>
+            <li>
+              Letzter Snapshot:{" "}
+              {formatContentPerformanceTimestamp(
+                model.summary.latestSnapshotAt,
+              )}
+            </li>
             <li>Owner boundary: `user_id` und creator-scoped channel links.</li>
             <li>
               Keine Provider-API-Calls, keine Queue-Produktion, keine Writes.
@@ -89,9 +106,32 @@ export function ContentPerformanceAnalyticsConsole({
             <li>
               CTR bleibt `not tracked`, solange kein sicheres Feld existiert.
             </li>
+            <li>{model.periodContext.periodCoverageNote}</li>
           </ul>
         </aside>
       </header>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <EvidenceTile
+          label="Read Window"
+          value={model.periodContext.periodLabel}
+          helper="Serverseitig read-only gefiltert"
+        />
+        <EvidenceTile
+          label="Latest Activity"
+          value={formatContentPerformanceTimestamp(
+            model.summary.latestActivityAt,
+          )}
+          helper="Neuester Publication- oder Snapshot-Zeitpunkt im Fenster"
+        />
+        <EvidenceTile
+          label="Latest Snapshot"
+          value={formatContentPerformanceTimestamp(
+            model.summary.latestSnapshotAt,
+          )}
+          helper="Metrics-Snapshot-Freshness im aktiven Fenster"
+        />
+      </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -270,9 +310,9 @@ export function ContentPerformanceAnalyticsConsole({
                     {item.contentTitle ?? "Untitled content record"}
                   </h3>
                   <p className="mt-2 text-sm leading-6 text-slate-400">
-                    {item.channelDisplayName ?? "No linked channel"} · Snapshot{" "}
+                    {item.channelDisplayName ?? "No linked channel"} | Snapshot{" "}
                     {formatContentPerformanceTimestamp(item.snapshotCapturedAt)}{" "}
-                    · Primary activity{" "}
+                    | Primary activity{" "}
                     {formatContentPerformanceTimestamp(item.primaryTimestamp)}
                   </p>
 
@@ -326,7 +366,7 @@ export function ContentPerformanceAnalyticsConsole({
           ) : hasData ? null : (
             <EmptyState
               title="Noch keine Content-Performance-Daten"
-              body="Es gibt aktuell weder Publications noch passende Metrics-Snapshots fuer diese read-only Analytics-Surface."
+              body={`Es gibt aktuell weder Publications noch passende Metrics-Snapshots im Zeitraum ${model.periodContext.periodLabel.toLowerCase()} fuer diese read-only Analytics-Surface.`}
             />
           )}
         </article>
@@ -357,6 +397,56 @@ function MetricTile({ label, value }: { label: string; value: string }) {
         {label}
       </dt>
       <dd className="mt-2 text-sm font-semibold text-white">{value}</dd>
+    </div>
+  );
+}
+
+function EvidenceTile({
+  helper,
+  label,
+  value,
+}: {
+  helper: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-surface-950/60 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+        {label}
+      </p>
+      <p className="mt-2 text-base font-semibold text-white">{value}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-400">{helper}</p>
+    </div>
+  );
+}
+
+function PeriodControls({
+  model,
+}: {
+  model: ContentPerformanceAnalyticsDashboardModel;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {CONTENT_PERFORMANCE_ANALYTICS_PERIOD_OPTIONS.map((option) => {
+        const isActive = option.id === model.periodContext.selectedPeriod;
+
+        return (
+          <Link
+            key={option.id}
+            href={`/dashboard/analytics?period=${option.id}`}
+            aria-current={isActive ? "page" : undefined}
+            className={cn(
+              "inline-flex min-h-10 items-center rounded-full border px-4 text-sm font-semibold transition-colors",
+              isActive
+                ? "border-signal-green/30 bg-signal-green/10 text-signal-green"
+                : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white",
+            )}
+          >
+            {option.label}
+          </Link>
+        );
+      })}
     </div>
   );
 }

@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getContentPerformanceAnalyticsDashboardData } from "./data";
+import {
+  getContentPerformanceAnalyticsDashboardData,
+  parseContentPerformanceAnalyticsPeriod,
+} from "./data";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -92,6 +95,38 @@ describe("analytics data loader", () => {
     expect(model.lookupIssues).toHaveLength(0);
   });
 
+  it("applies the selected period as a server-side read window", async () => {
+    mocks.isSupabaseConfigured.mockReturnValue(true);
+    const client = createSupabaseClient({
+      tableResults: {
+        content_publications: {
+          data: [],
+          error: null,
+        },
+        metrics_snapshots: {
+          data: [],
+          error: null,
+        },
+      },
+      user: {
+        id: "user-3",
+      },
+    });
+    mocks.createClient.mockResolvedValue(client);
+
+    const model = await getContentPerformanceAnalyticsDashboardData("7d");
+
+    expect(model.periodContext.selectedPeriod).toBe("7d");
+    expect(client.__builders.content_publications?.gte).toHaveBeenCalledWith(
+      "updated_at",
+      expect.any(String),
+    );
+    expect(client.__builders.metrics_snapshots?.gte).toHaveBeenCalledWith(
+      "captured_at",
+      expect.any(String),
+    );
+  });
+
   it("returns a load-failed state when both primary data sources fail", async () => {
     mocks.isSupabaseConfigured.mockReturnValue(true);
     mocks.createClient.mockResolvedValue(
@@ -121,6 +156,13 @@ describe("analytics data loader", () => {
       "metricsSnapshots",
     ]);
   });
+
+  it("defaults invalid period values to the 30-day window", () => {
+    expect(parseContentPerformanceAnalyticsPeriod("7d")).toBe("7d");
+    expect(parseContentPerformanceAnalyticsPeriod("90d")).toBe("90d");
+    expect(parseContentPerformanceAnalyticsPeriod(undefined)).toBe("30d");
+    expect(parseContentPerformanceAnalyticsPeriod("all")).toBe("30d");
+  });
 });
 
 function createSupabaseClient({
@@ -132,7 +174,10 @@ function createSupabaseClient({
   user: { id: string } | null;
   userError?: unknown;
 }) {
+  const builders: Record<string, ReturnType<typeof createQueryBuilder>> = {};
+
   return {
+    __builders: builders,
     auth: {
       getUser: vi.fn().mockResolvedValue({
         data: {
@@ -141,7 +186,11 @@ function createSupabaseClient({
         error: userError,
       }),
     },
-    from: vi.fn((table: string) => createQueryBuilder(tableResults[table])),
+    from: vi.fn((table: string) => {
+      const builder = createQueryBuilder(tableResults[table]);
+      builders[table] = builder;
+      return builder;
+    }),
   };
 }
 
@@ -153,6 +202,7 @@ function createQueryBuilder(result?: QueryResult) {
 
   const chain = {
     eq: vi.fn(() => chain),
+    gte: vi.fn(() => chain),
     in: vi.fn(() => finalResult),
     limit: vi.fn(() => finalResult),
     order: vi.fn(() => chain),

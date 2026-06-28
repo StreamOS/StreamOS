@@ -6,9 +6,11 @@ import {
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import {
+  CONTENT_PERFORMANCE_ANALYTICS_PERIODS,
   buildContentPerformanceAnalyticsDashboardModel,
   createEmptyContentPerformanceAnalyticsDashboardModel,
   type ContentPerformanceAnalyticsDashboardModel,
+  type ContentPerformanceAnalyticsPeriod,
   type ContentPerformanceAnalyticsLookupTables,
 } from "@/components/modules/ContentPerformanceAnalyticsConsole.utils";
 
@@ -35,11 +37,25 @@ type ContentJobRow =
 type PlatformConnectionRow =
   ContentPerformanceAnalyticsLookupTables["platformConnections"][number];
 
-export async function getContentPerformanceAnalyticsDashboardData(): Promise<ContentPerformanceAnalyticsDashboardModel> {
+export function parseContentPerformanceAnalyticsPeriod(
+  value: string | undefined,
+): ContentPerformanceAnalyticsPeriod {
+  return CONTENT_PERFORMANCE_ANALYTICS_PERIODS.includes(
+    value as ContentPerformanceAnalyticsPeriod,
+  )
+    ? (value as ContentPerformanceAnalyticsPeriod)
+    : "30d";
+}
+
+export async function getContentPerformanceAnalyticsDashboardData(
+  period: ContentPerformanceAnalyticsPeriod = "30d",
+): Promise<ContentPerformanceAnalyticsDashboardModel> {
   if (!isSupabaseConfigured()) {
     return createEmptyContentPerformanceAnalyticsDashboardModel(
       null,
       "disabled",
+      [],
+      period,
     );
   }
 
@@ -50,8 +66,12 @@ export async function getContentPerformanceAnalyticsDashboardData(): Promise<Con
     return createEmptyContentPerformanceAnalyticsDashboardModel(
       null,
       userError ? "auth-failed" : "unauthorized",
+      [],
+      period,
     );
   }
+
+  const cutoffIso = resolveContentPerformancePeriodCutoff(period);
 
   const [publicationsResult, metricsSnapshotsResult] = await Promise.all([
     supabase
@@ -60,6 +80,7 @@ export async function getContentPerformanceAnalyticsDashboardData(): Promise<Con
         "content_job_id,created_at,id,platform_connection_id,publication_status,published_at,requested_at,schedule_status,scheduled_at_utc,target_platform,updated_at",
       )
       .eq("user_id", userData.user.id)
+      .gte("updated_at", cutoffIso)
       .order("updated_at", { ascending: false })
       .limit(CONTENT_PERFORMANCE_ANALYTICS_FEED_LIMIT + 1),
     supabase
@@ -68,6 +89,7 @@ export async function getContentPerformanceAnalyticsDashboardData(): Promise<Con
         "captured_at,channel_id,engagement_rate,id,platform,viewer_count,watch_time_minutes",
       )
       .eq("user_id", userData.user.id)
+      .gte("captured_at", cutoffIso)
       .order("captured_at", { ascending: false })
       .limit(CONTENT_PERFORMANCE_ANALYTICS_FEED_LIMIT + 1),
   ]);
@@ -88,6 +110,7 @@ export async function getContentPerformanceAnalyticsDashboardData(): Promise<Con
       userData.user.id,
       "load-failed",
       [publications.issue, metricsSnapshots.issue],
+      period,
     );
   }
 
@@ -112,10 +135,20 @@ export async function getContentPerformanceAnalyticsDashboardData(): Promise<Con
     },
     lookupIssues: [...lookupIssues, ...lookups.issues],
     lookups: lookups.tables,
+    period,
     publications: publications.rows,
     state: "ready",
     userId: userData.user.id,
   });
+}
+
+function resolveContentPerformancePeriodCutoff(
+  period: ContentPerformanceAnalyticsPeriod,
+): string {
+  const days = period === "7d" ? 7 : period === "90d" ? 90 : 30;
+  const cutoff = new Date();
+  cutoff.setUTCDate(cutoff.getUTCDate() - days);
+  return cutoff.toISOString();
 }
 
 async function loadLookupTables({

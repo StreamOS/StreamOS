@@ -85,6 +85,7 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
     expect(model.items[0]?.contentTitle).toBe("Ranked launch clip");
     expect(model.items[0]?.views.value).toBe(18400);
     expect(model.items[0]?.ctr.availability).toBe("not_tracked");
+    expect(model.periodContext.selectedPeriod).toBe("30d");
     expect(model.summary.totalWatchTimeMinutes.value).toBe(920);
     expect(model.platformComparison[0]?.linkedCount).toBe(1);
     expect(model.platformComparison[0]?.engagementRate.value).toBe(7.8);
@@ -187,6 +188,7 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
     expect(model.state).toBe("ready");
     expect(model.items).toHaveLength(0);
     expect(model.lookupIssues).toHaveLength(1);
+    expect(model.periodContext.periodLabel).toBe("Letzte 30 Tage");
     expect(model.lookupIssues[0]?.source).toBe("metricsSnapshots");
   });
 
