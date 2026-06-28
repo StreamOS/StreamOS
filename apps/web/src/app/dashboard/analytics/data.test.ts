@@ -310,6 +310,7 @@ describe("analytics data loader", () => {
     expect(model.state).toBe("ready");
     expect(model.detail.state).toBe("load-failed");
     expect(model.detail.item?.id).toBe("publication:publication-1");
+    expect(model.detail.stream).toBeNull();
   });
 
   it("returns a load-failed state when both primary data sources fail", async () => {
@@ -352,6 +353,94 @@ describe("analytics data loader", () => {
     );
     expect(parseContentPerformanceAnalyticsDetailId(undefined)).toBeNull();
     expect(parseContentPerformanceAnalyticsDetailId("   ")).toBeNull();
+  });
+
+  it("limits stream lookups to the existing bounded feed size and active user scope", async () => {
+    mocks.isSupabaseConfigured.mockReturnValue(true);
+    const client = createSupabaseClient({
+      tableResults: {
+        channels: {
+          data: [
+            {
+              display_name: "NovaPlays Live",
+              id: "channel-1",
+              platform: "youtube",
+            },
+          ],
+          error: null,
+        },
+        content_publications: {
+          data: [
+            {
+              content_job_id: "job-1",
+              created_at: "2026-06-25T09:45:00.000Z",
+              id: "publication-1",
+              platform_connection_id: "connection-1",
+              publication_status: "published",
+              published_at: "2026-06-25T10:00:00.000Z",
+              requested_at: "2026-06-25T09:45:00.000Z",
+              schedule_status: "not_scheduled",
+              scheduled_at_utc: null,
+              target_platform: "youtube",
+              updated_at: "2026-06-25T10:05:00.000Z",
+            },
+          ],
+          error: null,
+        },
+        content_jobs: {
+          data: [],
+          error: null,
+        },
+        metrics_snapshots: {
+          data: [
+            {
+              captured_at: "2026-06-25T10:30:00.000Z",
+              channel_id: "channel-1",
+              engagement_rate: 7.8,
+              id: "metric-1",
+              platform: "youtube",
+              viewer_count: 18400,
+              watch_time_minutes: 920,
+            },
+          ],
+          error: null,
+        },
+        platform_connections: {
+          data: [
+            {
+              channel_id: "channel-1",
+              id: "connection-1",
+              platform: "youtube",
+              status: "connected",
+            },
+          ],
+          error: null,
+        },
+        streams: {
+          data: [],
+          error: null,
+        },
+      },
+      user: {
+        id: "user-9",
+      },
+    });
+    mocks.createClient.mockResolvedValue(client);
+
+    await getContentPerformanceAnalyticsDashboardData(
+      "30d",
+      "publication:publication-1",
+    );
+
+    expect(client.__builders.streams?.eq).toHaveBeenCalledWith(
+      "user_id",
+      "user-9",
+    );
+    expect(client.__builders.streams?.limit).toHaveBeenCalledWith(12);
+    expect(client.__builders.streams?.gte).toHaveBeenCalledWith(
+      "updated_at",
+      expect.any(String),
+    );
   });
 });
 
