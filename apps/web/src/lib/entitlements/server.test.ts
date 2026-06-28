@@ -20,32 +20,56 @@ describe("server entitlements", () => {
       }),
     ).toEqual({
       authenticated: true,
+      billingStatus: null,
       hasPersistedPlanModel: false,
+      hasTrustedPlanSource: false,
       normalizedPlan: "free",
-      source: "default_free_no_persisted_plan",
+      source: "default_free_no_plan_source",
+      sourceKind: "none",
+      sourceTrust: "none",
       userId: "11111111-1111-4111-8111-111111111111",
     });
   });
 
-  it("accepts only trusted known plans and otherwise falls back to free", () => {
+  it("accepts only explicit trusted server sources and otherwise falls back to free", () => {
     expect(
       resolveServerEntitlementContext({
+        billingStatus: "active",
         trustedPlan: "pro",
+        trustedSource: "persisted_server_plan",
         user: createUser("22222222-2222-4222-8222-222222222222"),
       }),
     ).toMatchObject({
+      billingStatus: "active",
+      hasPersistedPlanModel: true,
+      hasTrustedPlanSource: true,
       normalizedPlan: "pro",
-      source: "trusted_server_input",
+      source: "trusted_plan",
+      sourceKind: "persisted_server_plan",
+      sourceTrust: "trusted",
     });
 
     expect(
       resolveServerEntitlementContext({
         trustedPlan: "Business",
+        trustedSource: "server_verified_billing",
         user: createUser("33333333-3333-4333-8333-333333333333"),
       }),
     ).toMatchObject({
       normalizedPlan: "free",
       source: "unknown_plan_fallback",
+    });
+
+    expect(
+      resolveServerEntitlementContext({
+        trustedPlan: "agency",
+        user: createUser("44444444-4444-4444-8444-444444444444"),
+      }),
+    ).toMatchObject({
+      normalizedPlan: "free",
+      source: "default_free_no_plan_source",
+      sourceKind: "none",
+      sourceTrust: "none",
     });
   });
 
@@ -54,6 +78,7 @@ describe("server entitlements", () => {
       evaluateServerFeatureGate({
         feature: "publishing_schedule",
         trustedPlan: "pro",
+        trustedSource: "persisted_server_plan",
         user: createUser(),
       }),
     ).toMatchObject({
@@ -68,6 +93,7 @@ describe("server entitlements", () => {
       evaluateServerFeatureGate({
         feature: "team_workspace",
         trustedPlan: "pro",
+        trustedSource: "persisted_server_plan",
         user: createUser(),
       }),
     ).toMatchObject({
@@ -82,6 +108,7 @@ describe("server entitlements", () => {
       evaluateServerFeatureGate({
         feature: "ai_assistant",
         trustedPlan: "free",
+        trustedSource: "persisted_server_plan",
         user: createUser(),
         ...({
           featureOverrides: ["ai_assistant"],
@@ -96,10 +123,31 @@ describe("server entitlements", () => {
     });
   });
 
+  it("does not treat client-like plan hints as trusted premium evidence", () => {
+    expect(
+      evaluateServerFeatureGate({
+        feature: "branding_ai",
+        trustedPlan: "agency",
+        user: createUser(),
+      }),
+    ).toMatchObject({
+      allowed: false,
+      context: {
+        normalizedPlan: "free",
+        source: "default_free_no_plan_source",
+        sourceKind: "none",
+      },
+      enforcedServerSide: true,
+      feature: "branding_ai",
+      reason: "plan_denied",
+    });
+  });
+
   it("fails closed for unknown features and does not leak secret-like or URL-like values", () => {
     const decision = evaluateServerFeatureGate({
       feature: "custom_ai_export",
       trustedPlan: "agency",
+      trustedSource: "server_verified_billing",
       user: null,
     });
 
