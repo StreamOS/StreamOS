@@ -5,6 +5,8 @@ from typing import Mapping
 FORBIDDEN_CLIENT_AI_ENV_NAMES = (
     "NEXT_PUBLIC_OPENAI_KEY",
     "NEXT_PUBLIC_OPENAI_API_KEY",
+    "NEXT_PUBLIC_AUTOMATION_ENTITLEMENT_ASSERTION_SECRET",
+    "NEXT_PUBLIC_AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE",
 )
 
 
@@ -23,6 +25,8 @@ class Settings:
     openai_timeout_seconds: float
     max_transcription_media_bytes: int
     transcription_processor_mode: str
+    automation_entitlement_assertion_secret: str = ""
+    automation_entitlement_assertion_signing_mode: str = "unsigned_internal_contract"
 
 
 def load_settings(source: Mapping[str, str] | None = None) -> Settings:
@@ -57,6 +61,27 @@ def load_settings(source: Mapping[str, str] | None = None) -> Settings:
             "OPENAI_MAX_TRANSCRIPTION_MEDIA_BYTES must be greater than zero."
         )
 
+    assertion_signing_mode = (
+        values.get("AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE", "")
+        .strip()
+        .lower()
+        or "unsigned_internal_contract"
+    )
+    if assertion_signing_mode not in {"unsigned_internal_contract", "hmac_sha256"}:
+        raise SettingsError(
+            "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE must be one of: unsigned_internal_contract, hmac_sha256."
+        )
+
+    assertion_secret = values.get("AUTOMATION_ENTITLEMENT_ASSERTION_SECRET", "").strip()
+    if assertion_signing_mode == "hmac_sha256" and not assertion_secret:
+        raise SettingsError(
+            "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET is required when AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE=hmac_sha256."
+        )
+    if assertion_secret and len(assertion_secret) < 32:
+        raise SettingsError(
+            "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET must be at least 32 characters for hmac-sha256."
+        )
+
     e2e_mode = values.get("STREAMOS_E2E_MODE", "").strip().lower() == "true"
     transcription_processor_mode = (
         values.get("TRANSCRIPTION_PROCESSOR_MODE", "openai").strip().lower() or "openai"
@@ -73,6 +98,8 @@ def load_settings(source: Mapping[str, str] | None = None) -> Settings:
         )
 
     return Settings(
+        automation_entitlement_assertion_secret=assertion_secret,
+        automation_entitlement_assertion_signing_mode=assertion_signing_mode,
         streamos_e2e_mode=e2e_mode,
         openai_api_key=values.get("OPENAI_API_KEY", "").strip(),
         openai_model=values.get("OPENAI_MODEL", "gpt-4o").strip() or "gpt-4o",

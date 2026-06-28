@@ -1,3 +1,6 @@
+import hashlib
+import hmac
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
@@ -22,10 +25,17 @@ ASSERTION_REASON_CODES = (
     "entitlement_assertion_missing",
     "entitlement_assertion_expired",
     "entitlement_assertion_malformed",
+    "entitlement_assertion_signature_invalid",
+    "entitlement_assertion_signature_missing",
     "entitlement_feature_not_allowed",
     "entitlement_plan_source_untrusted",
     "entitlement_user_context_mismatch",
 )
+ASSERTION_SIGNING_MODES = ("unsigned_internal_contract", "hmac_sha256")
+ASSERTION_SECRET_ENV_NAME = "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET"
+ASSERTION_SIGNING_MODE_ENV_NAME = "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE"
+ASSERTION_SIGNATURE_ALGORITHM = "hmac-sha256"
+ASSERTION_MIN_SECRET_LENGTH = 32
 ASSERTION_MAX_TTL_SECONDS = 120
 ASSERTION_CLOCK_SKEW_SECONDS = 15
 
@@ -47,10 +57,13 @@ EntitlementAssertionReasonCode = Literal[
     "entitlement_assertion_missing",
     "entitlement_assertion_expired",
     "entitlement_assertion_malformed",
+    "entitlement_assertion_signature_invalid",
+    "entitlement_assertion_signature_missing",
     "entitlement_feature_not_allowed",
     "entitlement_plan_source_untrusted",
     "entitlement_user_context_mismatch",
 ]
+AssertionSigningMode = Literal["unsigned_internal_contract", "hmac_sha256"]
 
 PLAN_RANK = {
     "free": 0,
@@ -70,6 +83,8 @@ ERROR_MESSAGES: dict[EntitlementAssertionReasonCode, str] = {
     "entitlement_assertion_missing": "A valid internal entitlement assertion is required.",
     "entitlement_assertion_expired": "The internal entitlement assertion expired.",
     "entitlement_assertion_malformed": "The internal entitlement assertion is invalid.",
+    "entitlement_assertion_signature_invalid": "The internal entitlement assertion signature is invalid.",
+    "entitlement_assertion_signature_missing": "A signed internal entitlement assertion is required.",
     "entitlement_feature_not_allowed": "The requested premium feature is not enabled.",
     "entitlement_plan_source_untrusted": "The entitlement assertion used an untrusted plan source.",
     "entitlement_user_context_mismatch": "The entitlement assertion does not match the authenticated server user context.",
@@ -108,6 +123,61 @@ def build_entitlement_assertion_error_detail(
         "code": reason,
         "message": ERROR_MESSAGES[reason],
     }
+
+
+def serialize_automation_entitlement_assertion(
+    assertion: AutomationEntitlementAssertion,
+) -> str:
+    payload: dict[str, str] = {
+        "audience": assertion.audience,
+        "expires_at": assertion.expires_at,
+        "feature": assertion.feature,
+        "issued_at": assertion.issued_at,
+        "issuer": assertion.issuer,
+        "plan": assertion.plan,
+        "plan_source": assertion.plan_source,
+    }
+    if assertion.purpose is not None:
+        payload["purpose"] = assertion.purpose
+    if assertion.request_id is not None:
+        payload["request_id"] = assertion.request_id
+    payload["user_id"] = assertion.user_id
+
+    return json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+
+
+def sign_automation_entitlement_assertion(
+    assertion: AutomationEntitlementAssertion,
+    *,
+    secret: str | None,
+) -> str:
+    normalized_secret = _normalize_secret(secret)
+    _assert_signing_secret(normalized_secret)
+
+    return hmac.new(
+        normalized_secret.encode("utf-8"),
+        serialize_automation_entitlement_assertion(assertion).encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def verify_automation_entitlement_assertion_signature(
+    assertion: AutomationEntitlementAssertion,
+    *,
+    secret: str | None,
+    signature: str | None,
+) -> bool:
+    normalized_secret = _normalize_secret(secret)
+    normalized_signature = _normalize_optional_non_empty_string(signature)
+    if normalized_signature is None:
+        return False
+
+    _assert_signing_secret(normalized_secret)
+
+    return hmac.compare_digest(
+        sign_automation_entitlement_assertion(assertion, secret=normalized_secret),
+        normalized_signature,
+    )
 
 
 def validate_automation_entitlement_assertion(
@@ -213,6 +283,47 @@ def validate_automation_entitlement_assertion(
     )
 
 
+def validate_signed_automation_entitlement_assertion(
+    assertion: object | None,
+    *,
+    feature: str,
+    now: datetime | None = None,
+    signature: str | None,
+    secret: str | None,
+    user_id: str | None,
+) -> AutomationEntitlementAssertionValidation:
+    result = validate_automation_entitlement_assertion(
+        assertion,
+        feature=feature,
+        now=now,
+        user_id=user_id,
+    )
+
+    if not result.allowed or result.assertion is None:
+        return result
+
+    normalized_signature = _normalize_optional_non_empty_string(signature)
+    if normalized_signature is None:
+        return _deny(
+            feature=result.feature,
+            reason="entitlement_assertion_signature_missing",
+            user_id=result.user_id,
+        )
+
+    if not verify_automation_entitlement_assertion_signature(
+        result.assertion,
+        secret=secret,
+        signature=normalized_signature,
+    ):
+        return _deny(
+            feature=result.feature,
+            reason="entitlement_assertion_signature_invalid",
+            user_id=result.user_id,
+        )
+
+    return result
+
+
 def is_feature_allowed_for_plan(
     feature: EntitlementFeatureKey,
     plan: EntitlementPlan,
@@ -274,3 +385,31 @@ def _extract_plan_source(value: object) -> str | None:
 
     normalized = plan_source.strip()
     return normalized or None
+
+
+def _normalize_secret(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    normalized = value.strip()
+    return normalized or None
+
+
+def _normalize_optional_non_empty_string(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    normalized = value.strip()
+    return normalized or None
+
+
+def _assert_signing_secret(secret: str | None) -> None:
+    if secret is None:
+        raise ValueError(
+            f"{ASSERTION_SECRET_ENV_NAME} is required when {ASSERTION_SIGNING_MODE_ENV_NAME}=hmac_sha256."
+        )
+
+    if len(secret) < ASSERTION_MIN_SECRET_LENGTH:
+        raise ValueError(
+            f"{ASSERTION_SECRET_ENV_NAME} must be at least {ASSERTION_MIN_SECRET_LENGTH} characters for {ASSERTION_SIGNATURE_ALGORITHM}."
+        )

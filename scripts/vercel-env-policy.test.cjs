@@ -18,6 +18,8 @@ const {
   formatUnexpectedVercelEnvWarning,
 } = require("./config/vercel-env-policy.cjs");
 
+const TEST_ASSERTION_SIGNING_SECRET = "a".repeat(32);
+
 function buildValidVercelEnv(overrides = {}) {
   return {
     APP_URL: "https://app.streamos.test",
@@ -188,6 +190,8 @@ test("collectVercelEnvironmentIssues blocks Supabase integration admin keys from
 test("findForbiddenVercelEnvNames catches Railway-only names and prefixes", () => {
   const names = findForbiddenVercelEnvNames({
     APP_ENCRYPTION_KEY: `base64:${Buffer.alloc(32, 7).toString("base64")}`,
+    AUTOMATION_ENTITLEMENT_ASSERTION_SECRET: TEST_ASSERTION_SIGNING_SECRET,
+    AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE: "hmac_sha256",
     OPENAI_API_KEY: "sk-test",
     RAILWAY_PRIVATE_DOMAIN: "internal",
     REDIS_URL: "redis://localhost:6379/0",
@@ -204,6 +208,8 @@ test("findForbiddenVercelEnvNames catches Railway-only names and prefixes", () =
 
   assert.deepEqual(names, [
     "APP_ENCRYPTION_KEY",
+    "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET",
+    "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE",
     "OPENAI_API_KEY",
     "RAILWAY_PRIVATE_DOMAIN",
     "REDIS_URL",
@@ -228,6 +234,9 @@ test("assertVercelEnvironment blocks Railway-only secrets and provider secrets",
       assertVercelEnvironment(
         {
           APP_ENCRYPTION_KEY: `base64:${Buffer.alloc(32, 7).toString("base64")}`,
+          AUTOMATION_ENTITLEMENT_ASSERTION_SECRET:
+            TEST_ASSERTION_SIGNING_SECRET,
+          AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE: "hmac_sha256",
           CRON_SECRET: "cron-secret",
           KICK_CLIENT_SECRET: "kick-secret",
           KICK_WEBHOOK_SECRET: "kick-webhook-secret",
@@ -248,7 +257,7 @@ test("assertVercelEnvironment blocks Railway-only secrets and provider secrets",
         },
         { requireRequired: false, validatePublicUrls: false },
       ),
-    /APP_ENCRYPTION_KEY|CRON_SECRET|KICK_CLIENT_SECRET|KICK_WEBHOOK_SECRET|OPENAI_API_KEY|REDIS_URL|SB_POSTGRES_PASSWORD|SB_SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_URL|SUPABASE_SERVICE_ROLE_KEY|TIKTOK_CLIENT_KEY|TIKTOK_CLIENT_SECRET|TWITCH_CLIENT_ID|TWITCH_CLIENT_SECRET|TWITCH_REDIRECT_URI|TWITCH_SCOPES|YOUTUBE_CLIENT_SECRET/,
+    /APP_ENCRYPTION_KEY|AUTOMATION_ENTITLEMENT_ASSERTION_SECRET|AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE|CRON_SECRET|KICK_CLIENT_SECRET|KICK_WEBHOOK_SECRET|OPENAI_API_KEY|REDIS_URL|SB_POSTGRES_PASSWORD|SB_SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_URL|SUPABASE_SERVICE_ROLE_KEY|TIKTOK_CLIENT_KEY|TIKTOK_CLIENT_SECRET|TWITCH_CLIENT_ID|TWITCH_CLIENT_SECRET|TWITCH_REDIRECT_URI|TWITCH_SCOPES|YOUTUBE_CLIENT_SECRET/,
   );
 });
 

@@ -151,6 +151,13 @@ module.exports = {
       API_GATEWAY_SECRET: {
         kind: "string",
       },
+      AUTOMATION_ENTITLEMENT_ASSERTION_SECRET: {
+        kind: "string",
+      },
+      AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE: {
+        allowed: ["unsigned_internal_contract", "hmac_sha256"],
+        kind: "enum",
+      },
       APP_ENCRYPTION_KEY: {
         kind: "base64-32-bytes",
       },
@@ -377,6 +384,8 @@ module.exports = {
         "API_GATEWAY_RATE_LIMIT_ENABLED",
         "API_GATEWAY_RATE_LIMIT_MAX",
         "API_GATEWAY_RATE_LIMIT_WINDOW_MS",
+        "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET",
+        "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE",
         "CONNECT_SUCCESS_REDIRECT",
         "HOST",
         "PORT",
@@ -407,6 +416,8 @@ module.exports = {
       },
       optional: [
         "HOST",
+        "AUTOMATION_ENTITLEMENT_ASSERTION_SECRET",
+        "AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE",
         "PORT",
         "OPENAI_BASE_URL",
         "OPENAI_MAX_TRANSCRIPTION_MEDIA_BYTES",
