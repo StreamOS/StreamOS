@@ -2,6 +2,7 @@ import React from "react";
 import { ContentPerformanceAnalyticsConsole } from "@/components/modules/ContentPerformanceAnalyticsConsole";
 import {
   getContentPerformanceAnalyticsDashboardData,
+  parseContentPerformanceAnalyticsDetailId,
   parseContentPerformanceAnalyticsPeriod,
 } from "./data";
 
@@ -18,8 +19,13 @@ export default async function AnalyticsPage({
   const selectedPeriod = parseContentPerformanceAnalyticsPeriod(
     typeof params?.period === "string" ? params.period : undefined,
   );
-  const model =
-    await getContentPerformanceAnalyticsDashboardData(selectedPeriod);
+  const selectedDetailId = parseContentPerformanceAnalyticsDetailId(
+    typeof params?.detail === "string" ? params.detail : undefined,
+  );
+  const model = await getContentPerformanceAnalyticsDashboardData(
+    selectedPeriod,
+    selectedDetailId,
+  );
 
   return <ContentPerformanceAnalyticsConsole model={model} />;
 }

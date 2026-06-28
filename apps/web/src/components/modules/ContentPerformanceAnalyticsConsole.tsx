@@ -280,6 +280,8 @@ export function ContentPerformanceAnalyticsConsole({
             description="Liste mit verknuepften Publication-/Scheduling-Kontexten und expliziten Availability-Labels fuer fehlende Metriken."
           />
 
+          <DetailPanel model={model} />
+
           {model.items.length > 0 ? (
             <div className="space-y-3">
               {model.items.map((item) => (
@@ -355,6 +357,20 @@ export function ContentPerformanceAnalyticsConsole({
                     <span>
                       Metrics {item.metricsSnapshotId ?? "unavailable"}
                     </span>
+                    <Link
+                      href={buildAnalyticsHref({
+                        itemId:
+                          model.detail.selectedItemId === item.id
+                            ? null
+                            : item.id,
+                        period: model.periodContext.selectedPeriod,
+                      })}
+                      className="font-semibold text-signal-green hover:text-white"
+                    >
+                      {model.detail.selectedItemId === item.id
+                        ? "Detail ausblenden"
+                        : "Detail anzeigen"}
+                    </Link>
                   </div>
                 </article>
               ))}
@@ -421,6 +437,215 @@ function EvidenceTile({
   );
 }
 
+function DetailPanel({
+  model,
+}: {
+  model: ContentPerformanceAnalyticsDashboardModel;
+}) {
+  if (model.detail.state === "idle") {
+    return (
+      <EmptyState
+        title="Noch kein Stream-Detail ausgewaehlt"
+        body="Waehle ein Overview-Item aus der Liste aus, um vorhandene Stream-, Metric- und Publication-Signale fuer dieses Item im aktiven Zeitraum zu sehen."
+      />
+    );
+  }
+
+  if (model.detail.state === "not-found") {
+    return (
+      <EmptyState
+        title="Detail-Item nicht mehr im Read-Window"
+        body="Das angeforderte Detail-Item ist nicht mehr Teil der aktuellen Stichprobe. Waehle ein Item aus der aktuellen Liste, um den Stream-Detailbereich wieder zu fuellen."
+        tone="warning"
+      />
+    );
+  }
+
+  if (model.detail.state === "load-failed") {
+    return (
+      <EmptyState
+        title="Stream-Evidence konnte nicht geladen werden"
+        body="Die Overview-Daten bleiben sichtbar, aber die zusaetzliche Stream-Evidence fuer das ausgewaehlte Item konnte in diesem Lauf nicht geladen werden."
+        tone="warning"
+      />
+    );
+  }
+
+  const item = model.detail.item;
+
+  if (!item) {
+    return null;
+  }
+
+  return (
+    <section className="rounded-lg border border-white/10 bg-surface-950/60 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.08em] text-signal-green">
+            Stream Performance Detail
+          </p>
+          <h3 className="mt-2 text-2xl font-semibold text-white">
+            {item.contentTitle ?? "Untitled content record"}
+          </h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+            {model.detail.evidenceNote}
+          </p>
+        </div>
+        <Link
+          href={buildAnalyticsHref({
+            itemId: null,
+            period: model.periodContext.selectedPeriod,
+          })}
+          className="btn-ghost"
+        >
+          Auswahl zuruecksetzen
+        </Link>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Pill tone="emerald">
+          {getContentPerformancePlatformLabel(item.platform)}
+        </Pill>
+        <Pill tone="violet">
+          {getContentPerformanceCoverageLabel(item.coverageStatus)}
+        </Pill>
+        <Pill tone="slate">
+          {getContentPerformancePublicationStatusLabel(item.publicationStatus)}
+        </Pill>
+        <Pill tone="slate">
+          {getContentPerformanceScheduleStatusLabel(item.scheduleStatus)}
+        </Pill>
+      </div>
+
+      <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricTile
+          label="Views / Audience"
+          value={formatContentPerformanceMetric(item.views, "count")}
+        />
+        <MetricTile
+          label="Watchtime"
+          value={formatContentPerformanceMetric(
+            item.watchTimeMinutes,
+            "minutes",
+          )}
+        />
+        <MetricTile
+          label="Engagement"
+          value={formatContentPerformanceMetric(item.engagementRate, "percent")}
+        />
+        <MetricTile
+          label="Linked Metrics"
+          value={String(model.detail.relatedMetricsCount)}
+        />
+      </div>
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-2">
+        <article className="rounded-lg border border-white/10 bg-white/5 p-4">
+          <SectionHeader
+            title="Selected Item"
+            description="Vorhandene Overview-Signale fuer das ausgewaehlte Item ohne neue Provider- oder KI-Reads."
+          />
+          <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+            <MetricTile
+              label="Primary Activity"
+              value={formatContentPerformanceTimestamp(item.primaryTimestamp)}
+            />
+            <MetricTile
+              label="Latest Snapshot"
+              value={formatContentPerformanceTimestamp(item.snapshotCapturedAt)}
+            />
+            <MetricTile
+              label="Publication"
+              value={item.publicationId ?? "Not linked"}
+            />
+            <MetricTile
+              label="Content Job"
+              value={item.contentJobId ?? "Not linked"}
+            />
+          </dl>
+        </article>
+
+        <article className="rounded-lg border border-white/10 bg-white/5 p-4">
+          <SectionHeader
+            title="Matched Stream Evidence"
+            description="Read-only Stream-Daten aus dem aktiven Zeitraum, soweit ein passender Record vorhanden ist."
+          />
+          {model.detail.stream ? (
+            <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+              <MetricTile
+                label="Stream Title"
+                value={model.detail.stream.title ?? "Not available"}
+              />
+              <MetricTile
+                label="Game"
+                value={model.detail.stream.gameName ?? "Not available"}
+              />
+              <MetricTile
+                label="Started"
+                value={formatContentPerformanceTimestamp(
+                  model.detail.stream.startedAt,
+                )}
+              />
+              <MetricTile
+                label="Ended"
+                value={formatContentPerformanceTimestamp(
+                  model.detail.stream.endedAt,
+                )}
+              />
+              <MetricTile
+                label="Peak Viewers"
+                value={formatContentPerformanceMetric(
+                  model.detail.stream.peakViewers,
+                  "count",
+                )}
+              />
+              <MetricTile
+                label="Average Viewers"
+                value={formatContentPerformanceMetric(
+                  model.detail.stream.averageViewers,
+                  "count",
+                )}
+              />
+              <MetricTile
+                label="Stream Status"
+                value={model.detail.stream.status}
+              />
+              <MetricTile
+                label="Last Update"
+                value={formatContentPerformanceTimestamp(
+                  model.detail.stream.updatedAt,
+                )}
+              />
+            </dl>
+          ) : (
+            <EmptyState
+              title="Kein passender Stream-Record im Fenster"
+              body="Fuer dieses Item wurde im aktiven Read-Window kein Stream-Record gefunden. Metrics- und Publication-Signale bleiben dennoch sichtbar."
+            />
+          )}
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function buildAnalyticsHref({
+  itemId,
+  period,
+}: {
+  itemId: string | null;
+  period: ContentPerformanceAnalyticsDashboardModel["periodContext"]["selectedPeriod"];
+}) {
+  const params = new URLSearchParams();
+  params.set("period", period);
+
+  if (itemId) {
+    params.set("detail", itemId);
+  }
+
+  return `/dashboard/analytics?${params.toString()}`;
+}
+
 function PeriodControls({
   model,
 }: {
@@ -434,7 +659,10 @@ function PeriodControls({
         return (
           <Link
             key={option.id}
-            href={`/dashboard/analytics?period=${option.id}`}
+            href={buildAnalyticsHref({
+              itemId: model.detail.selectedItemId,
+              period: option.id,
+            })}
             aria-current={isActive ? "page" : undefined}
             className={cn(
               "inline-flex min-h-10 items-center rounded-full border px-4 text-sm font-semibold transition-colors",
