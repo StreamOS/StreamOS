@@ -48,11 +48,28 @@ type MetricSnapshotRow = Pick<
   | "watch_time_minutes"
 >;
 
+type StreamRow = Pick<
+  Tables<"streams">,
+  | "average_viewers"
+  | "channel_id"
+  | "ended_at"
+  | "game_name"
+  | "id"
+  | "peak_viewers"
+  | "provider"
+  | "started_at"
+  | "status"
+  | "title"
+  | "updated_at"
+  | "viewer_peak"
+>;
+
 export type ContentPerformanceAnalyticsLookupTables = {
   channels: ChannelRow[];
   contentJobs: ContentJobRow[];
   metricsSnapshots: MetricSnapshotRow[];
   platformConnections: PlatformConnectionRow[];
+  streams: StreamRow[];
 };
 
 export type ContentPerformanceAnalyticsDashboardState =
@@ -92,8 +109,37 @@ export type ContentPerformanceAnalyticsPeriodContext = {
   selectedPeriod: ContentPerformanceAnalyticsPeriod;
 };
 
+export type ContentPerformanceAnalyticsDetailState =
+  | "idle"
+  | "load-failed"
+  | "not-found"
+  | "ready";
+
+export type ContentPerformanceAnalyticsDetailStream = {
+  averageViewers: ContentPerformanceMetricValue;
+  endedAt: string | null;
+  gameName: string | null;
+  id: string;
+  peakViewers: ContentPerformanceMetricValue;
+  provider: StreamPlatform;
+  startedAt: string | null;
+  status: string;
+  title: string | null;
+  updatedAt: string;
+};
+
+export type ContentPerformanceAnalyticsDetailModel = {
+  evidenceNote: string;
+  item: ContentPerformanceItem | null;
+  relatedMetricsCount: number;
+  selectedItemId: string | null;
+  state: ContentPerformanceAnalyticsDetailState;
+  stream: ContentPerformanceAnalyticsDetailStream | null;
+};
+
 export type ContentPerformanceAnalyticsDashboardModel =
   ContentPerformanceReadModel & {
+    detail: ContentPerformanceAnalyticsDetailModel;
     periodContext: ContentPerformanceAnalyticsPeriodContext;
     state: ContentPerformanceAnalyticsDashboardState;
     userId: string | null;
@@ -105,6 +151,8 @@ export function buildContentPerformanceAnalyticsDashboardModel({
   lookups,
   period = "30d",
   publications,
+  selectedItemId = null,
+  streamLookupFailed = false,
   state,
   userId,
 }: {
@@ -113,7 +161,9 @@ export function buildContentPerformanceAnalyticsDashboardModel({
   lookups: ContentPerformanceAnalyticsLookupTables;
   period?: ContentPerformanceAnalyticsPeriod;
   publications: PublicationRow[];
+  selectedItemId?: string | null;
   state: ContentPerformanceAnalyticsDashboardState;
+  streamLookupFailed?: boolean;
   userId: string | null;
 }): ContentPerformanceAnalyticsDashboardModel {
   const channelsById = new Map(lookups.channels.map((row) => [row.id, row]));
@@ -183,10 +233,17 @@ export function buildContentPerformanceAnalyticsDashboardModel({
   const items = rawItems.slice(0, feed.limit);
   const platformComparison = buildPlatformComparison(items);
   const coverage = buildCoverage(items);
+  const detail = buildDetailModel({
+    items,
+    selectedItemId,
+    streamLookupFailed,
+    streams: lookups.streams,
+  });
   const summary = buildSummary(items, platformComparison);
 
   return {
     coverage,
+    detail,
     feed: {
       ...feed,
       hasMore,
@@ -224,6 +281,7 @@ export function createEmptyContentPerformanceAnalyticsDashboardModel(
       limit: CONTENT_PERFORMANCE_ANALYTICS_FEED_LIMIT,
       returnedCount: 0,
     },
+    detail: createEmptyDetailModel(),
     items: [],
     lookupIssues,
     periodContext: buildPeriodContext(period),
@@ -244,6 +302,18 @@ export function createEmptyContentPerformanceAnalyticsDashboardModel(
       totalWatchTimeMinutes: unavailableMetric(),
     },
     userId,
+  };
+}
+
+function createEmptyDetailModel(): ContentPerformanceAnalyticsDetailModel {
+  return {
+    evidenceNote:
+      "Waehle ein Overview-Item aus, um vorhandene Stream-, Metric- und Publication-Signale ohne neue Reads ausserhalb des aktiven Fensters anzuzeigen.",
+    item: null,
+    relatedMetricsCount: 0,
+    selectedItemId: null,
+    state: "idle",
+    stream: null,
   };
 }
 
@@ -576,6 +646,96 @@ function buildSummary(
   };
 }
 
+function buildDetailModel({
+  items,
+  selectedItemId,
+  streamLookupFailed,
+  streams,
+}: {
+  items: ContentPerformanceItem[];
+  selectedItemId: string | null;
+  streamLookupFailed: boolean;
+  streams: StreamRow[];
+}): ContentPerformanceAnalyticsDetailModel {
+  if (!selectedItemId) {
+    return createEmptyDetailModel();
+  }
+
+  const item =
+    items.find((candidate) => candidate.id === selectedItemId) ?? null;
+
+  if (!item) {
+    return {
+      evidenceNote:
+        "Das angeforderte Detail-Item ist nicht mehr im aktuellen Read-Window enthalten. Waehle ein Item aus der aktuellen Liste.",
+      item: null,
+      relatedMetricsCount: 0,
+      selectedItemId,
+      state: "not-found",
+      stream: null,
+    };
+  }
+
+  if (streamLookupFailed) {
+    return {
+      evidenceNote:
+        "Die Overview-Daten bleiben sichtbar, aber die zusaetzliche Stream-Evidence konnte fuer dieses Detail nicht geladen werden.",
+      item,
+      relatedMetricsCount: countRelatedMetrics(items, item),
+      selectedItemId,
+      state: "load-failed",
+      stream: null,
+    };
+  }
+
+  const matchedStream = selectBestStream({
+    candidates: streams.filter(
+      (stream) =>
+        stream.channel_id === item.channelId &&
+        stream.provider === item.platform,
+    ),
+    referenceAt: item.primaryTimestamp,
+  });
+
+  return {
+    evidenceNote: matchedStream
+      ? "Das Detail verbindet das ausgewaehlte Overview-Item mit dem naechstpassenden Stream-Record im aktiven Read-Window."
+      : "Fuer dieses Overview-Item ist aktuell kein passender Stream-Record im aktiven Read-Window vorhanden. Metrics- und Publication-Signale bleiben trotzdem sichtbar.",
+    item,
+    relatedMetricsCount: countRelatedMetrics(items, item),
+    selectedItemId,
+    state: "ready",
+    stream: matchedStream
+      ? {
+          averageViewers: createNumericMetric(matchedStream.average_viewers),
+          endedAt: matchedStream.ended_at,
+          gameName: matchedStream.game_name,
+          id: matchedStream.id,
+          peakViewers: createNumericMetric(
+            matchedStream.peak_viewers ?? matchedStream.viewer_peak,
+          ),
+          provider: matchedStream.provider,
+          startedAt: matchedStream.started_at,
+          status: matchedStream.status,
+          title: matchedStream.title,
+          updatedAt: matchedStream.updated_at,
+        }
+      : null,
+  };
+}
+
+function countRelatedMetrics(
+  items: ContentPerformanceItem[],
+  targetItem: ContentPerformanceItem,
+): number {
+  return items.filter(
+    (item) =>
+      item.channelId === targetItem.channelId &&
+      item.platform === targetItem.platform &&
+      item.metricsSnapshotId !== null,
+  ).length;
+}
+
 function resolveContentTitle(
   contentJob: ContentJobRow | null,
   channelDisplayName: string | null,
@@ -631,6 +791,88 @@ function createMetricLookupKey(
   platform: StreamPlatform,
 ): string {
   return `${channelId}:${platform}`;
+}
+
+function selectBestStream({
+  candidates,
+  referenceAt,
+}: {
+  candidates: StreamRow[];
+  referenceAt: string | null;
+}): StreamRow | null {
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const referenceTime = referenceAt ? new Date(referenceAt).getTime() : NaN;
+
+  if (!Number.isFinite(referenceTime)) {
+    return (
+      [...candidates].sort((left, right) =>
+        compareDescending(left.updated_at, right.updated_at),
+      )[0] ?? null
+    );
+  }
+
+  const coveringStream = [...candidates]
+    .filter((candidate) => {
+      const startedAt = candidate.started_at
+        ? new Date(candidate.started_at).getTime()
+        : NaN;
+      const endedAt = candidate.ended_at
+        ? new Date(candidate.ended_at).getTime()
+        : NaN;
+
+      if (!Number.isFinite(startedAt)) {
+        return false;
+      }
+
+      const effectiveEnd = Number.isFinite(endedAt)
+        ? endedAt
+        : new Date(candidate.updated_at).getTime();
+
+      return referenceTime >= startedAt && referenceTime <= effectiveEnd;
+    })
+    .sort((left, right) =>
+      compareDescending(left.updated_at, right.updated_at),
+    );
+
+  if (coveringStream[0]) {
+    return coveringStream[0];
+  }
+
+  return (
+    [...candidates].sort((left, right) => {
+      const leftDistance = Math.abs(
+        resolveStreamAnchorTime(left) - referenceTime,
+      );
+      const rightDistance = Math.abs(
+        resolveStreamAnchorTime(right) - referenceTime,
+      );
+
+      if (leftDistance === rightDistance) {
+        return compareDescending(left.updated_at, right.updated_at);
+      }
+
+      return leftDistance - rightDistance;
+    })[0] ?? null
+  );
+}
+
+function resolveStreamAnchorTime(stream: StreamRow): number {
+  for (const value of [stream.started_at, stream.ended_at, stream.updated_at]) {
+    if (!value) {
+      continue;
+    }
+
+    const timestamp = new Date(value).getTime();
+
+    if (Number.isFinite(timestamp)) {
+      return timestamp;
+    }
+  }
+
+  return 0;
 }
 
 function selectBestMetricSnapshot({

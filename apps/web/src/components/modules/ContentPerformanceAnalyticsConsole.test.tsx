@@ -60,6 +60,7 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
             status: "connected",
           },
         ],
+        streams: [],
       },
       publications: [
         {
@@ -103,6 +104,7 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
         contentJobs: [],
         metricsSnapshots: [],
         platformConnections: [],
+        streams: [],
       },
       publications: [
         {
@@ -159,6 +161,7 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
           },
         ],
         platformConnections: [],
+        streams: [],
       },
       publications: [],
       state: "ready",
@@ -190,6 +193,7 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
     expect(model.lookupIssues).toHaveLength(1);
     expect(model.periodContext.periodLabel).toBe("Letzte 30 Tage");
     expect(model.lookupIssues[0]?.source).toBe("metricsSnapshots");
+    expect(model.detail.state).toBe("idle");
   });
 
   it("marks the feed as limited when merged items exceed the configured window", () => {
@@ -214,6 +218,7 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
         contentJobs: [],
         metricsSnapshots,
         platformConnections: [],
+        streams: [],
       },
       publications: [],
       state: "ready",
@@ -260,6 +265,7 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
             status: "connected",
           },
         ],
+        streams: [],
       },
       publications: [
         {
@@ -311,5 +317,127 @@ describe("ContentPerformanceAnalyticsConsole.utils", () => {
       "kick",
       "tiktok",
     ]);
+  });
+
+  it("builds a selected detail model with matched stream evidence", () => {
+    const model = buildContentPerformanceAnalyticsDashboardModel({
+      feed: {
+        hasMore: false,
+        limit: 12,
+      },
+      lookupIssues: [],
+      lookups: {
+        channels: [
+          {
+            display_name: "NovaPlays Live",
+            id: "channel-1",
+            platform: "youtube",
+          },
+        ],
+        contentJobs: [],
+        metricsSnapshots: [
+          {
+            captured_at: "2026-06-25T10:30:00.000Z",
+            channel_id: "channel-1",
+            engagement_rate: 7.8,
+            id: "metric-1",
+            platform: "youtube",
+            viewer_count: 18400,
+            watch_time_minutes: 920,
+          },
+        ],
+        platformConnections: [
+          {
+            channel_id: "channel-1",
+            id: "connection-1",
+            platform: "youtube",
+            status: "connected",
+          },
+        ],
+        streams: [
+          {
+            average_viewers: 6400,
+            channel_id: "channel-1",
+            ended_at: "2026-06-25T10:40:00.000Z",
+            game_name: "Ranked Arena",
+            id: "stream-1",
+            peak_viewers: 9100,
+            provider: "youtube",
+            started_at: "2026-06-25T09:55:00.000Z",
+            status: "ended",
+            title: "Ranked launch stream",
+            updated_at: "2026-06-25T10:45:00.000Z",
+            viewer_peak: 9100,
+          },
+        ],
+      },
+      publications: [
+        {
+          content_job_id: "job-1",
+          created_at: "2026-06-25T09:45:00.000Z",
+          id: "publication-1",
+          platform_connection_id: "connection-1",
+          publication_status: "published",
+          published_at: "2026-06-25T10:00:00.000Z",
+          requested_at: "2026-06-25T09:45:00.000Z",
+          schedule_status: "not_scheduled",
+          scheduled_at_utc: null,
+          target_platform: "youtube",
+          updated_at: "2026-06-25T10:05:00.000Z",
+        },
+      ],
+      selectedItemId: "publication:publication-1",
+      state: "ready",
+      userId: "user-7",
+    });
+
+    expect(model.detail.state).toBe("ready");
+    expect(model.detail.item?.id).toBe("publication:publication-1");
+    expect(model.detail.stream?.title).toBe("Ranked launch stream");
+    expect(model.detail.stream?.peakViewers.value).toBe(9100);
+    expect(model.detail.relatedMetricsCount).toBe(1);
+  });
+
+  it("marks detail lookup failures without mutating the overview state", () => {
+    const model = buildContentPerformanceAnalyticsDashboardModel({
+      feed: {
+        hasMore: false,
+        limit: 12,
+      },
+      lookupIssues: [],
+      lookups: {
+        channels: [
+          {
+            display_name: "NovaPlays Live",
+            id: "channel-1",
+            platform: "youtube",
+          },
+        ],
+        contentJobs: [],
+        metricsSnapshots: [
+          {
+            captured_at: "2026-06-25T10:30:00.000Z",
+            channel_id: "channel-1",
+            engagement_rate: 7.8,
+            id: "metric-1",
+            platform: "youtube",
+            viewer_count: 18400,
+            watch_time_minutes: 920,
+          },
+        ],
+        platformConnections: [],
+        streams: [],
+      },
+      publications: [],
+      selectedItemId: "metrics:metric-1",
+      state: "ready",
+      streamLookupFailed: true,
+      userId: "user-8",
+    });
+
+    expect(model.state).toBe("ready");
+    expect(model.summary.itemCount).toBe(1);
+    expect(model.detail.state).toBe("load-failed");
+    expect(model.detail.item?.id).toBe("metrics:metric-1");
   });
 });

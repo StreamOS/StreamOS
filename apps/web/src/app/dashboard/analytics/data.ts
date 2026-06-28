@@ -36,6 +36,7 @@ type ContentJobRow =
   ContentPerformanceAnalyticsLookupTables["contentJobs"][number];
 type PlatformConnectionRow =
   ContentPerformanceAnalyticsLookupTables["platformConnections"][number];
+type StreamRow = ContentPerformanceAnalyticsLookupTables["streams"][number];
 
 export function parseContentPerformanceAnalyticsPeriod(
   value: string | undefined,
@@ -47,8 +48,21 @@ export function parseContentPerformanceAnalyticsPeriod(
     : "30d";
 }
 
+export function parseContentPerformanceAnalyticsDetailId(
+  value: string | undefined,
+): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export async function getContentPerformanceAnalyticsDashboardData(
   period: ContentPerformanceAnalyticsPeriod = "30d",
+  selectedItemId: string | null = null,
 ): Promise<ContentPerformanceAnalyticsDashboardModel> {
   if (!isSupabaseConfigured()) {
     return createEmptyContentPerformanceAnalyticsDashboardModel(
@@ -120,8 +134,10 @@ export async function getContentPerformanceAnalyticsDashboardData(
   ].filter((issue): issue is ContentPerformanceLookupIssue => issue !== null);
 
   const lookups = await loadLookupTables({
+    cutoffIso,
     metricsSnapshots: metricsSnapshots.rows,
     publications: publications.rows,
+    selectedItemId,
     supabase,
     userId: userData.user.id,
   });
@@ -137,7 +153,9 @@ export async function getContentPerformanceAnalyticsDashboardData(
     lookups: lookups.tables,
     period,
     publications: publications.rows,
+    selectedItemId,
     state: "ready",
+    streamLookupFailed: lookups.streamLookupFailed,
     userId: userData.user.id,
   });
 }
@@ -152,17 +170,22 @@ function resolveContentPerformancePeriodCutoff(
 }
 
 async function loadLookupTables({
+  cutoffIso,
   metricsSnapshots,
   publications,
+  selectedItemId,
   supabase,
   userId,
 }: {
+  cutoffIso: string;
   metricsSnapshots: MetricSnapshotRow[];
   publications: PublicationRow[];
+  selectedItemId: string | null;
   supabase: Awaited<ReturnType<typeof createClient>>;
   userId: string;
 }): Promise<{
   issues: ContentPerformanceLookupIssue[];
+  streamLookupFailed: boolean;
   tables: ContentPerformanceAnalyticsLookupTables;
 }> {
   const visiblePublications = publications.slice(
@@ -215,9 +238,28 @@ async function loadLookupTables({
           .eq("user_id", userId)
           .in("id", channelIds)
       : emptyResult<ChannelRow>();
+  const streamsResult =
+    selectedItemId && channelIds.length > 0
+      ? await supabase
+          .from("streams")
+          .select(
+            "average_viewers,channel_id,ended_at,game_name,id,peak_viewers,provider,started_at,status,title,updated_at,viewer_peak",
+          )
+          .eq("user_id", userId)
+          .in("channel_id", channelIds)
+          .gte("updated_at", cutoffIso)
+          .order("updated_at", { ascending: false })
+          .limit(CONTENT_PERFORMANCE_ANALYTICS_FEED_LIMIT)
+      : emptyResult<StreamRow>();
 
   const contentJobs = sanitizeRows(contentJobsResult, "contentJobs");
   const channels = sanitizeRows(channelsResult, "channels");
+  const streamLookupFailed = Boolean(
+    streamsResult.error || !streamsResult.data,
+  );
+  const streams: StreamRow[] = streamLookupFailed
+    ? []
+    : (streamsResult.data ?? []);
 
   return {
     issues: [
@@ -225,11 +267,13 @@ async function loadLookupTables({
       platformConnections.issue,
       channels.issue,
     ].filter((issue): issue is ContentPerformanceLookupIssue => issue !== null),
+    streamLookupFailed,
     tables: {
       channels: channels.rows,
       contentJobs: contentJobs.rows,
       metricsSnapshots: visibleMetrics,
       platformConnections: platformConnections.rows,
+      streams,
     },
   };
 }
