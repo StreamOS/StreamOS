@@ -62,8 +62,39 @@ export type ContentPerformanceAnalyticsDashboardState =
   | "ready"
   | "unauthorized";
 
+export const CONTENT_PERFORMANCE_ANALYTICS_PERIODS = [
+  "7d",
+  "30d",
+  "90d",
+] as const;
+
+export type ContentPerformanceAnalyticsPeriod =
+  (typeof CONTENT_PERFORMANCE_ANALYTICS_PERIODS)[number];
+
+export const CONTENT_PERFORMANCE_ANALYTICS_PERIOD_OPTIONS = [
+  {
+    id: "7d",
+    label: "Letzte 7 Tage",
+  },
+  {
+    id: "30d",
+    label: "Letzte 30 Tage",
+  },
+  {
+    id: "90d",
+    label: "Letzte 90 Tage",
+  },
+] as const;
+
+export type ContentPerformanceAnalyticsPeriodContext = {
+  periodCoverageNote: string;
+  periodLabel: string;
+  selectedPeriod: ContentPerformanceAnalyticsPeriod;
+};
+
 export type ContentPerformanceAnalyticsDashboardModel =
   ContentPerformanceReadModel & {
+    periodContext: ContentPerformanceAnalyticsPeriodContext;
     state: ContentPerformanceAnalyticsDashboardState;
     userId: string | null;
   };
@@ -72,6 +103,7 @@ export function buildContentPerformanceAnalyticsDashboardModel({
   feed,
   lookupIssues,
   lookups,
+  period = "30d",
   publications,
   state,
   userId,
@@ -79,6 +111,7 @@ export function buildContentPerformanceAnalyticsDashboardModel({
   feed: Omit<ContentPerformanceFeedMetadata, "returnedCount">;
   lookupIssues: ContentPerformanceLookupIssue[];
   lookups: ContentPerformanceAnalyticsLookupTables;
+  period?: ContentPerformanceAnalyticsPeriod;
   publications: PublicationRow[];
   state: ContentPerformanceAnalyticsDashboardState;
   userId: string | null;
@@ -161,6 +194,7 @@ export function buildContentPerformanceAnalyticsDashboardModel({
     },
     items,
     lookupIssues,
+    periodContext: buildPeriodContext(period),
     platformComparison,
     state,
     summary,
@@ -172,6 +206,7 @@ export function createEmptyContentPerformanceAnalyticsDashboardModel(
   userId: string | null,
   state: ContentPerformanceAnalyticsDashboardState = "ready",
   lookupIssues: ContentPerformanceLookupIssue[] = [],
+  period: ContentPerformanceAnalyticsPeriod = "30d",
 ): ContentPerformanceAnalyticsDashboardModel {
   return {
     coverage: {
@@ -191,6 +226,7 @@ export function createEmptyContentPerformanceAnalyticsDashboardModel(
     },
     items: [],
     lookupIssues,
+    periodContext: buildPeriodContext(period),
     platformComparison: [],
     state,
     summary: {
@@ -209,6 +245,27 @@ export function createEmptyContentPerformanceAnalyticsDashboardModel(
     },
     userId,
   };
+}
+
+function buildPeriodContext(
+  period: ContentPerformanceAnalyticsPeriod,
+): ContentPerformanceAnalyticsPeriodContext {
+  return {
+    periodCoverageNote:
+      "Metrics werden ueber captured_at und Publications ueber updated_at im aktiven Read-Window gefiltert.",
+    periodLabel: getContentPerformanceAnalyticsPeriodLabel(period),
+    selectedPeriod: period,
+  };
+}
+
+export function getContentPerformanceAnalyticsPeriodLabel(
+  period: ContentPerformanceAnalyticsPeriod,
+): string {
+  return (
+    CONTENT_PERFORMANCE_ANALYTICS_PERIOD_OPTIONS.find(
+      (option) => option.id === period,
+    )?.label ?? "Letzte 30 Tage"
+  );
 }
 
 export function getContentPerformancePlatformLabel(

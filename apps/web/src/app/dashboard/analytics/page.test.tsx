@@ -8,16 +8,23 @@ import {
 
 const mocks = vi.hoisted(() => ({
   getContentPerformanceAnalyticsDashboardData: vi.fn(),
+  parseContentPerformanceAnalyticsPeriod: vi.fn(),
 }));
 
 vi.mock("./data", () => ({
   getContentPerformanceAnalyticsDashboardData:
     mocks.getContentPerformanceAnalyticsDashboardData,
+  parseContentPerformanceAnalyticsPeriod:
+    mocks.parseContentPerformanceAnalyticsPeriod,
 }));
 
 describe("AnalyticsPage", () => {
   beforeEach(() => {
     mocks.getContentPerformanceAnalyticsDashboardData.mockReset();
+    mocks.parseContentPerformanceAnalyticsPeriod.mockReset();
+    mocks.parseContentPerformanceAnalyticsPeriod.mockImplementation(
+      (value?: string) => (value === "7d" ? "7d" : "30d"),
+    );
   });
 
   it("renders the empty read-only analytics surface", async () => {
@@ -31,6 +38,7 @@ describe("AnalyticsPage", () => {
     expect(html).toContain("Read-only sample join");
     expect(html).toContain("Noch kein Plattformvergleich verfuegbar");
     expect(html).toContain("Noch keine Content-Performance-Daten");
+    expect(html).toContain("Letzte 30 Tage");
     expect(html).toContain("not tracked");
   });
 
@@ -123,6 +131,7 @@ describe("AnalyticsPage", () => {
     );
     expect(html).toContain("Diese Surface zeigt die neuesten 1 Eintraege");
     expect(html).toContain("Platform Comparison");
+    expect(html).toContain("Latest Snapshot");
     expect(html).toContain("Ranked launch clip");
     expect(html).toContain("Published");
     expect(html).toContain("18.400");
@@ -210,5 +219,24 @@ describe("AnalyticsPage", () => {
 
     expect(html).toContain("Dashboard-Session erforderlich");
     expect(html).not.toContain("Noch keine Content-Performance-Daten");
+  });
+
+  it("uses the parsed period from search params", async () => {
+    mocks.getContentPerformanceAnalyticsDashboardData.mockResolvedValue(
+      createEmptyContentPerformanceAnalyticsDashboardModel("user-4"),
+    );
+
+    await AnalyticsPage({
+      searchParams: Promise.resolve({
+        period: "7d",
+      }),
+    });
+
+    expect(mocks.parseContentPerformanceAnalyticsPeriod).toHaveBeenCalledWith(
+      "7d",
+    );
+    expect(
+      mocks.getContentPerformanceAnalyticsDashboardData,
+    ).toHaveBeenCalledWith("7d");
   });
 });
