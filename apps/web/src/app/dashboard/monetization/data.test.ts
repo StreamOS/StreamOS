@@ -106,6 +106,57 @@ describe("monetization data loader", () => {
     expect(model.lookupIssues).toHaveLength(0);
   });
 
+  it("keeps monetization reads tenant-scoped and read-only", async () => {
+    mocks.isSupabaseConfigured.mockReturnValue(true);
+    const client = createSupabaseClient({
+      rpcResult: {
+        data: {},
+        error: null,
+      },
+      tableResults: {
+        monetization_events: {
+          count: 0,
+          data: [],
+          error: null,
+        },
+        monetization_summaries: {
+          data: [],
+          error: null,
+        },
+      },
+      user: {
+        id: "user-scope",
+      },
+    });
+    mocks.createClient.mockResolvedValue(client);
+
+    await getMonetizationDashboardData("last_7_days");
+
+    const eventBuilder = client.__builders.monetization_events;
+    const summaryBuilder = client.__builders.monetization_summaries;
+
+    expect(eventBuilder).toBeDefined();
+    expect(summaryBuilder).toBeDefined();
+
+    if (!eventBuilder || !summaryBuilder) {
+      throw new Error("Expected monetization query builders to be captured.");
+    }
+
+    expect(client.rpc).toHaveBeenCalledWith("get_monetization_dashboard", {
+      p_period: "last_7_days",
+    });
+    expect(eventBuilder.eq).toHaveBeenCalledWith("user_id", "user-scope");
+    expect(summaryBuilder.eq).toHaveBeenCalledWith("user_id", "user-scope");
+    expect(summaryBuilder.eq).toHaveBeenCalledWith("period", "daily");
+    expect(eventBuilder.gte).toHaveBeenCalled();
+    expect(summaryBuilder.gte).toHaveBeenCalled();
+    expect(eventBuilder.limit).toHaveBeenCalledWith(13);
+    expect(eventBuilder.delete).not.toHaveBeenCalled();
+    expect(eventBuilder.update).not.toHaveBeenCalled();
+    expect(summaryBuilder.delete).not.toHaveBeenCalled();
+    expect(summaryBuilder.update).not.toHaveBeenCalled();
+  });
+
   it("prefers revenue_by_source aggregates when the RPC exposes real source buckets", async () => {
     mocks.isSupabaseConfigured.mockReturnValue(true);
     mocks.createClient.mockResolvedValue(
@@ -396,7 +447,10 @@ function createSupabaseClient({
   user: { id: string } | null;
   userError?: unknown;
 }) {
+  const builders: Record<string, ReturnType<typeof createQueryBuilder>> = {};
+
   return {
+    __builders: builders,
     auth: {
       getUser: vi.fn().mockResolvedValue({
         data: {
@@ -405,7 +459,11 @@ function createSupabaseClient({
         error: userError,
       }),
     },
-    from: vi.fn((table: string) => createQueryBuilder(tableResults[table])),
+    from: vi.fn((table: string) => {
+      const builder = createQueryBuilder(tableResults[table]);
+      builders[table] = builder;
+      return builder;
+    }),
     rpc: vi.fn().mockResolvedValue(rpcResult),
   };
 }
@@ -423,6 +481,8 @@ function createQueryBuilder(result?: QueryResult) {
     limit: vi.fn(() => chain),
     order: vi.fn(() => chain),
     select: vi.fn(() => chain),
+    delete: vi.fn(() => chain),
+    update: vi.fn(() => chain),
     then: (resolve: (value: QueryResult) => unknown) => resolve(finalResult),
   };
 

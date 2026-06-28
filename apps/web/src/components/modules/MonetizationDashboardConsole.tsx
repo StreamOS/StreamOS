@@ -204,7 +204,7 @@ export function MonetizationDashboardConsole({
           ) : (
             <EmptyState
               title="Noch keine Monetization-Daten"
-              body="Sobald serverseitig Monetization-Events oder Summaries vorhanden sind, zeigt dieser Bereich den Revenue-Verlauf."
+              body="Sobald Plattformverbindungen und serverseitige Monetization-Ingestion erste Events oder Summary-Zeilen liefern, zeigt dieser Bereich den Revenue-Verlauf."
             />
           )}
         </article>
@@ -235,6 +235,13 @@ export function MonetizationDashboardConsole({
               helper="Confirmed revenue providers"
               label="Platforms"
               value={String(model.summary.activePlatforms)}
+            />
+            <CoverageTile
+              helper="Letzter Summary-Zeitraum mit Monetization-Abdeckung"
+              label="Latest Summary"
+              value={formatMonetizationDateTime(
+                model.coverage.latestSummaryPeriodEnd,
+              )}
             />
           </div>
 
@@ -337,7 +344,7 @@ export function MonetizationDashboardConsole({
               title={getInitialRevenueBreakdownTitle(
                 model.revenueBreakdownContext,
               )}
-              body="Sobald belastbare Monetization-Daten vorliegen, erscheinen hier Revenue-Gruppen mit ehrlicher Breakdown-Semantik."
+              body="Sobald Plattformverbindungen und serverseitige Monetization-Daten vorliegen, erscheinen hier Revenue-Gruppen mit ehrlicher Breakdown-Semantik."
             />
           )}
         </article>
@@ -461,7 +468,7 @@ export function MonetizationDashboardConsole({
             title={getInitialRevenueCategoryTitle(
               model.revenueBreakdownContext,
             )}
-            body="Sobald ausreichend Monetization-Daten vorliegen, zeigt dieser Bereich die staerksten Revenue-Gruppen."
+            body="Sobald ausreichend serverseitige Monetization-Daten verfuegbar sind, zeigt dieser Bereich die staerksten Revenue-Gruppen."
           />
         )}
       </section>

@@ -5,6 +5,8 @@ import {
   parseMonetizationDashboardPeriod,
 } from "./data";
 
+export const dynamic = "force-dynamic";
+
 type MonetizationPageProps = {
   searchParams?: Promise<{
     period?: string;
