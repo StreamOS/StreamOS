@@ -8,6 +8,10 @@ import {
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import {
+  MONETIZATION_EVENT_LIST_FILTER_EVENT_TYPES,
+  MONETIZATION_EVENT_LIST_FILTER_PROVIDERS,
+  MONETIZATION_EVENT_LIST_FILTER_STATUSES,
+  MONETIZATION_EVENT_LIST_WINDOW_MAX,
   buildMonetizationDashboardModel,
   createEmptyMonetizationDashboardModel,
   type MonetizationAggregateSnapshot,
@@ -15,6 +19,7 @@ import {
   type MonetizationAggregateTrendRow,
   type MonetizationDashboardModel,
   type MonetizationEventRow,
+  type MonetizationEventListView,
   type MonetizationSummaryRow,
 } from "@/components/modules/MonetizationDashboardConsole.utils";
 
@@ -58,8 +63,40 @@ export function parseMonetizationDashboardPeriod(
     : "last_30_days";
 }
 
+export function parseMonetizationEventListView(
+  searchParams?: Record<string, string | string[] | undefined>,
+): MonetizationEventListView {
+  return {
+    eventType: parseFilterValue(
+      readSingleSearchParam(searchParams?.eventType),
+      MONETIZATION_EVENT_LIST_FILTER_EVENT_TYPES,
+    ),
+    provider: parseFilterValue(
+      readSingleSearchParam(searchParams?.provider),
+      MONETIZATION_EVENT_LIST_FILTER_PROVIDERS,
+    ),
+    source: parseMonetizationEventSource(
+      readSingleSearchParam(searchParams?.source),
+    ),
+    status: parseFilterValue(
+      readSingleSearchParam(searchParams?.status),
+      MONETIZATION_EVENT_LIST_FILTER_STATUSES,
+    ),
+    windowCount: parseMonetizationEventWindowCount(
+      readSingleSearchParam(searchParams?.window),
+    ),
+  };
+}
+
 export async function getMonetizationDashboardData(
   period: MonetizationDashboardPeriod,
+  eventListView: MonetizationEventListView = {
+    eventType: null,
+    provider: null,
+    source: null,
+    status: null,
+    windowCount: 1,
+  },
 ): Promise<MonetizationDashboardModel> {
   if (!isSupabaseConfigured()) {
     return createEmptyMonetizationDashboardModel(period, null, "disabled");
@@ -80,12 +117,15 @@ export async function getMonetizationDashboardData(
   const summaryPeriod: MonetizationSummaryPeriod =
     period === "all_time" ? "weekly" : "daily";
   const rpcClient = supabase as unknown as MonetizationRpcClient;
+  const eventFeedLimit = getMonetizationEventFeedLimit(
+    eventListView.windowCount,
+  );
 
   const [aggregateResult, eventsResult, summariesResult] = await Promise.all([
     rpcClient.rpc("get_monetization_dashboard", {
       p_period: period,
     }),
-    loadRecentEvents(supabase, userData.user.id, since),
+    loadRecentEvents(supabase, userData.user.id, since, eventListView),
     loadSummaries(supabase, userData.user.id, summaryPeriod, since),
   ]);
 
@@ -108,10 +148,7 @@ export async function getMonetizationDashboardData(
     );
   }
 
-  const visibleEvents = events.rows.slice(
-    0,
-    MONETIZATION_DASHBOARD_EVENT_LIMIT,
-  );
+  const visibleEvents = events.rows.slice(0, eventFeedLimit);
   const lookupIssues: MonetizationDashboardLookupIssue[] = [
     aggregate.issue,
     events.issue,
@@ -140,9 +177,9 @@ export async function getMonetizationDashboardData(
     events: visibleEvents,
     feed: {
       hasMore:
-        events.rows.length > MONETIZATION_DASHBOARD_EVENT_LIMIT ||
-        (events.totalCount ?? 0) > MONETIZATION_DASHBOARD_EVENT_LIMIT,
-      limit: MONETIZATION_DASHBOARD_EVENT_LIMIT,
+        events.rows.length > eventFeedLimit ||
+        (events.totalCount ?? 0) > eventFeedLimit,
+      limit: eventFeedLimit,
       returnedCount: visibleEvents.length,
       totalCount: events.totalCount ?? undefined,
     },
@@ -158,6 +195,7 @@ async function loadRecentEvents(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
   since: string | null,
+  eventListView: MonetizationEventListView,
 ): Promise<EventResult> {
   let query = supabase
     .from("monetization_events")
@@ -172,8 +210,24 @@ async function loadRecentEvents(
     query = query.gte("occurred_at", since);
   }
 
+  if (eventListView.eventType) {
+    query = query.eq("event_type", eventListView.eventType);
+  }
+
+  if (eventListView.provider) {
+    query = query.eq("provider", eventListView.provider);
+  }
+
+  if (eventListView.status) {
+    query = query.eq("status", eventListView.status);
+  }
+
+  if (eventListView.source) {
+    query = query.eq("source", eventListView.source);
+  }
+
   return (await query.limit(
-    MONETIZATION_DASHBOARD_EVENT_LIMIT + 1,
+    getMonetizationEventFeedLimit(eventListView.windowCount) + 1,
   )) as EventResult;
 }
 
@@ -327,6 +381,57 @@ function getSinceIso(period: MonetizationDashboardPeriod): string | null {
   }
 
   return null;
+}
+
+function getMonetizationEventFeedLimit(windowCount: number) {
+  return MONETIZATION_DASHBOARD_EVENT_LIMIT * windowCount;
+}
+
+function parseMonetizationEventWindowCount(value: string | null): number {
+  const parsed = value ? Number.parseInt(value, 10) : 1;
+
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    return 1;
+  }
+
+  return Math.min(parsed, MONETIZATION_EVENT_LIST_WINDOW_MAX);
+}
+
+function readSingleSearchParam(
+  value: string | string[] | undefined,
+): string | null {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return Array.isArray(value) ? (value[0] ?? null) : null;
+}
+
+function parseMonetizationEventSource(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim();
+
+  if (
+    normalized.length < 1 ||
+    normalized.length > 120 ||
+    !/^[a-z0-9_-]+$/i.test(normalized)
+  ) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function parseFilterValue<const T extends readonly string[]>(
+  value: string | null,
+  allowedValues: T,
+): T[number] | null {
+  return allowedValues.includes(value as T[number])
+    ? (value as T[number])
+    : null;
 }
 
 function isAggregatePayload(value: unknown): value is RpcMonetizationDashboard {

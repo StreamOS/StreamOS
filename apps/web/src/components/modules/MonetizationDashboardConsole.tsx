@@ -11,21 +11,29 @@ import {
 import { StatCard } from "@streamos/ui";
 import { cn } from "@/lib/utils/cn";
 import {
+  MONETIZATION_EVENT_LIST_FILTER_EVENT_TYPES,
+  MONETIZATION_EVENT_LIST_FILTER_PROVIDERS,
+  MONETIZATION_EVENT_LIST_FILTER_STATUSES,
+  MONETIZATION_EVENT_LIST_WINDOW_MAX,
   formatMonetizationAmount,
   formatMonetizationCount,
   formatMonetizationDateTime,
   getMonetizationBreakdownValueLabel,
+  getMonetizationDashboardPeriodLabel,
   getMonetizationPlatformLabel,
   getMonetizationStatusLabel,
   type MonetizationDashboardModel,
+  type MonetizationEventListView,
 } from "./MonetizationDashboardConsole.utils";
 import { getMonetizationSourceCategoryLabel } from "./monetizationSourceTaxonomy";
 
 type MonetizationDashboardConsoleProps = {
+  eventListView: MonetizationEventListView;
   model: MonetizationDashboardModel;
 };
 
 export function MonetizationDashboardConsole({
+  eventListView,
   model,
 }: MonetizationDashboardConsoleProps) {
   const hasLookupIssues = model.lookupIssues.length > 0;
@@ -45,6 +53,18 @@ export function MonetizationDashboardConsole({
   const revenueCategoryTitle = getRevenueCategoryTitle(
     model.revenueBreakdownContext,
   );
+  const hasActiveEventFilters =
+    eventListView.eventType !== null ||
+    eventListView.provider !== null ||
+    eventListView.source !== null ||
+    eventListView.status !== null;
+  const visibleEventSources = [
+    ...new Set(
+      model.recentEvents
+        .map((event) => event.source)
+        .filter((source): source is string => source !== null),
+    ),
+  ].slice(0, 4);
 
   return (
     <div className="space-y-6">
@@ -354,6 +374,12 @@ export function MonetizationDashboardConsole({
             title="Recent Monetization Events"
             description={`Neueste Events bei aktiver Revenue-Perspektive ${model.periodContext.periodLabel} aus einer begrenzten, user-scoped Feed-Abfrage.`}
           />
+          <EventFeedControls
+            eventListView={eventListView}
+            hasActiveEventFilters={hasActiveEventFilters}
+            model={model}
+            visibleSources={visibleEventSources}
+          />
 
           {model.recentEvents.length > 0 ? (
             <div className="overflow-x-auto">
@@ -419,6 +445,11 @@ export function MonetizationDashboardConsole({
               title="Recent Events teilweise verfuegbar"
               body="Die Event-Feed-Abfrage ist fehlgeschlagen oder unvollstaendig. Deshalb zeigt StreamOS keinen irrefuehrenden leeren Verlauf."
             />
+          ) : hasActiveEventFilters ? (
+            <EmptyState
+              title="Keine Events fuer die aktiven Filter"
+              body="Im ausgewaehlten Zeitraum wurden fuer die aktuellen Event-Filter keine user-scoped Monetization-Events gefunden."
+            />
           ) : (
             <EmptyState
               title="Keine Monetization Events im Zeitraum"
@@ -473,6 +504,290 @@ export function MonetizationDashboardConsole({
         )}
       </section>
     </div>
+  );
+}
+
+function EventFeedControls({
+  eventListView,
+  hasActiveEventFilters,
+  model,
+  visibleSources,
+}: {
+  eventListView: MonetizationEventListView;
+  hasActiveEventFilters: boolean;
+  model: MonetizationDashboardModel;
+  visibleSources: string[];
+}) {
+  const canExpandWindow =
+    model.feed.hasMore &&
+    eventListView.windowCount < MONETIZATION_EVENT_LIST_WINDOW_MAX;
+
+  return (
+    <section className="rounded-lg border border-white/10 bg-white/5 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Event Feed Controls
+          </p>
+          <p className="mt-2 text-sm leading-6 text-slate-400">
+            Diese Filter bleiben read-only, tenant-scoped und wirken nur auf den
+            Monetization Event Feed. Das Feed-Fenster erweitert lediglich den
+            geladenen Sample-Scope.
+          </p>
+        </div>
+        <Pill tone="slate">
+          Sample window {eventListView.windowCount} /{" "}
+          {MONETIZATION_EVENT_LIST_WINDOW_MAX}
+        </Pill>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+          Aktive Filter
+        </span>
+        {hasActiveEventFilters ? (
+          <>
+            {eventListView.eventType ? (
+              <Pill tone="violet">
+                Type:{" "}
+                {getMonetizationBreakdownValueLabel(eventListView.eventType)}
+              </Pill>
+            ) : null}
+            {eventListView.provider ? (
+              <Pill tone="violet">
+                Platform: {getMonetizationPlatformLabel(eventListView.provider)}
+              </Pill>
+            ) : null}
+            {eventListView.status ? (
+              <Pill tone="violet">
+                Status: {getMonetizationStatusLabel(eventListView.status)}
+              </Pill>
+            ) : null}
+            {eventListView.source ? (
+              <Pill tone="violet">
+                Source:{" "}
+                {getMonetizationBreakdownValueLabel(eventListView.source)}
+              </Pill>
+            ) : null}
+          </>
+        ) : (
+          <span className="text-sm text-slate-400">Keine</span>
+        )}
+      </div>
+
+      <div className="mt-4 space-y-4">
+        <FilterGroup
+          activeValue={eventListView.eventType}
+          label="Event Type"
+          options={MONETIZATION_EVENT_LIST_FILTER_EVENT_TYPES.map(
+            (eventType) => ({
+              href: buildMonetizationEventListHref({
+                overrides: {
+                  eventType,
+                  windowCount: 1,
+                },
+                period: model.period,
+                view: eventListView,
+              }),
+              label: getMonetizationBreakdownValueLabel(eventType),
+              value: eventType,
+            }),
+          )}
+          resetHref={buildMonetizationEventListHref({
+            overrides: {
+              eventType: null,
+              windowCount: 1,
+            },
+            period: model.period,
+            view: eventListView,
+          })}
+        />
+        <FilterGroup
+          activeValue={eventListView.provider}
+          label="Platform"
+          options={MONETIZATION_EVENT_LIST_FILTER_PROVIDERS.map((provider) => ({
+            href: buildMonetizationEventListHref({
+              overrides: {
+                provider,
+                windowCount: 1,
+              },
+              period: model.period,
+              view: eventListView,
+            }),
+            label: getMonetizationPlatformLabel(provider),
+            value: provider,
+          }))}
+          resetHref={buildMonetizationEventListHref({
+            overrides: {
+              provider: null,
+              windowCount: 1,
+            },
+            period: model.period,
+            view: eventListView,
+          })}
+        />
+        <FilterGroup
+          activeValue={eventListView.status}
+          label="Status"
+          options={MONETIZATION_EVENT_LIST_FILTER_STATUSES.map((status) => ({
+            href: buildMonetizationEventListHref({
+              overrides: {
+                status,
+                windowCount: 1,
+              },
+              period: model.period,
+              view: eventListView,
+            }),
+            label: getMonetizationStatusLabel(status),
+            value: status,
+          }))}
+          resetHref={buildMonetizationEventListHref({
+            overrides: {
+              status: null,
+              windowCount: 1,
+            },
+            period: model.period,
+            view: eventListView,
+          })}
+        />
+        {visibleSources.length > 0 ? (
+          <FilterGroup
+            activeValue={eventListView.source}
+            label="Quick Sources"
+            options={visibleSources.map((source) => ({
+              href: buildMonetizationEventListHref({
+                overrides: {
+                  source,
+                  windowCount: 1,
+                },
+                period: model.period,
+                view: eventListView,
+              }),
+              label: getMonetizationBreakdownValueLabel(source),
+              value: source,
+            }))}
+            resetHref={buildMonetizationEventListHref({
+              overrides: {
+                source: null,
+                windowCount: 1,
+              },
+              period: model.period,
+              view: eventListView,
+            })}
+          />
+        ) : null}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-400">
+        <span>
+          Sample scope: {model.feed.returnedCount} von{" "}
+          {model.feed.totalCount ?? model.feed.returnedCount} Events in{" "}
+          {getMonetizationDashboardPeriodLabel(model.period)}
+        </span>
+        {hasActiveEventFilters ? (
+          <Link
+            href={buildMonetizationEventListHref({
+              overrides: {
+                eventType: null,
+                provider: null,
+                source: null,
+                status: null,
+                windowCount: 1,
+              },
+              period: model.period,
+              view: eventListView,
+            })}
+            className="text-sm font-semibold text-signal-green hover:text-emerald-300"
+          >
+            Clear event filters
+          </Link>
+        ) : null}
+        {canExpandWindow ? (
+          <Link
+            href={buildMonetizationEventListHref({
+              overrides: {
+                windowCount: eventListView.windowCount + 1,
+              },
+              period: model.period,
+              view: eventListView,
+            })}
+            className="text-sm font-semibold text-signal-green hover:text-emerald-300"
+          >
+            Show more sample events
+          </Link>
+        ) : null}
+      </div>
+
+      {model.feed.hasMore && !canExpandWindow ? (
+        <p className="mt-3 text-xs uppercase tracking-[0.08em] text-slate-500">
+          Der aktuelle Event-Sample-Scope ist ausgereizt. Echte serverseitige
+          Pagination bleibt ein separater Folgeslice.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function FilterGroup({
+  activeValue,
+  label,
+  options,
+  resetHref,
+}: {
+  activeValue: string | null;
+  label: string;
+  options: Array<{
+    href: string;
+    label: string;
+    value: string;
+  }>;
+  resetHref: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+        {label}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <FilterLink href={resetHref} isActive={activeValue === null}>
+          All
+        </FilterLink>
+        {options.map((option) => (
+          <FilterLink
+            key={`${label}:${option.value}`}
+            href={option.href}
+            isActive={activeValue === option.value}
+          >
+            {option.label}
+          </FilterLink>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FilterLink({
+  children,
+  href,
+  isActive,
+}: {
+  children: React.ReactNode;
+  href: string;
+  isActive: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-current={isActive ? "page" : undefined}
+      className={cn(
+        "inline-flex min-h-9 items-center rounded-full border px-3 text-sm font-semibold transition-colors",
+        isActive
+          ? "border-signal-green/30 bg-signal-green/10 text-signal-green"
+          : "border-white/10 bg-surface-950/60 text-slate-300 hover:bg-white/10 hover:text-white",
+      )}
+    >
+      {children}
+    </Link>
   );
 }
 
@@ -852,6 +1167,46 @@ function formatRevenueBreakdownCoverage(
   }
 
   return model.coverage.revenueBreakdownDataSource;
+}
+
+function buildMonetizationEventListHref({
+  overrides,
+  period,
+  view,
+}: {
+  overrides: Partial<MonetizationEventListView>;
+  period: MonetizationDashboardModel["period"];
+  view: MonetizationEventListView;
+}) {
+  const nextView: MonetizationEventListView = {
+    ...view,
+    ...overrides,
+  };
+  const searchParams = new URLSearchParams();
+
+  searchParams.set("period", period);
+
+  if (nextView.eventType) {
+    searchParams.set("eventType", nextView.eventType);
+  }
+
+  if (nextView.provider) {
+    searchParams.set("provider", nextView.provider);
+  }
+
+  if (nextView.status) {
+    searchParams.set("status", nextView.status);
+  }
+
+  if (nextView.source) {
+    searchParams.set("source", nextView.source);
+  }
+
+  if (nextView.windowCount > 1) {
+    searchParams.set("window", String(nextView.windowCount));
+  }
+
+  return `/dashboard/monetization?${searchParams.toString()}`;
 }
 
 function getEmptyRevenueBreakdownTitle(

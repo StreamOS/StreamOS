@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getMonetizationDashboardData } from "./data";
+import {
+  getMonetizationDashboardData,
+  parseMonetizationEventListView,
+} from "./data";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -106,6 +109,40 @@ describe("monetization data loader", () => {
     expect(model.lookupIssues).toHaveLength(0);
   });
 
+  it("parses event list filters conservatively and clamps the sample window", () => {
+    expect(
+      parseMonetizationEventListView({
+        eventType: "sponsorship",
+        provider: "youtube",
+        source: "brand_campaign",
+        status: "confirmed",
+        window: "99",
+      }),
+    ).toEqual({
+      eventType: "sponsorship",
+      provider: "youtube",
+      source: "brand_campaign",
+      status: "confirmed",
+      windowCount: 3,
+    });
+
+    expect(
+      parseMonetizationEventListView({
+        eventType: "not-real",
+        provider: "not-real",
+        source: "not valid with spaces",
+        status: "not-real",
+        window: "-1",
+      }),
+    ).toEqual({
+      eventType: null,
+      provider: null,
+      source: null,
+      status: null,
+      windowCount: 1,
+    });
+  });
+
   it("keeps monetization reads tenant-scoped and read-only", async () => {
     mocks.isSupabaseConfigured.mockReturnValue(true);
     const client = createSupabaseClient({
@@ -130,7 +167,13 @@ describe("monetization data loader", () => {
     });
     mocks.createClient.mockResolvedValue(client);
 
-    await getMonetizationDashboardData("last_7_days");
+    await getMonetizationDashboardData("last_7_days", {
+      eventType: "sponsorship",
+      provider: "youtube",
+      source: "brand_campaign",
+      status: "confirmed",
+      windowCount: 2,
+    });
 
     const eventBuilder = client.__builders.monetization_events;
     const summaryBuilder = client.__builders.monetization_summaries;
@@ -150,11 +193,72 @@ describe("monetization data loader", () => {
     expect(summaryBuilder.eq).toHaveBeenCalledWith("period", "daily");
     expect(eventBuilder.gte).toHaveBeenCalled();
     expect(summaryBuilder.gte).toHaveBeenCalled();
-    expect(eventBuilder.limit).toHaveBeenCalledWith(13);
+    expect(eventBuilder.eq).toHaveBeenCalledWith("event_type", "sponsorship");
+    expect(eventBuilder.eq).toHaveBeenCalledWith("provider", "youtube");
+    expect(eventBuilder.eq).toHaveBeenCalledWith("status", "confirmed");
+    expect(eventBuilder.eq).toHaveBeenCalledWith("source", "brand_campaign");
+    expect(eventBuilder.limit).toHaveBeenCalledWith(25);
     expect(eventBuilder.delete).not.toHaveBeenCalled();
     expect(eventBuilder.update).not.toHaveBeenCalled();
     expect(summaryBuilder.delete).not.toHaveBeenCalled();
     expect(summaryBuilder.update).not.toHaveBeenCalled();
+  });
+
+  it("expands the recent-event sample window without changing summary scope", async () => {
+    mocks.isSupabaseConfigured.mockReturnValue(true);
+    const client = createSupabaseClient({
+      rpcResult: {
+        data: {
+          active_platforms: 1,
+          avg_revenue_per_day_cents: 5000,
+          currency: "USD",
+          total_revenue_cents: 5000,
+        },
+        error: null,
+      },
+      tableResults: {
+        monetization_events: {
+          count: 30,
+          data: Array.from({ length: 25 }, (_, index) => ({
+            amount_cents: 1000 + index,
+            currency: "USD",
+            event_type: "subscription",
+            id: `event-${index + 1}`,
+            occurred_at: "2026-06-25T10:30:00.000Z",
+            provider: "twitch",
+            source: "channel_subscription",
+            status: "confirmed",
+          })),
+          error: null,
+        },
+        monetization_summaries: {
+          data: [],
+          error: null,
+        },
+      },
+      user: {
+        id: "user-window",
+      },
+    });
+    mocks.createClient.mockResolvedValue(client);
+
+    const model = await getMonetizationDashboardData("last_30_days", {
+      eventType: null,
+      provider: null,
+      source: null,
+      status: null,
+      windowCount: 2,
+    });
+
+    const eventBuilder = client.__builders.monetization_events;
+    const summaryBuilder = client.__builders.monetization_summaries;
+
+    expect(model.feed.limit).toBe(24);
+    expect(model.feed.hasMore).toBe(true);
+    expect(model.recentEvents).toHaveLength(24);
+    expect(model.coverage.summaryRowCount).toBe(0);
+    expect(eventBuilder?.limit).toHaveBeenCalledWith(25);
+    expect(summaryBuilder?.eq).toHaveBeenCalledWith("period", "daily");
   });
 
   it("prefers revenue_by_source aggregates when the RPC exposes real source buckets", async () => {

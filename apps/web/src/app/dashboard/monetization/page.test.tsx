@@ -13,6 +13,15 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./data", () => ({
   getMonetizationDashboardData: mocks.getMonetizationDashboardData,
+  parseMonetizationEventListView: (
+    value: Record<string, string | string[] | undefined> | undefined,
+  ) => ({
+    eventType: typeof value?.eventType === "string" ? value.eventType : null,
+    provider: typeof value?.provider === "string" ? value.provider : null,
+    source: typeof value?.source === "string" ? value.source : null,
+    status: typeof value?.status === "string" ? value.status : null,
+    windowCount: typeof value?.window === "string" ? Number(value.window) : 1,
+  }),
   parseMonetizationDashboardPeriod: (value: string | undefined) =>
     value === "all_time"
       ? "all_time"
@@ -67,6 +76,76 @@ describe("MonetizationPage", () => {
     expect(html).toContain(
       "All time uses weekly summary buckets in this MVP. Recent events remain a limited latest-feed view.",
     );
+  });
+
+  it("passes event list filters into the read model and renders sample controls", async () => {
+    const model = buildMonetizationDashboardModel({
+      aggregate: {
+        activePlatforms: 1,
+        averageRevenuePerDayCents: 9000,
+        currency: "USD",
+        sourceBreakdown: [],
+        totalRevenueCents: 63000,
+        trend: [],
+      },
+      events: [
+        {
+          amount_cents: 63000,
+          currency: "USD",
+          event_type: "sponsorship",
+          id: "event-filter-1",
+          occurred_at: "2026-06-25T12:00:00.000Z",
+          provider: "youtube",
+          source: "brand_campaign",
+          status: "confirmed",
+        },
+      ],
+      feed: {
+        hasMore: true,
+        limit: 24,
+        returnedCount: 1,
+        totalCount: 25,
+      },
+      lookupIssues: [],
+      period: "last_30_days",
+      state: "ready",
+      summaries: [],
+      userId: "user-filter",
+    });
+
+    mocks.getMonetizationDashboardData.mockResolvedValue(model);
+
+    const html = renderToStaticMarkup(
+      await MonetizationPage({
+        searchParams: Promise.resolve({
+          eventType: "sponsorship",
+          provider: "youtube",
+          source: "brand_campaign",
+          status: "confirmed",
+          window: "2",
+        }),
+      }),
+    );
+
+    expect(mocks.getMonetizationDashboardData).toHaveBeenCalledWith(
+      "last_30_days",
+      {
+        eventType: "sponsorship",
+        provider: "youtube",
+        source: "brand_campaign",
+        status: "confirmed",
+        windowCount: 2,
+      },
+    );
+    expect(html).toContain("Event Feed Controls");
+    expect(html).toContain("Sample window 2 / 3");
+    expect(html).toContain("Clear event filters");
+    expect(html).toContain("Show more sample events");
+    expect(html).toContain("eventType=sponsorship");
+    expect(html).toContain("provider=youtube");
+    expect(html).toContain("source=brand_campaign");
+    expect(html).toContain("status=confirmed");
+    expect(html).toContain("window=3");
   });
 
   it("renders partial-load warnings without hiding existing data", async () => {
