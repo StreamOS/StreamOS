@@ -95,6 +95,7 @@ def prepare_ai_assistant_backend_contract(
         )
         resolved_context = _run_context_resolution(
             context_boundary,
+            settings=settings,
             context_adapters=context_adapters,
         )
         payload = _serialize_ai_assistant_request(
@@ -199,10 +200,12 @@ def _serialize_ai_assistant_request(
 def _run_context_resolution(
     context_boundary: AiAssistantContextBoundary,
     *,
+    settings: Settings,
     context_adapters: dict[str, AiContextSourceAdapter] | None,
 ) -> AiAssistantResolvedContext:
     adapters = AI_CONTEXT_SOURCE_ADAPTERS if context_adapters is None else context_adapters
     return resolve_ai_context_sources(
         context_boundary,
+        settings=settings,
         adapters=adapters,
     )

@@ -5,6 +5,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
+import ai_context_retrieval_adapters as retrieval_adapters
 from ai_assistant_backend_contract import (
     AiAssistantBackendContractRequest,
     prepare_ai_assistant_backend_contract,
@@ -36,6 +37,8 @@ def build_settings(
     *,
     assertion_secret: str = ASSERTION_SIGNING_TEST_SECRET,
     signing_mode: str = "hmac_sha256",
+    api_gateway_url: str = "",
+    api_gateway_secret: str = "",
 ) -> Settings:
     return Settings(
         streamos_e2e_mode=False,
@@ -47,6 +50,8 @@ def build_settings(
         openai_timeout_seconds=30,
         max_transcription_media_bytes=25_000_000,
         transcription_processor_mode="openai",
+        api_gateway_url=api_gateway_url,
+        api_gateway_secret=api_gateway_secret,
         automation_entitlement_assertion_secret=assertion_secret,
         automation_entitlement_assertion_signing_mode=signing_mode,
     )
@@ -640,7 +645,7 @@ def test_context_adapter_resolution_requires_tenant_and_user_context() -> None:
         pytest.param("content_job_summary", 2_048, id="content job summary"),
     ],
 )
-def test_context_adapter_resolution_keeps_low_risk_sources_stubbed_without_db_access(
+def test_context_adapter_resolution_keeps_low_risk_sources_prepared_until_gateway_config_exists(
     source: str, payload_bytes: int
 ) -> None:
     assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
@@ -675,10 +680,8 @@ def test_context_adapter_resolution_keeps_low_risk_sources_stubbed_without_db_ac
     assert resolved_source.source == source
     assert resolved_source.payload_bytes > 0
     assert resolved_source.records[0]["source"] == source
-    assert (
-        resolved_source.records[0]["retrieval_mode"]
-        == "stubbed_pending_server_owner"
-    )
+    assert resolved_source.records[0]["retrieval_mode"] == "gateway_contract_prepared"
+    assert resolved_source.records[0]["gateway_binding_status"] == "config_required"
     assert (
         resolved_source.records[0]["future_retrieval_owner"]
         == AI_CONTEXT_FUTURE_RETRIEVAL_OWNERS[source]
@@ -750,6 +753,419 @@ def test_context_adapter_resolution_keeps_other_stubbed_sources_unchanged() -> N
     resolved_source = prepared.resolved_context.sources[0]
     assert resolved_source.source == "stream_performance_summary"
     assert resolved_source.records[0]["summary"] == "stream_performance_summary summary 1"
+
+
+@pytest.mark.parametrize(
+    ("source", "response_payload"),
+    [
+        pytest.param(
+            "channel_platform_status",
+            {
+                "tenant_id": "tenant-123",
+                "user_id": "user-123",
+                "sources": [
+                    {
+                        "source": "channel_platform_status",
+                        "records": [
+                            {
+                                "provider": "youtube",
+                                "connection_state": "connected",
+                                "last_sync_at": "2026-06-28T12:00:00Z",
+                                "status_reason": "status_connected",
+                            }
+                        ],
+                    }
+                ],
+            },
+            id="channel platform status",
+        ),
+        pytest.param(
+            "content_job_summary",
+            {
+                "tenant_id": "tenant-123",
+                "user_id": "user-123",
+                "sources": [
+                    {
+                        "source": "content_job_summary",
+                        "records": [
+                            {
+                                "job_type": "clip_generation",
+                                "status": "completed",
+                                "created_at": "2026-06-28T11:00:00Z",
+                                "updated_at": "2026-06-28T11:05:00Z",
+                                "retry_count": 1,
+                                "error_category": None,
+                            }
+                        ],
+                    }
+                ],
+            },
+            id="content job summary",
+        ),
+    ],
+)
+def test_context_adapter_resolution_supports_gateway_backed_low_risk_sources(
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+    response_payload: dict[str, object],
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(status_code=200, json=response_payload)
+
+    monkeypatch.setattr(
+        retrieval_adapters,
+        "_build_trusted_context_http_client",
+        lambda _settings: httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    prepared = prepare_ai_assistant_backend_contract(
+        AiAssistantBackendContractRequest(
+            context=valid_context_request(
+                sources=(
+                    AiContextSourceRequest(
+                        source=source,
+                        item_limit=1,
+                        payload_bytes=1_024 if source == "channel_platform_status" else 2_048,
+                        time_window_days=30,
+                    ),
+                )
+            ),
+            prompt="Summarize one trusted source safely.",
+        ),
+        assertion=assertion.model_dump(mode="python"),
+        now=fixed_now(),
+        settings=build_settings(
+            api_gateway_url="https://gateway.streamos.test",
+            api_gateway_secret="gateway-secret-123",
+        ),
+        signature=signature,
+        allow_not_yet_productive=True,
+    )
+
+    assert len(requests) == 1
+    assert requests[0].url == "https://gateway.streamos.test/api/callbacks/automation/trusted-context"
+    assert requests[0].headers["x-streamos-api-secret"] == "gateway-secret-123"
+    assert prepared.resolved_context.sources[0].source == source
+    assert prepared.resolved_context.sources[0].records
+    assert "retrieval_mode" not in prepared.resolved_context.sources[0].records[0]
+    serialized_record = str(prepared.resolved_context.sources[0].records[0])
+    assert "token" not in serialized_record.lower()
+    assert "secret" not in serialized_record.lower()
+    assert "http://" not in serialized_record.lower()
+    assert "https://" not in serialized_record.lower()
+
+
+@pytest.mark.parametrize(
+    ("api_gateway_url", "api_gateway_secret"),
+    [
+        pytest.param("https://gateway.streamos.test", "", id="missing secret"),
+        pytest.param("", "gateway-secret-123", id="missing url"),
+    ],
+)
+def test_context_adapter_resolution_fails_closed_for_partial_gateway_configuration(
+    api_gateway_url: str, api_gateway_secret: str
+) -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    called, error = run_backend_contract(
+        assertion=assertion.model_dump(mode="python"),
+        signature=signature,
+        settings=build_settings(
+            api_gateway_url=api_gateway_url,
+            api_gateway_secret=api_gateway_secret,
+        ),
+        context=valid_context_request(
+            sources=(
+                AiContextSourceRequest(
+                    source="channel_platform_status",
+                    item_limit=1,
+                    payload_bytes=1_024,
+                    time_window_days=30,
+                ),
+            )
+        ),
+        allow_not_yet_productive=True,
+    )
+
+    assert called is False
+    assert isinstance(error, HTTPException)
+    assert error.status_code == 503
+    assert error.detail == {
+        "code": "ai_context_source_unavailable",
+        "feature": "ai_assistant",
+        "message": "The requested AI context source is currently unavailable.",
+        "source": "channel_platform_status",
+    }
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_status"),
+    [
+        pytest.param(401, 503, id="gateway 401"),
+        pytest.param(403, 503, id="gateway 403"),
+        pytest.param(500, 503, id="gateway 500"),
+    ],
+)
+def test_context_adapter_resolution_fails_closed_for_gateway_error_statuses(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    expected_status: int,
+) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code=status_code, json={"error": "ignored"})
+
+    monkeypatch.setattr(
+        retrieval_adapters,
+        "_build_trusted_context_http_client",
+        lambda _settings: httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    called, error = run_backend_contract(
+        assertion=assertion.model_dump(mode="python"),
+        signature=signature,
+        settings=build_settings(
+            api_gateway_url="https://gateway.streamos.test",
+            api_gateway_secret="gateway-secret-123",
+        ),
+        context=valid_context_request(
+            sources=(
+                AiContextSourceRequest(
+                    source="channel_platform_status",
+                    item_limit=1,
+                    payload_bytes=1_024,
+                    time_window_days=30,
+                ),
+            )
+        ),
+        allow_not_yet_productive=True,
+    )
+
+    assert called is False
+    assert isinstance(error, HTTPException)
+    assert error.status_code == expected_status
+    assert error.detail == {
+        "code": "ai_context_source_unavailable",
+        "feature": "ai_assistant",
+        "message": "The requested AI context source is currently unavailable.",
+        "source": "channel_platform_status",
+    }
+
+
+def test_context_adapter_resolution_fails_closed_for_gateway_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("gateway timeout")
+
+    monkeypatch.setattr(
+        retrieval_adapters,
+        "_build_trusted_context_http_client",
+        lambda _settings: httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    called, error = run_backend_contract(
+        assertion=assertion.model_dump(mode="python"),
+        signature=signature,
+        settings=build_settings(
+            api_gateway_url="https://gateway.streamos.test",
+            api_gateway_secret="gateway-secret-123",
+        ),
+        context=valid_context_request(
+            sources=(
+                AiContextSourceRequest(
+                    source="channel_platform_status",
+                    item_limit=1,
+                    payload_bytes=1_024,
+                    time_window_days=30,
+                ),
+            )
+        ),
+        allow_not_yet_productive=True,
+    )
+
+    assert called is False
+    assert isinstance(error, HTTPException)
+    assert error.status_code == 504
+    assert error.detail == {
+        "code": "ai_context_source_unavailable",
+        "feature": "ai_assistant",
+        "message": "The requested AI context source is currently unavailable.",
+        "source": "channel_platform_status",
+    }
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param(httpx.Response(status_code=200, json={"bad": "shape"}), id="bad top level"),
+        pytest.param(httpx.Response(status_code=200, content=b"{not-json"), id="invalid json"),
+        pytest.param(
+            httpx.Response(
+                status_code=200,
+                json={
+                    "tenant_id": "tenant-123",
+                    "user_id": "user-123",
+                    "sources": [
+                        {
+                            "source": "channel_platform_status",
+                            "records": [
+                                {
+                                    "provider": "youtube",
+                                    "connection_state": "connected",
+                                    "last_sync_at": "2026-06-28T12:00:00Z",
+                                    "status_reason": "status_connected",
+                                    "access_token_ciphertext": "secret",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            ),
+            id="unexpected sensitive field",
+        ),
+    ],
+)
+def test_context_adapter_resolution_fails_closed_for_malformed_or_unexpected_gateway_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    response: httpx.Response,
+) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return response
+
+    monkeypatch.setattr(
+        retrieval_adapters,
+        "_build_trusted_context_http_client",
+        lambda _settings: httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    called, error = run_backend_contract(
+        assertion=assertion.model_dump(mode="python"),
+        signature=signature,
+        settings=build_settings(
+            api_gateway_url="https://gateway.streamos.test",
+            api_gateway_secret="gateway-secret-123",
+        ),
+        context=valid_context_request(
+            sources=(
+                AiContextSourceRequest(
+                    source="channel_platform_status",
+                    item_limit=1,
+                    payload_bytes=1_024,
+                    time_window_days=30,
+                ),
+            )
+        ),
+        allow_not_yet_productive=True,
+    )
+
+    assert called is False
+    assert isinstance(error, HTTPException)
+    assert error.status_code == 503
+    assert error.detail == {
+        "code": "ai_context_source_unavailable",
+        "feature": "ai_assistant",
+        "message": "The requested AI context source is currently unavailable.",
+        "source": "channel_platform_status",
+    }
+
+
+def test_context_adapter_resolution_denies_oversized_gateway_response_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    oversized_body = {
+        "tenant_id": "tenant-123",
+        "user_id": "user-123",
+        "sources": [
+            {
+                "source": "channel_platform_status",
+                "records": [
+                    {
+                        "provider": "youtube",
+                        "connection_state": "connected",
+                        "last_sync_at": "2026-06-28T12:00:00Z",
+                        "status_reason": "status_connected",
+                    }
+                    for _ in range(500)
+                ],
+            }
+        ],
+    }
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code=200, json=oversized_body)
+
+    monkeypatch.setattr(
+        retrieval_adapters,
+        "_build_trusted_context_http_client",
+        lambda _settings: httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    called, error = run_backend_contract(
+        assertion=assertion.model_dump(mode="python"),
+        signature=signature,
+        settings=build_settings(
+            api_gateway_url="https://gateway.streamos.test",
+            api_gateway_secret="gateway-secret-123",
+        ),
+        context=valid_context_request(
+            sources=(
+                AiContextSourceRequest(
+                    source="channel_platform_status",
+                    item_limit=1,
+                    payload_bytes=256,
+                    time_window_days=30,
+                ),
+            )
+        ),
+        allow_not_yet_productive=True,
+    )
+
+    assert called is False
+    assert isinstance(error, HTTPException)
+    assert error.status_code == 413
+    assert error.detail == {
+        "code": "ai_context_payload_too_large",
+        "feature": "ai_assistant",
+        "message": "The requested AI context payload exceeds the allowed size.",
+        "source": "channel_platform_status",
+    }
 
 
 def test_context_adapter_resolution_denies_source_without_registered_adapter() -> None:
@@ -832,7 +1248,9 @@ def test_context_adapter_resolution_denies_payload_that_exceeds_requested_source
     )
 
     def oversized_adapter(
-        _context_boundary: object, _requested_source: AiContextSourceRequest
+        _context_boundary: object,
+        _requested_source: AiContextSourceRequest,
+        _settings: Settings,
     ) -> AiContextResolvedSource:
         return AiContextResolvedSource(
             source="channel_platform_status",

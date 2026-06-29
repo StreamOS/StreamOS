@@ -10,6 +10,7 @@ from ai_guardrails import (
 AI_CONTEXT_REASON_CODES = (
     "ai_context_source_not_allowed",
     "ai_context_source_unknown",
+    "ai_context_source_unavailable",
     "ai_context_tenant_required",
     "ai_context_window_too_large",
     "ai_context_payload_too_large",
@@ -20,6 +21,7 @@ AI_CONTEXT_REASON_CODES = (
 AI_CONTEXT_ERROR_MESSAGES = {
     "ai_context_source_not_allowed": "The requested AI context source is not allowed.",
     "ai_context_source_unknown": "The requested AI context source is unknown.",
+    "ai_context_source_unavailable": "The requested AI context source is currently unavailable.",
     "ai_context_tenant_required": "Tenant-scoped AI context requires trusted tenant and user identifiers.",
     "ai_context_window_too_large": "The requested AI context window exceeds the allowed range.",
     "ai_context_payload_too_large": "The requested AI context payload exceeds the allowed size.",
@@ -31,6 +33,7 @@ AI_CONTEXT_ERROR_MESSAGES = {
 AiContextReasonCode = Literal[
     "ai_context_source_not_allowed",
     "ai_context_source_unknown",
+    "ai_context_source_unavailable",
     "ai_context_tenant_required",
     "ai_context_window_too_large",
     "ai_context_payload_too_large",
