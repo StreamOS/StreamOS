@@ -1,8 +1,9 @@
 # StreamOS Premium Path Classification Audit
 
 Date: 2026-06-29
-Branch: `feature/automation/automation-runtime-entitlement-enforcement`
+Branch: `feature/docs/premium-path-classification-audit-clean`
 Decision: `classification_ready_for_gateway_slice`
+Baseline: merged internal automation entitlement wrapper present; no productive premium route activated
 
 ## Executive Summary
 
@@ -16,7 +17,9 @@ Primary conclusions:
   Internal/System core pipeline paths. They must not be silently reclassified
   as premium.
 - The internal `ai_assistant` wrapper is correctly treated as a planned
-  Pro/Premium path, but it is not a productive runtime endpoint yet.
+  Pro/Premium path, but it is not a productive runtime endpoint yet. The
+  merged wrapper is only a prerequisite for future automation runtime
+  activation and does not reclassify current productive worker traffic.
 - The most plausible next premium-enforcement candidates are gateway-owned
   schedule mutation commands, not worker-owned automation endpoints.
 - Current dashboard analytics, monetization, and branding surfaces are
@@ -36,6 +39,7 @@ Repository areas inspected for this audit:
 - `services/api-gateway/src/routes/contentPublications.ts`
 - `services/automation-service/src/main.py`
 - `services/automation-service/src/premium_runtime_enforcement.py`
+- `services/automation-service/tests/test_premium_runtime_enforcement.py`
 - `workers/stream-job-worker/src/index.ts`
 - `workers/transcription-worker/src/automationClient.ts`
 - `workers/clip-worker/src/automationClient.ts`
@@ -46,6 +50,8 @@ Repository areas inspected for this audit:
 - `apps/web/src/app/api/dashboard/jobs/repurposing/export/route.ts`
 - `apps/web/src/lib/entitlements/server.ts`
 - `apps/web/src/lib/entitlements/persisted-plan.ts`
+- `services/api-gateway/src/lib/automation-entitlement-issuer.ts`
+- `services/api-gateway/src/lib/automation-entitlement-signing.ts`
 - `packages/types/src/feature-gates.ts`
 - `packages/types/src/automation-entitlement-assertions.ts`
 
@@ -74,7 +80,7 @@ Audit constraints:
 | `GET /dashboard/analytics`, `GET /dashboard/growth`, `GET /dashboard/publications/analytics`                                                                      | `apps/web`                                             | Productive                             | User-facing read                      | `Free/Core`                                | None direct                                | Medium to High            | Web SSR/BFF read boundary                                                | No                       | No for current pages       | Possible later                            | Current analytics and growth pages are live read models. `advanced_analytics` is an additive future gate, not an implicit gate on these existing pages.                  |
 | `GET /dashboard/monetization`                                                                                                                                     | `apps/web`                                             | Productive                             | User-facing read                      | `Free/Core`                                | None direct                                | High                      | Web SSR/BFF read boundary                                                | No                       | No for current page        | Possible later                            | Current monetization dashboard is read-first. No productive export runtime matching `monetization_exports` was found.                                                    |
 | `POST` branding upload/replace server actions                                                                                                                     | `apps/web`                                             | Productive                             | User-facing command                   | `Free/Core`                                | None                                       | High                      | Web server action boundary                                               | No                       | No for current actions     | Low                                       | Existing branding runtime is storage and metadata management, not AI orchestration.                                                                                      |
-| Planned `ai_assistant` premium runtime                                                                                                                            | `services/api-gateway` + `services/automation-service` | Not productive                         | Future user-facing command            | `Not yet productive (planned Pro/Premium)` | High                                       | High                      | Gateway command first, automation wrapper second                         | Yes                      | Yes                        | Yes                                       | Existing wrapper proves fail-closed automation enforcement, but no productive route exists yet.                                                                          |
+| Planned `ai_assistant` premium runtime                                                                                                                            | `services/api-gateway` + `services/automation-service` | Not productive                         | Future user-facing command            | `Not yet productive (planned Pro/Premium)` | High                                       | High                      | Gateway command first, automation wrapper second                         | Yes                      | Yes                        | Yes                                       | Existing merged wrapper proves fail-closed automation enforcement, but no productive route exists yet.                                                                   |
 | Planned `advanced_analytics` premium overlay                                                                                                                      | `apps/web` and possibly `services/api-gateway` later   | Not productive                         | Future user-facing read/command       | `Not yet productive (planned Pro/Premium)` | Low to Medium                              | Medium to High            | Web server/BFF first; gateway only if future export/sync command appears | No                       | Maybe later                | Maybe later                               | Treat as additive premium capability, not as blanket gating of current analytics pages.                                                                                  |
 | Planned `publishing_schedule` premium policy                                                                                                                      | `services/api-gateway` + `apps/web`                    | Partially productive, policy undecided | Future user-facing command            | `Unknown/Needs decision`                   | Low direct, abuse risk medium              | High                      | Gateway command boundary                                                 | No                       | Yes                        | Yes                                       | Existing schedule commands exist today, but product policy must explicitly decide whether premium gating should apply.                                                   |
 | Planned `monetization_exports` premium path                                                                                                                       | `apps/web` or `services/api-gateway`                   | Not productive                         | Future user-facing command            | `Not yet productive (planned Pro/Premium)` | Low                                        | High                      | Web server action or gateway export command                              | No                       | Yes if gateway-owned       | Yes                                       | No productive monetization export command was found.                                                                                                                     |
@@ -98,7 +104,7 @@ These are the safest premium-enforcement candidates for follow-up work:
 2. Future `ai_assistant` gateway command:
    Why:
    - already classified as `pro`
-   - automation-side fail-closed wrapper already exists
+   - automation-side fail-closed wrapper already exists as an internal prerequisite
    - premium enforcement can remain explicit and narrow once a productive route exists
 
 3. Future `branding_ai` orchestration command:
@@ -221,6 +227,8 @@ This audit leaves StreamOS in a reviewable state:
 - core worker and automation runtime paths stay explicitly non-premium
 - `ai_assistant` stays visible as a planned Pro/Premium path but is still not
   productive
+- the merged internal wrapper remains prerequisite-only and does not justify
+  gating `/clips/analyze`, `/repurposing/plan`, or `/transcriptions/process`
 - schedule mutation commands are isolated as the clearest current gateway-owned
   premium candidate set
 
