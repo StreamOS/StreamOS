@@ -83,6 +83,12 @@ describe("content publications publish route", () => {
           const body = typeof init?.body === "string" ? init.body : null;
           requests.push({ body, method, url: requestUrl });
 
+          if (requestUrl.includes("/rest/v1/user_plan_models")) {
+            throw new Error(
+              "Publish core flow must not request premium command plan models.",
+            );
+          }
+
           if (
             requestUrl.includes("/rest/v1/content_publications") &&
             method === "PATCH"
@@ -241,6 +247,16 @@ describe("content publications publish route", () => {
         },
       },
       publicationExecutionQueue,
+      premiumCommandPolicies: {
+        fanout_schedule_mutation: {
+          feature: "publishing_schedule",
+          mode: "enforced",
+        },
+        publication_schedule_mutation: {
+          feature: "publishing_schedule",
+          mode: "enforced",
+        },
+      },
     });
     const server = app.listen(0);
 
@@ -271,6 +287,11 @@ describe("content publications publish route", () => {
       );
       expect(payload.status).toBe("publication_queued");
       expect(requests).toHaveLength(6);
+      expect(
+        requests.some((request) =>
+          request.url.includes("/rest/v1/user_plan_models"),
+        ),
+      ).toBe(false);
     } finally {
       server.close();
     }
