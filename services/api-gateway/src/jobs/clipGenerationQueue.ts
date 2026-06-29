@@ -23,7 +23,7 @@ export const clipGenerationPayloadSchema = z.object({
   source_url: z.string().url(),
   requested_by: z.string().uuid(),
   transcript: z.string().trim().min(1).max(60_000),
-}) satisfies z.ZodType<ClipGenerationJobData, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<ClipGenerationJobData>;
 
 export type ClipGenerationQueueJob = {
   id?: string | number;

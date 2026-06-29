@@ -11,7 +11,7 @@ const repurposingContentJobRowSchema = z.object({
   id: z.string().uuid(),
   job_type: z.literal("repurposing"),
   max_retries: z.number().int().min(0).max(25),
-  payload: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
   queue_job_id: z.string().trim().min(1),
   retry_count: z.number().int().min(0),
   started_at: z.string().nullable(),

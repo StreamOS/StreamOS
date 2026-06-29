@@ -479,7 +479,7 @@ function collectRunnerProvenanceIssues({
   }
 
   const issues = [];
-  let provenanceRecord = null;
+  let provenanceRecord;
   const expectedContract = getExpectedGateContract();
   const provenancePath = join(repoRoot, RUNNER_PROVENANCE_PATH);
 
