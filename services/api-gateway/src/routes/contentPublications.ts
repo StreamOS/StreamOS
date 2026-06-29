@@ -57,6 +57,12 @@ import {
   type SupabaseRestClient,
 } from "../lib/supabaseRest.js";
 import {
+  authorizeGatewayPremiumCommand,
+  buildGatewayPremiumCommandDenialResponse,
+  resolveGatewayPremiumCommandPolicies,
+  type GatewayPremiumCommandPoliciesInput,
+} from "../lib/premium-command-enforcement.js";
+import {
   enqueuePublicationExecutionJob,
   getPublicationExecutionJobId,
   enqueuePublicationReconciliationJob,
@@ -582,11 +588,16 @@ class PublicationCapabilityValidationError extends Error {
 export function createContentPublicationsRouter({
   fetchImpl = fetch,
   publicationExecutionQueue,
+  premiumCommandPolicies,
 }: {
   fetchImpl?: typeof fetch;
   publicationExecutionQueue?: PublicationExecutionQueue;
+  premiumCommandPolicies?: GatewayPremiumCommandPoliciesInput;
 } = {}): Router {
   const router = express.Router();
+  const resolvedPremiumCommandPolicies = resolveGatewayPremiumCommandPolicies(
+    premiumCommandPolicies,
+  );
 
   router.post("/", async (request, response) => {
     const parsedPayload = publicationRequestSchema.safeParse(request.body);
@@ -889,6 +900,21 @@ export function createContentPublicationsRouter({
     }
 
     try {
+      const premiumDecision = await authorizeGatewayPremiumCommand({
+        commandKey: "publication_schedule_mutation",
+        policies: resolvedPremiumCommandPolicies,
+        supabase,
+        userId: parsedPayload.data.user_id,
+      });
+
+      if (!premiumDecision.allowed) {
+        const denialResponse =
+          buildGatewayPremiumCommandDenialResponse(premiumDecision);
+
+        response.status(denialResponse.statusCode).json(denialResponse.body);
+        return;
+      }
+
       const result = await mutatePublicationSchedule({
         input: parsedPayload.data,
         publicationId: publicationId.data,
@@ -988,6 +1014,21 @@ export function createContentPublicationsRouter({
     }
 
     try {
+      const premiumDecision = await authorizeGatewayPremiumCommand({
+        commandKey: "fanout_schedule_mutation",
+        policies: resolvedPremiumCommandPolicies,
+        supabase,
+        userId: parsedPayload.data.user_id,
+      });
+
+      if (!premiumDecision.allowed) {
+        const denialResponse =
+          buildGatewayPremiumCommandDenialResponse(premiumDecision);
+
+        response.status(denialResponse.statusCode).json(denialResponse.body);
+        return;
+      }
+
       const result = await mutatePublicationFanoutSchedule({
         fanoutId: fanoutId.data,
         input: parsedPayload.data,
