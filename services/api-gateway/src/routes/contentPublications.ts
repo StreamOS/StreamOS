@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import express from "express";
 import type { Router } from "express";
+import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
 import { STREAM_PLATFORMS } from "@streamos/types";
 import type {
@@ -62,12 +63,22 @@ import {
   resolveGatewayPremiumCommandPolicies,
   type GatewayPremiumCommandPoliciesInput,
 } from "../lib/premium-command-enforcement.js";
+import { createRateLimitKey } from "../lib/rate-limit-keys.js";
 import {
   enqueuePublicationExecutionJob,
   getPublicationExecutionJobId,
   enqueuePublicationReconciliationJob,
   type PublicationExecutionQueue,
 } from "../jobs/publicationExecutionQueue.js";
+
+const SCHEDULE_MUTATION_RATE_LIMIT_MAX_REQUESTS = 30;
+const SCHEDULE_MUTATION_RATE_LIMIT_WINDOW_MS = 60_000;
+
+type ScheduleMutationRateLimitConfig = {
+  enabled?: boolean;
+  maxRequests?: number;
+  windowMs?: number;
+};
 
 const publicationRequestSchema = z.object({
   capability_version: z.string().trim().min(1).optional(),
@@ -589,15 +600,55 @@ export function createContentPublicationsRouter({
   fetchImpl = fetch,
   publicationExecutionQueue,
   premiumCommandPolicies,
+  scheduleMutationRateLimit,
 }: {
   fetchImpl?: typeof fetch;
   publicationExecutionQueue?: PublicationExecutionQueue;
   premiumCommandPolicies?: GatewayPremiumCommandPoliciesInput;
+  scheduleMutationRateLimit?: ScheduleMutationRateLimitConfig;
 } = {}): Router {
   const router = express.Router();
   const resolvedPremiumCommandPolicies = resolveGatewayPremiumCommandPolicies(
     premiumCommandPolicies,
   );
+  const publicationScheduleMutationRateLimiter = rateLimit({
+    keyGenerator: (request) =>
+      createRateLimitKey(request, "content-publications", "schedule-mutation"),
+    legacyHeaders: false,
+    limit:
+      scheduleMutationRateLimit?.maxRequests ??
+      SCHEDULE_MUTATION_RATE_LIMIT_MAX_REQUESTS,
+    message: {
+      error: "rate_limit_exceeded",
+      message: "Too many publication schedule mutation requests.",
+    },
+    skip: () => scheduleMutationRateLimit?.enabled === false,
+    standardHeaders: "draft-7",
+    windowMs:
+      scheduleMutationRateLimit?.windowMs ??
+      SCHEDULE_MUTATION_RATE_LIMIT_WINDOW_MS,
+  });
+  const fanoutScheduleMutationRateLimiter = rateLimit({
+    keyGenerator: (request) =>
+      createRateLimitKey(
+        request,
+        "content-publications",
+        "fanout-schedule-mutation",
+      ),
+    legacyHeaders: false,
+    limit:
+      scheduleMutationRateLimit?.maxRequests ??
+      SCHEDULE_MUTATION_RATE_LIMIT_MAX_REQUESTS,
+    message: {
+      error: "rate_limit_exceeded",
+      message: "Too many publication fanout schedule mutation requests.",
+    },
+    skip: () => scheduleMutationRateLimit?.enabled === false,
+    standardHeaders: "draft-7",
+    windowMs:
+      scheduleMutationRateLimit?.windowMs ??
+      SCHEDULE_MUTATION_RATE_LIMIT_WINDOW_MS,
+  });
 
   router.post("/", async (request, response) => {
     const parsedPayload = publicationRequestSchema.safeParse(request.body);
@@ -862,236 +913,244 @@ export function createContentPublicationsRouter({
     }
   });
 
-  router.post("/:publication_id/schedule", async (request, response) => {
-    const publicationId = z
-      .string()
-      .uuid()
-      .safeParse(request.params.publication_id);
-    const parsedPayload = publicationScheduleMutationRequestSchema.safeParse(
-      request.body,
-    );
+  router.post(
+    "/:publication_id/schedule",
+    publicationScheduleMutationRateLimiter,
+    async (request, response) => {
+      const publicationId = z
+        .string()
+        .uuid()
+        .safeParse(request.params.publication_id);
+      const parsedPayload = publicationScheduleMutationRequestSchema.safeParse(
+        request.body,
+      );
 
-    if (!publicationId.success) {
-      response.status(400).json({
-        error: "invalid_publication_id",
-        issues: publicationId.error.issues,
-      });
-      return;
-    }
-
-    if (!parsedPayload.success) {
-      response.status(400).json({
-        error: "invalid_publication_schedule_request_payload",
-        issues: parsedPayload.error.issues,
-      });
-      return;
-    }
-
-    let supabase: SupabaseRestClient;
-
-    try {
-      supabase = createSupabaseRestClient({ fetchImpl });
-    } catch (error) {
-      response.status(503).json({
-        error: "supabase_not_configured",
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return;
-    }
-
-    try {
-      const premiumDecision = await authorizeGatewayPremiumCommand({
-        commandKey: "publication_schedule_mutation",
-        policies: resolvedPremiumCommandPolicies,
-        supabase,
-        userId: parsedPayload.data.user_id,
-      });
-
-      if (!premiumDecision.allowed) {
-        const denialResponse =
-          buildGatewayPremiumCommandDenialResponse(premiumDecision);
-
-        response.status(denialResponse.statusCode).json(denialResponse.body);
-        return;
-      }
-
-      const result = await mutatePublicationSchedule({
-        input: parsedPayload.data,
-        publicationId: publicationId.data,
-        supabase,
-      });
-
-      response.status(200).json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-
-      if (message === "publication_not_found") {
-        response.status(404).json({
-          error: "publication_not_found",
-          message: "Approved publication request could not be found.",
-        });
-        return;
-      }
-
-      if (message === "publication_schedule_not_mutable") {
-        response.status(409).json({
-          error: "publication_schedule_not_mutable",
-          message:
-            "The selected publication schedule is final or locked for execution.",
-        });
-        return;
-      }
-
-      if (message === "publication_schedule_action_invalid") {
+      if (!publicationId.success) {
         response.status(400).json({
-          error: "publication_schedule_action_invalid",
-          message:
-            "The requested publication schedule action is invalid or missing its required fields.",
+          error: "invalid_publication_id",
+          issues: publicationId.error.issues,
         });
         return;
       }
 
-      if (message === "publication_schedule_validation_failed") {
+      if (!parsedPayload.success) {
         response.status(400).json({
-          error: "publication_schedule_validation_failed",
-          message:
-            "The requested schedule time or timezone is invalid for this publication.",
+          error: "invalid_publication_schedule_request_payload",
+          issues: parsedPayload.error.issues,
         });
         return;
       }
 
-      if (message === "publication_schedule_replace_failed") {
+      let supabase: SupabaseRestClient;
+
+      try {
+        supabase = createSupabaseRestClient({ fetchImpl });
+      } catch (error) {
+        response.status(503).json({
+          error: "supabase_not_configured",
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+
+      try {
+        const premiumDecision = await authorizeGatewayPremiumCommand({
+          commandKey: "publication_schedule_mutation",
+          policies: resolvedPremiumCommandPolicies,
+          supabase,
+          userId: parsedPayload.data.user_id,
+        });
+
+        if (!premiumDecision.allowed) {
+          const denialResponse =
+            buildGatewayPremiumCommandDenialResponse(premiumDecision);
+
+          response.status(denialResponse.statusCode).json(denialResponse.body);
+          return;
+        }
+
+        const result = await mutatePublicationSchedule({
+          input: parsedPayload.data,
+          publicationId: publicationId.data,
+          supabase,
+        });
+
+        response.status(200).json(result);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (message === "publication_not_found") {
+          response.status(404).json({
+            error: "publication_not_found",
+            message: "Approved publication request could not be found.",
+          });
+          return;
+        }
+
+        if (message === "publication_schedule_not_mutable") {
+          response.status(409).json({
+            error: "publication_schedule_not_mutable",
+            message:
+              "The selected publication schedule is final or locked for execution.",
+          });
+          return;
+        }
+
+        if (message === "publication_schedule_action_invalid") {
+          response.status(400).json({
+            error: "publication_schedule_action_invalid",
+            message:
+              "The requested publication schedule action is invalid or missing its required fields.",
+          });
+          return;
+        }
+
+        if (message === "publication_schedule_validation_failed") {
+          response.status(400).json({
+            error: "publication_schedule_validation_failed",
+            message:
+              "The requested schedule time or timezone is invalid for this publication.",
+          });
+          return;
+        }
+
+        if (message === "publication_schedule_replace_failed") {
+          response.status(502).json({
+            error: "publication_schedule_replace_failed",
+            message:
+              "The replacement publication schedule could not be created safely.",
+          });
+          return;
+        }
+
         response.status(502).json({
-          error: "publication_schedule_replace_failed",
+          error: "publication_schedule_failed",
           message:
-            "The replacement publication schedule could not be created safely.",
+            error instanceof Error
+              ? error.message
+              : "Publication schedule action could not be completed.",
         });
-        return;
       }
+    },
+  );
 
-      response.status(502).json({
-        error: "publication_schedule_failed",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Publication schedule action could not be completed.",
-      });
-    }
-  });
+  router.post(
+    "/fanouts/:fanout_id/schedule",
+    fanoutScheduleMutationRateLimiter,
+    async (request, response) => {
+      const fanoutId = z.string().uuid().safeParse(request.params.fanout_id);
+      const parsedPayload = publicationScheduleMutationRequestSchema.safeParse(
+        request.body,
+      );
 
-  router.post("/fanouts/:fanout_id/schedule", async (request, response) => {
-    const fanoutId = z.string().uuid().safeParse(request.params.fanout_id);
-    const parsedPayload = publicationScheduleMutationRequestSchema.safeParse(
-      request.body,
-    );
-
-    if (!fanoutId.success) {
-      response.status(400).json({
-        error: "invalid_publication_fanout_id",
-        issues: fanoutId.error.issues,
-      });
-      return;
-    }
-
-    if (!parsedPayload.success) {
-      response.status(400).json({
-        error: "invalid_publication_fanout_schedule_request_payload",
-        issues: parsedPayload.error.issues,
-      });
-      return;
-    }
-
-    let supabase: SupabaseRestClient;
-
-    try {
-      supabase = createSupabaseRestClient({ fetchImpl });
-    } catch (error) {
-      response.status(503).json({
-        error: "supabase_not_configured",
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return;
-    }
-
-    try {
-      const premiumDecision = await authorizeGatewayPremiumCommand({
-        commandKey: "fanout_schedule_mutation",
-        policies: resolvedPremiumCommandPolicies,
-        supabase,
-        userId: parsedPayload.data.user_id,
-      });
-
-      if (!premiumDecision.allowed) {
-        const denialResponse =
-          buildGatewayPremiumCommandDenialResponse(premiumDecision);
-
-        response.status(denialResponse.statusCode).json(denialResponse.body);
-        return;
-      }
-
-      const result = await mutatePublicationFanoutSchedule({
-        fanoutId: fanoutId.data,
-        input: parsedPayload.data,
-        supabase,
-      });
-
-      response.status(200).json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-
-      if (message === "publication_fanout_not_found") {
-        response.status(404).json({
-          error: "publication_fanout_not_found",
-          message: "Approved publication fanout request could not be found.",
-        });
-        return;
-      }
-
-      if (message === "publication_fanout_schedule_not_mutable") {
-        response.status(409).json({
-          error: "publication_fanout_schedule_not_mutable",
-          message:
-            "The selected publication fanout schedule is final or locked for execution.",
-        });
-        return;
-      }
-
-      if (message === "publication_fanout_schedule_action_invalid") {
+      if (!fanoutId.success) {
         response.status(400).json({
-          error: "publication_fanout_schedule_action_invalid",
-          message:
-            "The requested publication fanout schedule action is invalid or missing its required fields.",
+          error: "invalid_publication_fanout_id",
+          issues: fanoutId.error.issues,
         });
         return;
       }
 
-      if (message === "publication_fanout_schedule_validation_failed") {
+      if (!parsedPayload.success) {
         response.status(400).json({
-          error: "publication_fanout_schedule_validation_failed",
-          message:
-            "The requested schedule time or timezone is invalid for this fanout.",
+          error: "invalid_publication_fanout_schedule_request_payload",
+          issues: parsedPayload.error.issues,
         });
         return;
       }
 
-      if (message === "publication_fanout_schedule_replace_failed") {
+      let supabase: SupabaseRestClient;
+
+      try {
+        supabase = createSupabaseRestClient({ fetchImpl });
+      } catch (error) {
+        response.status(503).json({
+          error: "supabase_not_configured",
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+
+      try {
+        const premiumDecision = await authorizeGatewayPremiumCommand({
+          commandKey: "fanout_schedule_mutation",
+          policies: resolvedPremiumCommandPolicies,
+          supabase,
+          userId: parsedPayload.data.user_id,
+        });
+
+        if (!premiumDecision.allowed) {
+          const denialResponse =
+            buildGatewayPremiumCommandDenialResponse(premiumDecision);
+
+          response.status(denialResponse.statusCode).json(denialResponse.body);
+          return;
+        }
+
+        const result = await mutatePublicationFanoutSchedule({
+          fanoutId: fanoutId.data,
+          input: parsedPayload.data,
+          supabase,
+        });
+
+        response.status(200).json(result);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (message === "publication_fanout_not_found") {
+          response.status(404).json({
+            error: "publication_fanout_not_found",
+            message: "Approved publication fanout request could not be found.",
+          });
+          return;
+        }
+
+        if (message === "publication_fanout_schedule_not_mutable") {
+          response.status(409).json({
+            error: "publication_fanout_schedule_not_mutable",
+            message:
+              "The selected publication fanout schedule is final or locked for execution.",
+          });
+          return;
+        }
+
+        if (message === "publication_fanout_schedule_action_invalid") {
+          response.status(400).json({
+            error: "publication_fanout_schedule_action_invalid",
+            message:
+              "The requested publication fanout schedule action is invalid or missing its required fields.",
+          });
+          return;
+        }
+
+        if (message === "publication_fanout_schedule_validation_failed") {
+          response.status(400).json({
+            error: "publication_fanout_schedule_validation_failed",
+            message:
+              "The requested schedule time or timezone is invalid for this fanout.",
+          });
+          return;
+        }
+
+        if (message === "publication_fanout_schedule_replace_failed") {
+          response.status(502).json({
+            error: "publication_fanout_schedule_replace_failed",
+            message:
+              "The replacement publication fanout schedule could not be created safely.",
+          });
+          return;
+        }
+
         response.status(502).json({
-          error: "publication_fanout_schedule_replace_failed",
+          error: "publication_fanout_schedule_failed",
           message:
-            "The replacement publication fanout schedule could not be created safely.",
+            error instanceof Error
+              ? error.message
+              : "Publication fanout schedule action could not be completed.",
         });
-        return;
       }
-
-      response.status(502).json({
-        error: "publication_fanout_schedule_failed",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Publication fanout schedule action could not be completed.",
-      });
-    }
-  });
+    },
+  );
 
   router.post(
     "/fanouts/:fanout_id/targets/:target_id/recheck",

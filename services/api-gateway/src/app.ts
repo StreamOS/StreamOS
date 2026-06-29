@@ -75,6 +75,11 @@ type CreateAppOptions = {
   premiumCommandPolicies?: GatewayPremiumCommandPoliciesInput;
   rateLimit?: Partial<RateLimitConfig>;
   routeRateLimits?: {
+    contentPublicationScheduleMutation?: {
+      enabled?: boolean;
+      maxRequests?: number;
+      windowMs?: number;
+    };
     streamEndedWebhook?: {
       maxRequests?: number;
       windowMs?: number;
@@ -837,6 +842,8 @@ export function createApp(
       publicationExecutionQueue:
         options.publicationExecutionQueue ?? publicationExecutionQueue,
       premiumCommandPolicies: options.premiumCommandPolicies,
+      scheduleMutationRateLimit:
+        options.routeRateLimits?.contentPublicationScheduleMutation,
     }),
   );
   app.use(

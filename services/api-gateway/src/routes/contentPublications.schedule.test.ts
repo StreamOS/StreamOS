@@ -349,6 +349,111 @@ describe("content publications schedule routes", () => {
     }
   });
 
+  it("rate limits repeated publication schedule mutations before repeating entitlement checks", async () => {
+    useSupabaseTestEnv();
+    const requests: Array<{
+      body: string | null;
+      method: string;
+      url: string;
+    }> = [];
+    const app = createApp({
+      apiGatewaySecret: API_SECRET,
+      nodeEnv: "test",
+      oauth: {
+        fetchImpl: async (input, init) => {
+          const requestUrl =
+            typeof input === "string"
+              ? input
+              : input instanceof URL
+                ? input.toString()
+                : input.url;
+          const method = init?.method ?? "GET";
+          const body = typeof init?.body === "string" ? init.body : null;
+          requests.push({ body, method, url: requestUrl });
+
+          if (
+            requestUrl.includes("/rest/v1/user_plan_models") &&
+            method === "GET"
+          ) {
+            return jsonResponse([]);
+          }
+
+          return new Response("not found", { status: 404 });
+        },
+      },
+      premiumCommandPolicies: {
+        publication_schedule_mutation: {
+          feature: "publishing_schedule",
+          mode: "enforced",
+        },
+      },
+      routeRateLimits: {
+        contentPublicationScheduleMutation: {
+          maxRequests: 1,
+          windowMs: 60_000,
+        },
+      },
+    });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const request = () =>
+        fetch(
+          `http://127.0.0.1:${address.port}/api/content-publications/${PUBLICATION_ID}/schedule`,
+          {
+            body: JSON.stringify({
+              action: "edit",
+              reason: "Move to a later slot",
+              scheduled_at_utc: "2026-06-22T19:30:00.000Z",
+              scheduled_timezone: "Europe/Berlin",
+              user_id: USER_ID,
+            }),
+            headers: {
+              Authorization: `Bearer ${API_SECRET}`,
+              "content-type": "application/json",
+            },
+            method: "POST",
+          },
+        );
+
+      const deniedResponse = await request();
+      const limitedResponse = await request();
+      const deniedBody = (await deniedResponse.json()) as Record<
+        string,
+        unknown
+      >;
+      const limitedBody = (await limitedResponse.json()) as Record<
+        string,
+        unknown
+      >;
+      const serializedLimitBody = JSON.stringify(limitedBody);
+
+      expect(deniedResponse.status).toBe(403);
+      expect(deniedBody.reason_code).toBe("premium_command_plan_required");
+      expect(limitedResponse.status).toBe(429);
+      expect(limitedBody).toEqual({
+        error: "rate_limit_exceeded",
+        message: "Too many publication schedule mutation requests.",
+      });
+      expect(
+        requests.filter(
+          (request) =>
+            request.method === "GET" &&
+            request.url.includes("/rest/v1/user_plan_models"),
+        ),
+      ).toHaveLength(1);
+      expect(serializedLimitBody).not.toContain(API_SECRET);
+      expect(serializedLimitBody).not.toContain(USER_ID);
+    } finally {
+      server.close();
+    }
+  });
+
   it("retries an identical publication replace without creating a second replacement row or audit event", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-22T12:00:00.000Z"));
