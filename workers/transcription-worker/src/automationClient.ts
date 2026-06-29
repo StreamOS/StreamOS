@@ -50,7 +50,7 @@ const automationTranscriptionResponseSchema = z.object({
   segments: z.array(automationTranscriptionSegmentSchema),
   stream_id: z.string().trim().min(1),
   transcript: z.string().trim().min(1),
-}) satisfies z.ZodType<AutomationTranscriptionResponse, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<AutomationTranscriptionResponse>;
 
 const automationServiceStructuredErrorSchema = z.object({
   code: z.string().trim().min(1),

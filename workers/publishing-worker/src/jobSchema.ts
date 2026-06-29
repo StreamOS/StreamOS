@@ -12,7 +12,7 @@ export const publicationExecutionJobDataSchema = z.object({
   content_publication_id: z.string().uuid(),
   target_platform: z.enum(publicationTargets),
   user_id: z.string().uuid(),
-}) satisfies z.ZodType<PublicationExecutionJobPayload, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<PublicationExecutionJobPayload>;
 
 export const publicationReconciliationJobDataSchema =
   publicationExecutionJobDataSchema;
