@@ -8,13 +8,13 @@ const TRUSTED_CONTEXT_SOURCE_VALUES = [
   "content_job_summary",
 ] as const;
 
-const TRUSTED_CONNECTION_STATE_VALUES = [
+const _TRUSTED_CONNECTION_STATE_VALUES = [
   "connected",
   "disconnected",
   "reconnect_required",
 ] as const;
 
-const TRUSTED_PLATFORM_STATUS_REASON_VALUES = [
+const _TRUSTED_PLATFORM_STATUS_REASON_VALUES = [
   "status_connected",
   "status_disconnected",
   "connection_degraded",
@@ -22,7 +22,7 @@ const TRUSTED_PLATFORM_STATUS_REASON_VALUES = [
   "token_expired",
 ] as const;
 
-const TRUSTED_CONTENT_JOB_ERROR_CATEGORY_VALUES = [
+const _TRUSTED_CONTENT_JOB_ERROR_CATEGORY_VALUES = [
   "provider_rate_limit",
   "request_timeout",
   "unsafe_input",
@@ -34,12 +34,11 @@ const TRUSTED_CONTENT_JOB_ERROR_CATEGORY_VALUES = [
 const MAX_TRUSTED_CONTENT_JOB_SUMMARY_ROWS = 12;
 const MAX_TRUSTED_PLATFORM_SUMMARY_ROWS = 8;
 
-type TrustedContextSource = (typeof TRUSTED_CONTEXT_SOURCE_VALUES)[number];
-type TrustedConnectionState = (typeof TRUSTED_CONNECTION_STATE_VALUES)[number];
+type TrustedConnectionState = (typeof _TRUSTED_CONNECTION_STATE_VALUES)[number];
 type TrustedPlatformStatusReason =
-  (typeof TRUSTED_PLATFORM_STATUS_REASON_VALUES)[number];
+  (typeof _TRUSTED_PLATFORM_STATUS_REASON_VALUES)[number];
 type TrustedContentJobErrorCategory =
-  (typeof TRUSTED_CONTENT_JOB_ERROR_CATEGORY_VALUES)[number];
+  (typeof _TRUSTED_CONTENT_JOB_ERROR_CATEGORY_VALUES)[number];
 
 type PlatformConnectionSummaryRow = {
   id: string;

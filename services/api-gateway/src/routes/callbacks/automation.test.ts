@@ -141,9 +141,7 @@ describe("automation trusted context route", () => {
 });
 
 async function postTrustedContext(
-  server: ReturnType<typeof createApp> extends infer T
-    ? { address(): unknown }
-    : never,
+  server: { address(): unknown },
   {
     body,
     secret = API_SECRET,
