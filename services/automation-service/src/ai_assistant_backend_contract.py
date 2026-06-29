@@ -20,6 +20,10 @@ from ai_context_retrieval_adapters import (
     AiContextSourceAdapter,
     resolve_ai_context_sources,
 )
+from ai_usage_context_enforcement import (
+    AutomationAiUsageContext,
+    require_ai_assistant_usage_context,
+)
 from ai_guardrails import (
     AI_ASSISTANT_FEATURE,
     AiGuardrailError,
@@ -39,6 +43,9 @@ class AiAssistantBackendContractRequest:
     context: AiAssistantContextRequest
     feature: str = AI_ASSISTANT_FEATURE
     prompt: str = ""
+    request_id: str = ""
+    usage_context: object | None = None
+    usage_context_signature: str | None = None
 
 
 @dataclass(frozen=True)
@@ -48,6 +55,8 @@ class AiAssistantPreparedOperation:
     feature: str
     prompt: str
     request_payload_bytes: int
+    request_id: str
+    usage_context: AutomationAiUsageContext
 
 
 def prepare_ai_assistant_backend_contract(
@@ -93,6 +102,16 @@ def prepare_ai_assistant_backend_contract(
             request.context,
             require_productive=False,
         )
+        usage_context = require_ai_assistant_usage_context(
+            feature=request.feature,
+            now=now,
+            request_id=request.request_id,
+            settings=settings,
+            signature=request.usage_context_signature,
+            tenant_id=context_boundary.tenant_id,
+            usage_context=request.usage_context,
+            user_id=context_boundary.user_id,
+        )
         resolved_context = _run_context_resolution(
             context_boundary,
             settings=settings,
@@ -102,6 +121,7 @@ def prepare_ai_assistant_backend_contract(
             request,
             context_boundary=context_boundary,
             resolved_context=resolved_context,
+            usage_context=usage_context,
         )
         enforce_max_request_bytes(
             feature=policy.feature,
@@ -125,6 +145,8 @@ def prepare_ai_assistant_backend_contract(
         feature=policy.feature,
         prompt=request.prompt,
         request_payload_bytes=len(payload.encode("utf-8")),
+        request_id=usage_context.request_id,
+        usage_context=usage_context,
     )
 
 
@@ -164,13 +186,27 @@ def _serialize_ai_assistant_request(
     *,
     context_boundary: AiAssistantContextBoundary,
     resolved_context: AiAssistantResolvedContext,
+    usage_context: AutomationAiUsageContext,
 ) -> str:
     return json.dumps(
         {
             "feature": request.feature,
             "prompt": request.prompt,
+            "request_id": request.request_id,
             "tenant_id": context_boundary.tenant_id,
             "user_id": context_boundary.user_id,
+            "usage_context": {
+                "admission_decision": usage_context.admission_decision,
+                "budget_status": usage_context.budget_status,
+                "estimated_usage_units": usage_context.estimated_usage_units,
+                "feature": usage_context.feature,
+                "plan_at_request_time": usage_context.plan_at_request_time,
+                "plan_source": usage_context.plan_source,
+                "request_classification": usage_context.request_classification,
+                "request_id": usage_context.request_id,
+                "tenant_id": usage_context.tenant_id,
+                "user_id": usage_context.user_id,
+            },
             "transcript_excerpt_characters": (
                 context_boundary.transcript_excerpt_characters
             ),

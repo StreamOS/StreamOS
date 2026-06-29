@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import UTC, datetime
 
 import httpx
@@ -17,6 +18,11 @@ from ai_context_retrieval_adapters import (
     AI_CONTEXT_SOURCE_ADAPTERS,
     AI_CONTEXT_FUTURE_RETRIEVAL_OWNERS,
     AiContextResolvedSource,
+)
+from ai_usage_context_enforcement import (
+    AutomationAiUsageContext,
+    require_ai_assistant_usage_context,
+    sign_automation_ai_usage_context,
 )
 from entitlement_assertions import (
     AutomationEntitlementAssertion,
@@ -145,6 +151,89 @@ def valid_context_request(
     )
 
 
+def valid_usage_context_payload(
+    *,
+    feature: str = PREMIUM_AUTOMATION_RUNTIME_FEATURE,
+    tenant_id: str = "tenant-123",
+    user_id: str = "user-123",
+    request_id: str = "req-123",
+    plan_at_request_time: str = "pro",
+    plan_source: str = "persisted_server_plan",
+    request_classification: str = "assistant_prompt",
+    estimated_usage_units: int = 12,
+    admission_decision: str | None = "allow",
+    budget_status: str | None = "within_budget",
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "audience": "automation-service",
+        "estimated_usage_units": estimated_usage_units,
+        "expires_at": "2026-06-28T12:01:30.000Z",
+        "feature": feature,
+        "issued_at": "2026-06-28T12:00:00.000Z",
+        "issuer": "api-gateway",
+        "plan_at_request_time": plan_at_request_time,
+        "plan_source": plan_source,
+        "purpose": "ai_usage_budget_admission",
+        "request_classification": request_classification,
+        "request_id": request_id,
+        "tenant_id": tenant_id,
+        "user_id": user_id,
+    }
+    if admission_decision is not None:
+        payload["admission_decision"] = admission_decision
+    if budget_status is not None:
+        payload["budget_status"] = budget_status
+
+    return payload
+
+
+def sign_usage_context(payload: dict[str, object]) -> str:
+    return sign_automation_ai_usage_context(
+        AutomationAiUsageContext.model_validate(payload),
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+
+def build_backend_request(
+    *,
+    context: AiAssistantContextRequest,
+    prompt: str,
+    feature: str = PREMIUM_AUTOMATION_RUNTIME_FEATURE,
+    request_id: str = "req-123",
+    inject_usage_context: bool = True,
+    usage_context: object | None = None,
+    usage_context_signature: str | None = None,
+) -> AiAssistantBackendContractRequest:
+    usage_tenant_id = context.tenant_id or "tenant-123"
+    usage_user_id = context.user_id or "user-123"
+    resolved_usage_context = (
+        valid_usage_context_payload(
+            feature=feature,
+            request_id=request_id,
+            tenant_id=usage_tenant_id,
+            user_id=usage_user_id,
+        )
+        if inject_usage_context and usage_context is None
+        else usage_context
+    )
+    resolved_signature = (
+        sign_usage_context(resolved_usage_context)
+        if inject_usage_context
+        and usage_context_signature is None
+        and isinstance(resolved_usage_context, dict)
+        else usage_context_signature
+    )
+
+    return AiAssistantBackendContractRequest(
+        context=context,
+        feature=feature,
+        prompt=prompt,
+        request_id=request_id,
+        usage_context=resolved_usage_context,
+        usage_context_signature=resolved_signature,
+    )
+
+
 def run_backend_contract(
     *,
     assertion: object | None,
@@ -155,6 +244,10 @@ def run_backend_contract(
     feature: str = PREMIUM_AUTOMATION_RUNTIME_FEATURE,
     allow_not_yet_productive: bool = False,
     context_adapters: dict[str, object] | None = None,
+    request_id: str = "req-123",
+    inject_usage_context: bool = True,
+    usage_context: object | None = None,
+    usage_context_signature: str | None = None,
 ) -> tuple[bool, object | HTTPException]:
     called = False
 
@@ -163,10 +256,14 @@ def run_backend_contract(
         called = True
         return "assistant-operation-ran"
 
-    request = AiAssistantBackendContractRequest(
+    request = build_backend_request(
         context=context,
         feature=feature,
         prompt=prompt,
+        request_id=request_id,
+        inject_usage_context=inject_usage_context,
+        usage_context=usage_context,
+        usage_context_signature=usage_context_signature,
     )
 
     try:
@@ -498,6 +595,239 @@ def test_backend_contract_fails_closed_before_operation_for_denied_requests(
     assert "https://" not in serialized_detail.lower()
 
 
+@pytest.mark.parametrize(
+    (
+        "inject_usage_context",
+        "usage_context",
+        "usage_context_signature",
+        "request_id",
+        "context",
+        "expected_code",
+    ),
+    [
+        pytest.param(
+            False,
+            None,
+            None,
+            "req-123",
+            valid_context_request(),
+            "ai_usage_context_missing",
+            id="missing usage context",
+        ),
+        pytest.param(
+            False,
+            {"feature": "ai_assistant"},
+            None,
+            "req-123",
+            valid_context_request(),
+            "ai_usage_context_malformed",
+            id="malformed usage context",
+        ),
+        pytest.param(
+            False,
+            {
+                **valid_usage_context_payload(),
+                "issued_at": "2026-06-28T11:58:00.000Z",
+                "expires_at": "2026-06-28T11:59:00.000Z",
+            },
+            sign_usage_context(
+                {
+                    **valid_usage_context_payload(),
+                    "issued_at": "2026-06-28T11:58:00.000Z",
+                    "expires_at": "2026-06-28T11:59:00.000Z",
+                }
+            ),
+            "req-123",
+            valid_context_request(),
+            "ai_usage_context_expired",
+            id="expired usage context",
+        ),
+        pytest.param(
+            False,
+            {
+                **valid_usage_context_payload(),
+                "feature": "branding_ai",
+            },
+            sign_usage_context(
+                {
+                    **valid_usage_context_payload(),
+                    "feature": "branding_ai",
+                }
+            ),
+            "req-123",
+            valid_context_request(),
+            "ai_usage_context_feature_mismatch",
+            id="feature mismatch",
+        ),
+        pytest.param(
+            False,
+            {
+                **valid_usage_context_payload(),
+                "tenant_id": "tenant-other",
+            },
+            sign_usage_context(
+                {
+                    **valid_usage_context_payload(),
+                    "tenant_id": "tenant-other",
+                }
+            ),
+            "req-123",
+            valid_context_request(),
+            "ai_usage_context_user_mismatch",
+            id="tenant mismatch",
+        ),
+        pytest.param(
+            False,
+            {
+                **valid_usage_context_payload(),
+                "user_id": "other-user",
+            },
+            sign_usage_context(
+                {
+                    **valid_usage_context_payload(),
+                    "user_id": "other-user",
+                }
+            ),
+            "req-123",
+            valid_context_request(),
+            "ai_usage_context_user_mismatch",
+            id="user mismatch",
+        ),
+        pytest.param(
+            False,
+            {
+                **valid_usage_context_payload(),
+                "request_id": "req-other",
+            },
+            sign_usage_context(
+                {
+                    **valid_usage_context_payload(),
+                    "request_id": "req-other",
+                }
+            ),
+            "req-123",
+            valid_context_request(),
+            "ai_usage_context_user_mismatch",
+            id="request mismatch",
+        ),
+        pytest.param(
+            False,
+            {
+                **valid_usage_context_payload(),
+                "plan_source": "ui_badge",
+            },
+            None,
+            "req-123",
+            valid_context_request(),
+            "ai_usage_context_plan_untrusted",
+            id="untrusted plan source",
+        ),
+        pytest.param(
+            False,
+            {
+                **valid_usage_context_payload(),
+                "admission_decision": "deny",
+            },
+            sign_usage_context(
+                {
+                    **valid_usage_context_payload(),
+                    "admission_decision": "deny",
+                }
+            ),
+            "req-123",
+            valid_context_request(),
+            "ai_usage_context_denied",
+            id="admission denied",
+        ),
+        pytest.param(
+            False,
+            {
+                **valid_usage_context_payload(),
+                "budget_status": "budget_exceeded",
+            },
+            sign_usage_context(
+                {
+                    **valid_usage_context_payload(),
+                    "budget_status": "budget_exceeded",
+                }
+            ),
+            "req-123",
+            valid_context_request(),
+            "ai_usage_context_denied",
+            id="budget denied",
+        ),
+        pytest.param(
+            False,
+            valid_usage_context_payload(),
+            "bad-signature",
+            "req-123",
+            valid_context_request(),
+            "ai_usage_context_signature_invalid",
+            id="invalid usage context signature",
+        ),
+    ],
+)
+def test_backend_contract_fails_closed_for_invalid_usage_context(
+    inject_usage_context: bool,
+    usage_context: object | None,
+    usage_context_signature: str | None,
+    request_id: str,
+    context: AiAssistantContextRequest,
+    expected_code: str,
+) -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    called, error = run_backend_contract(
+        assertion=assertion.model_dump(mode="python"),
+        signature=signature,
+        settings=build_settings(),
+        context=context,
+        allow_not_yet_productive=True,
+        inject_usage_context=inject_usage_context,
+        request_id=request_id,
+        usage_context=usage_context,
+        usage_context_signature=usage_context_signature,
+    )
+
+    assert called is False
+    assert isinstance(error, HTTPException)
+    assert error.status_code == 403
+    assert error.detail["code"] == expected_code
+    serialized_detail = json.dumps(error.detail, sort_keys=True)
+    assert "secret" not in serialized_detail.lower()
+    assert "sk-server" not in serialized_detail
+    assert "private" not in serialized_detail.lower()
+    assert "http://" not in serialized_detail.lower()
+    assert "https://" not in serialized_detail.lower()
+
+
+def test_backend_contract_fails_closed_when_usage_context_signing_is_unavailable() -> (
+    None
+):
+    with pytest.raises(HTTPException) as error_info:
+        require_ai_assistant_usage_context(
+            feature=PREMIUM_AUTOMATION_RUNTIME_FEATURE,
+            now=fixed_now(),
+            request_id="req-123",
+            settings=build_settings(signing_mode="unsigned_internal_contract"),
+            signature=sign_usage_context(valid_usage_context_payload()),
+            tenant_id="tenant-123",
+            usage_context=valid_usage_context_payload(),
+            user_id="user-123",
+        )
+
+    assert error_info.value.status_code == 503
+    assert error_info.value.detail == {
+        "code": "ai_usage_context_unavailable",
+        "feature": "ai_assistant",
+        "message": "AI usage context enforcement is unavailable.",
+    }
+
+
 def test_backend_contract_rejects_invalid_feature_before_operation() -> None:
     assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
     signature = sign_automation_entitlement_assertion(
@@ -579,7 +909,7 @@ def test_backend_contract_prepare_includes_bounded_context_and_guardrail_sizes()
     )
 
     prepared = prepare_ai_assistant_backend_contract(
-        AiAssistantBackendContractRequest(
+        build_backend_request(
             context=valid_context_request(),
             prompt="Summarize the last 30 days without exposing secrets.",
         ),
@@ -595,6 +925,9 @@ def test_backend_contract_prepare_includes_bounded_context_and_guardrail_sizes()
     assert prepared.resolved_context.total_payload_bytes > 0
     assert prepared.context_boundary.source_count == 2
     assert prepared.request_payload_bytes > 0
+    assert prepared.request_id == "req-123"
+    assert prepared.usage_context.feature == "ai_assistant"
+    assert prepared.usage_context.request_classification == "assistant_prompt"
 
 
 def test_context_adapter_registry_contains_only_allowlisted_sources() -> None:
@@ -621,7 +954,7 @@ def test_context_adapter_resolution_requires_tenant_and_user_context() -> None:
 
     with pytest.raises(HTTPException) as error_info:
         prepare_ai_assistant_backend_contract(
-            AiAssistantBackendContractRequest(
+            build_backend_request(
                 context=valid_context_request(tenant_id="", user_id="user-123"),
                 prompt="Summarize safely.",
             ),
@@ -657,7 +990,7 @@ def test_context_adapter_resolution_keeps_low_risk_sources_prepared_until_gatewa
     )
 
     prepared = prepare_ai_assistant_backend_contract(
-        AiAssistantBackendContractRequest(
+        build_backend_request(
             context=valid_context_request(
                 sources=(
                     AiContextSourceRequest(
@@ -703,7 +1036,7 @@ def test_context_adapter_resolution_supports_multiple_allowed_sources_within_lim
     )
 
     prepared = prepare_ai_assistant_backend_contract(
-        AiAssistantBackendContractRequest(
+        build_backend_request(
             context=valid_context_request(),
             prompt="Summarize multiple sources safely.",
         ),
@@ -732,7 +1065,7 @@ def test_context_adapter_resolution_keeps_other_stubbed_sources_unchanged() -> N
     )
 
     prepared = prepare_ai_assistant_backend_contract(
-        AiAssistantBackendContractRequest(
+        build_backend_request(
             context=valid_context_request(
                 sources=(
                     AiContextSourceRequest(
@@ -830,7 +1163,7 @@ def test_context_adapter_resolution_supports_gateway_backed_low_risk_sources(
     )
 
     prepared = prepare_ai_assistant_backend_contract(
-        AiAssistantBackendContractRequest(
+        build_backend_request(
             context=valid_context_request(
                 sources=(
                     AiContextSourceRequest(
@@ -921,7 +1254,7 @@ def test_trusted_context_client_uses_explicit_timeout_semantics(
     )
 
     prepared = prepare_ai_assistant_backend_contract(
-        AiAssistantBackendContractRequest(
+        build_backend_request(
             context=valid_context_request(
                 sources=(
                     AiContextSourceRequest(
@@ -1262,7 +1595,7 @@ def test_context_adapter_resolution_denies_source_without_registered_adapter() -
 
     with pytest.raises(HTTPException) as error_info:
         prepare_ai_assistant_backend_contract(
-            AiAssistantBackendContractRequest(
+            build_backend_request(
                 context=valid_context_request(
                     sources=(
                         AiContextSourceRequest(
@@ -1345,7 +1678,7 @@ def test_context_adapter_resolution_denies_payload_that_exceeds_requested_source
 
     with pytest.raises(HTTPException) as error_info:
         prepare_ai_assistant_backend_contract(
-            AiAssistantBackendContractRequest(
+            build_backend_request(
                 context=valid_context_request(
                     sources=(
                         AiContextSourceRequest(
@@ -1381,7 +1714,7 @@ def test_backend_contract_timeout_maps_to_guardrail_reason_code() -> None:
         assertion,
         secret=ASSERTION_SIGNING_TEST_SECRET,
     )
-    request = AiAssistantBackendContractRequest(
+    request = build_backend_request(
         context=valid_context_request(),
         prompt="Summarize performance safely.",
     )
