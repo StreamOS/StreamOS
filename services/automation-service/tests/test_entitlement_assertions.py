@@ -1,7 +1,5 @@
 from datetime import UTC, datetime
 
-import pytest
-
 from entitlement_assertions import (
     ASSERTION_AUDIENCES,
     ASSERTION_CLOCK_SKEW_SECONDS,

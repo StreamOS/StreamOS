@@ -52,6 +52,7 @@ import {
   createSupabaseRestClient,
   readSupabaseRows,
 } from "./lib/supabaseRest.js";
+import type { GatewayPremiumCommandPoliciesInput } from "./lib/premium-command-enforcement.js";
 import { resolveAutomationEntitlementAssertionSigningConfig } from "./lib/automation-entitlement-signing.js";
 import type { ApiGatewayRuntimeProvenance } from "./runtimeProvenance.js";
 import { createProviderWebhookRouter } from "./webhooks/providerRoutes.js";
@@ -71,8 +72,14 @@ type CreateAppOptions = {
     >
   >;
   providerWebhookDispatcher?: ProviderWebhookDispatcher;
+  premiumCommandPolicies?: GatewayPremiumCommandPoliciesInput;
   rateLimit?: Partial<RateLimitConfig>;
   routeRateLimits?: {
+    contentPublicationScheduleMutation?: {
+      enabled?: boolean;
+      maxRequests?: number;
+      windowMs?: number;
+    };
     streamEndedWebhook?: {
       maxRequests?: number;
       windowMs?: number;
@@ -834,6 +841,9 @@ export function createApp(
       fetchImpl: options.oauth?.fetchImpl,
       publicationExecutionQueue:
         options.publicationExecutionQueue ?? publicationExecutionQueue,
+      premiumCommandPolicies: options.premiumCommandPolicies,
+      scheduleMutationRateLimit:
+        options.routeRateLimits?.contentPublicationScheduleMutation,
     }),
   );
   app.use(
