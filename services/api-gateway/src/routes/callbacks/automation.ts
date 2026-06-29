@@ -3,6 +3,13 @@ import express from "express";
 import type { Request, Response, Router } from "express";
 import { z } from "zod";
 
+import {
+  readTrustedAiAssistantContext,
+  trustedAiAssistantContextReadRequestSchema,
+} from "../../lib/aiAssistantTrustedContext.js";
+import { sanitizeErrorForLog } from "../../lib/log-sanitizer.js";
+import { createSupabaseRestClient } from "../../lib/supabaseRest.js";
+
 const callbackPayloadSchema = z.object({
   contentJobId: z.string().uuid(),
   error: z.string().trim().optional(),
@@ -140,6 +147,66 @@ export function createAutomationCallbackRouter({
       });
     }
   });
+
+  router.post(
+    "/trusted-context",
+    async (request: Request, response: Response) => {
+      if (
+        !hasValidSecret(
+          request.headers["x-streamos-api-secret"],
+          apiGatewaySecret,
+        )
+      ) {
+        response.status(401).json({
+          error: "invalid_api_gateway_secret",
+          message: "Automation callback secret is invalid.",
+        });
+        return;
+      }
+
+      if (!serviceRoleKey || !supabaseUrl) {
+        response.status(503).json({
+          error: "supabase_not_configured",
+          message: "Supabase service credentials are required for callbacks.",
+        });
+        return;
+      }
+
+      const parsedPayload =
+        trustedAiAssistantContextReadRequestSchema.safeParse(request.body);
+
+      if (!parsedPayload.success) {
+        response.status(400).json({
+          error: "invalid_trusted_context_read_payload",
+          issues: parsedPayload.error.issues,
+        });
+        return;
+      }
+
+      try {
+        const trustedContext = await readTrustedAiAssistantContext({
+          input: parsedPayload.data,
+          supabase: createSupabaseRestClient({
+            fetchImpl,
+            serviceRoleKey,
+            supabaseUrl,
+          }),
+        });
+
+        response.status(200).json(trustedContext);
+      } catch (error) {
+        console.error("trusted_ai_context_read_failed", {
+          error: sanitizeErrorForLog(error),
+          route: "automation_trusted_context_read",
+        });
+
+        response.status(502).json({
+          error: "trusted_context_read_failed",
+          message: "Trusted AI context could not be loaded.",
+        });
+      }
+    },
+  );
 
   return router;
 }
