@@ -7,6 +7,16 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from ai_guardrails import (
+    AI_ASSISTANT_FEATURE,
+    CLIP_ANALYZE_FEATURE,
+    REPURPOSING_PLAN_FEATURE,
+    TRANSCRIPTIONS_PROCESS_FEATURE,
+    AiGuardrailError,
+    build_ai_guardrail_detail,
+    ensure_ai_guardrail_feature_is_productive,
+    get_ai_guardrail_policy,
+)
 from main import (
     app,
     get_clip_analyzer,
@@ -15,6 +25,7 @@ from main import (
 )
 from openai_client import (
     OpenAIClipAnalyzer,
+    OpenAIRepurposingPlanner,
     OpenAITranscriptionProcessor,
     ProviderRateLimitError,
 )
@@ -185,6 +196,11 @@ class RateLimitedRepurposingPlanner:
         )
 
 
+class TimeoutClipAnalyzer:
+    async def analyze_clip(self, _payload: ClipAnalysisRequest) -> ClipAnalysisResponse:
+        raise httpx.ReadTimeout("upstream timeout")
+
+
 def valid_repurposing_response_payload(
     *,
     content_job_id: str = "job-123",
@@ -239,6 +255,48 @@ def test_repurposing_response_contract_trims_text_like_worker() -> None:
     result = RepurposingPlanResponse.model_validate(payload)
 
     assert result.captions == ["Repurpose this moment."]
+
+
+def test_ai_guardrail_policy_keeps_core_runtime_paths_non_premium() -> None:
+    clip_policy = get_ai_guardrail_policy(CLIP_ANALYZE_FEATURE)
+    repurposing_policy = get_ai_guardrail_policy(REPURPOSING_PLAN_FEATURE)
+    transcription_policy = get_ai_guardrail_policy(TRANSCRIPTIONS_PROCESS_FEATURE)
+
+    assert clip_policy.runtime_status == "active"
+    assert repurposing_policy.runtime_status == "active"
+    assert transcription_policy.runtime_status == "active"
+    assert clip_policy.requires_signed_entitlement is False
+    assert repurposing_policy.requires_signed_entitlement is False
+    assert transcription_policy.requires_signed_entitlement is False
+
+
+def test_ai_guardrail_policy_marks_ai_assistant_as_not_yet_productive() -> None:
+    policy = get_ai_guardrail_policy(AI_ASSISTANT_FEATURE)
+
+    assert policy.runtime_status == "not_yet_productive"
+    assert policy.requires_signed_entitlement is True
+
+    with pytest.raises(AiGuardrailError) as error_info:
+        ensure_ai_guardrail_feature_is_productive(AI_ASSISTANT_FEATURE)
+
+    assert build_ai_guardrail_detail(error_info.value) == {
+        "code": "ai_guardrail_feature_unavailable",
+        "feature": "ai_assistant",
+        "message": "The requested AI feature is not available.",
+        "retryable": False,
+    }
+
+
+def test_ai_guardrail_policy_rejects_invalid_feature_with_secret_safe_detail() -> None:
+    with pytest.raises(AiGuardrailError) as error_info:
+        get_ai_guardrail_policy("not-a-real-feature")
+
+    assert build_ai_guardrail_detail(error_info.value) == {
+        "code": "ai_guardrail_invalid_feature",
+        "feature": "ai_assistant",
+        "message": "The requested AI feature is invalid.",
+        "retryable": False,
+    }
 
 
 @pytest.mark.parametrize(
@@ -518,6 +576,34 @@ def test_repurposing_endpoint_rejects_mismatched_response_ids(
     assert "other-" not in response.text
 
 
+def test_clip_analysis_endpoint_returns_structured_504_for_timeout() -> None:
+    app.dependency_overrides[get_clip_analyzer] = TimeoutClipAnalyzer
+
+    try:
+        response = asyncio.run(
+            post_json(
+                "/clips/analyze",
+                {
+                    "asset_id": "clip-123",
+                    "source_platform": "twitch",
+                    "transcript": "A clean testing transcript.",
+                },
+            )
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 504
+    assert response.json() == {
+        "detail": {
+            "code": "ai_guardrail_timeout",
+            "feature": "clips_analyze",
+            "message": "The AI request timed out before completion.",
+            "retryable": True,
+        }
+    }
+
+
 def test_repurposing_endpoint_returns_structured_503_for_provider_rate_limit() -> None:
     app.dependency_overrides[get_repurposing_planner] = RateLimitedRepurposingPlanner
 
@@ -695,6 +781,95 @@ def test_openai_client_keeps_api_key_out_of_request_body() -> None:
     assert requests[0].url == "https://api.openai.test/v1/responses"
     assert result.provider == "openai"
     assert result.virality_score == 91
+
+
+def test_openai_clip_analyzer_rejects_oversized_input_before_upstream_request() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(status_code=200, json={"output_text": "{}"})
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.AsyncClient(transport=transport)
+    analyzer = OpenAIClipAnalyzer(
+        Settings(
+            streamos_e2e_mode=False,
+            openai_api_key="sk-server",
+            openai_model="gpt-4o",
+            openai_title_model="gpt-4o-mini",
+            openai_transcription_model="gpt-4o-transcribe",
+            openai_base_url="https://api.openai.test/v1",
+            openai_timeout_seconds=30,
+            max_transcription_media_bytes=25_000_000,
+            transcription_processor_mode="openai",
+        ),
+        http_client=http_client,
+    )
+    oversized_payload = ClipAnalysisRequest.model_construct(
+        asset_id="clip-123",
+        source_platform="twitch",
+        transcript="x" * 60_001,
+    )
+
+    async def run_analysis() -> None:
+        try:
+            await analyzer.analyze_clip(oversized_payload)
+        finally:
+            await http_client.aclose()
+
+    with pytest.raises(AiGuardrailError) as error_info:
+        asyncio.run(run_analysis())
+
+    assert error_info.value.code == "ai_guardrail_input_too_large"
+    assert error_info.value.feature == "clips_analyze"
+    assert requests == []
+
+
+def test_openai_repurposing_planner_rejects_oversized_input_before_upstream_request() -> (
+    None
+):
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(status_code=200, json={"output_text": "{}"})
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.AsyncClient(transport=transport)
+    planner = OpenAIRepurposingPlanner(
+        Settings(
+            streamos_e2e_mode=False,
+            openai_api_key="sk-server",
+            openai_model="gpt-4o",
+            openai_title_model="gpt-4o-mini",
+            openai_transcription_model="gpt-4o-transcribe",
+            openai_base_url="https://api.openai.test/v1",
+            openai_timeout_seconds=30,
+            max_transcription_media_bytes=25_000_000,
+            transcription_processor_mode="openai",
+        ),
+        http_client=http_client,
+    )
+    payload = RepurposingPlanRequest.model_validate(
+        {
+            **valid_repurposing_request_payload(),
+            "source_metadata": {"oversized_note": "x" * 40_000},
+        }
+    )
+
+    async def run_planner() -> None:
+        try:
+            await planner.plan_repurposing(payload)
+        finally:
+            await http_client.aclose()
+
+    with pytest.raises(AiGuardrailError) as error_info:
+        asyncio.run(run_planner())
+
+    assert error_info.value.code == "ai_guardrail_input_too_large"
+    assert error_info.value.feature == "repurposing_plan"
+    assert requests == []
 
 
 def test_openai_transcription_processor_downloads_media_and_calls_audio_endpoint() -> (
@@ -942,4 +1117,63 @@ def test_openai_transcription_processor_classifies_provider_429() -> None:
     assert [str(request.url) for request in requests] == [
         "https://cdn.example.com/audio.mp4",
         "https://api.openai.test/v1/audio/transcriptions",
+    ]
+
+
+def test_openai_transcription_processor_rejects_oversized_media_before_model_call() -> (
+    None
+):
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+
+        if request.url == "https://cdn.example.com/audio.mp4":
+            return httpx.Response(
+                status_code=200,
+                headers={"content-type": "audio/mp4"},
+                content=b"12345",
+            )
+
+        return httpx.Response(status_code=200, json={"text": "should-not-run"})
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.AsyncClient(transport=transport)
+    processor = OpenAITranscriptionProcessor(
+        Settings(
+            streamos_e2e_mode=False,
+            openai_api_key="sk-server",
+            openai_model="gpt-4o",
+            openai_title_model="gpt-4o-mini",
+            openai_transcription_model="gpt-4o-transcribe",
+            openai_base_url="https://api.openai.test/v1",
+            openai_timeout_seconds=30,
+            max_transcription_media_bytes=4,
+            transcription_processor_mode="openai",
+        ),
+        http_client=http_client,
+        asset_url_resolver=lambda _hostname: [ipaddress.ip_address("93.184.216.34")],
+    )
+
+    async def run_transcription() -> None:
+        try:
+            await processor.process_transcription(
+                TranscriptionProcessRequest(
+                    job_id="job-123",
+                    stream_id="stream-123",
+                    source_platform="twitch",
+                    asset_url="https://cdn.example.com/audio.mp4",
+                    language="en",
+                )
+            )
+        finally:
+            await http_client.aclose()
+
+    with pytest.raises(AiGuardrailError) as error_info:
+        asyncio.run(run_transcription())
+
+    assert error_info.value.code == "ai_guardrail_media_too_large"
+    assert error_info.value.feature == "transcriptions_process"
+    assert [str(request.url) for request in requests] == [
+        "https://cdn.example.com/audio.mp4"
     ]

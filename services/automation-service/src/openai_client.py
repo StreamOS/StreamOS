@@ -6,6 +6,15 @@ from urllib.parse import urljoin
 
 import httpx
 
+from ai_guardrails import (
+    CLIP_ANALYZE_FEATURE,
+    REPURPOSING_PLAN_FEATURE,
+    TRANSCRIPTIONS_PROCESS_FEATURE,
+    enforce_max_media_bytes,
+    enforce_max_request_bytes,
+    enforce_max_text_characters,
+    get_ai_guardrail_policy,
+)
 from schemas import (
     ClipAnalysisRequest,
     ClipAnalysisResponse,
@@ -56,6 +65,26 @@ class OpenAIClipAnalyzer:
         self._owns_client = http_client is None
 
     async def analyze_clip(self, payload: ClipAnalysisRequest) -> ClipAnalysisResponse:
+        policy = get_ai_guardrail_policy(CLIP_ANALYZE_FEATURE)
+        enforce_max_text_characters(
+            feature=policy.feature,
+            value=payload.transcript,
+            max_text_characters=policy.max_text_characters,
+        )
+        input_content = json.dumps(
+            {
+                "asset_id": payload.asset_id,
+                "source_platform": payload.source_platform,
+                "transcript": payload.transcript,
+            },
+            separators=(",", ":"),
+        )
+        enforce_max_request_bytes(
+            feature=policy.feature,
+            value=input_content,
+            max_request_bytes=policy.max_request_bytes,
+        )
+
         response = await self.http_client.post(
             f"{self.settings.openai_base_url}/responses",
             headers={
@@ -75,14 +104,7 @@ class OpenAIClipAnalyzer:
                     },
                     {
                         "role": "user",
-                        "content": json.dumps(
-                            {
-                                "asset_id": payload.asset_id,
-                                "source_platform": payload.source_platform,
-                                "transcript": payload.transcript,
-                            },
-                            separators=(",", ":"),
-                        ),
+                        "content": input_content,
                     },
                 ],
                 "text": {
@@ -173,6 +195,39 @@ class OpenAIRepurposingPlanner:
     async def plan_repurposing(
         self, payload: RepurposingPlanRequest
     ) -> RepurposingPlanResponse:
+        policy = get_ai_guardrail_policy(REPURPOSING_PLAN_FEATURE)
+        input_content = json.dumps(
+            {
+                "asset_reference": (
+                    payload.asset_reference.model_dump() if payload.asset_reference else None
+                ),
+                "brand_context": payload.brand_context,
+                "content_job_id": payload.content_job_id,
+                "content_policy_hints": payload.content_policy_hints,
+                "language": payload.language,
+                "locale": payload.locale,
+                "manual_review_required": payload.manual_review_required,
+                "provider": payload.provider,
+                "provider_video_id": payload.provider_video_id,
+                "queue_job_id": payload.queue_job_id,
+                "source_event_type": payload.source_event_type,
+                "source_metadata": payload.source_metadata,
+                "target_platforms": payload.target_platforms,
+                "transcript_reference": (
+                    payload.transcript_reference.model_dump()
+                    if payload.transcript_reference
+                    else None
+                ),
+                "user_id": payload.user_id,
+            },
+            separators=(",", ":"),
+        )
+        enforce_max_request_bytes(
+            feature=policy.feature,
+            value=input_content,
+            max_request_bytes=policy.max_request_bytes,
+        )
+
         response = await self.http_client.post(
             f"{self.settings.openai_base_url}/responses",
             headers={
@@ -192,34 +247,7 @@ class OpenAIRepurposingPlanner:
                     },
                     {
                         "role": "user",
-                        "content": json.dumps(
-                            {
-                                "asset_reference": (
-                                    payload.asset_reference.model_dump()
-                                    if payload.asset_reference
-                                    else None
-                                ),
-                                "brand_context": payload.brand_context,
-                                "content_job_id": payload.content_job_id,
-                                "content_policy_hints": payload.content_policy_hints,
-                                "language": payload.language,
-                                "locale": payload.locale,
-                                "manual_review_required": payload.manual_review_required,
-                                "provider": payload.provider,
-                                "provider_video_id": payload.provider_video_id,
-                                "queue_job_id": payload.queue_job_id,
-                                "source_event_type": payload.source_event_type,
-                                "source_metadata": payload.source_metadata,
-                                "target_platforms": payload.target_platforms,
-                                "transcript_reference": (
-                                    payload.transcript_reference.model_dump()
-                                    if payload.transcript_reference
-                                    else None
-                                ),
-                                "user_id": payload.user_id,
-                            },
-                            separators=(",", ":"),
-                        ),
+                        "content": input_content,
                     },
                 ],
                 "text": {
@@ -355,8 +383,11 @@ class OpenAITranscriptionProcessor:
         media_response = await self._download_media(payload.asset_url)
 
         media_bytes = media_response.content
-        if len(media_bytes) > self.settings.max_transcription_media_bytes:
-            raise ValueError("Transcription media exceeds configured maximum size.")
+        enforce_max_media_bytes(
+            feature=TRANSCRIPTIONS_PROCESS_FEATURE,
+            media_bytes=media_bytes,
+            max_media_bytes=self.settings.max_transcription_media_bytes,
+        )
 
         data = {
             "model": self.settings.openai_transcription_model,
