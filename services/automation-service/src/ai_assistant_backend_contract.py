@@ -14,6 +14,12 @@ from ai_context_boundary import (
     build_ai_context_error_detail,
     validate_ai_assistant_context_boundary,
 )
+from ai_context_retrieval_adapters import (
+    AI_CONTEXT_SOURCE_ADAPTERS,
+    AiAssistantResolvedContext,
+    AiContextSourceAdapter,
+    resolve_ai_context_sources,
+)
 from ai_guardrails import (
     AI_ASSISTANT_FEATURE,
     AiGuardrailError,
@@ -38,6 +44,7 @@ class AiAssistantBackendContractRequest:
 @dataclass(frozen=True)
 class AiAssistantPreparedOperation:
     context_boundary: AiAssistantContextBoundary
+    resolved_context: AiAssistantResolvedContext
     feature: str
     prompt: str
     request_payload_bytes: int
@@ -51,6 +58,7 @@ def prepare_ai_assistant_backend_contract(
     settings: Settings,
     signature: str | None,
     allow_not_yet_productive: bool = False,
+    context_adapters: dict[str, AiContextSourceAdapter] | None = None,
 ) -> AiAssistantPreparedOperation:
     try:
         policy = get_ai_guardrail_policy(request.feature)
@@ -85,9 +93,14 @@ def prepare_ai_assistant_backend_contract(
             request.context,
             require_productive=False,
         )
+        resolved_context = _run_context_resolution(
+            context_boundary,
+            context_adapters=context_adapters,
+        )
         payload = _serialize_ai_assistant_request(
             request,
             context_boundary=context_boundary,
+            resolved_context=resolved_context,
         )
         enforce_max_request_bytes(
             feature=policy.feature,
@@ -107,6 +120,7 @@ def prepare_ai_assistant_backend_contract(
 
     return AiAssistantPreparedOperation(
         context_boundary=context_boundary,
+        resolved_context=resolved_context,
         feature=policy.feature,
         prompt=request.prompt,
         request_payload_bytes=len(payload.encode("utf-8")),
@@ -122,6 +136,7 @@ async def run_ai_assistant_backend_operation(
     settings: Settings,
     signature: str | None,
     allow_not_yet_productive: bool = False,
+    context_adapters: dict[str, AiContextSourceAdapter] | None = None,
 ) -> T:
     prepared_request = prepare_ai_assistant_backend_contract(
         request,
@@ -130,6 +145,7 @@ async def run_ai_assistant_backend_operation(
         settings=settings,
         signature=signature,
         allow_not_yet_productive=allow_not_yet_productive,
+        context_adapters=context_adapters,
     )
 
     try:
@@ -146,6 +162,7 @@ def _serialize_ai_assistant_request(
     request: AiAssistantBackendContractRequest,
     *,
     context_boundary: AiAssistantContextBoundary,
+    resolved_context: AiAssistantResolvedContext,
 ) -> str:
     return json.dumps(
         {
@@ -165,7 +182,27 @@ def _serialize_ai_assistant_request(
                 }
                 for source in context_boundary.sources
             ],
+            "resolved_context": [
+                {
+                    "source": source.source,
+                    "payload_bytes": source.payload_bytes,
+                    "records": list(source.records),
+                }
+                for source in resolved_context.sources
+            ],
         },
         ensure_ascii=True,
         separators=(",", ":"),
+    )
+
+
+def _run_context_resolution(
+    context_boundary: AiAssistantContextBoundary,
+    *,
+    context_adapters: dict[str, AiContextSourceAdapter] | None,
+) -> AiAssistantResolvedContext:
+    adapters = AI_CONTEXT_SOURCE_ADAPTERS if context_adapters is None else context_adapters
+    return resolve_ai_context_sources(
+        context_boundary,
+        adapters=adapters,
     )

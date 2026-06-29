@@ -11,6 +11,10 @@ from ai_assistant_backend_contract import (
     run_ai_assistant_backend_operation,
 )
 from ai_context_boundary import AiAssistantContextRequest, AiContextSourceRequest
+from ai_context_retrieval_adapters import (
+    AI_CONTEXT_SOURCE_ADAPTERS,
+    AiContextResolvedSource,
+)
 from entitlement_assertions import (
     AutomationEntitlementAssertion,
     sign_automation_entitlement_assertion,
@@ -142,6 +146,7 @@ def run_backend_contract(
     prompt: str = "Summarize the recent creator performance safely.",
     feature: str = PREMIUM_AUTOMATION_RUNTIME_FEATURE,
     allow_not_yet_productive: bool = False,
+    context_adapters: dict[str, object] | None = None,
 ) -> tuple[bool, object | HTTPException]:
     called = False
 
@@ -166,6 +171,7 @@ def run_backend_contract(
                 settings=settings,
                 signature=signature,
                 allow_not_yet_productive=allow_not_yet_productive,
+                context_adapters=context_adapters,
             )
         )
     except HTTPException as error:
@@ -578,8 +584,237 @@ def test_backend_contract_prepare_includes_bounded_context_and_guardrail_sizes()
 
     assert prepared.feature == "ai_assistant"
     assert prepared.context_boundary.feature == "ai_assistant"
+    assert prepared.resolved_context.total_payload_bytes > 0
     assert prepared.context_boundary.source_count == 2
     assert prepared.request_payload_bytes > 0
+
+
+def test_context_adapter_registry_contains_only_allowlisted_sources() -> None:
+    assert set(AI_CONTEXT_SOURCE_ADAPTERS) == {
+        "brand_asset_metadata",
+        "channel_platform_status",
+        "clip_highlight_summary",
+        "content_job_summary",
+        "monetization_summary",
+        "publication_history_summary",
+        "stream_performance_summary",
+        "transcript_excerpt",
+    }
+    assert "refresh_tokens" not in AI_CONTEXT_SOURCE_ADAPTERS
+    assert "oauth_access_tokens" not in AI_CONTEXT_SOURCE_ADAPTERS
+
+
+def test_context_adapter_resolution_requires_tenant_and_user_context() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    with pytest.raises(HTTPException) as error_info:
+        prepare_ai_assistant_backend_contract(
+            AiAssistantBackendContractRequest(
+                context=valid_context_request(tenant_id="", user_id="user-123"),
+                prompt="Summarize safely.",
+            ),
+            assertion=assertion.model_dump(mode="python"),
+            now=fixed_now(),
+            settings=build_settings(),
+            signature=signature,
+            allow_not_yet_productive=True,
+        )
+
+    assert error_info.value.status_code == 400
+    assert error_info.value.detail == {
+        "code": "ai_context_tenant_required",
+        "feature": "ai_assistant",
+        "message": "Tenant-scoped AI context requires trusted tenant and user identifiers.",
+    }
+
+
+def test_context_adapter_resolution_returns_stubbed_single_source_result() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    prepared = prepare_ai_assistant_backend_contract(
+        AiAssistantBackendContractRequest(
+            context=valid_context_request(
+                sources=(
+                    AiContextSourceRequest(
+                        source="channel_platform_status",
+                        item_limit=1,
+                        payload_bytes=1_024,
+                        time_window_days=30,
+                    ),
+                )
+            ),
+            prompt="Summarize one source safely.",
+        ),
+        assertion=assertion.model_dump(mode="python"),
+        now=fixed_now(),
+        settings=build_settings(),
+        signature=signature,
+        allow_not_yet_productive=True,
+    )
+
+    assert len(prepared.resolved_context.sources) == 1
+    resolved_source = prepared.resolved_context.sources[0]
+    assert resolved_source.source == "channel_platform_status"
+    assert resolved_source.payload_bytes > 0
+    assert resolved_source.records[0]["source"] == "channel_platform_status"
+    assert resolved_source.records[0]["summary"] == "channel_platform_status summary 1"
+
+
+def test_context_adapter_resolution_supports_multiple_allowed_sources_within_limits() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    prepared = prepare_ai_assistant_backend_contract(
+        AiAssistantBackendContractRequest(
+            context=valid_context_request(),
+            prompt="Summarize multiple sources safely.",
+        ),
+        assertion=assertion.model_dump(mode="python"),
+        now=fixed_now(),
+        settings=build_settings(),
+        signature=signature,
+        allow_not_yet_productive=True,
+    )
+
+    assert tuple(source.source for source in prepared.resolved_context.sources) == (
+        "channel_platform_status",
+        "stream_performance_summary",
+    )
+    assert (
+        prepared.resolved_context.total_payload_bytes
+        <= prepared.context_boundary.total_payload_bytes
+    )
+
+
+def test_context_adapter_resolution_denies_source_without_registered_adapter() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    with pytest.raises(HTTPException) as error_info:
+        prepare_ai_assistant_backend_contract(
+            AiAssistantBackendContractRequest(
+                context=valid_context_request(
+                    sources=(
+                        AiContextSourceRequest(
+                            source="channel_platform_status",
+                            item_limit=1,
+                            payload_bytes=1_024,
+                            time_window_days=30,
+                        ),
+                    )
+                ),
+                prompt="Summarize safely.",
+            ),
+            assertion=assertion.model_dump(mode="python"),
+            now=fixed_now(),
+            settings=build_settings(),
+            signature=signature,
+            allow_not_yet_productive=True,
+            context_adapters={},
+        )
+
+    assert error_info.value.status_code == 403
+    assert error_info.value.detail == {
+        "code": "ai_context_source_not_allowed",
+        "feature": "ai_assistant",
+        "message": "The requested AI context source is not allowed.",
+        "source": "channel_platform_status",
+    }
+
+
+def test_backend_contract_does_not_execute_operation_after_adapter_deny() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    called, error = run_backend_contract(
+        assertion=assertion.model_dump(mode="python"),
+        signature=signature,
+        settings=build_settings(),
+        context=valid_context_request(
+            sources=(
+                AiContextSourceRequest(
+                    source="channel_platform_status",
+                    item_limit=1,
+                    payload_bytes=1_024,
+                    time_window_days=30,
+                ),
+            )
+        ),
+        allow_not_yet_productive=True,
+        context_adapters={},
+    )
+
+    assert called is False
+    assert isinstance(error, HTTPException)
+    assert error.status_code == 403
+    assert error.detail["code"] == "ai_context_source_not_allowed"
+
+
+def test_context_adapter_resolution_denies_payload_that_exceeds_requested_source_budget() -> (
+    None
+):
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    def oversized_adapter(
+        _context_boundary: object, _requested_source: AiContextSourceRequest
+    ) -> AiContextResolvedSource:
+        return AiContextResolvedSource(
+            source="channel_platform_status",
+            records=({"summary": "x" * 400},),
+            payload_bytes=9_999,
+        )
+
+    with pytest.raises(HTTPException) as error_info:
+        prepare_ai_assistant_backend_contract(
+            AiAssistantBackendContractRequest(
+                context=valid_context_request(
+                    sources=(
+                        AiContextSourceRequest(
+                            source="channel_platform_status",
+                            item_limit=1,
+                            payload_bytes=256,
+                            time_window_days=30,
+                        ),
+                    )
+                ),
+                prompt="Summarize safely.",
+            ),
+            assertion=assertion.model_dump(mode="python"),
+            now=fixed_now(),
+            settings=build_settings(),
+            signature=signature,
+            allow_not_yet_productive=True,
+            context_adapters={"channel_platform_status": oversized_adapter},
+        )
+
+    assert error_info.value.status_code == 413
+    assert error_info.value.detail == {
+        "code": "ai_context_payload_too_large",
+        "feature": "ai_assistant",
+        "message": "The requested AI context payload exceeds the allowed size.",
+        "source": "channel_platform_status",
+    }
 
 
 def test_backend_contract_timeout_maps_to_guardrail_reason_code() -> None:
