@@ -1,9 +1,16 @@
 import asyncio
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 from fastapi import HTTPException
 
+from ai_assistant_backend_contract import (
+    AiAssistantBackendContractRequest,
+    prepare_ai_assistant_backend_contract,
+    run_ai_assistant_backend_operation,
+)
+from ai_context_boundary import AiAssistantContextRequest, AiContextSourceRequest
 from entitlement_assertions import (
     AutomationEntitlementAssertion,
     sign_automation_entitlement_assertion,
@@ -89,6 +96,76 @@ def run_premium_operation(
                 settings=settings,
                 signature=signature,
                 user_id=user_id,
+            )
+        )
+    except HTTPException as error:
+        return called, error
+
+    return called, result
+
+
+def valid_context_request(
+    *,
+    tenant_id: str = "tenant-123",
+    user_id: str = "user-123",
+    sources: tuple[AiContextSourceRequest, ...] | None = None,
+    transcript_excerpt_characters: int = 1_200,
+) -> AiAssistantContextRequest:
+    return AiAssistantContextRequest(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        transcript_excerpt_characters=transcript_excerpt_characters,
+        sources=sources
+        or (
+            AiContextSourceRequest(
+                source="channel_platform_status",
+                item_limit=5,
+                payload_bytes=1_024,
+                time_window_days=30,
+            ),
+            AiContextSourceRequest(
+                source="stream_performance_summary",
+                item_limit=10,
+                payload_bytes=2_048,
+                time_window_days=30,
+            ),
+        ),
+    )
+
+
+def run_backend_contract(
+    *,
+    assertion: object | None,
+    signature: str | None,
+    settings: Settings,
+    context: AiAssistantContextRequest,
+    prompt: str = "Summarize the recent creator performance safely.",
+    feature: str = PREMIUM_AUTOMATION_RUNTIME_FEATURE,
+    allow_not_yet_productive: bool = False,
+) -> tuple[bool, object | HTTPException]:
+    called = False
+
+    async def operation(_request: object) -> str:
+        nonlocal called
+        called = True
+        return "assistant-operation-ran"
+
+    request = AiAssistantBackendContractRequest(
+        context=context,
+        feature=feature,
+        prompt=prompt,
+    )
+
+    try:
+        result = asyncio.run(
+            run_ai_assistant_backend_operation(
+                assertion=assertion,
+                now=fixed_now(),
+                operation=operation,
+                request=request,
+                settings=settings,
+                signature=signature,
+                allow_not_yet_productive=allow_not_yet_productive,
             )
         )
     except HTTPException as error:
@@ -254,3 +331,288 @@ def test_runtime_unavailable_detail_stays_secret_safe() -> None:
     assert "secret" not in detail["message"].lower()
     assert "http://" not in detail["message"].lower()
     assert "https://" not in detail["message"].lower()
+
+
+def test_backend_contract_denies_ai_assistant_when_not_yet_productive() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    called, error = run_backend_contract(
+        assertion=assertion.model_dump(mode="python"),
+        signature=signature,
+        settings=build_settings(),
+        context=valid_context_request(),
+    )
+
+    assert called is False
+    assert isinstance(error, HTTPException)
+    assert error.status_code == 503
+    assert error.detail == {
+        "code": "ai_context_not_productive",
+        "feature": "ai_assistant",
+        "message": "The requested AI context path is not yet productive.",
+    }
+
+
+@pytest.mark.parametrize(
+    ("assertion", "signature", "context", "expected_status", "expected_code"),
+    [
+        pytest.param(
+            None,
+            None,
+            valid_context_request(),
+            403,
+            "entitlement_assertion_missing",
+            id="missing entitlement assertion",
+        ),
+        pytest.param(
+            valid_assertion_payload(),
+            "bad-signature",
+            valid_context_request(),
+            403,
+            "entitlement_assertion_signature_invalid",
+            id="invalid entitlement signature",
+        ),
+        pytest.param(
+            valid_assertion_payload(),
+            "placeholder",
+            valid_context_request(tenant_id="", user_id="user-123"),
+            400,
+            "ai_context_tenant_required",
+            id="missing tenant context",
+        ),
+        pytest.param(
+            valid_assertion_payload(),
+            "placeholder",
+            valid_context_request(
+                sources=(AiContextSourceRequest(source="unknown_source"),)
+            ),
+            400,
+            "ai_context_source_unknown",
+            id="unknown context source",
+        ),
+        pytest.param(
+            valid_assertion_payload(),
+            "placeholder",
+            valid_context_request(
+                sources=(AiContextSourceRequest(source="refresh_tokens"),)
+            ),
+            403,
+            "ai_context_sensitive_data_blocked",
+            id="sensitive context source",
+        ),
+        pytest.param(
+            valid_assertion_payload(),
+            "placeholder",
+            valid_context_request(
+                sources=(
+                    AiContextSourceRequest(
+                        source="publication_history_summary",
+                        time_window_days=120,
+                    ),
+                )
+            ),
+            400,
+            "ai_context_window_too_large",
+            id="window too large",
+        ),
+        pytest.param(
+            valid_assertion_payload(),
+            "placeholder",
+            valid_context_request(
+                sources=tuple(
+                    AiContextSourceRequest(source="channel_platform_status")
+                    for _ in range(7)
+                )
+            ),
+            413,
+            "ai_context_payload_too_large",
+            id="too many sources",
+        ),
+        pytest.param(
+            valid_assertion_payload(),
+            "placeholder",
+            valid_context_request(
+                sources=(
+                    AiContextSourceRequest(
+                        source="clip_highlight_summary",
+                        item_limit=5,
+                        payload_bytes=9_000,
+                    ),
+                )
+            ),
+            413,
+            "ai_context_payload_too_large",
+            id="context payload too large",
+        ),
+    ],
+)
+def test_backend_contract_fails_closed_before_operation_for_denied_requests(
+    assertion: object | None,
+    signature: str | None,
+    context: AiAssistantContextRequest,
+    expected_status: int,
+    expected_code: str,
+) -> None:
+    if signature == "placeholder" and assertion is not None:
+        parsed_assertion = AutomationEntitlementAssertion.model_validate(assertion)
+        signature = sign_automation_entitlement_assertion(
+            parsed_assertion,
+            secret=ASSERTION_SIGNING_TEST_SECRET,
+        )
+
+    called, error = run_backend_contract(
+        assertion=assertion,
+        signature=signature,
+        settings=build_settings(),
+        context=context,
+        allow_not_yet_productive=True,
+    )
+
+    assert called is False
+    assert isinstance(error, HTTPException)
+    assert error.status_code == expected_status
+    assert error.detail["code"] == expected_code
+    serialized_detail = str(error.detail)
+    assert "secret" not in serialized_detail.lower()
+    assert "sk-server" not in serialized_detail
+    assert "req-123" not in serialized_detail
+    assert "http://" not in serialized_detail.lower()
+    assert "https://" not in serialized_detail.lower()
+
+
+def test_backend_contract_rejects_invalid_feature_before_operation() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    called, error = run_backend_contract(
+        assertion=assertion.model_dump(mode="python"),
+        signature=signature,
+        settings=build_settings(),
+        context=valid_context_request(),
+        feature="wrong_feature",
+        allow_not_yet_productive=True,
+    )
+
+    assert called is False
+    assert isinstance(error, HTTPException)
+    assert error.status_code == 400
+    assert error.detail == {
+        "code": "ai_guardrail_invalid_feature",
+        "feature": "ai_assistant",
+        "message": "The requested AI feature is invalid.",
+        "retryable": False,
+    }
+
+
+def test_backend_contract_success_path_is_mockable_without_real_openai_call() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    called, result = run_backend_contract(
+        assertion=assertion.model_dump(mode="python"),
+        signature=signature,
+        settings=build_settings(),
+        context=valid_context_request(),
+        allow_not_yet_productive=True,
+    )
+
+    assert called is True
+    assert result == "assistant-operation-ran"
+
+
+def test_backend_contract_rejects_oversized_prompt_before_operation() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    called, error = run_backend_contract(
+        assertion=assertion.model_dump(mode="python"),
+        signature=signature,
+        settings=build_settings(),
+        context=valid_context_request(),
+        prompt="x" * 20_000,
+        allow_not_yet_productive=True,
+    )
+
+    assert called is False
+    assert isinstance(error, HTTPException)
+    assert error.status_code == 413
+    assert error.detail == {
+        "code": "ai_guardrail_input_too_large",
+        "feature": "ai_assistant",
+        "message": "The AI request exceeds the allowed input size.",
+        "retryable": False,
+    }
+
+
+def test_backend_contract_prepare_includes_bounded_context_and_guardrail_sizes() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    prepared = prepare_ai_assistant_backend_contract(
+        AiAssistantBackendContractRequest(
+            context=valid_context_request(),
+            prompt="Summarize the last 30 days without exposing secrets.",
+        ),
+        assertion=assertion.model_dump(mode="python"),
+        now=fixed_now(),
+        settings=build_settings(),
+        signature=signature,
+        allow_not_yet_productive=True,
+    )
+
+    assert prepared.feature == "ai_assistant"
+    assert prepared.context_boundary.feature == "ai_assistant"
+    assert prepared.context_boundary.source_count == 2
+    assert prepared.request_payload_bytes > 0
+
+
+def test_backend_contract_timeout_maps_to_guardrail_reason_code() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+    request = AiAssistantBackendContractRequest(
+        context=valid_context_request(),
+        prompt="Summarize performance safely.",
+    )
+
+    async def operation(_request: object) -> str:
+        raise httpx.ReadTimeout("upstream timeout")
+
+    with pytest.raises(HTTPException) as error_info:
+        asyncio.run(
+            run_ai_assistant_backend_operation(
+                assertion=assertion.model_dump(mode="python"),
+                now=fixed_now(),
+                operation=operation,
+                request=request,
+                settings=build_settings(),
+                signature=signature,
+                allow_not_yet_productive=True,
+            )
+        )
+
+    assert error_info.value.status_code == 504
+    assert error_info.value.detail == {
+        "code": "ai_guardrail_timeout",
+        "feature": "ai_assistant",
+        "message": "The AI request timed out before completion.",
+        "retryable": True,
+    }
