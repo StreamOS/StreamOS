@@ -6,14 +6,14 @@ import { z } from "zod";
 const callbackPayloadSchema = z.object({
   contentJobId: z.string().uuid(),
   error: z.string().trim().optional(),
-  result: z.record(z.unknown()).optional(),
+  result: z.record(z.string(), z.unknown()).optional(),
   status: z.enum(["completed", "failed"]),
 });
 
 const contentJobRowSchema = z.object({
   id: z.string().uuid(),
   job_type: z.string(),
-  payload: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
   type: z.string().nullable().optional(),
   user_id: z.string().uuid(),
 });

@@ -14,7 +14,7 @@ export const retryableContentJobSchema = z.object({
   status: z.literal("failed"),
   payload: z.unknown(),
   error_message: z.string().nullable(),
-  result: z.record(z.unknown()).nullable().optional(),
+  result: z.record(z.string(), z.unknown()).nullable().optional(),
   retry_count: z.number().int().min(0),
   max_retries: z.number().int().min(0).max(25),
   next_retry_at: z.string().nullable(),
