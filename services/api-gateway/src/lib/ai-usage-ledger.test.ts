@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  readAiUsageLedgerEntryByRequest,
   readAiUsageMonthlyLedgerSummary,
   recordAiUsageLedgerEntry,
 } from "./ai-usage-ledger.js";
@@ -208,6 +209,70 @@ describe("AI usage ledger repository", () => {
       reservedUsageUnits: 12,
       tenantId: TENANT_ID,
       totalRows: 3,
+      userId: USER_ID,
+    });
+  });
+
+  it("reads a single ledger entry by request with tenant and user filters", async () => {
+    let requestUrl = "";
+    const client = createSupabaseRestClient({
+      fetchImpl: async (input) => {
+        requestUrl =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+
+        return new Response(
+          JSON.stringify([
+            {
+              created_at: "2026-06-29T21:55:00.000Z",
+              error_category: null,
+              estimated_usage_units: 12,
+              feature: "ai_assistant",
+              final_usage_units: null,
+              id: "11111111-1111-4111-8111-111111111119",
+              ledger_status: "reserved",
+              plan_at_request_time: "pro",
+              plan_source: "persisted_server_plan",
+              request_classification: "assistant_prompt",
+              request_id: "req-123",
+              tenant_id: TENANT_ID,
+              updated_at: "2026-06-29T21:55:00.000Z",
+              usage_month: "2026-06-01",
+              user_id: USER_ID,
+            },
+          ]),
+          {
+            headers: {
+              "Content-Type": "application/json",
+            },
+            status: 200,
+          },
+        );
+      },
+      serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY,
+      supabaseUrl: SUPABASE_URL,
+    });
+
+    const entry = await readAiUsageLedgerEntryByRequest({
+      client,
+      requestId: "req-123",
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+    });
+
+    expect(requestUrl).toContain("/rest/v1/ai_usage_ledger");
+    expect(requestUrl).toContain("request_id=eq.req-123");
+    expect(requestUrl).toContain("tenant_id=eq.tenant-123");
+    expect(requestUrl).toContain(`user_id=eq.${USER_ID}`);
+    expect(entry).toMatchObject({
+      estimatedUsageUnits: 12,
+      feature: "ai_assistant",
+      ledgerStatus: "reserved",
+      requestId: "req-123",
+      tenantId: TENANT_ID,
       userId: USER_ID,
     });
   });

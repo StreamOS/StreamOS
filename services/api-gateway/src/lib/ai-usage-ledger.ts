@@ -171,6 +171,38 @@ export async function readAiUsageMonthlyLedgerSummary(params: {
   };
 }
 
+export async function readAiUsageLedgerEntryByRequest(params: {
+  client: SupabaseRestClient;
+  requestId: string;
+  tenantId: string;
+  userId: string;
+}): Promise<AiUsageLedgerEntry | null> {
+  const userId = asNonEmptyString(params.userId, "userId", 80);
+  const tenantId = asNonEmptyString(params.tenantId, "tenantId", 200);
+  const requestId = asNonEmptyString(params.requestId, "requestId", 120);
+
+  const rows = await readSupabaseRows<AiUsageLedgerRow>({
+    client: params.client,
+    params: {
+      limit: "1",
+      request_id: `eq.${requestId}`,
+      select: "*",
+      tenant_id: `eq.${tenantId}`,
+      user_id: `eq.${userId}`,
+    },
+    table: "ai_usage_ledger",
+  });
+
+  const row = rows.find(
+    (candidate) =>
+      candidate.request_id === requestId &&
+      candidate.tenant_id === tenantId &&
+      candidate.user_id === userId,
+  );
+
+  return row ? mapAiUsageLedgerRow(row) : null;
+}
+
 type AiUsageLedgerRow = {
   created_at: string;
   error_category: AiUsageLedgerErrorCategory | null;
