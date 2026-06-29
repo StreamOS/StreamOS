@@ -23,6 +23,6 @@
     "@streamos/config": "workspace:*",
     "@types/node": "^22.13.14",
     "typescript": "^6.0.3",
-    "vitest": "^3.2.6"
+    "vitest": "^4.1.9"
   }
 }
