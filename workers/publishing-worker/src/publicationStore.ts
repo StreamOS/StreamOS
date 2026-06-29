@@ -8,7 +8,7 @@ import type {
 } from "@streamos/types";
 
 const publicationRowSchema = z.object({
-  capability_snapshot: z.record(z.unknown()),
+  capability_snapshot: z.record(z.string(), z.unknown()),
   capability_version: z.string().trim().min(1),
   content_job_id: z.string().uuid(),
   desired_visibility: z.string().trim().min(1),
@@ -44,9 +44,9 @@ const publicationRowSchema = z.object({
       "remote_state_unavailable",
     ])
     .nullable(),
-  provider_failure_metadata: z.record(z.unknown()),
+  provider_failure_metadata: z.record(z.string(), z.unknown()),
   provider_failure_reason: z.string().trim().min(1).nullable(),
-  provider_overrides: z.record(z.record(z.unknown())),
+  provider_overrides: z.record(z.string(), z.record(z.string(), z.unknown())),
   reconciliation_status: z.enum([
     "idle",
     "queued",
@@ -60,7 +60,7 @@ const publicationRowSchema = z.object({
   reconcile_next_retry_at: z.string().trim().min(1).nullable(),
   reconcile_retry_count: z.number().int().nonnegative(),
   remote_processing_status: z.string().trim().min(1).nullable(),
-  remote_state: z.record(z.unknown()),
+  remote_state: z.record(z.string(), z.unknown()),
   remote_status: z.enum([
     "missing",
     "processing",
@@ -79,21 +79,21 @@ const publicationRowSchema = z.object({
     "rejected",
     "needs_changes",
   ]),
-  snapshot: z.record(z.unknown()),
+  snapshot: z.record(z.string(), z.unknown()),
   snapshot_hash: z.string().trim().min(1),
   target_platform: z.enum(["youtube", "tiktok"]),
   user_id: z.string().uuid(),
   validated_at: z.string().trim().min(1).nullable(),
   validation_code: z.string().trim().min(1).nullable(),
   validation_message: z.string().trim().min(1).nullable(),
-  validation_metadata: z.record(z.unknown()),
+  validation_metadata: z.record(z.string(), z.unknown()),
 });
 
 const contentJobRowSchema = z.object({
   id: z.string().uuid(),
   job_type: z.literal("repurposing"),
   queue_job_id: z.string().trim().min(1),
-  result: z.record(z.unknown()).nullable(),
+  result: z.record(z.string(), z.unknown()).nullable(),
   review_status: z.enum([
     "needs_review",
     "approved",
@@ -118,9 +118,9 @@ const platformConnectionRowSchema = z.object({
   access_token_ciphertext: z.string().trim().min(1).nullable(),
   expires_at: z.string().trim().min(1).nullable(),
   id: z.string().uuid(),
-  metadata: z.record(z.unknown()).nullable(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
   platform: z.enum(["youtube", "tiktok"]),
-  provider_profile: z.record(z.unknown()).nullable(),
+  provider_profile: z.record(z.string(), z.unknown()).nullable(),
   refresh_token_ciphertext: z.string().trim().min(1).nullable(),
   scopes: z.array(z.string()),
   status: z.string().trim().min(1),

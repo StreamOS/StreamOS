@@ -62,11 +62,7 @@ const repurposingTextSchema = z
     message: "contains unsafe script-like content",
   });
 
-const automationPlanResponseSchema: z.ZodType<
-  RepurposingPlanAutomationResponse,
-  z.ZodTypeDef,
-  unknown
-> = z
+const automationPlanResponseSchema = z
   .object({
     captions: z.array(repurposingTextSchema).min(1).max(10),
     confidence: z.number().int().min(1).max(100),
@@ -83,7 +79,7 @@ const automationPlanResponseSchema: z.ZodType<
     title_suggestions: z.array(repurposingTextSchema).min(1).max(10),
     warnings: z.array(repurposingTextSchema).max(10),
   })
-  .strict();
+  .strict() satisfies z.ZodType<RepurposingPlanAutomationResponse>;
 
 const automationServiceStructuredErrorSchema = z.object({
   code: z.string().trim().min(1),
