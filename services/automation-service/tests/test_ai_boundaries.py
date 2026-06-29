@@ -7,6 +7,15 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from ai_context_boundary import (
+    AI_CONTEXT_SOURCE_POLICIES,
+    AiAssistantContextRequest,
+    AiContextBoundaryError,
+    AiContextSourceRequest,
+    build_ai_context_error_detail,
+    get_ai_context_source_policy,
+    validate_ai_assistant_context_boundary,
+)
 from ai_guardrails import (
     AI_ASSISTANT_FEATURE,
     CLIP_ANALYZE_FEATURE,
@@ -297,6 +306,200 @@ def test_ai_guardrail_policy_rejects_invalid_feature_with_secret_safe_detail() -
         "message": "The requested AI feature is invalid.",
         "retryable": False,
     }
+
+
+def valid_ai_assistant_context_request() -> AiAssistantContextRequest:
+    return AiAssistantContextRequest(
+        tenant_id="tenant-123",
+        user_id="user-123",
+        transcript_excerpt_characters=1_200,
+        sources=(
+            AiContextSourceRequest(
+                source="channel_platform_status",
+                item_limit=5,
+                payload_bytes=1_024,
+                time_window_days=30,
+            ),
+            AiContextSourceRequest(
+                source="stream_performance_summary",
+                item_limit=10,
+                payload_bytes=2_048,
+                time_window_days=30,
+            ),
+        ),
+    )
+
+
+def test_ai_context_boundary_accepts_allowlisted_sources() -> None:
+    result = validate_ai_assistant_context_boundary(
+        valid_ai_assistant_context_request()
+    )
+
+    assert result.feature == "ai_assistant"
+    assert result.tenant_id == "tenant-123"
+    assert result.user_id == "user-123"
+    assert result.source_count == 2
+    assert result.total_payload_bytes == 3_072
+    assert tuple(source.source for source in result.sources) == (
+        "channel_platform_status",
+        "stream_performance_summary",
+    )
+
+
+def test_ai_context_boundary_rejects_unknown_source() -> None:
+    request = AiAssistantContextRequest(
+        tenant_id="tenant-123",
+        user_id="user-123",
+        sources=(AiContextSourceRequest(source="mystery_source"),),
+    )
+
+    with pytest.raises(AiContextBoundaryError) as error_info:
+        validate_ai_assistant_context_boundary(request)
+
+    assert build_ai_context_error_detail(error_info.value) == {
+        "code": "ai_context_source_unknown",
+        "feature": "ai_assistant",
+        "message": "The requested AI context source is unknown.",
+        "source": "mystery_source",
+    }
+
+
+def test_ai_context_boundary_rejects_sensitive_source() -> None:
+    request = AiAssistantContextRequest(
+        tenant_id="tenant-123",
+        user_id="user-123",
+        sources=(AiContextSourceRequest(source="refresh_tokens"),),
+    )
+
+    with pytest.raises(AiContextBoundaryError) as error_info:
+        validate_ai_assistant_context_boundary(request)
+
+    assert build_ai_context_error_detail(error_info.value) == {
+        "code": "ai_context_sensitive_data_blocked",
+        "feature": "ai_assistant",
+        "message": "Sensitive AI context sources are blocked.",
+        "source": "refresh_tokens",
+    }
+
+
+def test_ai_context_boundary_rejects_window_that_is_too_large() -> None:
+    request = AiAssistantContextRequest(
+        tenant_id="tenant-123",
+        user_id="user-123",
+        sources=(
+            AiContextSourceRequest(
+                source="publication_history_summary",
+                time_window_days=120,
+            ),
+        ),
+    )
+
+    with pytest.raises(AiContextBoundaryError) as error_info:
+        validate_ai_assistant_context_boundary(request)
+
+    assert build_ai_context_error_detail(error_info.value) == {
+        "code": "ai_context_window_too_large",
+        "feature": "ai_assistant",
+        "message": "The requested AI context window exceeds the allowed range.",
+        "source": "publication_history_summary",
+    }
+
+
+def test_ai_context_boundary_rejects_payload_that_is_too_large() -> None:
+    request = AiAssistantContextRequest(
+        tenant_id="tenant-123",
+        user_id="user-123",
+        sources=(
+            AiContextSourceRequest(
+                source="clip_highlight_summary",
+                item_limit=10,
+                payload_bytes=9_000,
+            ),
+        ),
+    )
+
+    with pytest.raises(AiContextBoundaryError) as error_info:
+        validate_ai_assistant_context_boundary(request)
+
+    assert build_ai_context_error_detail(error_info.value) == {
+        "code": "ai_context_payload_too_large",
+        "feature": "ai_assistant",
+        "message": "The requested AI context payload exceeds the allowed size.",
+        "source": "clip_highlight_summary",
+    }
+
+
+def test_ai_context_boundary_requires_tenant_and_user_context() -> None:
+    request = AiAssistantContextRequest(
+        tenant_id="",
+        user_id="user-123",
+        sources=(AiContextSourceRequest(source="channel_platform_status"),),
+    )
+
+    with pytest.raises(AiContextBoundaryError) as error_info:
+        validate_ai_assistant_context_boundary(request)
+
+    assert build_ai_context_error_detail(error_info.value) == {
+        "code": "ai_context_tenant_required",
+        "feature": "ai_assistant",
+        "message": "Tenant-scoped AI context requires trusted tenant and user identifiers.",
+    }
+
+
+def test_ai_context_boundary_error_details_stay_secret_safe() -> None:
+    request = AiAssistantContextRequest(
+        tenant_id="tenant-123",
+        user_id="user-123",
+        sources=(
+            AiContextSourceRequest(
+                source="https://private.railway.internal/token?secret=sk-server",
+            ),
+        ),
+    )
+
+    with pytest.raises(AiContextBoundaryError) as error_info:
+        validate_ai_assistant_context_boundary(request)
+
+    detail = build_ai_context_error_detail(error_info.value)
+
+    assert detail["code"] == "ai_context_source_unknown"
+    assert "secret" not in detail["message"].lower()
+    assert "token" not in detail["message"].lower()
+    assert "http://" not in detail["message"].lower()
+    assert "https://" not in detail["message"].lower()
+    assert "sk-server" not in json.dumps(detail)
+    assert "private.railway.internal" not in json.dumps(detail)
+
+
+def test_ai_context_boundary_marks_ai_assistant_as_not_yet_productive() -> None:
+    with pytest.raises(AiContextBoundaryError) as error_info:
+        validate_ai_assistant_context_boundary(
+            valid_ai_assistant_context_request(),
+            require_productive=True,
+        )
+
+    assert build_ai_context_error_detail(error_info.value) == {
+        "code": "ai_context_not_productive",
+        "feature": "ai_assistant",
+        "message": "The requested AI context path is not yet productive.",
+    }
+
+
+def test_ai_context_boundary_policies_cover_allowlisted_sources() -> None:
+    assert set(AI_CONTEXT_SOURCE_POLICIES) == {
+        "brand_asset_metadata",
+        "channel_platform_status",
+        "clip_highlight_summary",
+        "content_job_summary",
+        "monetization_summary",
+        "publication_history_summary",
+        "stream_performance_summary",
+        "transcript_excerpt",
+    }
+    assert (
+        get_ai_context_source_policy("monetization_summary").description
+        == "Own monetization summaries in aggregated, non-sensitive form."
+    )
 
 
 @pytest.mark.parametrize(
