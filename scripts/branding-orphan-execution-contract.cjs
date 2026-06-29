@@ -200,7 +200,9 @@ function readDryRunReportFile(reportFile) {
   try {
     contents = fs.readFileSync(reportFile, "utf8");
   } catch (error) {
-    throw new Error(`Unable to read --report-file: ${error.message}`);
+    throw new Error(`Unable to read --report-file: ${error.message}`, {
+      cause: error,
+    });
   }
 
   try {

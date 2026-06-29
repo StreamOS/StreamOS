@@ -61,7 +61,7 @@ const publicationRowSchema = z.object({
   schedule_execution_error_message: z.string().trim().min(1).nullable(),
   schedule_execution_last_attempt_at: z.string().trim().min(1).nullable(),
   schedule_execution_max_retries: z.number().int().nonnegative(),
-  schedule_execution_metadata: z.record(z.unknown()),
+  schedule_execution_metadata: z.record(z.string(), z.unknown()),
   schedule_execution_next_attempt_at: z.string().trim().min(1).nullable(),
   schedule_execution_queue_job_id: z.string().trim().min(1).nullable(),
   schedule_execution_status: z.enum([

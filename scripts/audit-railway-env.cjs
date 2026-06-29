@@ -466,6 +466,7 @@ function ensureRailwayCli(railwayBin) {
   } catch (error) {
     throw new Error(
       `Railway CLI was not found or failed to start. Pass --railway-bin with the full binary path. ${error.message}`,
+      { cause: error },
     );
   }
 }
@@ -588,7 +589,7 @@ function loadFixtureEnvironment(fixturesDir, environment) {
     }
   }
 
-  let healthChecks = [];
+  let healthChecks;
 
   try {
     healthChecks = loadFixtureJson(environmentDir, "health.json");

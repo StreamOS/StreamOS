@@ -22,14 +22,10 @@ export const publicationExecutionPayloadSchema = z.object({
   content_publication_id: z.string().uuid(),
   target_platform: z.enum(["youtube", "tiktok"]),
   user_id: z.string().uuid(),
-}) satisfies z.ZodType<PublicationExecutionJobPayload, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<PublicationExecutionJobPayload>;
 
 export const publicationReconciliationPayloadSchema =
-  publicationExecutionPayloadSchema satisfies z.ZodType<
-    PublicationReconciliationJobPayload,
-    z.ZodTypeDef,
-    unknown
-  >;
+  publicationExecutionPayloadSchema satisfies z.ZodType<PublicationReconciliationJobPayload>;
 
 export type PublicationExecutionQueueJob = {
   id?: string | number;
