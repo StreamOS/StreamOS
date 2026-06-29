@@ -45,6 +45,16 @@ AiContextSourceAdapter = Callable[
     [AiAssistantContextBoundary, AiContextSourceRequest], AiContextResolvedSource
 ]
 
+LOW_RISK_STUBBED_CONTEXT_SOURCES: tuple[AiContextAdapterKey, ...] = (
+    "channel_platform_status",
+    "content_job_summary",
+)
+
+AI_CONTEXT_FUTURE_RETRIEVAL_OWNERS: dict[AiContextAdapterKey, str] = {
+    "channel_platform_status": "services/api-gateway",
+    "content_job_summary": "services/api-gateway",
+}
+
 
 def resolve_ai_context_sources(
     context_boundary: AiAssistantContextBoundary,
@@ -128,11 +138,18 @@ def resolve_ai_context_sources(
 
 
 def build_ai_context_source_adapter_registry() -> dict[str, AiContextSourceAdapter]:
-    return {
-        source: _build_stub_adapter(source)
-        for source in sorted(ALLOWED_CONTEXT_SOURCES)
-        if source in AI_CONTEXT_SOURCE_POLICIES
-    }
+    registry: dict[str, AiContextSourceAdapter] = {}
+    for source in sorted(ALLOWED_CONTEXT_SOURCES):
+        if source not in AI_CONTEXT_SOURCE_POLICIES:
+            continue
+
+        if source in LOW_RISK_STUBBED_CONTEXT_SOURCES:
+            registry[source] = _build_low_risk_stub_adapter(source)
+            continue
+
+        registry[source] = _build_stub_adapter(source)
+
+    return registry
 
 
 def _build_stub_adapter(source: str) -> AiContextSourceAdapter:
@@ -141,6 +158,29 @@ def _build_stub_adapter(source: str) -> AiContextSourceAdapter:
         requested_source: AiContextSourceRequest,
     ) -> AiContextResolvedSource:
         records = _build_stub_records(
+            source=source,
+            tenant_id=context_boundary.tenant_id,
+            user_id=context_boundary.user_id,
+            requested_source=requested_source,
+        )
+        payload_bytes = len(
+            json.dumps(records, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+        )
+        return AiContextResolvedSource(
+            source=source,
+            records=records,
+            payload_bytes=payload_bytes,
+        )
+
+    return adapter
+
+
+def _build_low_risk_stub_adapter(source: AiContextAdapterKey) -> AiContextSourceAdapter:
+    def adapter(
+        context_boundary: AiAssistantContextBoundary,
+        requested_source: AiContextSourceRequest,
+    ) -> AiContextResolvedSource:
+        records = _build_low_risk_stub_records(
             source=source,
             tenant_id=context_boundary.tenant_id,
             user_id=context_boundary.user_id,
@@ -180,6 +220,29 @@ def _build_stub_records(
         )
 
     return tuple(records)
+
+
+def _build_low_risk_stub_records(
+    *,
+    source: AiContextAdapterKey,
+    tenant_id: str,
+    user_id: str,
+    requested_source: AiContextSourceRequest,
+) -> tuple[dict[str, object], ...]:
+    return (
+        {
+            "scope": "tenant_user_stub",
+            "source": source,
+            "summary": (
+                f"{source} remains stubbed until a trusted server-side retrieval owner is wired."
+            ),
+            "retrieval_mode": "stubbed_pending_server_owner",
+            "future_retrieval_owner": AI_CONTEXT_FUTURE_RETRIEVAL_OWNERS[source],
+            "time_window_days": requested_source.time_window_days,
+            "tenant_ref": _safe_reference(tenant_id),
+            "user_ref": _safe_reference(user_id),
+        },
+    )
 
 
 def _safe_reference(value: str) -> str:

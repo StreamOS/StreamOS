@@ -13,6 +13,7 @@ from ai_assistant_backend_contract import (
 from ai_context_boundary import AiAssistantContextRequest, AiContextSourceRequest
 from ai_context_retrieval_adapters import (
     AI_CONTEXT_SOURCE_ADAPTERS,
+    AI_CONTEXT_FUTURE_RETRIEVAL_OWNERS,
     AiContextResolvedSource,
 )
 from entitlement_assertions import (
@@ -632,7 +633,16 @@ def test_context_adapter_resolution_requires_tenant_and_user_context() -> None:
     }
 
 
-def test_context_adapter_resolution_returns_stubbed_single_source_result() -> None:
+@pytest.mark.parametrize(
+    ("source", "payload_bytes"),
+    [
+        pytest.param("channel_platform_status", 1_024, id="channel platform status"),
+        pytest.param("content_job_summary", 2_048, id="content job summary"),
+    ],
+)
+def test_context_adapter_resolution_keeps_low_risk_sources_stubbed_without_db_access(
+    source: str, payload_bytes: int
+) -> None:
     assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
     signature = sign_automation_entitlement_assertion(
         assertion,
@@ -644,9 +654,9 @@ def test_context_adapter_resolution_returns_stubbed_single_source_result() -> No
             context=valid_context_request(
                 sources=(
                     AiContextSourceRequest(
-                        source="channel_platform_status",
+                        source=source,
                         item_limit=1,
-                        payload_bytes=1_024,
+                        payload_bytes=payload_bytes,
                         time_window_days=30,
                     ),
                 )
@@ -662,10 +672,22 @@ def test_context_adapter_resolution_returns_stubbed_single_source_result() -> No
 
     assert len(prepared.resolved_context.sources) == 1
     resolved_source = prepared.resolved_context.sources[0]
-    assert resolved_source.source == "channel_platform_status"
+    assert resolved_source.source == source
     assert resolved_source.payload_bytes > 0
-    assert resolved_source.records[0]["source"] == "channel_platform_status"
-    assert resolved_source.records[0]["summary"] == "channel_platform_status summary 1"
+    assert resolved_source.records[0]["source"] == source
+    assert (
+        resolved_source.records[0]["retrieval_mode"]
+        == "stubbed_pending_server_owner"
+    )
+    assert (
+        resolved_source.records[0]["future_retrieval_owner"]
+        == AI_CONTEXT_FUTURE_RETRIEVAL_OWNERS[source]
+    )
+    serialized_record = str(resolved_source.records[0])
+    assert "token" not in serialized_record.lower()
+    assert "secret" not in serialized_record.lower()
+    assert "http://" not in serialized_record.lower()
+    assert "https://" not in serialized_record.lower()
 
 
 def test_context_adapter_resolution_supports_multiple_allowed_sources_within_limits() -> None:
@@ -695,6 +717,39 @@ def test_context_adapter_resolution_supports_multiple_allowed_sources_within_lim
         prepared.resolved_context.total_payload_bytes
         <= prepared.context_boundary.total_payload_bytes
     )
+
+
+def test_context_adapter_resolution_keeps_other_stubbed_sources_unchanged() -> None:
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    prepared = prepare_ai_assistant_backend_contract(
+        AiAssistantBackendContractRequest(
+            context=valid_context_request(
+                sources=(
+                    AiContextSourceRequest(
+                        source="stream_performance_summary",
+                        item_limit=1,
+                        payload_bytes=1_024,
+                        time_window_days=30,
+                    ),
+                )
+            ),
+            prompt="Summarize safely.",
+        ),
+        assertion=assertion.model_dump(mode="python"),
+        now=fixed_now(),
+        settings=build_settings(),
+        signature=signature,
+        allow_not_yet_productive=True,
+    )
+
+    resolved_source = prepared.resolved_context.sources[0]
+    assert resolved_source.source == "stream_performance_summary"
+    assert resolved_source.records[0]["summary"] == "stream_performance_summary summary 1"
 
 
 def test_context_adapter_resolution_denies_source_without_registered_adapter() -> None:
