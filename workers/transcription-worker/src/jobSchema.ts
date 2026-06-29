@@ -19,4 +19,4 @@ export const transcriptionTriggerJobDataSchema = z.object({
   ended_at: z.string().datetime().optional(),
   language: z.string().trim().min(1).default("auto"),
   trigger: z.literal("stream_ended"),
-}) satisfies z.ZodType<TranscriptionTriggerJobData, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<TranscriptionTriggerJobData>;

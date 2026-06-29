@@ -27,7 +27,7 @@ const automationClipAnalysisResponseSchema = z.object({
   title_suggestions: z.array(z.string().trim().min(1)).max(5),
   repurpose_summary: z.string().trim().min(1),
   provider: z.string().trim().min(1),
-}) satisfies z.ZodType<AutomationClipAnalysisResponse, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<AutomationClipAnalysisResponse>;
 
 export type AutomationClientOptions = {
   automationServiceUrl: string;
