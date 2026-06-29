@@ -1,6 +1,6 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/app/dashboard/publications/schedule/actions", () => ({
   mutatePublicationScheduleAction: vi.fn(),
@@ -24,6 +24,15 @@ import {
 import { PublicationScheduleConsole } from "./PublicationScheduleConsole";
 
 describe("PublicationScheduleConsole", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-20T12:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("falls back to evaluated policy when stored schedule snapshots are partial", () => {
     const model = buildPublicationScheduleDashboardModel({
       channels: [],
