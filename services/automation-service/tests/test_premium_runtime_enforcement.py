@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 import ai_context_retrieval_adapters as retrieval_adapters
+import ai_trusted_context_client as trusted_context_client
 from ai_assistant_backend_contract import (
     AiAssistantBackendContractRequest,
     prepare_ai_assistant_backend_contract,
@@ -39,6 +40,7 @@ def build_settings(
     signing_mode: str = "hmac_sha256",
     api_gateway_url: str = "",
     api_gateway_secret: str = "",
+    openai_timeout_seconds: float = 30,
 ) -> Settings:
     return Settings(
         streamos_e2e_mode=False,
@@ -47,7 +49,7 @@ def build_settings(
         openai_title_model="gpt-4o-mini",
         openai_transcription_model="gpt-4o-transcribe",
         openai_base_url="https://api.openai.test/v1",
-        openai_timeout_seconds=30,
+        openai_timeout_seconds=openai_timeout_seconds,
         max_transcription_media_bytes=25_000_000,
         transcription_processor_mode="openai",
         api_gateway_url=api_gateway_url,
@@ -816,9 +818,9 @@ def test_context_adapter_resolution_supports_gateway_backed_low_risk_sources(
         return httpx.Response(status_code=200, json=response_payload)
 
     monkeypatch.setattr(
-        retrieval_adapters,
+        trusted_context_client,
         "_build_trusted_context_http_client",
-        lambda _settings: httpx.Client(transport=httpx.MockTransport(handler)),
+        lambda _config: httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
     assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
@@ -862,6 +864,89 @@ def test_context_adapter_resolution_supports_gateway_backed_low_risk_sources(
     assert "secret" not in serialized_record.lower()
     assert "http://" not in serialized_record.lower()
     assert "https://" not in serialized_record.lower()
+
+
+@pytest.mark.parametrize(
+    ("openai_timeout_seconds", "expected_timeout_seconds"),
+    [
+        pytest.param(30.0, 5.0, id="caps high timeout"),
+        pytest.param(3.0, 3.0, id="preserves lower timeout"),
+    ],
+)
+def test_trusted_context_client_uses_explicit_timeout_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+    openai_timeout_seconds: float,
+    expected_timeout_seconds: float,
+) -> None:
+    observed_timeout_seconds: list[float] = []
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code=200,
+            json={
+                "tenant_id": "tenant-123",
+                "user_id": "user-123",
+                "sources": [
+                    {
+                        "source": "channel_platform_status",
+                        "records": [
+                            {
+                                "provider": "youtube",
+                                "connection_state": "connected",
+                                "last_sync_at": "2026-06-28T12:00:00Z",
+                                "status_reason": "status_connected",
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+    def build_http_client(
+        config: trusted_context_client.TrustedContextClientConfig,
+    ) -> httpx.Client:
+        observed_timeout_seconds.append(config.timeout_seconds)
+        return httpx.Client(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(
+        trusted_context_client,
+        "_build_trusted_context_http_client",
+        build_http_client,
+    )
+
+    assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
+    signature = sign_automation_entitlement_assertion(
+        assertion,
+        secret=ASSERTION_SIGNING_TEST_SECRET,
+    )
+
+    prepared = prepare_ai_assistant_backend_contract(
+        AiAssistantBackendContractRequest(
+            context=valid_context_request(
+                sources=(
+                    AiContextSourceRequest(
+                        source="channel_platform_status",
+                        item_limit=1,
+                        payload_bytes=1_024,
+                        time_window_days=30,
+                    ),
+                )
+            ),
+            prompt="Summarize one trusted source safely.",
+        ),
+        assertion=assertion.model_dump(mode="python"),
+        now=fixed_now(),
+        settings=build_settings(
+            api_gateway_url="https://gateway.streamos.test",
+            api_gateway_secret="gateway-secret-123",
+            openai_timeout_seconds=openai_timeout_seconds,
+        ),
+        signature=signature,
+        allow_not_yet_productive=True,
+    )
+
+    assert prepared.resolved_context.sources[0].source == "channel_platform_status"
+    assert observed_timeout_seconds == [expected_timeout_seconds]
 
 
 @pytest.mark.parametrize(
@@ -928,9 +1013,9 @@ def test_context_adapter_resolution_fails_closed_for_gateway_error_statuses(
         return httpx.Response(status_code=status_code, json={"error": "ignored"})
 
     monkeypatch.setattr(
-        retrieval_adapters,
+        trusted_context_client,
         "_build_trusted_context_http_client",
-        lambda _settings: httpx.Client(transport=httpx.MockTransport(handler)),
+        lambda _config: httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
     assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
@@ -977,9 +1062,9 @@ def test_context_adapter_resolution_fails_closed_for_gateway_timeout(
         raise httpx.ReadTimeout("gateway timeout")
 
     monkeypatch.setattr(
-        retrieval_adapters,
+        trusted_context_client,
         "_build_trusted_context_http_client",
-        lambda _settings: httpx.Client(transport=httpx.MockTransport(handler)),
+        lambda _config: httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
     assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
@@ -1058,9 +1143,9 @@ def test_context_adapter_resolution_fails_closed_for_malformed_or_unexpected_gat
         return response
 
     monkeypatch.setattr(
-        retrieval_adapters,
+        trusted_context_client,
         "_build_trusted_context_http_client",
-        lambda _settings: httpx.Client(transport=httpx.MockTransport(handler)),
+        lambda _config: httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
     assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
@@ -1126,9 +1211,9 @@ def test_context_adapter_resolution_denies_oversized_gateway_response_payload(
         return httpx.Response(status_code=200, json=oversized_body)
 
     monkeypatch.setattr(
-        retrieval_adapters,
+        trusted_context_client,
         "_build_trusted_context_http_client",
-        lambda _settings: httpx.Client(transport=httpx.MockTransport(handler)),
+        lambda _config: httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
     assertion = AutomationEntitlementAssertion.model_validate(valid_assertion_payload())
