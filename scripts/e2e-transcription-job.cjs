@@ -1088,6 +1088,7 @@ async function main() {
       ) {
         throw new Error(
           "Docker daemon is not reachable. Start Docker Desktop or rerun with --skip-docker against an already running local stack.",
+          { cause: error },
         );
       }
 

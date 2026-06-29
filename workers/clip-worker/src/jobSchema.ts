@@ -16,4 +16,4 @@ export const clipGenerationJobDataSchema = z.object({
   source_platform: z.enum(STREAM_PLATFORMS),
   source_url: z.string().url(),
   transcript: z.string().trim().min(1).max(60_000),
-}) satisfies z.ZodType<ClipGenerationJobData, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<ClipGenerationJobData>;

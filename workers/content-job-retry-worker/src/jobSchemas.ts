@@ -50,7 +50,7 @@ export const transcriptionTriggerJobDataSchema = z.object({
   ended_at: z.string().datetime().optional(),
   language: z.string().trim().min(1).default("auto"),
   trigger: z.literal("stream_ended"),
-}) satisfies z.ZodType<TranscriptionTriggerJobData, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<TranscriptionTriggerJobData>;
 
 export const repurposingPlanJobPayloadSchema = z.object({
   auto_repurpose_enabled: z.literal(true),
@@ -71,13 +71,13 @@ export const repurposingPlanJobPayloadSchema = z.object({
   user_id: z.string().uuid(),
   vod_asset_url: z.string().url(),
   workflow: z.literal("repurposing_plan"),
-}) satisfies z.ZodType<RepurposingPlanJobPayload, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<RepurposingPlanJobPayload>;
 
 export const repurposingPlanQueueJobPayloadSchema = z.object({
   asset_reference: repurposingAssetReferenceSchema.optional(),
-  brand_context: z.record(z.unknown()).optional(),
+  brand_context: z.record(z.string(), z.unknown()).optional(),
   content_job_id: z.string().uuid(),
-  content_policy_hints: z.record(z.unknown()).optional(),
+  content_policy_hints: z.record(z.string(), z.unknown()).optional(),
   language: z.string().trim().min(1).optional(),
   locale: z.string().trim().min(1).optional(),
   manual_review_required: z.literal(true),
@@ -89,4 +89,4 @@ export const repurposingPlanQueueJobPayloadSchema = z.object({
   target_platforms: z.array(z.enum(supportedMediaProviders)).min(1).optional(),
   transcript_reference: repurposingTranscriptReferenceSchema.optional(),
   user_id: z.string().uuid(),
-}) satisfies z.ZodType<RepurposingPlanQueueJobPayload, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<RepurposingPlanQueueJobPayload>;
