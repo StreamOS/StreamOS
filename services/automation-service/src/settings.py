@@ -25,6 +25,8 @@ class Settings:
     openai_timeout_seconds: float
     max_transcription_media_bytes: int
     transcription_processor_mode: str
+    api_gateway_url: str = ""
+    api_gateway_secret: str = ""
     automation_entitlement_assertion_secret: str = ""
     automation_entitlement_assertion_signing_mode: str = "unsigned_internal_contract"
 
@@ -98,6 +100,8 @@ def load_settings(source: Mapping[str, str] | None = None) -> Settings:
         )
 
     return Settings(
+        api_gateway_secret=values.get("API_GATEWAY_SECRET", "").strip(),
+        api_gateway_url=values.get("API_GATEWAY_URL", "").strip().rstrip("/"),
         automation_entitlement_assertion_secret=assertion_secret,
         automation_entitlement_assertion_signing_mode=assertion_signing_mode,
         streamos_e2e_mode=e2e_mode,
