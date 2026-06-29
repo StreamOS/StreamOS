@@ -5,6 +5,14 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import ValidationError
 
+from ai_guardrails import (
+    AiGuardrailError,
+    CLIP_ANALYZE_FEATURE,
+    REPURPOSING_PLAN_FEATURE,
+    TRANSCRIPTIONS_PROCESS_FEATURE,
+    build_ai_guardrail_timeout_error,
+    build_ai_guardrail_detail,
+)
 from openai_client import (
     OpenAIClipAnalyzer,
     OpenAIRepurposingPlanner,
@@ -226,10 +234,21 @@ async def analyze_clip(
 ) -> ClipAnalysisResponse:
     try:
         return await analyzer.analyze_clip(payload)
+    except AiGuardrailError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=build_ai_guardrail_detail(error),
+        ) from error
     except ProviderRateLimitError as error:
         raise HTTPException(
             status_code=503,
             detail=build_provider_rate_limit_detail(error),
+        ) from error
+    except httpx.TimeoutException as error:
+        guardrail_error = build_ai_guardrail_timeout_error(CLIP_ANALYZE_FEATURE)
+        raise HTTPException(
+            status_code=guardrail_error.status_code,
+            detail=build_ai_guardrail_detail(guardrail_error),
         ) from error
     except httpx.HTTPStatusError as error:
         raise HTTPException(
@@ -250,10 +269,21 @@ async def plan_repurposing(
     try:
         response = await planner.plan_repurposing(payload)
         return ensure_repurposing_plan_response_matches_request(payload, response)
+    except AiGuardrailError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=build_ai_guardrail_detail(error),
+        ) from error
     except ProviderRateLimitError as error:
         raise HTTPException(
             status_code=503,
             detail=build_provider_rate_limit_detail(error),
+        ) from error
+    except httpx.TimeoutException as error:
+        guardrail_error = build_ai_guardrail_timeout_error(REPURPOSING_PLAN_FEATURE)
+        raise HTTPException(
+            status_code=guardrail_error.status_code,
+            detail=build_ai_guardrail_detail(guardrail_error),
         ) from error
     except httpx.HTTPStatusError as error:
         raise HTTPException(
@@ -273,6 +303,11 @@ async def process_transcription(
 ) -> TranscriptionProcessResponse:
     try:
         return await processor.process_transcription(payload)
+    except AiGuardrailError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=build_ai_guardrail_detail(error),
+        ) from error
     except UnsafeAssetUrlError as error:
         raise HTTPException(
             status_code=400,
@@ -282,6 +317,14 @@ async def process_transcription(
         raise HTTPException(
             status_code=503,
             detail=build_provider_rate_limit_detail(error),
+        ) from error
+    except httpx.TimeoutException as error:
+        guardrail_error = build_ai_guardrail_timeout_error(
+            TRANSCRIPTIONS_PROCESS_FEATURE
+        )
+        raise HTTPException(
+            status_code=guardrail_error.status_code,
+            detail=build_ai_guardrail_detail(guardrail_error),
         ) from error
     except httpx.HTTPStatusError as error:
         raise HTTPException(
