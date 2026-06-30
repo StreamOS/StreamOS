@@ -25,8 +25,10 @@ describe("AI assistant router", () => {
 
   it("mounts the route but keeps the product gate closed by default", async () => {
     let helperCalls = 0;
+    const recorder = createInMemoryGatewayAiAssistantObservabilityRecorder();
     const app = createApp({
       aiAssistantRoute: {
+        observabilitySink: recorder.sink,
         runRouteContract: async () => {
           helperCalls += 1;
           return unavailableResult("disabled");
@@ -54,6 +56,21 @@ describe("AI assistant router", () => {
     expect(serializedBody).not.toContain("private.example.com");
     expect(serializedBody).not.toContain("sk-secret");
     expect(helperCalls).toBe(0);
+    expect(recorder.events).toHaveLength(1);
+    expect(recorder.events[0]).toMatchObject({
+      evidence_class: "product_gate_closed",
+      outcome: "unavailable",
+      phase: "route_contract_completed",
+      product_gate_status: "closed",
+      reason_code: "ai_assistant_product_gate_closed",
+      request_id: REQUEST_ID,
+      route_mode: "disabled",
+      runtime_status: "not_yet_productive",
+    });
+    expect(JSON.stringify(recorder.events)).not.toContain(
+      "private.example.com",
+    );
+    expect(JSON.stringify(recorder.events)).not.toContain("sk-secret");
   });
 
   it("rejects requests without the API gateway secret before the helper runs", async () => {
@@ -125,6 +142,44 @@ describe("AI assistant router", () => {
     });
     expect(helperCalls[0]?.request).not.toHaveProperty("plan");
     expect(helperCalls[0]?.request).not.toHaveProperty("plan_source");
+  });
+
+  it("keeps routeMode disabled observable without leaking route payload details", async () => {
+    const recorder = createInMemoryGatewayAiAssistantObservabilityRecorder();
+    const app = createApp({
+      aiAssistantRoute: {
+        observabilitySink: recorder.sink,
+        productGateStatus: "open",
+      },
+      apiGatewaySecret: API_SECRET,
+      nodeEnv: "test",
+    });
+
+    const response = await postAiAssistant(app, {
+      headers: { authorization: `Bearer ${API_SECRET}` },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({
+      error: "ai_assistant_unavailable",
+      reason_code: "ai_assistant_route_unavailable",
+      route_mode: "disabled",
+    });
+    expect(recorder.events.at(-1)).toMatchObject({
+      evidence_class: "route_mode_disabled",
+      outcome: "unavailable",
+      phase: "route_contract_completed",
+      product_gate_status: "open",
+      reason_code: "ai_assistant_route_unavailable",
+      request_id: REQUEST_ID,
+      route_mode: "disabled",
+      runtime_status: "not_yet_productive",
+    });
+    expect(JSON.stringify(recorder.events)).not.toContain(
+      "private.example.com",
+    );
+    expect(JSON.stringify(recorder.events)).not.toContain("sk-secret");
   });
 
   it("denies missing trusted request context after the route gate opens", async () => {
@@ -221,6 +276,13 @@ describe("AI assistant router", () => {
         "admission_denied",
         "route_contract_completed",
       ]);
+      expect(recorder.events.at(-2)).toMatchObject({
+        evidence_class: "plan_denied",
+        phase: "admission_denied",
+        product_gate_status: "open",
+        reason_code: "ai_usage_plan_denied",
+        runtime_status: "active",
+      });
       expect(serializedBody).not.toContain("private.example.com");
       expect(serializedBody).not.toContain("sk-secret");
       expect(serializedEvents).not.toContain("private.example.com");
@@ -230,6 +292,7 @@ describe("AI assistant router", () => {
 
   it("denies unsupported plan_source values before usage context issuance", async () => {
     let downstreamCalls = 0;
+    const recorder = createInMemoryGatewayAiAssistantObservabilityRecorder();
     const app = createApp({
       aiAssistantRoute: {
         admissionPolicies: createActiveAdmissionPolicies(),
@@ -241,6 +304,7 @@ describe("AI assistant router", () => {
           };
         },
         limitPolicies: createEnabledLimitPolicies(),
+        observabilitySink: recorder.sink,
         productGateStatus: "open",
         redisStore: createRedisStore(),
         routeMode: "test_only_mock",
@@ -266,10 +330,22 @@ describe("AI assistant router", () => {
       reason_code: "ai_assistant_admission_denied",
     });
     expect(downstreamCalls).toBe(0);
+    expect(recorder.events.at(-2)).toMatchObject({
+      evidence_class: "plan_source_untrusted",
+      phase: "admission_denied",
+      product_gate_status: "open",
+      reason_code: "ai_usage_plan_required",
+      runtime_status: "active",
+    });
+    expect(JSON.stringify(recorder.events)).not.toContain(
+      "private.example.com",
+    );
+    expect(JSON.stringify(recorder.events)).not.toContain("sk-secret");
   });
 
   it("keeps runtimeStatus fail-closed while the feature is not yet productive", async () => {
     let downstreamCalls = 0;
+    const recorder = createInMemoryGatewayAiAssistantObservabilityRecorder();
     const app = createApp({
       aiAssistantRoute: {
         downstreamOperation: async () => {
@@ -279,6 +355,7 @@ describe("AI assistant router", () => {
             outcome: "success",
           };
         },
+        observabilitySink: recorder.sink,
         productGateStatus: "open",
         redisStore: createRedisStore(),
         routeMode: "test_only_mock",
@@ -300,6 +377,17 @@ describe("AI assistant router", () => {
       usage_context_reason_code: "ai_usage_admission_denied",
     });
     expect(downstreamCalls).toBe(0);
+    expect(recorder.events.at(-2)).toMatchObject({
+      evidence_class: "runtime_not_productive",
+      phase: "admission_denied",
+      product_gate_status: "open",
+      reason_code: "ai_usage_not_productive",
+      runtime_status: "not_yet_productive",
+    });
+    expect(JSON.stringify(recorder.events)).not.toContain(
+      "private.example.com",
+    );
+    expect(JSON.stringify(recorder.events)).not.toContain("sk-secret");
   });
 });
 

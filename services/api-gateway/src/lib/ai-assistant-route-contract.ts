@@ -168,6 +168,7 @@ export async function runGatewayAiAssistantRouteContract(params: {
   observabilitySink?: GatewayAiAssistantObservabilitySink | null;
   plan: unknown;
   planSource: unknown;
+  productGateStatus?: "open" | "closed" | null;
   redisStore: GatewayAiUsageRedisStore | null;
   releaseConcurrencyClaim?:
     | ((input: {
@@ -212,6 +213,7 @@ export async function runGatewayAiAssistantRouteContract(params: {
     | null;
 }): Promise<GatewayAiAssistantRouteContractResult> {
   const routeMode = normalizeRouteMode(params.routeMode);
+  const runtimeStatus = params.admissionPolicies.ai_assistant.runtimeStatus;
   const startedAtMs = Date.now();
   const parsedRequest = gatewayAiAssistantRouteContractRequestSchema.safeParse(
     params.request,
@@ -231,6 +233,8 @@ export async function runGatewayAiAssistantRouteContract(params: {
     request: parsedRequest.success ? parsedRequest.data : null,
     requestId,
     routeMode,
+    productGateStatus: params.productGateStatus,
+    runtimeStatus,
     startedAtMs,
   });
 
@@ -243,6 +247,8 @@ export async function runGatewayAiAssistantRouteContract(params: {
       request: null,
       requestId,
       routeMode,
+      productGateStatus: params.productGateStatus,
+      runtimeStatus,
       startedAtMs,
     });
     await observeRouteContractEvent({
@@ -253,6 +259,8 @@ export async function runGatewayAiAssistantRouteContract(params: {
       request: null,
       requestId,
       routeMode,
+      productGateStatus: params.productGateStatus,
+      runtimeStatus,
       startedAtMs,
     });
 
@@ -284,6 +292,8 @@ export async function runGatewayAiAssistantRouteContract(params: {
       request: parsedRequest.data,
       requestId: parsedRequest.data.request_id,
       routeMode,
+      productGateStatus: params.productGateStatus,
+      runtimeStatus,
       startedAtMs,
     });
 
@@ -314,6 +324,8 @@ export async function runGatewayAiAssistantRouteContract(params: {
       request: parsedRequest.data,
       requestId: parsedRequest.data.request_id,
       routeMode,
+      productGateStatus: params.productGateStatus,
+      runtimeStatus,
       startedAtMs,
     });
     await observeRouteContractEvent({
@@ -325,6 +337,8 @@ export async function runGatewayAiAssistantRouteContract(params: {
       request: parsedRequest.data,
       requestId: parsedRequest.data.request_id,
       routeMode,
+      productGateStatus: params.productGateStatus,
+      runtimeStatus,
       startedAtMs,
     });
 
@@ -370,8 +384,10 @@ export async function runGatewayAiAssistantRouteContract(params: {
     await observeIssuanceFailure({
       issuanceResult,
       params,
+      productGateStatus: params.productGateStatus,
       request,
       routeMode,
+      runtimeStatus,
       startedAtMs,
     });
 
@@ -401,6 +417,8 @@ export async function runGatewayAiAssistantRouteContract(params: {
     request,
     requestId: request.request_id,
     routeMode,
+    productGateStatus: params.productGateStatus,
+    runtimeStatus,
     startedAtMs,
   });
   await observeRouteContractEvent({
@@ -414,6 +432,8 @@ export async function runGatewayAiAssistantRouteContract(params: {
     request,
     requestId: request.request_id,
     routeMode,
+    productGateStatus: params.productGateStatus,
+    runtimeStatus,
     startedAtMs,
   });
 
@@ -433,6 +453,8 @@ export async function runGatewayAiAssistantRouteContract(params: {
     request,
     requestId: request.request_id,
     routeMode,
+    productGateStatus: params.productGateStatus,
+    runtimeStatus,
     startedAtMs,
   });
 
@@ -463,6 +485,8 @@ export async function runGatewayAiAssistantRouteContract(params: {
       request,
       requestId: request.request_id,
       routeMode,
+      productGateStatus: params.productGateStatus,
+      runtimeStatus,
       safeErrorCategory: resolveSafeDownstreamErrorCategory(downstreamResult),
       startedAtMs,
     });
@@ -494,9 +518,11 @@ export async function runGatewayAiAssistantRouteContract(params: {
     downstreamResult,
     meteringResult,
     params,
+    productGateStatus: params.productGateStatus,
     request,
     routeMode,
     signedContext: issuanceResult.signedContext,
+    runtimeStatus,
     startedAtMs,
   });
 
@@ -521,6 +547,8 @@ export async function runGatewayAiAssistantRouteContract(params: {
       request,
       requestId: request.request_id,
       routeMode,
+      productGateStatus: params.productGateStatus,
+      runtimeStatus,
       safeErrorCategory:
         downstreamResult.outcome === "success"
           ? null
@@ -558,6 +586,8 @@ export async function runGatewayAiAssistantRouteContract(params: {
       request,
       requestId: request.request_id,
       routeMode,
+      productGateStatus: params.productGateStatus,
+      runtimeStatus,
       safeErrorCategory: resolveSafeDownstreamErrorCategory(downstreamResult),
       startedAtMs,
     });
@@ -592,6 +622,8 @@ export async function runGatewayAiAssistantRouteContract(params: {
     request,
     requestId: request.request_id,
     routeMode,
+    productGateStatus: params.productGateStatus,
+    runtimeStatus,
     startedAtMs,
   });
 
@@ -628,8 +660,10 @@ async function defaultMockAiAssistantDownstreamOperation(
 async function observeIssuanceFailure(params: {
   issuanceResult: GatewayAiUsageContextIssuanceResult;
   params: { observabilitySink?: GatewayAiAssistantObservabilitySink | null };
+  productGateStatus?: "open" | "closed" | null;
   request: GatewayAiAssistantRouteContractRequest;
   routeMode: GatewayAiAssistantRouteContractMode;
+  runtimeStatus: "active" | "not_yet_productive";
   startedAtMs: number;
 }) {
   const phase = resolveIssuanceFailurePhase(params.issuanceResult);
@@ -637,8 +671,10 @@ async function observeIssuanceFailure(params: {
     phase === "rate_limited" || phase === "concurrency_limited"
       ? (params.issuanceResult.limitDecision?.reasonCode ??
         params.issuanceResult.reasonCode)
-      : (params.issuanceResult.admissionDecision?.reasonCode ??
-        params.issuanceResult.reasonCode);
+      : phase === "usage_context_unavailable"
+        ? params.issuanceResult.reasonCode
+        : (params.issuanceResult.admissionDecision?.reasonCode ??
+          params.issuanceResult.reasonCode);
 
   await observeRouteContractEvent({
     estimatedUsageUnits: params.request.estimated_usage_units,
@@ -652,10 +688,12 @@ async function observeIssuanceFailure(params: {
     phase,
     planAtRequestTime: params.issuanceResult.admissionDecision?.normalizedPlan,
     planSource: params.issuanceResult.admissionDecision?.planSource,
+    productGateStatus: params.productGateStatus,
     reasonCode: denialReasonCode,
     request: params.request,
     requestId: params.request.request_id,
     routeMode: params.routeMode,
+    runtimeStatus: params.runtimeStatus,
     startedAtMs: params.startedAtMs,
   });
 
@@ -671,6 +709,7 @@ async function observeIssuanceFailure(params: {
     phase: "route_contract_completed",
     planAtRequestTime: params.issuanceResult.admissionDecision?.normalizedPlan,
     planSource: params.issuanceResult.admissionDecision?.planSource,
+    productGateStatus: params.productGateStatus,
     reasonCode:
       params.issuanceResult.reasonCode === "ai_usage_admission_denied" ||
       params.issuanceResult.reasonCode === "ai_usage_limit_denied"
@@ -682,6 +721,7 @@ async function observeIssuanceFailure(params: {
     request: params.request,
     requestId: params.request.request_id,
     routeMode: params.routeMode,
+    runtimeStatus: params.runtimeStatus,
     startedAtMs: params.startedAtMs,
   });
 }
@@ -690,9 +730,11 @@ async function observeMeteringResult(params: {
   downstreamResult: GatewayAiAssistantDownstreamResult;
   meteringResult: GatewayAiUsageMeteringReconciliationResult;
   params: { observabilitySink?: GatewayAiAssistantObservabilitySink | null };
+  productGateStatus?: "open" | "closed" | null;
   request: GatewayAiAssistantRouteContractRequest;
   routeMode: GatewayAiAssistantRouteContractMode;
   signedContext: SignedGatewayAiUsageContext;
+  runtimeStatus: "active" | "not_yet_productive";
   startedAtMs: number;
 }) {
   const baseParams = {
@@ -720,7 +762,9 @@ async function observeMeteringResult(params: {
       outcome: "completed",
       params: params.params,
       phase: "metering_recorded",
+      productGateStatus: params.productGateStatus,
       reasonCode: params.meteringResult.reasonCode,
+      runtimeStatus: params.runtimeStatus,
     });
   } else if (
     params.meteringResult.reasonCode === "ai_usage_metering_released"
@@ -730,7 +774,9 @@ async function observeMeteringResult(params: {
       outcome: "released",
       params: params.params,
       phase: "metering_released",
+      productGateStatus: params.productGateStatus,
       reasonCode: params.meteringResult.reasonCode,
+      runtimeStatus: params.runtimeStatus,
       safeErrorCategory: "policy_blocked",
     });
   } else {
@@ -739,7 +785,9 @@ async function observeMeteringResult(params: {
       outcome: "failed",
       params: params.params,
       phase: "metering_denied",
+      productGateStatus: params.productGateStatus,
       reasonCode: params.meteringResult.reasonCode,
+      runtimeStatus: params.runtimeStatus,
       safeErrorCategory:
         params.downstreamResult.outcome === "success"
           ? null
@@ -753,7 +801,9 @@ async function observeMeteringResult(params: {
       outcome: "released",
       params: params.params,
       phase: "concurrency_released",
+      productGateStatus: params.productGateStatus,
       reasonCode: "released",
+      runtimeStatus: params.runtimeStatus,
     });
   } else if (params.meteringResult.concurrencyRelease !== null) {
     await observeRouteContractEvent({
@@ -761,7 +811,9 @@ async function observeMeteringResult(params: {
       outcome: "failed",
       params: params.params,
       phase: "concurrency_release_failed",
+      productGateStatus: params.productGateStatus,
       reasonCode: params.meteringResult.reasonCode,
+      runtimeStatus: params.runtimeStatus,
     });
   }
 }
@@ -970,10 +1022,12 @@ async function observeRouteContractEvent(params: {
   phase: GatewayAiAssistantObservabilityPhase;
   planAtRequestTime?: string | null;
   planSource?: string | null;
+  productGateStatus?: "open" | "closed" | null;
   reasonCode: string;
   request: GatewayAiAssistantRouteContractRequest | null;
   requestId: string | null;
   routeMode: GatewayAiAssistantRouteContractMode;
+  runtimeStatus: "active" | "not_yet_productive";
   safeErrorCategory?: string | null;
   startedAtMs: number;
 }) {
@@ -986,10 +1040,12 @@ async function observeRouteContractEvent(params: {
       phase: params.phase,
       planAtRequestTime: params.planAtRequestTime ?? null,
       planSource: params.planSource ?? null,
+      productGateStatus: params.productGateStatus ?? null,
       reasonCode: params.reasonCode,
       requestClassification: params.request?.request_classification ?? null,
       requestId: params.requestId,
       routeMode: params.routeMode,
+      runtimeStatus: params.runtimeStatus,
       safeErrorCategory: params.safeErrorCategory ?? null,
       tenantId: params.request?.context.tenant_id ?? null,
       userId: params.request?.context.user_id ?? null,

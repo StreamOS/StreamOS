@@ -149,9 +149,11 @@ describe("AI assistant route contract foundation", () => {
       "route_contract_completed",
     ]);
     expect(recorder.events.at(-1)).toMatchObject({
+      evidence_class: "allowed",
       final_usage_units: 9,
       outcome: "allow",
       phase: "route_contract_completed",
+      runtime_status: "active",
       reason_code: "allowed",
     });
   });
@@ -237,9 +239,11 @@ describe("AI assistant route contract foundation", () => {
       "route_contract_completed",
     ]);
     expect(recorder.events.at(-2)).toMatchObject({
+      evidence_class: "plan_denied",
       outcome: "deny",
       phase: "admission_denied",
       reason_code: "ai_usage_plan_denied",
+      runtime_status: "active",
     });
   });
 
@@ -290,10 +294,71 @@ describe("AI assistant route contract foundation", () => {
       "route_contract_completed",
     ]);
     expect(recorder.events.at(-2)).toMatchObject({
+      evidence_class: "rate_guard_denied",
       outcome: "deny",
       phase: "rate_limited",
       reason_code: "ai_usage_rate_limited",
       request_id: "req-124",
+      runtime_status: "active",
+    });
+  });
+
+  it("denies before downstream execution when concurrency protection blocks the request", async () => {
+    const store = new InMemoryGatewayAiUsageGuardStore();
+    const recorder = createInMemoryGatewayAiAssistantObservabilityRecorder();
+
+    const first = await runGatewayAiAssistantRouteContract({
+      admissionPolicies: createActiveAdmissionPolicies(),
+      limitPolicies: createEnabledLimitPolicies({ concurrencyLimit: 1 }),
+      loadLedgerEntry: async () => reservedLedgerEntry(),
+      observabilitySink: recorder.sink,
+      plan: "pro",
+      planSource: "persisted_server_plan",
+      redisStore: store,
+      releaseConcurrencyClaim: async () => ({
+        reasonCode: "ai_usage_limit_unavailable",
+        released: false,
+        remainingConcurrency: null,
+      }),
+      request: baseRequest(),
+      reserveLedgerEntry: async () => reservedLedgerEntry(),
+      routeMode: "test_only_mock",
+      signingConfig: createSigningConfig(),
+      writeLedgerEntry: async () => recordedLedgerEntry(),
+    });
+    const denied = await runGatewayAiAssistantRouteContract({
+      admissionPolicies: createActiveAdmissionPolicies(),
+      limitPolicies: createEnabledLimitPolicies({ concurrencyLimit: 1 }),
+      observabilitySink: recorder.sink,
+      plan: "pro",
+      planSource: "persisted_server_plan",
+      redisStore: store,
+      request: baseRequest({ request_id: "req-125" }),
+      routeMode: "test_only_mock",
+      signingConfig: createSigningConfig(),
+    });
+
+    expect(first.allowed).toBe(false);
+    expect(first.body).toMatchObject({
+      metering_reason_code: "ai_usage_concurrency_release_failed",
+      reason_code: "ai_assistant_metering_failed",
+    });
+    expect(denied.allowed).toBe(false);
+    expect(denied.downstreamInvoked).toBe(false);
+    expect(denied.statusCode).toBe(403);
+    expect(denied.body).toMatchObject({
+      error: "ai_assistant_forbidden",
+      limit_reason_code: "ai_usage_concurrency_limited",
+      reason_code: "ai_assistant_admission_denied",
+      usage_context_reason_code: "ai_usage_limit_denied",
+    });
+    expect(recorder.events.at(-2)).toMatchObject({
+      evidence_class: "concurrency_guard_denied",
+      outcome: "deny",
+      phase: "concurrency_limited",
+      reason_code: "ai_usage_concurrency_limited",
+      request_id: "req-125",
+      runtime_status: "active",
     });
   });
 
@@ -436,9 +501,16 @@ describe("AI assistant route contract foundation", () => {
       "usage_context_unavailable",
       "route_contract_completed",
     ]);
+    expect(recorder.events[1]).toMatchObject({
+      evidence_class: "ledger_reservation_failed",
+      phase: "usage_context_unavailable",
+      reason_code: "ai_usage_budget_reservation_failed",
+      runtime_status: "active",
+    });
   });
 
   it("fails closed when metering cannot be finalized after downstream success", async () => {
+    const recorder = createInMemoryGatewayAiAssistantObservabilityRecorder();
     const result = await runGatewayAiAssistantRouteContract({
       admissionPolicies: createActiveAdmissionPolicies(),
       downstreamOperation: async () => ({
@@ -447,6 +519,7 @@ describe("AI assistant route contract foundation", () => {
       }),
       limitPolicies: createEnabledLimitPolicies(),
       loadLedgerEntry: async () => null,
+      observabilitySink: recorder.sink,
       plan: "pro",
       planSource: "persisted_server_plan",
       redisStore: new InMemoryGatewayAiUsageGuardStore(),
@@ -463,6 +536,12 @@ describe("AI assistant route contract foundation", () => {
       error: "ai_assistant_unavailable",
       metering_reason_code: "ai_usage_metering_unavailable",
       reason_code: "ai_assistant_metering_failed",
+    });
+    expect(recorder.events.at(-1)).toMatchObject({
+      evidence_class: "metering_failure",
+      phase: "route_contract_completed",
+      reason_code: "ai_assistant_metering_failed",
+      runtime_status: "active",
     });
   });
 
@@ -504,8 +583,10 @@ describe("AI assistant route contract foundation", () => {
         (event) => event.phase === "concurrency_release_failed",
       ),
     ).toMatchObject({
+      evidence_class: "concurrency_release_failure",
       outcome: "failed",
       reason_code: "ai_usage_concurrency_release_failed",
+      runtime_status: "active",
     });
   });
 
