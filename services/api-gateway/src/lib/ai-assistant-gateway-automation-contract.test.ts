@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { validateGatewayAiAssistantAutomationDownstreamRequest } from "./ai-assistant-automation-downstream-contract.js";
 import {
   runGatewayAiAssistantRouteContract,
   type GatewayAiAssistantPreparedAutomationRequest,
@@ -80,6 +81,9 @@ describe("gateway to automation contract fixture", () => {
       expect(result.allowed).toBe(true);
       expect(result.statusCode).toBe(200);
       expect(result.downstreamInvoked).toBe(true);
+      expect(
+        validateGatewayAiAssistantAutomationDownstreamRequest(preparedRequest),
+      ).toEqual(testCase.expected_prepared_automation_request);
       expect(preparedRequest).toEqual(
         testCase.expected_prepared_automation_request,
       );
@@ -190,6 +194,9 @@ describe("gateway to automation contract fixture", () => {
     expect(result.allowed).toBe(false);
     expect(result.downstreamInvoked).toBe(true);
     expect(result.statusCode).toBe(503);
+    expect(
+      validateGatewayAiAssistantAutomationDownstreamRequest(preparedRequest),
+    ).toEqual(testCase.expected_prepared_automation_request);
     expect(preparedRequest).toEqual(
       testCase.expected_prepared_automation_request,
     );
@@ -235,6 +242,17 @@ describe("gateway to automation contract fixture", () => {
       testCase.expected_prepared_automation_request.usage_context_signature,
     );
     expect(serializedObservability).not.toContain("channel_platform_status");
+  });
+
+  it("rejects secret-bearing fixture drift before any automation boundary would consume it", () => {
+    const request = structuredClone(
+      FIXTURE.cases[0].expected_prepared_automation_request,
+    ) as Record<string, unknown>;
+    request.raw_provider_payload = { secret: "sk-secret" };
+
+    expect(() =>
+      validateGatewayAiAssistantAutomationDownstreamRequest(request),
+    ).toThrow();
   });
 });
 

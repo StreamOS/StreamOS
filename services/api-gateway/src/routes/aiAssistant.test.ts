@@ -226,6 +226,52 @@ describe("AI assistant router", () => {
     expect(downstreamCalls).toBe(0);
   });
 
+  it("denies raw secret-bearing request fields before any downstream preparation", async () => {
+    let downstreamCalls = 0;
+    const app = createApp({
+      aiAssistantRoute: {
+        admissionPolicies: createActiveAdmissionPolicies(),
+        downstreamOperation: async () => {
+          downstreamCalls += 1;
+          return {
+            finalUsageUnits: 12,
+            outcome: "success",
+          };
+        },
+        limitPolicies: createEnabledLimitPolicies(),
+        productGateStatus: "open",
+        redisStore: createRedisStore(),
+        routeMode: "test_only_mock",
+        signingConfig: createSigningConfig(),
+      },
+      apiGatewaySecret: API_SECRET,
+      nodeEnv: "test",
+    });
+
+    const response = await postAiAssistant(app, {
+      body: {
+        ...baseRequestBody(),
+        context: {
+          ...baseRequestBody().context,
+          raw_provider_payload: {
+            private_url: "https://private.example.com/context",
+          },
+        },
+      },
+      headers: { authorization: `Bearer ${API_SECRET}` },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body).toMatchObject({
+      admission_reason_code: "ai_usage_context_missing",
+      error: "ai_assistant_forbidden",
+      reason_code: "ai_assistant_admission_denied",
+    });
+    expect(JSON.stringify(body)).not.toContain("private.example.com");
+    expect(downstreamCalls).toBe(0);
+  });
+
   it.each(["free", "business"])(
     "denies non-pro plan %s before any downstream call",
     async (plan) => {

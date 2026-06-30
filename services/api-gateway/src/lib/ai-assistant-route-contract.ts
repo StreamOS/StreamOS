@@ -2,6 +2,11 @@ import { z } from "zod";
 import { type TrustedPlanModelSource } from "@streamos/types";
 
 import {
+  buildGatewayAiAssistantAutomationDownstreamRequest,
+  gatewayAiAssistantAutomationContextSchema,
+  type GatewayAiAssistantAutomationDownstreamRequest,
+} from "./ai-assistant-automation-downstream-contract.js";
+import {
   buildGatewayAiAssistantObservabilityEvent,
   emitGatewayAiAssistantObservabilityEvent,
   type GatewayAiAssistantObservabilityPhase,
@@ -9,7 +14,6 @@ import {
 } from "./ai-assistant-route-observability.js";
 import {
   issueGatewayAiUsageContext,
-  type GatewayAiUsageContext,
   type GatewayAiUsageContextIssuanceResult,
   type SignedGatewayAiUsageContext,
 } from "./ai-usage-context-issuance.js";
@@ -57,51 +61,27 @@ export type GatewayAiAssistantRouteContractMode =
 export type GatewayAiAssistantRouteContractReasonCode =
   (typeof GATEWAY_AI_ASSISTANT_ROUTE_CONTRACT_REASON_CODES)[number];
 
-export const gatewayAiAssistantRouteContractRequestSchema = z.object({
-  context: z.object({
-    sources: z
-      .array(
-        z.object({
-          item_limit: z.number().int().positive().max(50),
-          payload_bytes: z.number().int().positive().max(24_576),
-          source: z.string().trim().min(1).max(64),
-          time_window_days: z.number().int().positive().max(90),
-        }),
-      )
+export const gatewayAiAssistantRouteContractRequestSchema = z
+  .object({
+    context: gatewayAiAssistantAutomationContextSchema,
+    estimated_usage_units: z.number().int().positive().max(10_000),
+    prompt: z.string().trim().min(1).max(4_000),
+    request_classification: z
+      .string()
+      .trim()
       .min(1)
-      .max(6),
-    tenant_id: z.string().trim().min(1).max(200),
-    transcript_excerpt_characters: z
-      .number()
-      .int()
-      .min(0)
-      .max(4_000)
-      .default(0),
-    user_id: z.string().uuid(),
-  }),
-  estimated_usage_units: z.number().int().positive().max(10_000),
-  prompt: z.string().trim().min(1).max(4_000),
-  request_classification: z
-    .string()
-    .trim()
-    .min(1)
-    .max(120)
-    .default("assistant_prompt"),
-  request_id: z.string().trim().min(1).max(120),
-});
+      .max(120)
+      .default("assistant_prompt"),
+    request_id: z.string().trim().min(1).max(120),
+  })
+  .strict();
 
 export type GatewayAiAssistantRouteContractRequest = z.infer<
   typeof gatewayAiAssistantRouteContractRequestSchema
 >;
 
-export type GatewayAiAssistantPreparedAutomationRequest = {
-  context: GatewayAiAssistantRouteContractRequest["context"];
-  feature: "ai_assistant";
-  prompt: string;
-  request_id: string;
-  usage_context: GatewayAiUsageContext;
-  usage_context_signature: string;
-};
+export type GatewayAiAssistantPreparedAutomationRequest =
+  GatewayAiAssistantAutomationDownstreamRequest;
 
 export type GatewayAiAssistantDownstreamResult =
   | {
@@ -822,20 +802,13 @@ function createPreparedAutomationRequest(params: {
   request: GatewayAiAssistantRouteContractRequest;
   signedContext: SignedGatewayAiUsageContext;
 }): GatewayAiAssistantPreparedAutomationRequest {
-  const {
-    signature,
-    signing_mode: _signingMode,
-    ...usageContext
-  } = params.signedContext;
-
-  return {
+  return buildGatewayAiAssistantAutomationDownstreamRequest({
     context: params.request.context,
-    feature: "ai_assistant",
     prompt: params.request.prompt,
-    request_id: params.request.request_id,
-    usage_context: usageContext,
-    usage_context_signature: signature,
-  };
+    requestClassification: params.request.request_classification,
+    requestId: params.request.request_id,
+    signedContext: params.signedContext,
+  });
 }
 
 function buildIssuanceDenial(params: {

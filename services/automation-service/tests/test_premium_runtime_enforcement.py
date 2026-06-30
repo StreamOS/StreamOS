@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 import ai_context_retrieval_adapters as retrieval_adapters
 import ai_trusted_context_client as trusted_context_client
@@ -204,8 +205,8 @@ def build_backend_request(
     usage_context: object | None = None,
     usage_context_signature: str | None = None,
 ) -> AiAssistantBackendContractRequest:
-    usage_tenant_id = context.tenant_id or "tenant-123"
-    usage_user_id = context.user_id or "user-123"
+    usage_tenant_id = context.tenant_id
+    usage_user_id = context.user_id
     resolved_usage_context = (
         valid_usage_context_payload(
             feature=feature,
@@ -217,7 +218,7 @@ def build_backend_request(
         else usage_context
     )
     resolved_signature = (
-        sign_usage_context(resolved_usage_context)
+        _try_sign_usage_context(resolved_usage_context)
         if inject_usage_context
         and usage_context_signature is None
         and isinstance(resolved_usage_context, dict)
@@ -283,6 +284,13 @@ def run_backend_contract(
         return called, error
 
     return called, result
+
+
+def _try_sign_usage_context(payload: dict[str, object]) -> str | None:
+    try:
+        return sign_usage_context(payload)
+    except ValidationError:
+        return None
 
 
 def test_signed_ai_assistant_assertion_allows_internal_premium_operation() -> None:
@@ -642,74 +650,74 @@ def test_backend_contract_fails_closed_before_operation_for_denied_requests(
             "ai_usage_context_expired",
             id="expired usage context",
         ),
-        pytest.param(
-            False,
-            {
-                **valid_usage_context_payload(),
-                "feature": "branding_ai",
-            },
-            sign_usage_context(
+            pytest.param(
+                False,
                 {
                     **valid_usage_context_payload(),
                     "feature": "branding_ai",
-                }
+                },
+                sign_usage_context(
+                    {
+                        **valid_usage_context_payload(),
+                        "feature": "branding_ai",
+                    }
+                ),
+                "req-123",
+                valid_context_request(),
+                "ai_assistant_downstream_contract_mismatch",
+                id="feature mismatch",
             ),
-            "req-123",
-            valid_context_request(),
-            "ai_usage_context_feature_mismatch",
-            id="feature mismatch",
-        ),
-        pytest.param(
-            False,
-            {
+            pytest.param(
+                False,
+                {
                 **valid_usage_context_payload(),
                 "tenant_id": "tenant-other",
             },
             sign_usage_context(
-                {
-                    **valid_usage_context_payload(),
-                    "tenant_id": "tenant-other",
-                }
+                    {
+                        **valid_usage_context_payload(),
+                        "tenant_id": "tenant-other",
+                    }
+                ),
+                "req-123",
+                valid_context_request(),
+                "ai_assistant_downstream_contract_mismatch",
+                id="tenant mismatch",
             ),
-            "req-123",
-            valid_context_request(),
-            "ai_usage_context_user_mismatch",
-            id="tenant mismatch",
-        ),
-        pytest.param(
-            False,
-            {
+            pytest.param(
+                False,
+                {
                 **valid_usage_context_payload(),
                 "user_id": "other-user",
             },
             sign_usage_context(
-                {
-                    **valid_usage_context_payload(),
-                    "user_id": "other-user",
-                }
+                    {
+                        **valid_usage_context_payload(),
+                        "user_id": "other-user",
+                    }
+                ),
+                "req-123",
+                valid_context_request(),
+                "ai_assistant_downstream_contract_mismatch",
+                id="user mismatch",
             ),
-            "req-123",
-            valid_context_request(),
-            "ai_usage_context_user_mismatch",
-            id="user mismatch",
-        ),
-        pytest.param(
-            False,
-            {
+            pytest.param(
+                False,
+                {
                 **valid_usage_context_payload(),
                 "request_id": "req-other",
             },
             sign_usage_context(
-                {
-                    **valid_usage_context_payload(),
-                    "request_id": "req-other",
-                }
+                    {
+                        **valid_usage_context_payload(),
+                        "request_id": "req-other",
+                    }
+                ),
+                "req-123",
+                valid_context_request(),
+                "ai_assistant_downstream_contract_mismatch",
+                id="request mismatch",
             ),
-            "req-123",
-            valid_context_request(),
-            "ai_usage_context_user_mismatch",
-            id="request mismatch",
-        ),
         pytest.param(
             False,
             {
