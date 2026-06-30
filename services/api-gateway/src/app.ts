@@ -35,6 +35,10 @@ import {
 import { createRateLimitKey } from "./lib/rate-limit-keys.js";
 import { attachRawBodyMiddleware } from "./middleware/raw-body.js";
 import { createAuthHandoffRouter } from "./routes/auth/handoff.js";
+import {
+  createAiAssistantRouter,
+  type CreateAiAssistantRouterOptions,
+} from "./routes/aiAssistant.js";
 import { createAutomationCallbackRouter } from "./routes/callbacks/automation.js";
 import {
   clipGenerationRequestSchema,
@@ -60,6 +64,7 @@ import type { ProviderWebhookDispatcher } from "./webhooks/providerEvents.js";
 
 type CreateAppOptions = {
   allowedOrigins?: string[];
+  aiAssistantRoute?: CreateAiAssistantRouterOptions;
   apiGatewaySecret?: string;
   assetUrlResolver?: PublicHttpsAssetResolver;
   clipGenerationQueue?: ClipGenerationQueue;
@@ -859,6 +864,11 @@ export function createApp(
     createSchedulerObservabilityRouter({
       fetchImpl: options.oauth?.fetchImpl,
     }),
+  );
+  app.use(
+    "/api/ai-assistant",
+    requireAppApiSecret(securityConfig.apiGatewaySecret),
+    createAiAssistantRouter(options.aiAssistantRoute),
   );
 
   app.get(
