@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildGatewayAiAssistantObservabilityEvent,
+  classifyGatewayAiAssistantObservabilityEvidenceClass,
   createInMemoryGatewayAiAssistantObservabilityRecorder,
   emitGatewayAiAssistantObservabilityEvent,
 } from "./ai-assistant-route-observability.js";
@@ -34,6 +35,7 @@ describe("AI assistant route observability contract", () => {
       contract_version: "2026-06-30.ai-assistant-observability.v1",
       created_at: "2026-06-30T09:00:00.000Z",
       duration_ms: 42,
+      evidence_class: "allowed",
       estimated_usage_units: 12,
       feature: "ai_assistant",
       final_usage_units: 9,
@@ -42,10 +44,12 @@ describe("AI assistant route observability contract", () => {
       phase: "route_contract_completed",
       plan_at_request_time: "pro",
       plan_source: "persisted_server_plan",
+      product_gate_status: null,
       reason_code: "allowed [redacted-url] [redacted]",
       request_classification: "assistant_prompt [redacted-url]",
       request_id: "req-123",
       route_mode: "test_only_mock",
+      runtime_status: null,
       safe_error_category: "unknown_failure",
       tenant_id: "tenant-123",
       user_id: USER_ID,
@@ -56,6 +60,45 @@ describe("AI assistant route observability contract", () => {
     expect(serialized).not.toContain("private.example.com");
     expect(serialized).not.toContain("sk-secret");
     expect(serialized).not.toContain("abc.def.ghi");
+  });
+
+  it("classifies operator evidence classes for fail-closed denials and failures", () => {
+    expect(
+      classifyGatewayAiAssistantObservabilityEvidenceClass({
+        phase: "route_contract_completed",
+        productGateStatus: "closed",
+        reasonCode: "ai_assistant_product_gate_closed",
+        routeMode: "disabled",
+        runtimeStatus: "not_yet_productive",
+      }),
+    ).toBe("product_gate_closed");
+    expect(
+      classifyGatewayAiAssistantObservabilityEvidenceClass({
+        phase: "route_contract_completed",
+        productGateStatus: "open",
+        reasonCode: "ai_assistant_route_unavailable",
+        routeMode: "disabled",
+        runtimeStatus: "not_yet_productive",
+      }),
+    ).toBe("route_mode_disabled");
+    expect(
+      classifyGatewayAiAssistantObservabilityEvidenceClass({
+        phase: "admission_denied",
+        productGateStatus: "open",
+        reasonCode: "ai_usage_plan_denied",
+        routeMode: "test_only_mock",
+        runtimeStatus: "active",
+      }),
+    ).toBe("plan_denied");
+    expect(
+      classifyGatewayAiAssistantObservabilityEvidenceClass({
+        phase: "concurrency_release_failed",
+        productGateStatus: "open",
+        reasonCode: "ai_usage_concurrency_release_failed",
+        routeMode: "test_only_mock",
+        runtimeStatus: "active",
+      }),
+    ).toBe("concurrency_release_failure");
   });
 
   it("records events in memory and ignores sink failures", async () => {
