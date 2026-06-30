@@ -563,6 +563,9 @@ void test("publication scheduling helpers normalize timestamps and classify read
 });
 
 void test("publication schedule policy centralizes timing, provider hints, and execution locks", () => {
+  const scheduledAtUtc = new Date(
+    Date.now() + 3 * 24 * 60 * 60 * 1000,
+  ).toISOString();
   const policy = evaluatePublicationSchedulePolicy({
     availableScopes: ["https://www.googleapis.com/auth/youtube.upload"],
     connectionStatus: "connected",
@@ -573,7 +576,7 @@ void test("publication schedule policy centralizes timing, provider hints, and e
     hasPublishableAsset: true,
     hasRequiredScopes: true,
     scheduleSource: "api-gateway",
-    scheduledAtUtc: "2026-06-30T12:00:00.000Z",
+    scheduledAtUtc,
     scheduledTimezone: "Europe/Berlin",
     schedulingAllowed: true,
     targetPlatform: "youtube",
@@ -605,6 +608,9 @@ void test("publication schedule policy centralizes timing, provider hints, and e
 });
 
 void test("publication schedule policy marks provider-native scheduling as policy-disabled when StreamOS readiness is disabled", () => {
+  const scheduledAtUtc = new Date(
+    Date.now() + 3 * 24 * 60 * 60 * 1000,
+  ).toISOString();
   const policy = evaluatePublicationSchedulePolicy({
     contentJobReviewStatus: "approved",
     contentJobStatus: "done",
@@ -613,7 +619,7 @@ void test("publication schedule policy marks provider-native scheduling as polic
     hasPublishableAsset: true,
     hasRequiredScopes: true,
     scheduleSource: "api-gateway",
-    scheduledAtUtc: "2026-06-30T12:00:00.000Z",
+    scheduledAtUtc,
     scheduledTimezone: "Europe/Berlin",
     schedulingAllowed: false,
     targetPlatform: "youtube",
