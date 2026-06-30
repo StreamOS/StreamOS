@@ -480,8 +480,7 @@ function asNonEmptyString(value: unknown): string | null {
 
 function isTrustedPlanSource(value: unknown): value is TrustedPlanModelSource {
   return (
-    value === "persisted_server_plan" ||
-    value === "signed_entitlement_assertion"
+    value === "persisted_server_plan" || value === "server_verified_billing"
   );
 }
 
