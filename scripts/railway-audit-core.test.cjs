@@ -1190,6 +1190,42 @@ test("buildAuditReport accepts release-gate-runner commit provenance stamp", () 
   assert.match(commitRow.summary, /configured via service/);
 });
 
+test("buildAuditReport accepts api-gateway and automation-service commit provenance stamps", () => {
+  const production = cloneEnvironment(loadEnvironment("production"));
+  production.serviceVariables["api-gateway"] = {
+    ...production.serviceVariables["api-gateway"],
+    STREAMOS_RC_COMMIT_SHA: "011753c42cc2b0312bd5556ab5da25e873df19c5",
+  };
+  production.serviceVariables["automation-service"] = {
+    ...production.serviceVariables["automation-service"],
+    STREAMOS_RC_COMMIT_SHA: "011753c42cc2b0312bd5556ab5da25e873df19c5",
+  };
+
+  const report = buildAuditReport({
+    project: whitelist.project,
+    rawEnvironments: {
+      production,
+    },
+    validateHealthPayload,
+    whitelist,
+  });
+
+  const gatewayCommitRow = report.environments.production.services[
+    "api-gateway"
+  ].variables.find((row) => row.variable === "STREAMOS_RC_COMMIT_SHA");
+  const automationCommitRow = report.environments.production.services[
+    "automation-service"
+  ].variables.find((row) => row.variable === "STREAMOS_RC_COMMIT_SHA");
+
+  assert.ok(gatewayCommitRow);
+  assert.equal(gatewayCommitRow.findings.length, 0);
+  assert.match(gatewayCommitRow.summary, /configured via service/);
+
+  assert.ok(automationCommitRow);
+  assert.equal(automationCommitRow.findings.length, 0);
+  assert.match(automationCommitRow.summary, /configured via service/);
+});
+
 test("buildAuditReport accepts release-gate-runner proof-only Supabase env", () => {
   const production = cloneEnvironment(loadEnvironment("production"));
   production.serviceVariables["release-gate-runner"] = {

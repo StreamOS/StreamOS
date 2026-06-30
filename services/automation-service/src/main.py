@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 from typing import Annotated, Protocol
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from pydantic import ValidationError
 
 from ai_guardrails import (
@@ -29,10 +29,12 @@ from schemas import (
     TranscriptionSegment,
     ensure_repurposing_plan_response_matches_request,
 )
+from runtime_provenance import read_automation_service_runtime_provenance
 from settings import SettingsError, load_settings
 from ssrf import UnsafeAssetUrlError
 
 app = FastAPI(title="StreamOS Automation Service", version="0.1.0")
+app.state.runtime_provenance = read_automation_service_runtime_provenance()
 
 
 def build_provider_rate_limit_detail(
@@ -223,7 +225,16 @@ async def get_transcription_processor() -> AsyncIterator[TranscriptionProcessor]
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health(response: Response) -> dict[str, str]:
+    runtime_provenance = getattr(app.state, "runtime_provenance", None)
+
+    if runtime_provenance is not None:
+        response.headers["x-streamos-runtime-service"] = runtime_provenance.service
+        response.headers["x-streamos-runtime-commit"] = runtime_provenance.git_commit
+        response.headers["x-streamos-runtime-environment"] = (
+            runtime_provenance.environment
+        )
+
     return {"service": "automation-service", "status": "ok"}
 
 

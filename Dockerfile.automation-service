@@ -8,6 +8,40 @@ WORKDIR /app/services/automation-service
 COPY services/automation-service/pyproject.toml ./
 COPY services/automation-service/src ./src
 
+ARG STREAMOS_RC_COMMIT_SHA
+ARG RAILWAY_GIT_COMMIT_SHA
+ARG RAILWAY_GIT_BRANCH
+ARG RAILWAY_ENVIRONMENT_NAME
+ARG RAILWAY_SERVICE_NAME
+ARG RAILWAY_DEPLOYMENT_ID
+ARG GITHUB_REPOSITORY
+ARG GITHUB_WORKFLOW
+ARG GITHUB_RUN_ID
+ARG GITHUB_RUN_ATTEMPT
+ARG GITHUB_REF
+
+RUN set -eu; \
+  commit_sha="${STREAMOS_RC_COMMIT_SHA:-${RAILWAY_GIT_COMMIT_SHA:-}}"; \
+  if [ -z "${commit_sha}" ]; then \
+    echo "automation-service commit provenance missing from build environment" >&2; \
+    exit 1; \
+  fi; \
+  generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+  cat > ./runtime-provenance.json <<EOF
+{
+  "schemaVersion": 1,
+  "service": "${RAILWAY_SERVICE_NAME:-automation-service}",
+  "environment": "${RAILWAY_ENVIRONMENT_NAME:-production}",
+  "gitCommit": "${commit_sha}",
+  "gitRef": "${GITHUB_REF:-refs/heads/${RAILWAY_GIT_BRANCH:-main}}",
+  "repository": "${GITHUB_REPOSITORY:-}",
+  "workflow": "${GITHUB_WORKFLOW:-railway-build}",
+  "runId": "${GITHUB_RUN_ID:-${RAILWAY_DEPLOYMENT_ID:-railway-build}}",
+  "runAttempt": "${GITHUB_RUN_ATTEMPT:-1}",
+  "generatedAt": "${generated_at}"
+}
+EOF
+
 RUN pip install --no-cache-dir .
 
 WORKDIR /app/services/automation-service/src
