@@ -7,6 +7,11 @@ from typing import TypeVar
 import httpx
 from fastapi import HTTPException
 
+from ai_assistant_downstream_contract import (
+    AI_ASSISTANT_DOWNSTREAM_CONTEXT_BOUNDARY_VERSION,
+    AI_ASSISTANT_DOWNSTREAM_RUNTIME_STATUS,
+    validate_ai_assistant_downstream_contract_request,
+)
 from ai_context_boundary import (
     AiAssistantContextBoundary,
     AiAssistantContextRequest,
@@ -41,9 +46,12 @@ T = TypeVar("T")
 @dataclass(frozen=True)
 class AiAssistantBackendContractRequest:
     context: AiAssistantContextRequest
+    context_boundary_version: str = AI_ASSISTANT_DOWNSTREAM_CONTEXT_BOUNDARY_VERSION
     feature: str = AI_ASSISTANT_FEATURE
     prompt: str = ""
+    request_classification: str = "assistant_prompt"
     request_id: str = ""
+    runtime_status: str = AI_ASSISTANT_DOWNSTREAM_RUNTIME_STATUS
     usage_context: object | None = None
     usage_context_signature: str | None = None
 
@@ -69,8 +77,10 @@ def prepare_ai_assistant_backend_contract(
     allow_not_yet_productive: bool = False,
     context_adapters: dict[str, AiContextSourceAdapter] | None = None,
 ) -> AiAssistantPreparedOperation:
+    validated_request = validate_ai_assistant_downstream_contract_request(request)
+
     try:
-        policy = get_ai_guardrail_policy(request.feature)
+        policy = get_ai_guardrail_policy(validated_request.feature)
     except AiGuardrailError as error:
         raise HTTPException(
             status_code=error.status_code,
@@ -94,22 +104,22 @@ def prepare_ai_assistant_backend_contract(
         now=now,
         settings=settings,
         signature=signature,
-        user_id=request.context.user_id,
+        user_id=validated_request.context.user_id,
     )
 
     try:
         context_boundary = validate_ai_assistant_context_boundary(
-            request.context,
+            validated_request.context,
             require_productive=False,
         )
         usage_context = require_ai_assistant_usage_context(
-            feature=request.feature,
+            feature=validated_request.feature,
             now=now,
-            request_id=request.request_id,
+            request_id=validated_request.request_id,
             settings=settings,
-            signature=request.usage_context_signature,
+            signature=validated_request.usage_context_signature,
             tenant_id=context_boundary.tenant_id,
-            usage_context=request.usage_context,
+            usage_context=validated_request.usage_context,
             user_id=context_boundary.user_id,
         )
         resolved_context = _run_context_resolution(
@@ -118,7 +128,7 @@ def prepare_ai_assistant_backend_contract(
             context_adapters=context_adapters,
         )
         payload = _serialize_ai_assistant_request(
-            request,
+            validated_request,
             context_boundary=context_boundary,
             resolved_context=resolved_context,
             usage_context=usage_context,
@@ -143,7 +153,7 @@ def prepare_ai_assistant_backend_contract(
         context_boundary=context_boundary,
         resolved_context=resolved_context,
         feature=policy.feature,
-        prompt=request.prompt,
+        prompt=validated_request.prompt,
         request_payload_bytes=len(payload.encode("utf-8")),
         request_id=usage_context.request_id,
         usage_context=usage_context,

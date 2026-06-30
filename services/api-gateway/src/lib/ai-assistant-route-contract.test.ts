@@ -110,8 +110,11 @@ describe("AI assistant route contract foundation", () => {
         tenant_id: TENANT_ID,
         user_id: USER_ID,
       },
+      context_boundary_version: "2026-06-30.ai-assistant-context-boundary.v1",
       feature: "ai_assistant",
       request_id: REQUEST_ID,
+      request_classification: "assistant_prompt",
+      runtime_status: "not_yet_productive",
       usage_context: {
         feature: "ai_assistant",
         plan_source: "persisted_server_plan",
