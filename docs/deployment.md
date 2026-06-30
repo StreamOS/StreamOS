@@ -31,6 +31,7 @@ This document defines the production deployment topology for the StreamOS monore
 - `workers/content-job-retry-worker` owns retry orchestration for failed `content_jobs`; it uses the Supabase service-role key server-side and requeues only supported job payloads. Row-level `content_jobs.max_retries` is the source of truth for retry budget, including manual retries from the dashboard.
 - `release-gate-runner` is not a product service. It exists only to provide a Railway-internal shell/runtime that contains the same gate-required release-candidate snapshot as the services under test, so `pnpm rollout:check:production` can run with private Automation Service reachability and the required monorepo sources.
 - `services/api-gateway` must expose a non-secret runtime provenance marker on `/health` so the production gate can prove that the hosted public gateway is running the same release-candidate commit and Railway environment as the `release-gate-runner` before the transcription E2E starts.
+- `services/automation-service` should expose the same non-secret runtime provenance marker class on `/health` for operator same-RC evidence without exposing any secret material.
 - Python does not consume BullMQ directly. Redis is the shared backing service, but BullMQ job semantics remain Node-owned.
 - OpenAI, provider client secrets, Supabase service role keys, and Redis credentials are server-only.
 
@@ -197,6 +198,7 @@ HOST=::
 PORT=4000
 AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE=unsigned_internal_contract
 AUTOMATION_ENTITLEMENT_ASSERTION_SECRET=
+STREAMOS_RC_COMMIT_SHA=
 QUEUE_DEFAULT_NAME=streamos-media
 CLIP_GENERATION_QUEUE_NAME=streamos-clip-generation
 TRANSCRIPTION_QUEUE_NAME=streamos-transcription
@@ -247,6 +249,9 @@ Security model:
   `unsigned_internal_contract`. If it is set to `hmac_sha256`,
   `AUTOMATION_ENTITLEMENT_ASSERTION_SECRET` must also be set on
   `services/api-gateway` and must stay server-only.
+- `STREAMOS_RC_COMMIT_SHA` is an optional non-secret proof marker for
+  target-runtime same-RC evidence. It must remain server-only and does not
+  authorize activation.
 - `REDIS_URL` is mandatory when `NODE_ENV=production`; the gateway fails during startup if it is missing so observability, rate limiting, and replay protection cannot silently fall back to in-memory.
 - CORS allows only `API_GATEWAY_ALLOWED_ORIGINS`; server-to-server calls without an `Origin` header are allowed.
 - Rate limits are fixed-window per client IP, method, and URL. Start with `120` requests per `60000` ms and tighten per endpoint once production traffic is measured.
@@ -293,6 +298,7 @@ HOST=::
 PORT=8000
 AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE=unsigned_internal_contract
 AUTOMATION_ENTITLEMENT_ASSERTION_SECRET=
+STREAMOS_RC_COMMIT_SHA=
 OPENAI_MODEL=gpt-4o
 OPENAI_TITLE_MODEL=gpt-4o-mini
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
@@ -314,6 +320,9 @@ assertion signing and verification. If
 either service, the same secret must be configured on both services. Do not set
 either variable in `apps/web`, `NEXT_PUBLIC_*`, browser bundles, logs, or
 reports.
+`STREAMOS_RC_COMMIT_SHA` is an optional non-secret proof marker for
+target-runtime same-RC evidence. It must remain server-only and it does not
+authorize activation.
 
 Validation:
 
