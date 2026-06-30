@@ -2,6 +2,12 @@ import { z } from "zod";
 import { type TrustedPlanModelSource } from "@streamos/types";
 
 import {
+  buildGatewayAiAssistantObservabilityEvent,
+  emitGatewayAiAssistantObservabilityEvent,
+  type GatewayAiAssistantObservabilityPhase,
+  type GatewayAiAssistantObservabilitySink,
+} from "./ai-assistant-route-observability.js";
+import {
   issueGatewayAiUsageContext,
   type GatewayAiUsageContext,
   type GatewayAiUsageContextIssuanceResult,
@@ -159,6 +165,7 @@ export async function runGatewayAiAssistantRouteContract(params: {
       }) => Promise<AiUsageLedgerEntry | null>)
     | null;
   now?: Date | number | string;
+  observabilitySink?: GatewayAiAssistantObservabilitySink | null;
   plan: unknown;
   planSource: unknown;
   redisStore: GatewayAiUsageRedisStore | null;
@@ -205,6 +212,7 @@ export async function runGatewayAiAssistantRouteContract(params: {
     | null;
 }): Promise<GatewayAiAssistantRouteContractResult> {
   const routeMode = normalizeRouteMode(params.routeMode);
+  const startedAtMs = Date.now();
   const parsedRequest = gatewayAiAssistantRouteContractRequestSchema.safeParse(
     params.request,
   );
@@ -213,7 +221,41 @@ export async function runGatewayAiAssistantRouteContract(params: {
       ? parsedRequest.data.request_id
       : null;
 
+  await observeRouteContractEvent({
+    outcome: routeMode === "test_only_mock" ? "completed" : "unavailable",
+    params,
+    phase: "request_received",
+    reasonCode: parsedRequest.success
+      ? "request_received"
+      : "ai_usage_context_missing",
+    request: parsedRequest.success ? parsedRequest.data : null,
+    requestId,
+    routeMode,
+    startedAtMs,
+  });
+
   if (!parsedRequest.success) {
+    await observeRouteContractEvent({
+      outcome: "deny",
+      params,
+      phase: "admission_denied",
+      reasonCode: "ai_usage_context_missing",
+      request: null,
+      requestId,
+      routeMode,
+      startedAtMs,
+    });
+    await observeRouteContractEvent({
+      outcome: "deny",
+      params,
+      phase: "route_contract_completed",
+      reasonCode: "ai_assistant_admission_denied",
+      request: null,
+      requestId,
+      routeMode,
+      startedAtMs,
+    });
+
     return deny({
       body: {
         admission_reason_code: "ai_usage_context_missing",
@@ -233,6 +275,18 @@ export async function runGatewayAiAssistantRouteContract(params: {
   }
 
   if (routeMode !== "test_only_mock") {
+    await observeRouteContractEvent({
+      estimatedUsageUnits: parsedRequest.data.estimated_usage_units,
+      outcome: "unavailable",
+      params,
+      phase: "route_contract_completed",
+      reasonCode: "ai_assistant_route_unavailable",
+      request: parsedRequest.data,
+      requestId: parsedRequest.data.request_id,
+      routeMode,
+      startedAtMs,
+    });
+
     return deny({
       body: {
         error: "ai_assistant_unavailable",
@@ -251,6 +305,29 @@ export async function runGatewayAiAssistantRouteContract(params: {
 
   const normalizedPlanSource = normalizeSupportedPlanSource(params.planSource);
   if (normalizedPlanSource === null) {
+    await observeRouteContractEvent({
+      estimatedUsageUnits: parsedRequest.data.estimated_usage_units,
+      outcome: "deny",
+      params,
+      phase: "admission_denied",
+      reasonCode: "ai_usage_plan_required",
+      request: parsedRequest.data,
+      requestId: parsedRequest.data.request_id,
+      routeMode,
+      startedAtMs,
+    });
+    await observeRouteContractEvent({
+      estimatedUsageUnits: parsedRequest.data.estimated_usage_units,
+      outcome: "deny",
+      params,
+      phase: "route_contract_completed",
+      reasonCode: "ai_assistant_admission_denied",
+      request: parsedRequest.data,
+      requestId: parsedRequest.data.request_id,
+      routeMode,
+      startedAtMs,
+    });
+
     return deny({
       body: {
         admission_reason_code: "ai_usage_plan_required",
@@ -290,6 +367,14 @@ export async function runGatewayAiAssistantRouteContract(params: {
   });
 
   if (!issuanceResult.allowed || issuanceResult.signedContext === null) {
+    await observeIssuanceFailure({
+      issuanceResult,
+      params,
+      request,
+      routeMode,
+      startedAtMs,
+    });
+
     return buildIssuanceDenial({
       issuanceResult,
       requestId: request.request_id,
@@ -305,9 +390,50 @@ export async function runGatewayAiAssistantRouteContract(params: {
     });
   }
 
+  await observeRouteContractEvent({
+    estimatedUsageUnits: issuanceResult.ledgerEntry?.estimatedUsageUnits,
+    outcome: "completed",
+    params,
+    phase: "ledger_reserved",
+    planAtRequestTime: issuanceResult.ledgerEntry?.planAtRequestTime,
+    planSource: issuanceResult.ledgerEntry?.planSource,
+    reasonCode: "ledger_reserved",
+    request,
+    requestId: request.request_id,
+    routeMode,
+    startedAtMs,
+  });
+  await observeRouteContractEvent({
+    estimatedUsageUnits: issuanceResult.signedContext.estimated_usage_units,
+    outcome: "allow",
+    params,
+    phase: "usage_context_issued",
+    planAtRequestTime: issuanceResult.signedContext.plan_at_request_time,
+    planSource: issuanceResult.signedContext.plan_source,
+    reasonCode: issuanceResult.reasonCode,
+    request,
+    requestId: request.request_id,
+    routeMode,
+    startedAtMs,
+  });
+
   const preparedRequest = createPreparedAutomationRequest({
     request,
     signedContext: issuanceResult.signedContext,
+  });
+
+  await observeRouteContractEvent({
+    estimatedUsageUnits: issuanceResult.signedContext.estimated_usage_units,
+    outcome: "completed",
+    params,
+    phase: "downstream_prepared",
+    planAtRequestTime: issuanceResult.signedContext.plan_at_request_time,
+    planSource: issuanceResult.signedContext.plan_source,
+    reasonCode: "downstream_prepared",
+    request,
+    requestId: request.request_id,
+    routeMode,
+    startedAtMs,
   });
 
   let downstreamInvoked = false;
@@ -323,6 +449,23 @@ export async function runGatewayAiAssistantRouteContract(params: {
       outcome: "model_error",
       safeErrorCategory: "upstream_unavailable",
     };
+  }
+
+  if (downstreamResult.outcome !== "success") {
+    await observeRouteContractEvent({
+      estimatedUsageUnits: issuanceResult.signedContext.estimated_usage_units,
+      outcome: "failed",
+      params,
+      phase: "downstream_failed",
+      planAtRequestTime: issuanceResult.signedContext.plan_at_request_time,
+      planSource: issuanceResult.signedContext.plan_source,
+      reasonCode: "ai_assistant_downstream_unavailable",
+      request,
+      requestId: request.request_id,
+      routeMode,
+      safeErrorCategory: resolveSafeDownstreamErrorCategory(downstreamResult),
+      startedAtMs,
+    });
   }
 
   const meteringResult = await reconcileGatewayAiUsageMetering({
@@ -347,12 +490,44 @@ export async function runGatewayAiAssistantRouteContract(params: {
     writeLedgerEntry: params.writeLedgerEntry ?? null,
   });
 
+  await observeMeteringResult({
+    downstreamResult,
+    meteringResult,
+    params,
+    request,
+    routeMode,
+    signedContext: issuanceResult.signedContext,
+    startedAtMs,
+  });
+
   if (
     !isAcceptableMeteringResult({
       downstreamOutcome: downstreamResult.outcome,
       meteringResult,
     })
   ) {
+    await observeRouteContractEvent({
+      estimatedUsageUnits: issuanceResult.signedContext.estimated_usage_units,
+      finalUsageUnits:
+        downstreamResult.outcome === "success"
+          ? downstreamResult.finalUsageUnits
+          : null,
+      outcome: "failed",
+      params,
+      phase: "route_contract_completed",
+      planAtRequestTime: issuanceResult.signedContext.plan_at_request_time,
+      planSource: issuanceResult.signedContext.plan_source,
+      reasonCode: "ai_assistant_metering_failed",
+      request,
+      requestId: request.request_id,
+      routeMode,
+      safeErrorCategory:
+        downstreamResult.outcome === "success"
+          ? null
+          : resolveSafeDownstreamErrorCategory(downstreamResult),
+      startedAtMs,
+    });
+
     return deny({
       body: {
         error: "ai_assistant_unavailable",
@@ -372,6 +547,21 @@ export async function runGatewayAiAssistantRouteContract(params: {
   }
 
   if (downstreamResult.outcome !== "success") {
+    await observeRouteContractEvent({
+      estimatedUsageUnits: issuanceResult.signedContext.estimated_usage_units,
+      outcome: "unavailable",
+      params,
+      phase: "route_contract_completed",
+      planAtRequestTime: issuanceResult.signedContext.plan_at_request_time,
+      planSource: issuanceResult.signedContext.plan_source,
+      reasonCode: "ai_assistant_downstream_unavailable",
+      request,
+      requestId: request.request_id,
+      routeMode,
+      safeErrorCategory: resolveSafeDownstreamErrorCategory(downstreamResult),
+      startedAtMs,
+    });
+
     return deny({
       body: {
         error: "ai_assistant_unavailable",
@@ -389,6 +579,21 @@ export async function runGatewayAiAssistantRouteContract(params: {
       statusCode: 503,
     });
   }
+
+  await observeRouteContractEvent({
+    estimatedUsageUnits: issuanceResult.signedContext.estimated_usage_units,
+    finalUsageUnits: downstreamResult.finalUsageUnits,
+    outcome: "allow",
+    params,
+    phase: "route_contract_completed",
+    planAtRequestTime: issuanceResult.signedContext.plan_at_request_time,
+    planSource: issuanceResult.signedContext.plan_source,
+    reasonCode: "allowed",
+    request,
+    requestId: request.request_id,
+    routeMode,
+    startedAtMs,
+  });
 
   return {
     allowed: true,
@@ -418,6 +623,147 @@ async function defaultMockAiAssistantDownstreamOperation(
       "AI assistant route contract mock completed without a productive downstream call.",
     outcome: "success",
   };
+}
+
+async function observeIssuanceFailure(params: {
+  issuanceResult: GatewayAiUsageContextIssuanceResult;
+  params: { observabilitySink?: GatewayAiAssistantObservabilitySink | null };
+  request: GatewayAiAssistantRouteContractRequest;
+  routeMode: GatewayAiAssistantRouteContractMode;
+  startedAtMs: number;
+}) {
+  const phase = resolveIssuanceFailurePhase(params.issuanceResult);
+  const denialReasonCode =
+    phase === "rate_limited" || phase === "concurrency_limited"
+      ? (params.issuanceResult.limitDecision?.reasonCode ??
+        params.issuanceResult.reasonCode)
+      : (params.issuanceResult.admissionDecision?.reasonCode ??
+        params.issuanceResult.reasonCode);
+
+  await observeRouteContractEvent({
+    estimatedUsageUnits: params.request.estimated_usage_units,
+    outcome:
+      phase === "admission_denied" ||
+      phase === "rate_limited" ||
+      phase === "concurrency_limited"
+        ? "deny"
+        : "unavailable",
+    params: params.params,
+    phase,
+    planAtRequestTime: params.issuanceResult.admissionDecision?.normalizedPlan,
+    planSource: params.issuanceResult.admissionDecision?.planSource,
+    reasonCode: denialReasonCode,
+    request: params.request,
+    requestId: params.request.request_id,
+    routeMode: params.routeMode,
+    startedAtMs: params.startedAtMs,
+  });
+
+  await observeRouteContractEvent({
+    estimatedUsageUnits: params.request.estimated_usage_units,
+    outcome:
+      phase === "admission_denied" ||
+      phase === "rate_limited" ||
+      phase === "concurrency_limited"
+        ? "deny"
+        : "unavailable",
+    params: params.params,
+    phase: "route_contract_completed",
+    planAtRequestTime: params.issuanceResult.admissionDecision?.normalizedPlan,
+    planSource: params.issuanceResult.admissionDecision?.planSource,
+    reasonCode:
+      params.issuanceResult.reasonCode === "ai_usage_admission_denied" ||
+      params.issuanceResult.reasonCode === "ai_usage_limit_denied"
+        ? "ai_assistant_admission_denied"
+        : params.issuanceResult.admissionDecision?.reasonCode ===
+            "ai_usage_not_productive"
+          ? "ai_assistant_not_productive"
+          : "ai_assistant_usage_context_unavailable",
+    request: params.request,
+    requestId: params.request.request_id,
+    routeMode: params.routeMode,
+    startedAtMs: params.startedAtMs,
+  });
+}
+
+async function observeMeteringResult(params: {
+  downstreamResult: GatewayAiAssistantDownstreamResult;
+  meteringResult: GatewayAiUsageMeteringReconciliationResult;
+  params: { observabilitySink?: GatewayAiAssistantObservabilitySink | null };
+  request: GatewayAiAssistantRouteContractRequest;
+  routeMode: GatewayAiAssistantRouteContractMode;
+  signedContext: SignedGatewayAiUsageContext;
+  startedAtMs: number;
+}) {
+  const baseParams = {
+    estimatedUsageUnits: params.signedContext.estimated_usage_units,
+    planAtRequestTime: params.signedContext.plan_at_request_time,
+    planSource: params.signedContext.plan_source,
+    request: params.request,
+    requestId: params.request.request_id,
+    routeMode: params.routeMode,
+    startedAtMs: params.startedAtMs,
+  } as const;
+
+  if (
+    params.meteringResult.reasonCode === "ai_usage_metering_recorded" ||
+    (params.meteringResult.reasonCode ===
+      "ai_usage_metering_idempotent_replay" &&
+      params.downstreamResult.outcome === "success")
+  ) {
+    await observeRouteContractEvent({
+      ...baseParams,
+      finalUsageUnits:
+        params.downstreamResult.outcome === "success"
+          ? params.downstreamResult.finalUsageUnits
+          : null,
+      outcome: "completed",
+      params: params.params,
+      phase: "metering_recorded",
+      reasonCode: params.meteringResult.reasonCode,
+    });
+  } else if (
+    params.meteringResult.reasonCode === "ai_usage_metering_released"
+  ) {
+    await observeRouteContractEvent({
+      ...baseParams,
+      outcome: "released",
+      params: params.params,
+      phase: "metering_released",
+      reasonCode: params.meteringResult.reasonCode,
+      safeErrorCategory: "policy_blocked",
+    });
+  } else {
+    await observeRouteContractEvent({
+      ...baseParams,
+      outcome: "failed",
+      params: params.params,
+      phase: "metering_denied",
+      reasonCode: params.meteringResult.reasonCode,
+      safeErrorCategory:
+        params.downstreamResult.outcome === "success"
+          ? null
+          : resolveSafeDownstreamErrorCategory(params.downstreamResult),
+    });
+  }
+
+  if (params.meteringResult.concurrencyRelease?.reasonCode === "released") {
+    await observeRouteContractEvent({
+      ...baseParams,
+      outcome: "released",
+      params: params.params,
+      phase: "concurrency_released",
+      reasonCode: "released",
+    });
+  } else if (params.meteringResult.concurrencyRelease !== null) {
+    await observeRouteContractEvent({
+      ...baseParams,
+      outcome: "failed",
+      params: params.params,
+      phase: "concurrency_release_failed",
+      reasonCode: params.meteringResult.reasonCode,
+    });
+  }
 }
 
 function createPreparedAutomationRequest(params: {
@@ -608,4 +954,63 @@ function isAcceptableMeteringResult(params: {
     params.meteringResult.reasonCode === "ai_usage_metering_failed" ||
     params.meteringResult.reasonCode === "ai_usage_metering_idempotent_replay"
   );
+}
+
+async function observeRouteContractEvent(params: {
+  estimatedUsageUnits?: number | null;
+  finalUsageUnits?: number | null;
+  outcome:
+    | "allow"
+    | "completed"
+    | "deny"
+    | "failed"
+    | "released"
+    | "unavailable";
+  params: { observabilitySink?: GatewayAiAssistantObservabilitySink | null };
+  phase: GatewayAiAssistantObservabilityPhase;
+  planAtRequestTime?: string | null;
+  planSource?: string | null;
+  reasonCode: string;
+  request: GatewayAiAssistantRouteContractRequest | null;
+  requestId: string | null;
+  routeMode: GatewayAiAssistantRouteContractMode;
+  safeErrorCategory?: string | null;
+  startedAtMs: number;
+}) {
+  await emitGatewayAiAssistantObservabilityEvent({
+    event: buildGatewayAiAssistantObservabilityEvent({
+      durationMs: Math.max(0, Date.now() - params.startedAtMs),
+      estimatedUsageUnits: params.estimatedUsageUnits ?? null,
+      finalUsageUnits: params.finalUsageUnits ?? null,
+      outcome: params.outcome,
+      phase: params.phase,
+      planAtRequestTime: params.planAtRequestTime ?? null,
+      planSource: params.planSource ?? null,
+      reasonCode: params.reasonCode,
+      requestClassification: params.request?.request_classification ?? null,
+      requestId: params.requestId,
+      routeMode: params.routeMode,
+      safeErrorCategory: params.safeErrorCategory ?? null,
+      tenantId: params.request?.context.tenant_id ?? null,
+      userId: params.request?.context.user_id ?? null,
+    }),
+    sink: params.params.observabilitySink ?? null,
+  });
+}
+
+function resolveIssuanceFailurePhase(
+  issuanceResult: GatewayAiUsageContextIssuanceResult,
+): GatewayAiAssistantObservabilityPhase {
+  if (issuanceResult.reasonCode === "ai_usage_limit_denied") {
+    return issuanceResult.limitDecision?.reasonCode ===
+      "ai_usage_concurrency_limited"
+      ? "concurrency_limited"
+      : "rate_limited";
+  }
+
+  if (issuanceResult.reasonCode === "ai_usage_admission_denied") {
+    return "admission_denied";
+  }
+
+  return "usage_context_unavailable";
 }

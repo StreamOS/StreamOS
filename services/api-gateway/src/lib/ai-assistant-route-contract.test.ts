@@ -4,6 +4,7 @@ import {
   runGatewayAiAssistantRouteContract,
   type GatewayAiAssistantPreparedAutomationRequest,
 } from "./ai-assistant-route-contract.js";
+import { createInMemoryGatewayAiAssistantObservabilityRecorder } from "./ai-assistant-route-observability.js";
 import { resolveGatewayAiUsageAdmissionPolicies } from "./ai-usage-admission.js";
 import { resolveAutomationEntitlementAssertionSigningConfig } from "./automation-entitlement-signing.js";
 import {
@@ -53,6 +54,7 @@ describe("AI assistant route contract foundation", () => {
       null;
     let released = 0;
     let recordedWrite: unknown = null;
+    const recorder = createInMemoryGatewayAiAssistantObservabilityRecorder();
 
     const result = await runGatewayAiAssistantRouteContract({
       admissionPolicies: createActiveAdmissionPolicies(),
@@ -67,6 +69,7 @@ describe("AI assistant route contract foundation", () => {
       loadLedgerEntry: async () => reservedLedgerEntry(),
       plan: "pro",
       planSource: "persisted_server_plan",
+      observabilitySink: recorder.sink,
       redisStore: new InMemoryGatewayAiUsageGuardStore(),
       releaseConcurrencyClaim: async () => {
         released += 1;
@@ -136,6 +139,21 @@ describe("AI assistant route contract foundation", () => {
     expect(serializedBody).not.toContain("private prompt");
     expect(serializedBody).not.toContain("https://");
     expect(serializedBody).not.toContain("sk-secret");
+    expect(recorder.events.map((event) => event.phase)).toEqual([
+      "request_received",
+      "ledger_reserved",
+      "usage_context_issued",
+      "downstream_prepared",
+      "metering_recorded",
+      "concurrency_released",
+      "route_contract_completed",
+    ]);
+    expect(recorder.events.at(-1)).toMatchObject({
+      final_usage_units: 9,
+      outcome: "allow",
+      phase: "route_contract_completed",
+      reason_code: "allowed",
+    });
   });
 
   it("denies the mock route when the feature remains not yet productive", async () => {
@@ -190,9 +208,12 @@ describe("AI assistant route contract foundation", () => {
   });
 
   it("denies before downstream execution when plan admission fails for a free account", async () => {
+    const recorder = createInMemoryGatewayAiAssistantObservabilityRecorder();
+
     const result = await runGatewayAiAssistantRouteContract({
       admissionPolicies: createActiveAdmissionPolicies(),
       limitPolicies: createEnabledLimitPolicies(),
+      observabilitySink: recorder.sink,
       plan: "free",
       planSource: "persisted_server_plan",
       redisStore: new InMemoryGatewayAiUsageGuardStore(),
@@ -210,10 +231,21 @@ describe("AI assistant route contract foundation", () => {
       reason_code: "ai_assistant_admission_denied",
       usage_context_reason_code: "ai_usage_admission_denied",
     });
+    expect(recorder.events.map((event) => event.phase)).toEqual([
+      "request_received",
+      "admission_denied",
+      "route_contract_completed",
+    ]);
+    expect(recorder.events.at(-2)).toMatchObject({
+      outcome: "deny",
+      phase: "admission_denied",
+      reason_code: "ai_usage_plan_denied",
+    });
   });
 
   it("denies before downstream execution when rate limiting blocks the request", async () => {
     const store = new InMemoryGatewayAiUsageGuardStore();
+    const recorder = createInMemoryGatewayAiAssistantObservabilityRecorder();
 
     const first = await runGatewayAiAssistantRouteContract({
       admissionPolicies: createActiveAdmissionPolicies(),
@@ -227,12 +259,14 @@ describe("AI assistant route contract foundation", () => {
       signingConfig: createSigningConfig(),
       writeLedgerEntry: async () => recordedLedgerEntry(),
       loadLedgerEntry: async () => reservedLedgerEntry(),
+      observabilitySink: recorder.sink,
     });
     const denied = await runGatewayAiAssistantRouteContract({
       admissionPolicies: createActiveAdmissionPolicies(),
       limitPolicies: createEnabledLimitPolicies({ burstLimit: 1 }),
       plan: "pro",
       planSource: "persisted_server_plan",
+      observabilitySink: recorder.sink,
       redisStore: store,
       request: baseRequest({ request_id: "req-124" }),
       reserveLedgerEntry: async () => reservedLedgerRow("req-124"),
@@ -249,6 +283,17 @@ describe("AI assistant route contract foundation", () => {
       limit_reason_code: "ai_usage_rate_limited",
       reason_code: "ai_assistant_admission_denied",
       usage_context_reason_code: "ai_usage_limit_denied",
+    });
+    expect(recorder.events.slice(-3).map((event) => event.phase)).toEqual([
+      "request_received",
+      "rate_limited",
+      "route_contract_completed",
+    ]);
+    expect(recorder.events.at(-2)).toMatchObject({
+      outcome: "deny",
+      phase: "rate_limited",
+      reason_code: "ai_usage_rate_limited",
+      request_id: "req-124",
     });
   });
 
@@ -277,6 +322,7 @@ describe("AI assistant route contract foundation", () => {
   it("reconciles denied usage metering when the mocked downstream boundary fails", async () => {
     let deniedWrite: unknown = null;
     let released = 0;
+    const recorder = createInMemoryGatewayAiAssistantObservabilityRecorder();
 
     const result = await runGatewayAiAssistantRouteContract({
       admissionPolicies: createActiveAdmissionPolicies(),
@@ -286,6 +332,7 @@ describe("AI assistant route contract foundation", () => {
       }),
       limitPolicies: createEnabledLimitPolicies(),
       loadLedgerEntry: async () => reservedLedgerEntry(),
+      observabilitySink: recorder.sink,
       plan: "pro",
       planSource: "persisted_server_plan",
       redisStore: new InMemoryGatewayAiUsageGuardStore(),
@@ -329,9 +376,28 @@ describe("AI assistant route contract foundation", () => {
       tenantId: TENANT_ID,
       userId: USER_ID,
     });
+    expect(recorder.events.map((event) => event.phase)).toEqual([
+      "request_received",
+      "ledger_reserved",
+      "usage_context_issued",
+      "downstream_prepared",
+      "downstream_failed",
+      "metering_denied",
+      "concurrency_released",
+      "route_contract_completed",
+    ]);
+    expect(
+      recorder.events.find((event) => event.phase === "downstream_failed"),
+    ).toMatchObject({
+      outcome: "failed",
+      reason_code: "ai_assistant_downstream_unavailable",
+      safe_error_category: "request_timeout",
+    });
   });
 
   it("denies when ledger reservation fails and does not invoke the downstream boundary", async () => {
+    const recorder = createInMemoryGatewayAiAssistantObservabilityRecorder();
+
     const result = await runGatewayAiAssistantRouteContract({
       admissionPolicies: createActiveAdmissionPolicies(),
       downstreamOperation: async () => ({
@@ -339,6 +405,7 @@ describe("AI assistant route contract foundation", () => {
         outcome: "success",
       }),
       limitPolicies: createEnabledLimitPolicies(),
+      observabilitySink: recorder.sink,
       plan: "pro",
       planSource: "persisted_server_plan",
       redisStore: new InMemoryGatewayAiUsageGuardStore(),
@@ -364,6 +431,11 @@ describe("AI assistant route contract foundation", () => {
     const serializedBody = JSON.stringify(result.body);
     expect(serializedBody).not.toContain("private.example.com");
     expect(serializedBody).not.toContain("sk-secret");
+    expect(recorder.events.map((event) => event.phase)).toEqual([
+      "request_received",
+      "usage_context_unavailable",
+      "route_contract_completed",
+    ]);
   });
 
   it("fails closed when metering cannot be finalized after downstream success", async () => {
@@ -391,6 +463,81 @@ describe("AI assistant route contract foundation", () => {
       error: "ai_assistant_unavailable",
       metering_reason_code: "ai_usage_metering_unavailable",
       reason_code: "ai_assistant_metering_failed",
+    });
+  });
+
+  it("emits a concurrency release failure event without overriding the safe failure result", async () => {
+    const recorder = createInMemoryGatewayAiAssistantObservabilityRecorder();
+
+    const result = await runGatewayAiAssistantRouteContract({
+      admissionPolicies: createActiveAdmissionPolicies(),
+      downstreamOperation: async () => ({
+        finalUsageUnits: 9,
+        outcome: "success",
+      }),
+      limitPolicies: createEnabledLimitPolicies(),
+      loadLedgerEntry: async () => reservedLedgerEntry(),
+      observabilitySink: recorder.sink,
+      plan: "pro",
+      planSource: "persisted_server_plan",
+      redisStore: new InMemoryGatewayAiUsageGuardStore(),
+      releaseConcurrencyClaim: async () => ({
+        reasonCode: "ai_usage_limit_unavailable",
+        released: false,
+        remainingConcurrency: null,
+      }),
+      request: baseRequest(),
+      reserveLedgerEntry: async () => reservedLedgerEntry(),
+      routeMode: "test_only_mock",
+      signingConfig: createSigningConfig(),
+      writeLedgerEntry: async () => recordedLedgerEntry(),
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.body).toMatchObject({
+      error: "ai_assistant_unavailable",
+      metering_reason_code: "ai_usage_concurrency_release_failed",
+      reason_code: "ai_assistant_metering_failed",
+    });
+    expect(
+      recorder.events.find(
+        (event) => event.phase === "concurrency_release_failed",
+      ),
+    ).toMatchObject({
+      outcome: "failed",
+      reason_code: "ai_usage_concurrency_release_failed",
+    });
+  });
+
+  it("keeps the route contract safe when the observability sink throws", async () => {
+    const result = await runGatewayAiAssistantRouteContract({
+      admissionPolicies: createActiveAdmissionPolicies(),
+      downstreamOperation: async () => ({
+        finalUsageUnits: 9,
+        outcome: "success",
+      }),
+      limitPolicies: createEnabledLimitPolicies(),
+      loadLedgerEntry: async () => reservedLedgerEntry(),
+      observabilitySink: async () => {
+        throw new Error(
+          "https://private.example.com/observability?token=sk-secret",
+        );
+      },
+      plan: "pro",
+      planSource: "persisted_server_plan",
+      redisStore: new InMemoryGatewayAiUsageGuardStore(),
+      request: baseRequest({
+        prompt: "private prompt that must never leak through observability",
+      }),
+      reserveLedgerEntry: async () => reservedLedgerEntry(),
+      routeMode: "test_only_mock",
+      signingConfig: createSigningConfig(),
+      writeLedgerEntry: async () => recordedLedgerEntry(),
+    });
+
+    expect(result.allowed).toBe(true);
+    expect(result.body).toMatchObject({
+      reason_code: "allowed",
     });
   });
 });
