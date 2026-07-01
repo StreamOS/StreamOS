@@ -217,7 +217,7 @@ def build_backend_request(
         else usage_context
     )
     resolved_signature = (
-        _try_sign_usage_context(resolved_usage_context)
+        try_sign_usage_context(resolved_usage_context)
         if inject_usage_context
         and usage_context_signature is None
         and isinstance(resolved_usage_context, dict)
@@ -285,7 +285,7 @@ def run_backend_contract(
     return called, result
 
 
-def _try_sign_usage_context(payload: dict[str, object]) -> str | None:
+def try_sign_usage_context(payload: dict[str, object]) -> str | None:
     try:
         return sign_usage_context(payload)
     except ValidationError:
