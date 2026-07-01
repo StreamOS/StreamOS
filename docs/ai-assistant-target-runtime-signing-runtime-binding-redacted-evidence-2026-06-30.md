@@ -76,8 +76,8 @@ gateway_signing_status:
 
 automation_signing_status:
   service: automation-service
-  signing_mode_env_name: AI_ASSISTANT_SIGNING_MODE
-  signing_secret_env_name: AI_ASSISTANT_SIGNING_SECRET
+  signing_mode_env_name: AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE
+  signing_secret_env_name: AUTOMATION_ENTITLEMENT_ASSERTION_SECRET
   signing_secret_owner_path_class: target_runtime
   browser_exposed: false
   evidence_secret_safe: true
