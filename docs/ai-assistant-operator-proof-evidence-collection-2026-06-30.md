@@ -290,7 +290,7 @@ Even future complete reachability and signing evidence would still leave separat
 
 Exactly one next slice is recommended:
 
-`AI Assistant Operator Proof Evidence Collection Follow-up`
+`AI Assistant Operator Proof Evidence Collection Follow-up-2026-07-01`
 
 Why:
 
