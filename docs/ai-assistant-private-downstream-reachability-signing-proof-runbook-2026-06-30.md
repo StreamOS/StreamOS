@@ -301,13 +301,14 @@ This runbook does not authorize:
 
 ## Operator Checklist
 
-Before running this checklist, set `{{RC_SHA}}` to the active release-candidate commit SHA for the evaluation window.
 Placeholder note for `{{RC_SHA}}`:
 
 - `{{RC_SHA}}` is a manual placeholder in this runbook template.
 - The template may retain `{{RC_SHA}}`, but recorded evidence artifacts must replace it with the concrete, verified, non-secret RC SHA.
 - Approved tooling may be used if it performs the same substitution.
 - If the concrete SHA cannot be recorded, mark the evidence blocked or incomplete; do not treat the literal token `{{RC_SHA}}` as proof.
+
+Before running this checklist, set `{{RC_SHA}}` to the active release-candidate commit SHA for the evaluation window.
 
 - confirm the evaluated artifact still references RC SHA `{{RC_SHA}}` only
   Redaction rule: record the SHA only, never any secret-bearing deploy transcript
