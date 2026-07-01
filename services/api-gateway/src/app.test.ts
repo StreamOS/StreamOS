@@ -310,6 +310,46 @@ describe("api-gateway", () => {
     }
   });
 
+  it("ignores the underscored RC commit alias and prefers the canonical runtime commit env", async () => {
+    const previousLegacyRcCommit = process.env.STREAM_OS_RC_COMMIT_SHA;
+    process.env.STREAM_OS_RC_COMMIT_SHA =
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    const restoreRuntimeEnv = applyApiGatewayRuntimeProvenanceEnv({
+      APP_ENV: undefined,
+      RAILWAY_ENVIRONMENT: undefined,
+      RAILWAY_ENVIRONMENT_NAME: "production",
+      RAILWAY_GIT_COMMIT_SHA: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      RAILWAY_SERVICE: undefined,
+      RAILWAY_SERVICE_NAME: "api-gateway",
+      STREAMOS_RC_COMMIT_SHA: "011753c42cc2b0312bd5556ab5da25e873df19c5",
+    });
+    const app = createApp({ runtimeProvenance: null });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const response = await fetch(`http://127.0.0.1:${address.port}/health`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-streamos-runtime-commit")).toBe(
+        "011753c42cc2b0312bd5556ab5da25e873df19c5",
+      );
+    } finally {
+      restoreRuntimeEnv();
+      if (previousLegacyRcCommit === undefined) {
+        delete process.env.STREAM_OS_RC_COMMIT_SHA;
+      } else {
+        process.env.STREAM_OS_RC_COMMIT_SHA = previousLegacyRcCommit;
+      }
+      server.close();
+    }
+  });
+
   it("serves deterministic unknown provenance markers when runtime provenance is unavailable", async () => {
     const restoreRuntimeEnv = applyApiGatewayRuntimeProvenanceEnv({
       APP_ENV: undefined,
