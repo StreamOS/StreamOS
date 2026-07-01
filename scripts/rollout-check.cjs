@@ -701,6 +701,14 @@ function buildDeploymentArgs(options) {
     args.push("--expect-private-automation");
   }
 
+  if (options.mode === PRODUCTION_GATE_MODE) {
+    args.push("--require-api-gateway-provenance");
+
+    if (options.expectedRunnerCommit) {
+      args.push("--expected-api-gateway-commit", options.expectedRunnerCommit);
+    }
+  }
+
   if (options.timeoutMs) {
     args.push("--timeout-ms", options.timeoutMs);
   }

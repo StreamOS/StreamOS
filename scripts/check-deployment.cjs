@@ -10,6 +10,7 @@ const {
 } = require("./config/vercel-env-policy.cjs");
 
 const DEFAULT_TIMEOUT_MS = 5_000;
+const SAFE_RUNTIME_LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/i;
 
 function parseArgs(argv) {
   const options = {
@@ -27,6 +28,11 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (arg === "--require-api-gateway-provenance") {
+      options.requireApiGatewayProvenance = true;
+      continue;
+    }
+
     if (arg === "--help" || arg === "-h") {
       options.help = true;
       continue;
@@ -41,6 +47,31 @@ function parseArgs(argv) {
     if (apiGatewayUrlMatch.matched) {
       options.apiGatewayUrl = apiGatewayUrlMatch.value.trim();
       index = apiGatewayUrlMatch.nextIndex;
+      continue;
+    }
+
+    const expectedApiGatewayCommitMatch = consumeValueFlag(
+      argv,
+      index,
+      "expected-api-gateway-commit",
+    );
+
+    if (expectedApiGatewayCommitMatch.matched) {
+      options.expectedApiGatewayCommit =
+        expectedApiGatewayCommitMatch.value.trim();
+      index = expectedApiGatewayCommitMatch.nextIndex;
+      continue;
+    }
+
+    const expectedEnvironmentMatch = consumeValueFlag(
+      argv,
+      index,
+      "expected-environment",
+    );
+
+    if (expectedEnvironmentMatch.matched) {
+      options.expectedEnvironment = expectedEnvironmentMatch.value.trim();
+      index = expectedEnvironmentMatch.nextIndex;
       continue;
     }
 
@@ -93,7 +124,12 @@ Options:
   --api-gateway-url URL          API Gateway base URL. Falls back to API_GATEWAY_URL.
   --automation-service-url URL   Automation Service base URL. Falls back to AUTOMATION_SERVICE_URL.
   --env-file PATH                Load key=value pairs before reading process.env.
+  --expected-api-gateway-commit SHA
+                                 Expected non-secret api-gateway runtime commit marker.
+  --expected-environment NAME    Expected non-secret Railway environment marker.
   --expect-private-automation    Fail if AUTOMATION_SERVICE_URL is public-facing.
+  --require-api-gateway-provenance
+                                 Fail if public api-gateway /health lacks runtime provenance.
   --timeout-ms N                 Per-request timeout. Default: ${DEFAULT_TIMEOUT_MS}.
 `);
 }
@@ -239,9 +275,9 @@ function assertApiGatewayRuntimeProvenance(
     );
   }
 
-  if (!environment) {
+  if (!SAFE_RUNTIME_LABEL_PATTERN.test(environment)) {
     throw new Error(
-      "api-gateway runtime provenance is missing the Railway environment marker.",
+      "api-gateway runtime provenance is missing a safe Railway environment marker.",
     );
   }
 
@@ -261,6 +297,27 @@ function assertApiGatewayRuntimeProvenance(
     environment,
     gitCommit,
     service,
+  };
+}
+
+function resolveApiGatewayRuntimeProvenanceExpectation(env, options = {}) {
+  const expectedCommit =
+    options.expectedApiGatewayCommit?.trim() ||
+    env.STREAMOS_RC_COMMIT_SHA?.trim() ||
+    "";
+  const expectedEnvironment =
+    options.expectedEnvironment?.trim() ||
+    env.RAILWAY_ENVIRONMENT_NAME?.trim() ||
+    env.RAILWAY_ENVIRONMENT?.trim() ||
+    "";
+
+  return {
+    expectedCommit,
+    expectedEnvironment,
+    required:
+      Boolean(options.requireApiGatewayProvenance) ||
+      expectedCommit.length > 0 ||
+      expectedEnvironment.length > 0,
   };
 }
 
@@ -307,11 +364,33 @@ async function main() {
     );
   }
 
-  await fetchHealth({
+  const apiGatewayHealth = await fetchHealthDetails({
     expectedService: "api-gateway",
     timeoutMs: options.timeoutMs,
     url: apiGatewayUrl,
   });
+  const apiGatewayProvenanceExpectation =
+    resolveApiGatewayRuntimeProvenanceExpectation(env, options);
+
+  if (apiGatewayProvenanceExpectation.required) {
+    const apiGatewayProvenance = assertApiGatewayRuntimeProvenance(
+      apiGatewayHealth.headers,
+      {
+        expectedCommit:
+          apiGatewayProvenanceExpectation.expectedCommit || undefined,
+        expectedEnvironment:
+          apiGatewayProvenanceExpectation.expectedEnvironment || undefined,
+      },
+    );
+
+    console.log(
+      `api-gateway runtime provenance ok: commit ${apiGatewayProvenance.gitCommit.slice(
+        0,
+        12,
+      )}, environment ${apiGatewayProvenance.environment}`,
+    );
+  }
+
   console.log(`api-gateway health ok: ${new URL("/health", apiGatewayUrl)}`);
 
   await fetchHealth({
@@ -350,5 +429,6 @@ module.exports = {
   printHelp,
   requestHealth,
   requireUrl,
+  resolveApiGatewayRuntimeProvenanceExpectation,
   validateHealthPayload,
 };

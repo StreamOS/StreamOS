@@ -11,6 +11,7 @@ const {
   assertNoClientAiSecrets,
   assertApiGatewayRuntimeProvenance,
   parseArgs: parseDeploymentArgs,
+  resolveApiGatewayRuntimeProvenanceExpectation,
 } = require("./check-deployment.cjs");
 const {
   API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES,
@@ -137,6 +138,27 @@ test("deployment parser accepts split env-file syntax", () => {
   assert.equal(options.apiGatewayUrl, "https://api.example.com");
 });
 
+test("deployment parser accepts api-gateway provenance gate flags", () => {
+  const options = parseDeploymentArgs([
+    "--api-gateway-url",
+    "https://api.example.com",
+    "--automation-service-url",
+    "http://automation-service.railway.internal:8000",
+    "--expected-api-gateway-commit",
+    "4c0b19ffec5bf41e9802bd6d7e929d6302aca797",
+    "--expected-environment",
+    "production",
+    "--require-api-gateway-provenance",
+  ]);
+
+  assert.equal(
+    options.expectedApiGatewayCommit,
+    "4c0b19ffec5bf41e9802bd6d7e929d6302aca797",
+  );
+  assert.equal(options.expectedEnvironment, "production");
+  assert.equal(options.requireApiGatewayProvenance, true);
+});
+
 test("deployment check blocks NEXT_PUBLIC_OPENAI* variables", () => {
   assert.throws(
     () =>
@@ -194,6 +216,44 @@ test("deployment check rejects api-gateway runtime provenance commit mismatches"
   );
 });
 
+test("deployment check rejects unsafe api-gateway runtime environment markers", () => {
+  assert.throws(
+    () =>
+      assertApiGatewayRuntimeProvenance({
+        "x-streamos-runtime-service": "api-gateway",
+        "x-streamos-runtime-commit": "4c0b19ffec5bf41e9802bd6d7e929d6302aca797",
+        "x-streamos-runtime-environment":
+          "https://api-gateway-production.railway.internal",
+      }),
+    /safe Railway environment marker/,
+  );
+});
+
+test("deployment provenance expectation uses non-secret runtime markers when present", () => {
+  assert.deepEqual(
+    resolveApiGatewayRuntimeProvenanceExpectation(
+      {
+        STREAMOS_RC_COMMIT_SHA: "4c0b19ffec5bf41e9802bd6d7e929d6302aca797",
+        RAILWAY_ENVIRONMENT_NAME: "production",
+      },
+      {},
+    ),
+    {
+      expectedCommit: "4c0b19ffec5bf41e9802bd6d7e929d6302aca797",
+      expectedEnvironment: "production",
+      required: true,
+    },
+  );
+});
+
+test("deployment provenance expectation stays optional for local diagnostics without markers", () => {
+  assert.deepEqual(resolveApiGatewayRuntimeProvenanceExpectation({}, {}), {
+    expectedCommit: "",
+    expectedEnvironment: "",
+    required: false,
+  });
+});
+
 test("rollout parser accepts split env-file syntax and builders emit split args", () => {
   const options = parseRolloutArgs([
     "--env-file",
@@ -215,6 +275,35 @@ test("rollout parser accepts split env-file syntax and builders emit split args"
     "http://automation-service.railway.internal:8000",
     "--env-file",
     ".env",
+    "--require-api-gateway-provenance",
+  ]);
+});
+
+test("rollout deployment builder forwards expected api-gateway provenance commit", () => {
+  const options = parseRolloutArgs([
+    "--mode",
+    "production-gate",
+    "--skip-docker",
+    "--allow-hosted-e2e",
+    "--expect-private-automation",
+    "--api-gateway-url",
+    "https://api.example.com",
+    "--automation-service-url",
+    "http://automation-service.railway.internal:8000",
+    "--expected-runner-commit",
+    "4c0b19ffec5bf41e9802bd6d7e929d6302aca797",
+  ]);
+
+  assert.deepEqual(buildDeploymentArgs(options), [
+    "scripts/check-deployment.cjs",
+    "--api-gateway-url",
+    "https://api.example.com",
+    "--automation-service-url",
+    "http://automation-service.railway.internal:8000",
+    "--expect-private-automation",
+    "--require-api-gateway-provenance",
+    "--expected-api-gateway-commit",
+    "4c0b19ffec5bf41e9802bd6d7e929d6302aca797",
   ]);
 });
 
