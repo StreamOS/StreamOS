@@ -75,6 +75,12 @@ gateway_signing_status:
   gateway_signing_secret_present: false
 
 automation_signing_status:
+  service: automation-service
+  signing_mode_env_name: AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE
+  signing_secret_env_name: AUTOMATION_ENTITLEMENT_ASSERTION_SECRET
+  signing_secret_owner_path_class: unknown
+  browser_exposed: false
+  evidence_secret_safe: true
   automation_signing_mode_present: false
   automation_signing_mode_value_class: missing
   automation_signing_secret_present: false
@@ -91,6 +97,12 @@ Observed redacted facts:
 
 ```yaml
 signing_parity_summary:
+  category: gateway_automation_signing_parity
+  gateway_mode_expected_for_ai_assistant: hmac_sha256
+  automation_mode_expected_for_ai_assistant: hmac_sha256
+  browser_exposed: false
+  evidence_secret_safe: true
+  signing_configuration_ready_for_next_review: false
   signing_mode_parity: aligned
   signing_secret_presence_parity: aligned
   signing_owner_path_parity: unknown
@@ -101,6 +113,24 @@ Interpretation:
 - `signing_mode_parity=aligned` here means both services are aligned on absence, not that they are activation-ready
 - `signing_secret_presence_parity=aligned` here means both services are aligned on absence, not that they are activation-ready
 - `signing_owner_path_parity=unknown` remains necessary because this collection intentionally did not disclose or compare raw owner-path details beyond server-side service scope
+
+## Signing Evidence Manifest
+
+```yaml
+signing_evidence_manifest:
+  evidence_scope:
+    - target-runtime signing evidence (redacted) for api-gateway
+    - target-runtime signing evidence (redacted) for automation-service
+    - signing parity outcomes
+    - runtime-binding evidence (separately collected)
+  rc_sha: not_fully_proven_in_this_artifact
+  target_environment: production
+  proof_runtime_class: target_runtime
+  collected_at: 2026-06-30T23:00:34.3616319+02:00
+  operator_scope: redacted_evidence_collection_no_secret_extraction
+  activation_status: activation_not_allowed_now
+  secret_safe_review_status: passed_no_secret_values_copied_printed_or_stored
+```
 
 ## Runtime-Binding Evidence
 
@@ -131,15 +161,12 @@ Observed redacted facts:
 
 ```yaml
 secret_safety_review:
+  category: activation_evidence_secret_safe
   secrets_present: false
   tokens_present: false
   private_urls_present: false
-  private_hostnames_present: false
   signatures_present: false
   raw_payloads_present: false
-  raw_prompts_present: false
-  raw_contexts_present: false
-  model_responses_present: false
   raw_errors_present: false
   review_result: secret_safe
 ```
