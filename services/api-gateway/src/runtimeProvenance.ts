@@ -54,24 +54,22 @@ function isApiGatewayRuntimeProvenance(
   );
 }
 
-function readSafeRuntimeLabel(value: string | undefined): string | null {
+function readSafeValue(value: string | undefined, pattern: RegExp): string | null {
   const trimmed = value?.trim();
 
-  if (!trimmed || !SAFE_RUNTIME_LABEL_PATTERN.test(trimmed)) {
+  if (!trimmed || !pattern.test(trimmed)) {
     return null;
   }
 
   return trimmed;
 }
 
+function readSafeRuntimeLabel(value: string | undefined): string | null {
+  return readSafeValue(value, SAFE_RUNTIME_LABEL_PATTERN);
+}
+
 function readSafeGitCommit(value: string | undefined): string | null {
-  const trimmed = value?.trim();
-
-  if (!trimmed || !SAFE_GIT_COMMIT_PATTERN.test(trimmed)) {
-    return null;
-  }
-
-  return trimmed;
+  return readSafeValue(value, SAFE_GIT_COMMIT_PATTERN);
 }
 
 export function readApiGatewayRuntimeProvenance(): ApiGatewayRuntimeProvenance | null {
