@@ -36,7 +36,7 @@ RUN set -eu; \
     --git-sha "${commit_sha}" \
     --git-ref "${GITHUB_REF:-refs/heads/${RAILWAY_GIT_BRANCH:-main}}" \
     --environment "${RAILWAY_ENVIRONMENT_NAME:-production}" \
-    --repository "${GITHUB_REPOSITORY:-}" \
+    --repository "${GITHUB_REPOSITORY:-StreamOS/StreamOS}" \
     --workflow "${GITHUB_WORKFLOW:-railway-build}" \
     --run-id "${GITHUB_RUN_ID:-${RAILWAY_DEPLOYMENT_ID:-railway-build}}" \
     --run-attempt "${GITHUB_RUN_ATTEMPT:-1}"
