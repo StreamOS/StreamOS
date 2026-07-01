@@ -91,6 +91,12 @@ Observed redacted facts:
 
 ```yaml
 signing_parity_summary:
+  category: ai_assistant_target_runtime_signing_configuration
+  gateway_mode_expected_for_ai_assistant: hmac_sha256
+  automation_mode_expected_for_ai_assistant: hmac_sha256
+  browser_exposed: false
+  evidence_secret_safe: true
+  signing_configuration_ready_for_next_review: false
   signing_mode_parity: aligned
   signing_secret_presence_parity: aligned
   signing_owner_path_parity: unknown
