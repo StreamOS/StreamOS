@@ -1,4 +1,4 @@
-# AI Assistant Private Downstream Reachability and Signing Proof Runbook - 2026-06-30
+# AI Assistant Private Downstream Reachability and Signing Proof Runbook
 
 ## Purpose
 
