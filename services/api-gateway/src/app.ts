@@ -58,7 +58,10 @@ import {
 } from "./lib/supabaseRest.js";
 import type { GatewayPremiumCommandPoliciesInput } from "./lib/premium-command-enforcement.js";
 import { resolveAutomationEntitlementAssertionSigningConfig } from "./lib/automation-entitlement-signing.js";
-import type { ApiGatewayRuntimeProvenance } from "./runtimeProvenance.js";
+import {
+  resolveApiGatewayHealthRuntimeProvenance,
+  type ApiGatewayRuntimeProvenance,
+} from "./runtimeProvenance.js";
 import { createProviderWebhookRouter } from "./webhooks/providerRoutes.js";
 import type { ProviderWebhookDispatcher } from "./webhooks/providerEvents.js";
 
@@ -695,6 +698,9 @@ export function createApp(
 ): Express {
   const app = express();
   const securityConfig = resolveSecurityConfig(options);
+  const healthRuntimeProvenance = resolveApiGatewayHealthRuntimeProvenance({
+    runtimeProvenance: options.runtimeProvenance,
+  });
   const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
   const providerWebhookDispatcher =
     options.providerWebhookDispatcher ?? dispatchStreamOSJob;
@@ -784,20 +790,18 @@ export function createApp(
   );
 
   app.get("/health", (_request, response) => {
-    if (options.runtimeProvenance) {
-      response.setHeader(
-        "x-streamos-runtime-service",
-        options.runtimeProvenance.service,
-      );
-      response.setHeader(
-        "x-streamos-runtime-commit",
-        options.runtimeProvenance.gitCommit,
-      );
-      response.setHeader(
-        "x-streamos-runtime-environment",
-        options.runtimeProvenance.environment,
-      );
-    }
+    response.setHeader(
+      "x-streamos-runtime-service",
+      healthRuntimeProvenance.service,
+    );
+    response.setHeader(
+      "x-streamos-runtime-commit",
+      healthRuntimeProvenance.gitCommit,
+    );
+    response.setHeader(
+      "x-streamos-runtime-environment",
+      healthRuntimeProvenance.environment,
+    );
 
     response.status(200).json({ service: "api-gateway", status: "ok" });
   });

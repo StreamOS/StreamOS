@@ -4,6 +4,10 @@ import { fileURLToPath } from "node:url";
 export const API_GATEWAY_RUNTIME_PROVENANCE_PATH = "../runtime-provenance.json";
 export const API_GATEWAY_RUNTIME_PROVENANCE_SCHEMA_VERSION = 1;
 export const API_GATEWAY_RUNTIME_PROVENANCE_SERVICE = "api-gateway";
+export const API_GATEWAY_RUNTIME_PROVENANCE_UNKNOWN = "unknown";
+
+const SAFE_RUNTIME_LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/i;
+const SAFE_GIT_COMMIT_PATTERN = /^[0-9a-f]{7,40}$/i;
 
 export type ApiGatewayRuntimeProvenance = {
   environment: string;
@@ -16,6 +20,12 @@ export type ApiGatewayRuntimeProvenance = {
   schemaVersion: number;
   service: string;
   workflow: string;
+};
+
+export type ApiGatewayHealthRuntimeProvenance = {
+  environment: string;
+  gitCommit: string;
+  service: string;
 };
 
 function isApiGatewayRuntimeProvenance(
@@ -35,13 +45,33 @@ function isApiGatewayRuntimeProvenance(
     typeof candidate.generatedAt === "string" &&
     candidate.generatedAt.length > 0 &&
     typeof candidate.gitCommit === "string" &&
-    /^[0-9a-f]{7,40}$/i.test(candidate.gitCommit) &&
+    SAFE_GIT_COMMIT_PATTERN.test(candidate.gitCommit) &&
     typeof candidate.gitRef === "string" &&
     typeof candidate.repository === "string" &&
     typeof candidate.runAttempt === "string" &&
     typeof candidate.runId === "string" &&
     typeof candidate.workflow === "string"
   );
+}
+
+function readSafeRuntimeLabel(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+
+  if (!trimmed || !SAFE_RUNTIME_LABEL_PATTERN.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+function readSafeGitCommit(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+
+  if (!trimmed || !SAFE_GIT_COMMIT_PATTERN.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed;
 }
 
 export function readApiGatewayRuntimeProvenance(): ApiGatewayRuntimeProvenance | null {
@@ -59,4 +89,31 @@ export function readApiGatewayRuntimeProvenance(): ApiGatewayRuntimeProvenance |
   } catch {
     return null;
   }
+}
+
+export function resolveApiGatewayHealthRuntimeProvenance({
+  env = process.env,
+  runtimeProvenance,
+}: {
+  env?: NodeJS.ProcessEnv;
+  runtimeProvenance?: ApiGatewayRuntimeProvenance | null;
+} = {}): ApiGatewayHealthRuntimeProvenance {
+  return {
+    service:
+      readSafeRuntimeLabel(runtimeProvenance?.service) ??
+      readSafeRuntimeLabel(env.RAILWAY_SERVICE_NAME) ??
+      readSafeRuntimeLabel(env.RAILWAY_SERVICE) ??
+      API_GATEWAY_RUNTIME_PROVENANCE_SERVICE,
+    gitCommit:
+      readSafeGitCommit(runtimeProvenance?.gitCommit) ??
+      readSafeGitCommit(env.STREAMOS_RC_COMMIT_SHA) ??
+      readSafeGitCommit(env.RAILWAY_GIT_COMMIT_SHA) ??
+      API_GATEWAY_RUNTIME_PROVENANCE_UNKNOWN,
+    environment:
+      readSafeRuntimeLabel(runtimeProvenance?.environment) ??
+      readSafeRuntimeLabel(env.RAILWAY_ENVIRONMENT_NAME) ??
+      readSafeRuntimeLabel(env.RAILWAY_ENVIRONMENT) ??
+      readSafeRuntimeLabel(env.APP_ENV) ??
+      API_GATEWAY_RUNTIME_PROVENANCE_UNKNOWN,
+  };
 }

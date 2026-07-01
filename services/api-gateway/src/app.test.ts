@@ -34,8 +34,20 @@ const API_GATEWAY_PRODUCTION_ENV_KEYS = [
   "YOUTUBE_WEBSUB_SECRET",
   "YOUTUBE_WEBSUB_VERIFY_TOKEN",
 ] as const;
+const API_GATEWAY_RUNTIME_PROVENANCE_ENV_KEYS = [
+  "APP_ENV",
+  "RAILWAY_ENVIRONMENT",
+  "RAILWAY_ENVIRONMENT_NAME",
+  "RAILWAY_GIT_COMMIT_SHA",
+  "RAILWAY_SERVICE",
+  "RAILWAY_SERVICE_NAME",
+  "STREAMOS_RC_COMMIT_SHA",
+] as const;
 const ORIGINAL_API_GATEWAY_PRODUCTION_ENV = new Map(
   API_GATEWAY_PRODUCTION_ENV_KEYS.map((key) => [key, process.env[key]]),
+);
+const ORIGINAL_API_GATEWAY_RUNTIME_PROVENANCE_ENV = new Map(
+  API_GATEWAY_RUNTIME_PROVENANCE_ENV_KEYS.map((key) => [key, process.env[key]]),
 );
 
 function createClipGenerationQueue(): ClipGenerationQueue {
@@ -127,6 +139,50 @@ function applyApiGatewayProductionEnv(
   };
 }
 
+function restoreApiGatewayRuntimeProvenanceEnv(
+  snapshot = ORIGINAL_API_GATEWAY_RUNTIME_PROVENANCE_ENV,
+) {
+  for (const key of API_GATEWAY_RUNTIME_PROVENANCE_ENV_KEYS) {
+    const value = snapshot.get(key);
+
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
+
+function applyApiGatewayRuntimeProvenanceEnv(
+  overrides: Partial<
+    Record<
+      (typeof API_GATEWAY_RUNTIME_PROVENANCE_ENV_KEYS)[number],
+      string | undefined
+    >
+  >,
+) {
+  const previousValues = new Map(
+    API_GATEWAY_RUNTIME_PROVENANCE_ENV_KEYS.map((key) => [
+      key,
+      process.env[key],
+    ]),
+  );
+
+  for (const key of API_GATEWAY_RUNTIME_PROVENANCE_ENV_KEYS) {
+    const value = overrides[key];
+
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  return () => {
+    restoreApiGatewayRuntimeProvenanceEnv(previousValues);
+  };
+}
+
 function createSignedWebhookHeaders({
   body,
   eventId = "event-1",
@@ -154,6 +210,7 @@ function createSignedWebhookHeaders({
 describe("api-gateway", () => {
   afterEach(() => {
     restoreApiGatewayProductionEnv();
+    restoreApiGatewayRuntimeProvenanceEnv();
   });
 
   it("serves health status", async () => {
@@ -182,8 +239,13 @@ describe("api-gateway", () => {
         environment: "production",
         generatedAt: "2026-06-18T08:26:19.780Z",
         gitCommit: "4c0b19ffec5bf41e9802bd6d7e929d6302aca797",
+        gitRef: "refs/heads/main",
+        repository: "openai/streamos",
+        runAttempt: "1",
+        runId: "railway-build",
         schemaVersion: 1,
         service: "api-gateway",
+        workflow: "railway-build",
       },
     });
     const server = app.listen(0);
@@ -207,6 +269,127 @@ describe("api-gateway", () => {
         "production",
       );
     } finally {
+      server.close();
+    }
+  });
+
+  it("serves runtime provenance headers from non-secret runtime env when file provenance is unavailable", async () => {
+    const restoreRuntimeEnv = applyApiGatewayRuntimeProvenanceEnv({
+      APP_ENV: undefined,
+      RAILWAY_ENVIRONMENT: undefined,
+      RAILWAY_ENVIRONMENT_NAME: "production",
+      RAILWAY_GIT_COMMIT_SHA: undefined,
+      RAILWAY_SERVICE: undefined,
+      RAILWAY_SERVICE_NAME: "api-gateway",
+      STREAMOS_RC_COMMIT_SHA: "011753c42cc2b0312bd5556ab5da25e873df19c5",
+    });
+    const app = createApp({ runtimeProvenance: null });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const response = await fetch(`http://127.0.0.1:${address.port}/health`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-streamos-runtime-service")).toBe(
+        "api-gateway",
+      );
+      expect(response.headers.get("x-streamos-runtime-commit")).toBe(
+        "011753c42cc2b0312bd5556ab5da25e873df19c5",
+      );
+      expect(response.headers.get("x-streamos-runtime-environment")).toBe(
+        "production",
+      );
+    } finally {
+      restoreRuntimeEnv();
+      server.close();
+    }
+  });
+
+  it("serves deterministic unknown provenance markers when runtime provenance is unavailable", async () => {
+    const restoreRuntimeEnv = applyApiGatewayRuntimeProvenanceEnv({
+      APP_ENV: undefined,
+      RAILWAY_ENVIRONMENT: undefined,
+      RAILWAY_ENVIRONMENT_NAME: undefined,
+      RAILWAY_GIT_COMMIT_SHA: undefined,
+      RAILWAY_SERVICE: undefined,
+      RAILWAY_SERVICE_NAME: undefined,
+      STREAMOS_RC_COMMIT_SHA: undefined,
+    });
+    const app = createApp({ runtimeProvenance: null });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const response = await fetch(`http://127.0.0.1:${address.port}/health`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-streamos-runtime-service")).toBe(
+        "api-gateway",
+      );
+      expect(response.headers.get("x-streamos-runtime-commit")).toBe("unknown");
+      expect(response.headers.get("x-streamos-runtime-environment")).toBe(
+        "unknown",
+      );
+    } finally {
+      restoreRuntimeEnv();
+      server.close();
+    }
+  });
+
+  it("does not expose secret-like or private-url runtime markers on health", async () => {
+    const restoreRuntimeEnv = applyApiGatewayRuntimeProvenanceEnv({
+      APP_ENV: "production?token=secret",
+      RAILWAY_ENVIRONMENT: "https://railway.internal/private-env",
+      RAILWAY_ENVIRONMENT_NAME: "https://automation-service.railway.internal",
+      RAILWAY_GIT_COMMIT_SHA: "not-a-commit",
+      RAILWAY_SERVICE: "api-gateway?token=secret",
+      RAILWAY_SERVICE_NAME: "https://api-gateway-production.up.railway.app",
+      STREAMOS_RC_COMMIT_SHA: "sk-test-secret",
+    });
+    const app = createApp({ runtimeProvenance: null });
+    const server = app.listen(0);
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address.");
+      }
+
+      const response = await fetch(`http://127.0.0.1:${address.port}/health`);
+      const body = await response.json();
+      const responseSummary = JSON.stringify({
+        body,
+        headers: {
+          environment: response.headers.get("x-streamos-runtime-environment"),
+          gitCommit: response.headers.get("x-streamos-runtime-commit"),
+          service: response.headers.get("x-streamos-runtime-service"),
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(body).toEqual({ service: "api-gateway", status: "ok" });
+      expect(response.headers.get("x-streamos-runtime-service")).toBe(
+        "api-gateway",
+      );
+      expect(response.headers.get("x-streamos-runtime-commit")).toBe("unknown");
+      expect(response.headers.get("x-streamos-runtime-environment")).toBe(
+        "unknown",
+      );
+      expect(responseSummary).not.toContain("railway.internal");
+      expect(responseSummary).not.toContain("secret");
+      expect(responseSummary).not.toContain("token");
+      expect(responseSummary).not.toContain("https://");
+    } finally {
+      restoreRuntimeEnv();
       server.close();
     }
   });
