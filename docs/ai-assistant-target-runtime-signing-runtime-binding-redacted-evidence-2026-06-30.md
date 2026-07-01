@@ -131,15 +131,12 @@ Observed redacted facts:
 
 ```yaml
 secret_safety_review:
+  category: activation_evidence_secret_safe
   secrets_present: false
   tokens_present: false
   private_urls_present: false
-  private_hostnames_present: false
   signatures_present: false
   raw_payloads_present: false
-  raw_prompts_present: false
-  raw_contexts_present: false
-  model_responses_present: false
   raw_errors_present: false
   review_result: secret_safe
 ```
