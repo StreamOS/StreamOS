@@ -47,10 +47,15 @@ function isApiGatewayRuntimeProvenance(
     typeof candidate.gitCommit === "string" &&
     SAFE_GIT_COMMIT_PATTERN.test(candidate.gitCommit) &&
     typeof candidate.gitRef === "string" &&
+    candidate.gitRef.length > 0 &&
     typeof candidate.repository === "string" &&
+    candidate.repository.length > 0 &&
     typeof candidate.runAttempt === "string" &&
+    candidate.runAttempt.length > 0 &&
     typeof candidate.runId === "string" &&
-    typeof candidate.workflow === "string"
+    candidate.runId.length > 0 &&
+    typeof candidate.workflow === "string" &&
+    candidate.workflow.length > 0
   );
 }
 
