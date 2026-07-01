@@ -13,6 +13,8 @@ const {
   hashText,
 } = require("./rollout-check.cjs");
 
+const DEFAULT_RUNTIME_PROVENANCE_REPOSITORY = "StreamOS/StreamOS";
+
 function parseArgs(argv) {
   const options = {
     output: RUNNER_PROVENANCE_PATH,
@@ -118,7 +120,10 @@ function parseArgs(argv) {
       "",
     gitRef: options.gitRef || process.env.GITHUB_REF || "",
     output: options.output,
-    repository: options.repository || process.env.GITHUB_REPOSITORY || "",
+    repository:
+      options.repository ||
+      process.env.GITHUB_REPOSITORY ||
+      DEFAULT_RUNTIME_PROVENANCE_REPOSITORY,
     runAttempt: options.runAttempt || process.env.GITHUB_RUN_ATTEMPT || "",
     runId: options.runId || process.env.GITHUB_RUN_ID || "",
     runnerService: options.runnerService || RELEASE_GATE_RUNNER_SERVICE,
@@ -185,6 +190,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  DEFAULT_RUNTIME_PROVENANCE_REPOSITORY,
   buildReleaseGateRunnerProvenance,
   parseArgs,
 };
