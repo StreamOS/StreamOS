@@ -252,6 +252,15 @@ Security model:
 - `STREAMOS_RC_COMMIT_SHA` is an optional non-secret proof marker for
   target-runtime same-RC evidence. It must remain server-only and does not
   authorize activation.
+- Public `GET /health` responses also emit the non-secret provenance headers
+  `x-streamos-runtime-service`, `x-streamos-runtime-commit`, and
+  `x-streamos-runtime-environment`. They are derived from server-side runtime
+  provenance only; missing commit or environment markers fall back to
+  deterministic `unknown` rather than exposing raw env values, secrets, private
+  URLs, or env dumps.
+- These headers are production-gate helper evidence only. They do not replace
+  secret/env ownership checks and they do not authorize AI Assistant activation,
+  route mounting, or product-gate changes.
 - `REDIS_URL` is mandatory when `NODE_ENV=production`; the gateway fails during startup if it is missing so observability, rate limiting, and replay protection cannot silently fall back to in-memory.
 - CORS allows only `API_GATEWAY_ALLOWED_ORIGINS`; server-to-server calls without an `Origin` header are allowed.
 - Rate limits are fixed-window per client IP, method, and URL. Start with `120` requests per `60000` ms and tighten per endpoint once production traffic is measured.
