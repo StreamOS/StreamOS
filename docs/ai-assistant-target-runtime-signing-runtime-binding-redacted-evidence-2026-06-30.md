@@ -190,7 +190,7 @@ Conservative result:
 Remaining blockers from this artifact:
 
 - `AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE` is not present in `api-gateway`
-- `GATEWAY_ENTITLEMENT_ASSERTION_SECRET` is not present in `api-gateway`
+- `AUTOMATION_ENTITLEMENT_ASSERTION_SECRET` is not present in `api-gateway`
 - `AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE` is not present in `automation-service`
 - `AUTOMATION_ENTITLEMENT_ASSERTION_SECRET` is not present in `automation-service`
 - same-RC proof is missing for `api-gateway`
