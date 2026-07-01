@@ -60,9 +60,9 @@ Current internal automation endpoints remain unchanged core/internal surfaces:
 
 ## Evidence Sources Reviewed
 
-- `docs/ai-assistant-runtime-activation-readiness-audit-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-runbook-2026-06-30.md`
-- `docs/ai-assistant-activation-slice-planning-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-runtime-activation-readiness-audit-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-runbook-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-activation-slice-planning-2026-06-30.md`
 - `docs/architecture.md`
 - `docs/deployment.md`
 - `docs/p4-product-roadmap-update.md`
@@ -169,7 +169,7 @@ Why this next slice:
 Executed for this docs-only slice:
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-activation-proof-collection-report-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-activation-proof-collection-report-2026-06-30.md`
 
 Not executed:
 

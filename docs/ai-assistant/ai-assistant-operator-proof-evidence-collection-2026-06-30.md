@@ -72,13 +72,13 @@ Current internal automation endpoints remain unchanged core/internal surfaces:
 
 ## Evidence Sources Reviewed
 
-- `docs/ai-assistant-private-downstream-reachability-signing-proof-runbook-2026-06-30.md`
-- `docs/ai-assistant-private-reachability-proof-2026-06-30.md`
-- `docs/ai-assistant-signing-parity-verification-2026-06-30.md`
-- `docs/ai-assistant-budget-metering-production-proof-2026-06-30.md`
-- `docs/ai-assistant-activation-proof-collection-report-2026-06-30.md`
-- `docs/ai-assistant-activation-slice-planning-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-runbook-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-private-downstream-reachability-signing-proof-runbook-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-private-reachability-proof-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-signing-parity-verification-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-budget-metering-production-proof-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-activation-proof-collection-report-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-activation-slice-planning-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-runbook-2026-06-30.md`
 - `docs/operator-live-env-audit.md`
 - `docs/architecture.md`
 - `docs/deployment.md`
@@ -136,12 +136,12 @@ Promotion rules applied:
 
 ## Operator Evidence Matrix
 
-| Proof Category                               | Evidence Status                | Evidence Source   | RC Bound         | Environment Bound | Secret-Safe      | Gap          | Blocks Activation |
-| -------------------------------------------- | ------------------------------ | ----------------- | ---------------- | ----------------- | ---------------- | ------------ | ----------------- |
-| `private_gateway_to_automation_reachability` | `operator_evidence_missing`    | See `ES-PR1`      | no               | no                | `not_applicable` | See `GAP-PR1` | yes               |
-| `gateway_automation_signing_parity`          | `operator_evidence_missing`    | See `ES-PR2`      | no               | no                | `not_applicable` | See `GAP-PR2` | yes               |
-| `combined_proof_binding`                     | `operator_evidence_missing`    | See `ES-PR3`      | no               | no                | `not_applicable` | See `GAP-PR3` | yes               |
-| `activation_evidence_secret_safe`            | `operator_evidence_incomplete` | See `ES-PR4`      | `not_applicable` | `not_applicable`  | yes              | See `GAP-PR4` | yes               |
+| Proof Category                               | Evidence Status                | Evidence Source | RC Bound         | Environment Bound | Secret-Safe      | Gap           | Blocks Activation |
+| -------------------------------------------- | ------------------------------ | --------------- | ---------------- | ----------------- | ---------------- | ------------- | ----------------- |
+| `private_gateway_to_automation_reachability` | `operator_evidence_missing`    | See `ES-PR1`    | no               | no                | `not_applicable` | See `GAP-PR1` | yes               |
+| `gateway_automation_signing_parity`          | `operator_evidence_missing`    | See `ES-PR2`    | no               | no                | `not_applicable` | See `GAP-PR2` | yes               |
+| `combined_proof_binding`                     | `operator_evidence_missing`    | See `ES-PR3`    | no               | no                | `not_applicable` | See `GAP-PR3` | yes               |
+| `activation_evidence_secret_safe`            | `operator_evidence_incomplete` | See `ES-PR4`    | `not_applicable` | `not_applicable`  | yes              | See `GAP-PR4` | yes               |
 
 ### Evidence Source Details
 
@@ -259,11 +259,11 @@ No redacted AI Assistant operator artifact was rejected for secret leakage becau
 
 The following existing repository materials were explicitly rejected from elevation to target-environment operator proof:
 
-- `docs/ai-assistant-private-downstream-reachability-signing-proof-runbook-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-private-downstream-reachability-signing-proof-runbook-2026-06-30.md`
   Reason: proof instructions only; not operator evidence
-- `docs/ai-assistant-private-reachability-proof-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-private-reachability-proof-2026-06-30.md`
   Reason: reviews proof requirements only; not target-environment evidence
-- `docs/ai-assistant-signing-parity-verification-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-signing-parity-verification-2026-06-30.md`
   Reason: reviews repo-level compatibility only; not target-environment evidence
 - `services/api-gateway/src/lib/fixtures/ai-assistant-gateway-automation-contract.json`
   Reason: local fixture only; `operator_evidence_rejected_not_rc_bound` and `operator_evidence_rejected_not_environment_bound`
@@ -318,7 +318,7 @@ Why:
 Executed for this docs-only slice:
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-operator-proof-evidence-collection-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-operator-proof-evidence-collection-2026-06-30.md`
 
 Not executed:
 

@@ -274,7 +274,7 @@ Why:
 Executed for this docs-only slice:
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-operator-proof-evidence-collection-follow-up-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-operator-proof-evidence-collection-follow-up-2026-06-30.md`
 
 Not executed:
 

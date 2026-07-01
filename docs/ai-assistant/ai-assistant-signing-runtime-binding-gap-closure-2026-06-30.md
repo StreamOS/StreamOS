@@ -71,13 +71,13 @@ Current internal automation endpoints remain unchanged core/internal surfaces:
 
 ## Source Evidence Reviewed
 
-- `docs/ai-assistant-operator-proof-real-candidate-review-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-redacted-evidence-candidate-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-evidence-collection-follow-up-2026-06-30.md`
-- `docs/ai-assistant-private-downstream-reachability-signing-proof-runbook-2026-06-30.md`
-- `docs/ai-assistant-signing-parity-verification-2026-06-30.md`
-- `docs/ai-assistant-private-reachability-proof-2026-06-30.md`
-- `docs/ai-assistant-budget-metering-production-proof-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-real-candidate-review-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-redacted-evidence-candidate-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-evidence-collection-follow-up-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-private-downstream-reachability-signing-proof-runbook-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-signing-parity-verification-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-private-reachability-proof-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-budget-metering-production-proof-2026-06-30.md`
 - `docs/deployment.md`
 - `services/api-gateway/src/app.ts`
 - `services/api-gateway/src/runtimeProvenance.ts`
@@ -321,7 +321,7 @@ Why:
 Executed for this docs-only slice:
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-signing-runtime-binding-gap-closure-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-signing-runtime-binding-gap-closure-2026-06-30.md`
 
 Not executed:
 

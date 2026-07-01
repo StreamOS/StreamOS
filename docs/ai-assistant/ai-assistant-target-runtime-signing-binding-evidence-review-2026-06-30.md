@@ -72,13 +72,13 @@ Current internal automation endpoints remain unchanged core/internal surfaces:
 
 ## Evidence Reviewed
 
-- `docs/ai-assistant-target-runtime-signing-runtime-binding-redacted-evidence-2026-06-30.md`
-- `docs/ai-assistant-signing-runtime-binding-gap-closure-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-real-candidate-review-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-redacted-evidence-candidate-2026-06-30.md`
-- `docs/ai-assistant-private-downstream-reachability-signing-proof-runbook-2026-06-30.md`
-- `docs/ai-assistant-signing-parity-verification-2026-06-30.md`
-- `docs/ai-assistant-private-reachability-proof-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-target-runtime-signing-runtime-binding-redacted-evidence-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-signing-runtime-binding-gap-closure-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-real-candidate-review-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-redacted-evidence-candidate-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-private-downstream-reachability-signing-proof-runbook-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-signing-parity-verification-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-private-reachability-proof-2026-06-30.md`
 - `docs/architecture.md`
 - `docs/deployment.md`
 - `services/api-gateway/src/lib/ai-assistant-automation-downstream-contract.ts`
@@ -258,7 +258,7 @@ Why:
 Executed for this docs-only slice:
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-target-runtime-signing-binding-evidence-review-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-target-runtime-signing-binding-evidence-review-2026-06-30.md`
 
 Not executed:
 

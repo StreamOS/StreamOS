@@ -186,6 +186,6 @@ Mandatory result:
 ## Validation
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-signing-runtime-configuration-operator-action-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-signing-runtime-configuration-operator-action-2026-06-30.md`
 
 `pnpm validate` may be skipped for this slice because the change is docs-only and introduces no code, test, env, DB, worker, provider, or deployment mutation.

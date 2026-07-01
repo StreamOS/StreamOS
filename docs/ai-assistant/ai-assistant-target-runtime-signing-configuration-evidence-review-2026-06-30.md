@@ -24,13 +24,13 @@ Reviewed owner surfaces:
 
 Primary source artifact:
 
-- [ai-assistant-target-runtime-signing-server-only-binding-evidence-2026-06-30.md](/C:/Dev/StreamOS/docs/ai-assistant-target-runtime-signing-server-only-binding-evidence-2026-06-30.md)
+- [ai-assistant-target-runtime-signing-server-only-binding-evidence-2026-06-30.md](./ai-assistant-target-runtime-signing-server-only-binding-evidence-2026-06-30.md)
 
 Supporting source artifacts:
 
-- [ai-assistant-target-runtime-signing-binding-evidence-review-2026-06-30.md](/C:/Dev/StreamOS/docs/ai-assistant-target-runtime-signing-binding-evidence-review-2026-06-30.md)
-- [ai-assistant-signing-runtime-configuration-plan-2026-06-30.md](/C:/Dev/StreamOS/docs/ai-assistant-signing-runtime-configuration-plan-2026-06-30.md)
-- [ai-assistant-target-runtime-signing-runtime-binding-redacted-evidence-2026-06-30.md](/C:/Dev/StreamOS/docs/ai-assistant-target-runtime-signing-runtime-binding-redacted-evidence-2026-06-30.md)
+- [ai-assistant-target-runtime-signing-binding-evidence-review-2026-06-30.md](./ai-assistant-target-runtime-signing-binding-evidence-review-2026-06-30.md)
+- [ai-assistant-signing-runtime-configuration-plan-2026-06-30.md](./ai-assistant-signing-runtime-configuration-plan-2026-06-30.md)
+- [ai-assistant-target-runtime-signing-runtime-binding-redacted-evidence-2026-06-30.md](./ai-assistant-target-runtime-signing-runtime-binding-redacted-evidence-2026-06-30.md)
 
 ## Current Fail-Closed State
 
@@ -187,6 +187,6 @@ Reason:
 ## Checks
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-target-runtime-signing-configuration-evidence-review-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-target-runtime-signing-configuration-evidence-review-2026-06-30.md`
 
 `pnpm validate` may remain skipped if this slice changes only this markdown file.

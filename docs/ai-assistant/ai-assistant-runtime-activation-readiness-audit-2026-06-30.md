@@ -20,8 +20,8 @@ Reviewed sources:
 
 - `docs/architecture.md`
 - `docs/deployment.md`
-- `docs/ai-assistant-runtime-activation-audit-2026-06-29.md`
-- `docs/ai-assistant-route-mount-readiness-audit-2026-06-29.md`
+- `docs/ai-assistant/ai-assistant-runtime-activation-audit-2026-06-29.md`
+- `docs/ai-assistant/ai-assistant-route-mount-readiness-audit-2026-06-29.md`
 - `docs/p4-product-roadmap-update.md`
 - `services/api-gateway/src/app.ts`
 - `services/api-gateway/src/routes/aiAssistant.ts`
@@ -193,7 +193,7 @@ It should not:
 Executed for this docs-only slice:
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-runtime-activation-readiness-audit-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-runtime-activation-readiness-audit-2026-06-30.md`
 
 Not executed:
 
