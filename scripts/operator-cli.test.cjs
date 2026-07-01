@@ -254,6 +254,20 @@ test("deployment provenance expectation stays optional for local diagnostics wit
   });
 });
 
+test("deployment provenance expectation is required when explicitly requested without markers", () => {
+  assert.deepEqual(
+    resolveApiGatewayRuntimeProvenanceExpectation(
+      {},
+      { requireApiGatewayProvenance: true },
+    ),
+    {
+      expectedCommit: "",
+      expectedEnvironment: "",
+      required: true,
+    },
+  );
+});
+
 test("rollout parser accepts split env-file syntax and builders emit split args", () => {
   const options = parseRolloutArgs([
     "--env-file",
