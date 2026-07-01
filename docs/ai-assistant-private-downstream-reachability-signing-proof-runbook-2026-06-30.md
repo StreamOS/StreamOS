@@ -1,4 +1,6 @@
-# AI Assistant Private Downstream Reachability and Signing Proof Runbook
+# AI Assistant Private Downstream Reachability and Signing Proof Runbook (as of 2026-06-30)
+
+> **Versioning note:** The `2026-06-30` date in this runbook filename is the historical repository review/snapshot anchor for this proof procedure. Newer runbooks may supersede this document for later snapshots, while this file remains the reference for the 2026-06-30 baseline.
 
 ## Purpose
 
