@@ -124,13 +124,13 @@ The operator receiving the handoff needs only these safe inputs:
 
 Later target-runtime collection must follow this order:
 
-1. confirm the intended RC SHA and target environment for the handoff packet
-2. confirm the proof runtime is `release-gate-runner` or an explicitly equivalent proof-capable Railway runtime
-3. fill the manifest fields from the target runtime context
-4. collect private reachability results from the Railway-internal boundary only
-5. collect signing parity results from the target Gateway and Automation runtime context only
-6. perform the artifact-level secret-safety review over the filled candidate
-7. stop with `activation_not_allowed_now` regardless of collection outcome
+1. confirm the intended RC SHA and target environment for the handoff packet (see [Handoff Inputs](#handoff-inputs): `rc_sha_to_collect`, `target_environment_name`)
+2. confirm the proof runtime is `release-gate-runner` or an explicitly equivalent proof-capable Railway runtime (see [Handoff Inputs](#handoff-inputs): `target_runtime_class`)
+3. fill the manifest fields from the target runtime context (see [Fill Permissions](#fill-permissions))
+4. collect private reachability results from the Railway-internal boundary only (see [Fill Permissions](#fill-permissions): reachability fields)
+5. collect signing parity results from the target Gateway and Automation runtime context only (see [Fill Permissions](#fill-permissions))
+6. perform the artifact-level secret-safety review over the filled candidate (apply allowed/forbidden constraints in [Handoff Inputs](#handoff-inputs))
+7. stop with `activation_not_allowed_now` regardless of collection outcome (see [Handoff Inputs](#handoff-inputs): `activation_status_requirement`)
 
 ## Fill Permissions
 
