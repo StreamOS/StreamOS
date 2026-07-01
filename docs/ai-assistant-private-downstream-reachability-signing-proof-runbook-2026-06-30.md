@@ -1,4 +1,6 @@
-# AI Assistant Private Downstream Reachability and Signing Proof Runbook
+# AI Assistant Private Downstream Reachability and Signing Proof Runbook (as of 2026-06-30)
+
+> **Versioning note:** The `2026-06-30` date in this runbook filename is the historical repository review/snapshot anchor for this proof procedure. Newer runbooks may supersede this document for later snapshots, while this file remains the reference for the 2026-06-30 baseline.
 
 ## Purpose
 
@@ -181,10 +183,10 @@ If any of the following drift is later observed, activation must remain blocked:
 
 | Proof                                        | Required Runtime                                                                                                   | Blocks Activation If Missing |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------- |
-| `private_gateway_to_automation_reachability` | `release-gate-runner` or equivalent proof-capable Railway runtime in same project, environment, and RC snapshot    | yes                          |
-| `gateway_automation_signing_parity`          | `release-gate-runner` or equivalent proof-capable Railway runtime with access to non-secret env ownership evidence | yes                          |
-| `combined_proof_binding`                     | same proof-capable Railway runtime class used for both proof categories                                            | yes                          |
-| `activation_evidence_secret_safe`            | any operator evidence packaging step                                                                               | yes                          |
+| `private_gateway_to_automation_reachability` | `release-gate-runner` or equivalent proof-capable Railway runtime in same project, environment, and RC snapshot    | true                         |
+| `gateway_automation_signing_parity`          | `release-gate-runner` or equivalent proof-capable Railway runtime with access to non-secret env ownership evidence | true                         |
+| `combined_proof_binding`                     | same proof-capable Railway runtime class used for both proof categories                                            | true                         |
+| `activation_evidence_secret_safe`            | any operator evidence packaging step                                                                               | true                         |
 
 ### Evidence Requirements
 
@@ -301,13 +303,14 @@ This runbook does not authorize:
 
 ## Operator Checklist
 
-Before running this checklist, set `{{RC_SHA}}` to the active release-candidate commit SHA for the evaluation window.
 Placeholder note for `{{RC_SHA}}`:
 
 - `{{RC_SHA}}` is a manual placeholder in this runbook template.
 - The template may retain `{{RC_SHA}}`, but recorded evidence artifacts must replace it with the concrete, verified, non-secret RC SHA.
 - Approved tooling may be used if it performs the same substitution.
 - If the concrete SHA cannot be recorded, mark the evidence blocked or incomplete; do not treat the literal token `{{RC_SHA}}` as proof.
+
+Before running this checklist, set `{{RC_SHA}}` to the active release-candidate commit SHA for the evaluation window.
 
 - confirm the evaluated artifact still references RC SHA `{{RC_SHA}}` only
   Redaction rule: record the SHA only, never any secret-bearing deploy transcript
