@@ -136,12 +136,26 @@ Promotion rules applied:
 
 ## Operator Evidence Matrix
 
-| Proof Category                               | Evidence Status                | Evidence Source                                                                                                                                  | RC Bound         | Environment Bound | Secret-Safe      | Gap                                                                                                                                                                          | Blocks Activation |
-| -------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------- | ----------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `private_gateway_to_automation_reachability` | `operator_evidence_missing`    | no AI Assistant-specific redacted target-runtime artifact found; only runbooks, deployment rules, and local preflight evidence                   | no               | no                | `not_applicable` | no proof-capable Railway runtime artifact proves private reachability, private boundary preservation, or browser/Vercel exclusion for the intended RC and target environment | yes               |
-| `gateway_automation_signing_parity`          | `operator_evidence_missing`    | no AI Assistant-specific redacted signing artifact found; only repo contracts, tests, and env-ownership docs                                     | no               | no                | `not_applicable` | no target-environment artifact proves aligned signing mode, aligned owner-path parity, or redacted env presence/ownership status for the intended RC and target environment  | yes               |
-| `combined_proof_binding`                     | `operator_evidence_missing`    | no combined AI Assistant evidence package found that binds reachability and signing to one proof runtime, one RC SHA, and one target environment | no               | no                | `not_applicable` | no combined proof package exists to prove same RC, same environment, and same proof-runtime class across both categories                                                     | yes               |
-| `activation_evidence_secret_safe`            | `operator_evidence_incomplete` | runbooks and prior docs are secret-safe, but no AI Assistant operator evidence package exists to evaluate as a target proof artifact             | `not_applicable` | `not_applicable`  | yes              | secret-safety rules are documented, but no target-evidence bundle exists to review against those rules                                                                       | yes               |
+| Proof Category                               | Evidence Status                | Evidence Source   | RC Bound         | Environment Bound | Secret-Safe      | Gap          | Blocks Activation |
+| -------------------------------------------- | ------------------------------ | ----------------- | ---------------- | ----------------- | ---------------- | ------------ | ----------------- |
+| `private_gateway_to_automation_reachability` | `operator_evidence_missing`    | See `ES-PR1`      | no               | no                | `not_applicable` | See `GAP-PR1` | yes               |
+| `gateway_automation_signing_parity`          | `operator_evidence_missing`    | See `ES-PR2`      | no               | no                | `not_applicable` | See `GAP-PR2` | yes               |
+| `combined_proof_binding`                     | `operator_evidence_missing`    | See `ES-PR3`      | no               | no                | `not_applicable` | See `GAP-PR3` | yes               |
+| `activation_evidence_secret_safe`            | `operator_evidence_incomplete` | See `ES-PR4`      | `not_applicable` | `not_applicable`  | yes              | See `GAP-PR4` | yes               |
+
+### Evidence Source Details
+
+- `ES-PR1`: no AI Assistant-specific redacted target-runtime artifact found; only runbooks, deployment rules, and local preflight evidence
+- `ES-PR2`: no AI Assistant-specific redacted signing artifact found; only repo contracts, tests, and env-ownership docs
+- `ES-PR3`: no combined AI Assistant evidence package found that binds reachability and signing to one proof runtime, one RC SHA, and one target environment
+- `ES-PR4`: runbooks and prior docs are secret-safe, but no AI Assistant operator evidence package exists to evaluate as a target proof artifact
+
+### Gap Details
+
+- `GAP-PR1`: no proof-capable Railway runtime artifact proves private reachability, private boundary preservation, or browser/Vercel exclusion for the intended RC and target environment
+- `GAP-PR2`: no target-environment artifact proves aligned signing mode, aligned owner-path parity, or redacted env presence/ownership status for the intended RC and target environment
+- `GAP-PR3`: no combined proof package exists to prove same RC, same environment, and same proof-runtime class across both categories
+- `GAP-PR4`: secret-safety rules are documented, but no target-evidence bundle exists to review against those rules
 
 ## Private Reachability Evidence Review
 
