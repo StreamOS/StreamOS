@@ -44,7 +44,7 @@ Not done:
 - no runtime activation
 - no code, test, env, DB, worker, provider, or deployment change
 
-Reviewed on current `main` at `0e280dc22937621b53e497fd84f9a1fff735d046`.
+Reviewed against pre-existing `main` commit `0e280dc22937621b53e497fd84f9a1fff735d046` (baseline commit for this evidence record; not the commit introducing this document update).
 
 ## Current Fail-Closed State
 
