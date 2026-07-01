@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This runbook defines how Thomas can later collect the two remaining operator-owned proof categories that sit directly in front of later AI Assistant gate-transition work:
+This runbook defines how the operator can later collect the two remaining operator-owned proof categories that sit directly in front of later AI Assistant gate-transition work:
 
 - private Gateway-to-Automation downstream reachability proof
 - Gateway-and-Automation signing parity proof
@@ -281,7 +281,9 @@ This runbook does not authorize:
 
 ## Operator Checklist
 
-- confirm the evaluated artifact still references RC SHA `6b0355864958fe2bf8bd9b10c1b3a255f90a7bc4` or the later intended RC SHA only
+Before running this checklist, set `{{RC_SHA}}` to the active release-candidate commit SHA for the evaluation window.
+
+- confirm the evaluated artifact still references RC SHA `{{RC_SHA}}` only
   Redaction rule: record the SHA only, never any secret-bearing deploy transcript
 - confirm the proof runtime is `release-gate-runner` or an equivalent proof-capable Railway runtime
   Redaction rule: record service label only, not private runtime coordinates
