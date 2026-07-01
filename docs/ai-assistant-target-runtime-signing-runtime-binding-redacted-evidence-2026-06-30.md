@@ -75,6 +75,12 @@ gateway_signing_status:
   gateway_signing_secret_present: false
 
 automation_signing_status:
+  service: automation-service
+  signing_mode_env_name: AI_ASSISTANT_SIGNING_MODE
+  signing_secret_env_name: AI_ASSISTANT_SIGNING_SECRET
+  signing_secret_owner_path_class: target_runtime
+  browser_exposed: false
+  evidence_secret_safe: true
   automation_signing_mode_present: false
   automation_signing_mode_value_class: missing
   automation_signing_secret_present: false
