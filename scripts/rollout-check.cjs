@@ -97,6 +97,17 @@ function parseArgs(argv) {
     transcriptionExpect: DEFAULT_EXPECTED_TRANSCRIPTION_STATUS,
   };
 
+  function consumeTrimmedOption(index, flagName, optionName = flagName) {
+    const match = consumeValueFlag(argv, index, flagName);
+
+    if (!match.matched) {
+      return false;
+    }
+
+    options[optionName] = match.value.trim();
+    return match.nextIndex;
+  }
+
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
 
@@ -109,79 +120,83 @@ function parseArgs(argv) {
       continue;
     }
 
-    const modeMatch = consumeValueFlag(argv, index, "mode");
+    const modeIndex = consumeTrimmedOption(index, "mode");
 
-    if (modeMatch.matched) {
-      options.mode = modeMatch.value.trim();
-      index = modeMatch.nextIndex;
+    if (modeIndex !== false) {
+      index = modeIndex;
       continue;
     }
 
-    const apiGatewayUrlMatch = consumeValueFlag(argv, index, "api-gateway-url");
+    const apiGatewayUrlIndex = consumeTrimmedOption(
+      index,
+      "api-gateway-url",
+      "apiGatewayUrl",
+    );
 
-    if (apiGatewayUrlMatch.matched) {
-      options.apiGatewayUrl = apiGatewayUrlMatch.value.trim();
-      index = apiGatewayUrlMatch.nextIndex;
+    if (apiGatewayUrlIndex !== false) {
+      index = apiGatewayUrlIndex;
       continue;
     }
 
-    const automationServiceUrlMatch = consumeValueFlag(
-      argv,
+    const automationServiceUrlIndex = consumeTrimmedOption(
       index,
       "automation-service-url",
+      "automationServiceUrl",
     );
 
-    if (automationServiceUrlMatch.matched) {
-      options.automationServiceUrl = automationServiceUrlMatch.value.trim();
-      index = automationServiceUrlMatch.nextIndex;
+    if (automationServiceUrlIndex !== false) {
+      index = automationServiceUrlIndex;
       continue;
     }
 
-    const dockerBinMatch = consumeValueFlag(argv, index, "docker-bin");
+    const dockerBinIndex = consumeTrimmedOption(
+      index,
+      "docker-bin",
+      "dockerBin",
+    );
 
-    if (dockerBinMatch.matched) {
-      options.dockerBin = dockerBinMatch.value.trim();
-      index = dockerBinMatch.nextIndex;
+    if (dockerBinIndex !== false) {
+      index = dockerBinIndex;
       continue;
     }
 
-    const fixtureAssetUrlMatch = consumeValueFlag(
-      argv,
+    const fixtureAssetUrlIndex = consumeTrimmedOption(
       index,
       "fixture-asset-url",
+      "fixtureAssetUrl",
     );
 
-    if (fixtureAssetUrlMatch.matched) {
-      options.fixtureAssetUrl = fixtureAssetUrlMatch.value.trim();
-      index = fixtureAssetUrlMatch.nextIndex;
+    if (fixtureAssetUrlIndex !== false) {
+      index = fixtureAssetUrlIndex;
       continue;
     }
 
-    const envFileMatch = consumeValueFlag(argv, index, "env-file");
+    const envFileIndex = consumeTrimmedOption(index, "env-file", "envFile");
 
-    if (envFileMatch.matched) {
-      options.envFile = envFileMatch.value.trim();
-      index = envFileMatch.nextIndex;
+    if (envFileIndex !== false) {
+      index = envFileIndex;
       continue;
     }
 
-    const expectMatch = consumeValueFlag(argv, index, "expect");
+    const expectIndex = consumeTrimmedOption(
+      index,
+      "expect",
+      "transcriptionExpect",
+    );
 
-    if (expectMatch.matched) {
-      options.transcriptionExpect = expectMatch.value.trim();
-      index = expectMatch.nextIndex;
+    if (expectIndex !== false) {
+      index = expectIndex;
       continue;
     }
 
-    const expectedRunnerCommitMatch = consumeValueFlag(
-      argv,
+    const expectedRunnerCommitIndex = consumeTrimmedOption(
       index,
       "expected-runner-commit",
+      "expectedRunnerCommit",
     );
 
-    if (expectedRunnerCommitMatch.matched) {
-      options.expectedRunnerCommit = expectedRunnerCommitMatch.value.trim();
-      index = expectedRunnerCommitMatch.nextIndex;
+    if (expectedRunnerCommitIndex !== false) {
+      index = expectedRunnerCommitIndex;
       continue;
     }
 
@@ -195,11 +210,10 @@ function parseArgs(argv) {
       continue;
     }
 
-    const pollMsMatch = consumeValueFlag(argv, index, "poll-ms");
+    const pollMsIndex = consumeTrimmedOption(index, "poll-ms", "pollMs");
 
-    if (pollMsMatch.matched) {
-      options.pollMs = pollMsMatch.value.trim();
-      index = pollMsMatch.nextIndex;
+    if (pollMsIndex !== false) {
+      index = pollMsIndex;
       continue;
     }
 
@@ -208,27 +222,28 @@ function parseArgs(argv) {
       continue;
     }
 
-    const timeoutMsMatch = consumeValueFlag(argv, index, "timeout-ms");
+    const timeoutMsIndex = consumeTrimmedOption(
+      index,
+      "timeout-ms",
+      "timeoutMs",
+    );
 
-    if (timeoutMsMatch.matched) {
-      options.timeoutMs = timeoutMsMatch.value.trim();
-      index = timeoutMsMatch.nextIndex;
+    if (timeoutMsIndex !== false) {
+      index = timeoutMsIndex;
       continue;
     }
 
-    const userIdMatch = consumeValueFlag(argv, index, "user-id");
+    const userIdIndex = consumeTrimmedOption(index, "user-id", "userId");
 
-    if (userIdMatch.matched) {
-      options.userId = userIdMatch.value.trim();
-      index = userIdMatch.nextIndex;
+    if (userIdIndex !== false) {
+      index = userIdIndex;
       continue;
     }
 
-    const waitMsMatch = consumeValueFlag(argv, index, "wait-ms");
+    const waitMsIndex = consumeTrimmedOption(index, "wait-ms", "waitMs");
 
-    if (waitMsMatch.matched) {
-      options.waitMs = waitMsMatch.value.trim();
-      index = waitMsMatch.nextIndex;
+    if (waitMsIndex !== false) {
+      index = waitMsIndex;
       continue;
     }
 
