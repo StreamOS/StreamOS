@@ -78,7 +78,7 @@ automation_signing_status:
   service: automation-service
   signing_mode_env_name: AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE
   signing_secret_env_name: AUTOMATION_ENTITLEMENT_ASSERTION_SECRET
-  signing_secret_owner_path_class: target_runtime
+  signing_secret_owner_path_class: unknown
   browser_exposed: false
   evidence_secret_safe: true
   automation_signing_mode_present: false
@@ -97,7 +97,7 @@ Observed redacted facts:
 
 ```yaml
 signing_parity_summary:
-  category: ai_assistant_target_runtime_signing_configuration
+  category: gateway_automation_signing_parity
   gateway_mode_expected_for_ai_assistant: hmac_sha256
   automation_mode_expected_for_ai_assistant: hmac_sha256
   browser_exposed: false
