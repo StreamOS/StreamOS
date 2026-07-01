@@ -181,10 +181,10 @@ If any of the following drift is later observed, activation must remain blocked:
 
 | Proof                                        | Required Runtime                                                                                                   | Blocks Activation If Missing |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------- |
-| `private_gateway_to_automation_reachability` | `release-gate-runner` or equivalent proof-capable Railway runtime in same project, environment, and RC snapshot    | yes                          |
-| `gateway_automation_signing_parity`          | `release-gate-runner` or equivalent proof-capable Railway runtime with access to non-secret env ownership evidence | yes                          |
-| `combined_proof_binding`                     | same proof-capable Railway runtime class used for both proof categories                                            | yes                          |
-| `activation_evidence_secret_safe`            | any operator evidence packaging step                                                                               | yes                          |
+| `private_gateway_to_automation_reachability` | `release-gate-runner` or equivalent proof-capable Railway runtime in same project, environment, and RC snapshot    | true                         |
+| `gateway_automation_signing_parity`          | `release-gate-runner` or equivalent proof-capable Railway runtime with access to non-secret env ownership evidence | true                         |
+| `combined_proof_binding`                     | same proof-capable Railway runtime class used for both proof categories                                            | true                         |
+| `activation_evidence_secret_safe`            | any operator evidence packaging step                                                                               | true                         |
 
 ### Evidence Requirements
 
