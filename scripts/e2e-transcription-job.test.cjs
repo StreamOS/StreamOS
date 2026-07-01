@@ -2,9 +2,61 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  PRODUCTION_GATE_MODE,
+  PRODUCTION_GATE_WEBHOOK_SECRET_BOUNDARY_BLOCKED,
+  assertProductionGateTriggerContract,
   classifyContentJobFailure,
   classifyRetryableTranscriptionState,
 } = require("./e2e-transcription-job.cjs");
+
+test("production transcription E2E blocks the webhook-secret trigger path without requiring runner secret", () => {
+  assert.throws(
+    () =>
+      assertProductionGateTriggerContract({
+        env: {},
+        options: {
+          mode: PRODUCTION_GATE_MODE,
+        },
+      }),
+    (error) =>
+      error instanceof Error &&
+      error.message.includes(PRODUCTION_GATE_WEBHOOK_SECRET_BOUNDARY_BLOCKED) &&
+      error.message.includes("proof-safe trigger contract") &&
+      !error.message.includes("local-streamos-webhook-secret"),
+  );
+});
+
+test("production transcription E2E rejects webhook secrets on release-gate-runner without leaking values", () => {
+  const secretValue = "runner-must-not-own-this-secret";
+
+  assert.throws(
+    () =>
+      assertProductionGateTriggerContract({
+        env: {
+          STREAM_EVENT_WEBHOOK_SECRET: secretValue,
+        },
+        options: {
+          mode: PRODUCTION_GATE_MODE,
+        },
+      }),
+    (error) =>
+      error instanceof Error &&
+      error.message.includes(PRODUCTION_GATE_WEBHOOK_SECRET_BOUNDARY_BLOCKED) &&
+      error.message.includes("api-gateway-owned") &&
+      !error.message.includes(secretValue),
+  );
+});
+
+test("local transcription diagnostic may use the local webhook trigger contract", () => {
+  assert.doesNotThrow(() =>
+    assertProductionGateTriggerContract({
+      env: {},
+      options: {
+        mode: "local-diagnostic",
+      },
+    }),
+  );
+});
 
 test("transcription E2E classifies retryable provider 429 states without masking queue ownership", () => {
   const state = classifyRetryableTranscriptionState({

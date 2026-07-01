@@ -11,8 +11,11 @@ const DEFAULT_API_GATEWAY_URL = "http://localhost:4000";
 const DEFAULT_ENV_FILE = ".env.test";
 const LOCAL_DIAGNOSTIC_MODE = "local-diagnostic";
 const PRODUCTION_GATE_MODE = "production-gate";
+const PRODUCTION_GATE_WEBHOOK_SECRET_BOUNDARY_BLOCKED =
+  "production_gate_webhook_secret_boundary_blocked";
 const DEFAULT_POLL_MS = 2_000;
 const DEFAULT_WAIT_MS = 120_000;
+const STREAM_EVENT_WEBHOOK_SECRET_ENV_NAME = "STREAM_EVENT_WEBHOOK_SECRET";
 const DEFAULT_STREAM_EVENT_WEBHOOK_SECRET = "local-streamos-webhook-secret";
 const TRANSCRIPTION_E2E_FIXTURE_ENV_NAME =
   "TRANSCRIPTION_E2E_FIXTURE_ASSET_URL";
@@ -219,6 +222,22 @@ function getEnv(envFile, expectedStatus) {
     STREAMOS_E2E_MODE: "true",
     TRANSCRIPTION_PROCESSOR_MODE: processorMode,
   };
+}
+
+function assertProductionGateTriggerContract({ env, options }) {
+  if (options.mode !== PRODUCTION_GATE_MODE) {
+    return;
+  }
+
+  if (env[STREAM_EVENT_WEBHOOK_SECRET_ENV_NAME]) {
+    throw new Error(
+      `${PRODUCTION_GATE_WEBHOOK_SECRET_BOUNDARY_BLOCKED}: ${STREAM_EVENT_WEBHOOK_SECRET_ENV_NAME} is api-gateway-owned and must not be configured on release-gate-runner. The hosted transcription E2E cannot use the stream-ended webhook trigger from the proof runtime.`,
+    );
+  }
+
+  throw new Error(
+    `${PRODUCTION_GATE_WEBHOOK_SECRET_BOUNDARY_BLOCKED}: hosted transcription E2E currently requires the api-gateway-owned stream-ended webhook signing secret. Keep release signalling blocked until a proof-safe trigger contract exists that does not place webhook or provider secrets on release-gate-runner.`,
+  );
 }
 
 function requireEnv(env, name) {
@@ -1025,6 +1044,7 @@ async function main() {
   }
 
   const env = getEnv(options.envFile, options.expect);
+  assertProductionGateTriggerContract({ env, options });
   const supabaseUrl = requireEnv(env, "SUPABASE_URL");
   requireEnv(env, "SUPABASE_SERVICE_ROLE_KEY");
   const fixtureAsset = resolveFixtureAssetConfig({ env, options });
@@ -1169,7 +1189,9 @@ module.exports = {
   DEFAULT_WAIT_MS,
   LOCAL_DIAGNOSTIC_MODE,
   PRODUCTION_GATE_MODE,
+  PRODUCTION_GATE_WEBHOOK_SECRET_BOUNDARY_BLOCKED,
   TRANSCRIPTION_E2E_FIXTURE_ENV_NAME,
+  assertProductionGateTriggerContract,
   classifyContentJobFailure,
   classifyRetryableTranscriptionState,
   getFixtureAssetExtension,

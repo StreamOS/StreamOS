@@ -271,7 +271,7 @@ Required checks:
   11. transcription-worker runtime package build: @streamos/queue
   12. transcription-worker runtime package build: @streamos/redis
   13. Transcription-worker test and build
-  14. Transcription E2E: webhook -> BullMQ -> worker -> content_jobs write
+  14. Transcription E2E: hosted media/transcription proof, fail-closed until a proof-safe trigger avoids gateway-owned webhook secrets
   15. Deployment health checks for API Gateway and Automation Service
 
 Production-gate runtime:

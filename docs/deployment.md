@@ -731,6 +731,21 @@ logs, reports, screenshots, or runbook output. Provider webhook secrets such as
 `STREAM_EVENT_WEBHOOK_SECRET` remain owned by `api-gateway` and must not be
 configured on `release-gate-runner`.
 
+The production gate deliberately separates two contracts:
+
+- `api-gateway` webhook ingress, signature validation, replay protection, and
+  rate limiting are proved by API Gateway tests and Railway env audits, because
+  the signing secret is gateway-owned.
+- `release-gate-runner` proves only non-secret runtime provenance, private
+  Automation Service reachability, and hosted proof data that belongs to the
+  proof runtime.
+
+Until a proof-safe transcription trigger exists that does not require webhook,
+provider, Redis, or gateway command secrets on `release-gate-runner`, the
+hosted transcription E2E must fail closed with
+`production_gate_webhook_secret_boundary_blocked`. Operators must not work
+around that blocker by copying `STREAM_EVENT_WEBHOOK_SECRET` to the runner.
+
 ## Production Checks
 
 Run the rollout tooling before promoting a deployment. StreamOS now separates
@@ -1307,7 +1322,12 @@ service.
 
 Do not promote when the production gate fails. Successful package tests, builds,
 or a green local diagnostic are not enough on their own. The transcription E2E
-over the real Media -> Transcription path remains mandatory for promotion.
+over the real Media -> Transcription path remains mandatory for promotion, but
+it must not be driven from `release-gate-runner` through the external
+stream-ended webhook while that path requires `STREAM_EVENT_WEBHOOK_SECRET`.
+Until a proof-safe trigger contract is added, `production-gate` is expected to
+remain blocked after proving API Gateway runtime provenance and private
+Automation Service reachability.
 
 The manual production deployment workflow is split into three semantic phases:
 
