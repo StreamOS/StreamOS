@@ -104,6 +104,7 @@ export function resolveApiGatewayHealthRuntimeProvenance({
       API_GATEWAY_RUNTIME_PROVENANCE_SERVICE,
     gitCommit:
       readSafeGitCommit(runtimeProvenance?.gitCommit) ??
+      readSafeGitCommit(env.STREAM_OS_RC_COMMIT_SHA) ??
       readSafeGitCommit(env.STREAMOS_RC_COMMIT_SHA) ??
       readSafeGitCommit(env.RAILWAY_GIT_COMMIT_SHA) ??
       API_GATEWAY_RUNTIME_PROVENANCE_UNKNOWN,
