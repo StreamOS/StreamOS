@@ -9,6 +9,7 @@ const API_GATEWAY_RUNTIME_PROVENANCE_PATH =
   "services/api-gateway/runtime-provenance.json";
 const API_GATEWAY_RUNTIME_PROVENANCE_SCHEMA_VERSION = 1;
 const API_GATEWAY_RUNTIME_PROVENANCE_SERVICE = "api-gateway";
+const DEFAULT_RUNTIME_PROVENANCE_REPOSITORY = "StreamOS/StreamOS";
 
 function parseArgs(argv) {
   const options = {
@@ -107,7 +108,10 @@ function parseArgs(argv) {
       "",
     gitRef: options.gitRef || process.env.GITHUB_REF || "",
     output: options.output,
-    repository: options.repository || process.env.GITHUB_REPOSITORY || "",
+    repository:
+      options.repository ||
+      process.env.GITHUB_REPOSITORY ||
+      DEFAULT_RUNTIME_PROVENANCE_REPOSITORY,
     runAttempt: options.runAttempt || process.env.GITHUB_RUN_ATTEMPT || "",
     runId: options.runId || process.env.GITHUB_RUN_ID || "",
     workflow: options.workflow || process.env.GITHUB_WORKFLOW || "",
@@ -163,6 +167,7 @@ module.exports = {
   API_GATEWAY_RUNTIME_PROVENANCE_PATH,
   API_GATEWAY_RUNTIME_PROVENANCE_SCHEMA_VERSION,
   API_GATEWAY_RUNTIME_PROVENANCE_SERVICE,
+  DEFAULT_RUNTIME_PROVENANCE_REPOSITORY,
   buildApiGatewayRuntimeProvenance,
   parseArgs,
 };

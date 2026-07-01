@@ -37,10 +37,14 @@ const {
   API_GATEWAY_RUNTIME_PROVENANCE_PATH,
   API_GATEWAY_RUNTIME_PROVENANCE_SCHEMA_VERSION,
   API_GATEWAY_RUNTIME_PROVENANCE_SERVICE,
+  DEFAULT_RUNTIME_PROVENANCE_REPOSITORY:
+    DEFAULT_API_GATEWAY_RUNTIME_PROVENANCE_REPOSITORY,
   buildApiGatewayRuntimeProvenance,
   parseArgs: parseApiGatewayProvenanceWriterArgs,
 } = require("./write-api-gateway-runtime-provenance.cjs");
 const {
+  DEFAULT_RUNTIME_PROVENANCE_REPOSITORY:
+    DEFAULT_RUNNER_RUNTIME_PROVENANCE_REPOSITORY,
   buildReleaseGateRunnerProvenance,
   parseArgs: parseProvenanceWriterArgs,
 } = require("./write-release-gate-runner-provenance.cjs");
@@ -934,6 +938,39 @@ test("release-gate-runner provenance writer parses STREAMOS_RC_COMMIT_SHA fallba
   }
 });
 
+test("release-gate-runner provenance writer defaults repository when GitHub env is absent", () => {
+  const previousRepository = process.env.GITHUB_REPOSITORY;
+  delete process.env.GITHUB_REPOSITORY;
+
+  try {
+    const options = parseProvenanceWriterArgs([
+      "--git-sha",
+      "195c6685282571d9d5017f3a0ec3b197b97cfa1d",
+      "--environment",
+      "production",
+      "--git-ref",
+      "refs/heads/main",
+      "--workflow",
+      "CD - Production Deployment",
+      "--run-id",
+      "123456789",
+      "--run-attempt",
+      "1",
+    ]);
+
+    assert.equal(
+      options.repository,
+      DEFAULT_RUNNER_RUNTIME_PROVENANCE_REPOSITORY,
+    );
+  } finally {
+    if (previousRepository === undefined) {
+      delete process.env.GITHUB_REPOSITORY;
+    } else {
+      process.env.GITHUB_REPOSITORY = previousRepository;
+    }
+  }
+});
+
 test("api-gateway runtime provenance payload stays non-secret and commit-bound", () => {
   const provenance = buildApiGatewayRuntimeProvenance({
     environment: "production",
@@ -989,4 +1026,39 @@ test("api-gateway runtime provenance writer parses explicit args", () => {
   assert.equal(options.environment, "production");
   assert.equal(options.gitCommit, "4c0b19ffec5bf41e9802bd6d7e929d6302aca797");
   assert.equal(options.output, API_GATEWAY_RUNTIME_PROVENANCE_PATH);
+});
+
+test("api-gateway runtime provenance writer defaults repository when GitHub env is absent", () => {
+  const previousRepository = process.env.GITHUB_REPOSITORY;
+  delete process.env.GITHUB_REPOSITORY;
+
+  try {
+    const options = parseApiGatewayProvenanceWriterArgs([
+      "--git-sha",
+      "4c0b19ffec5bf41e9802bd6d7e929d6302aca797",
+      "--environment",
+      "production",
+      "--git-ref",
+      "refs/heads/main",
+      "--workflow",
+      "CD - Production Deployment",
+      "--run-id",
+      "123456789",
+      "--run-attempt",
+      "1",
+      "--output",
+      API_GATEWAY_RUNTIME_PROVENANCE_PATH,
+    ]);
+
+    assert.equal(
+      options.repository,
+      DEFAULT_API_GATEWAY_RUNTIME_PROVENANCE_REPOSITORY,
+    );
+  } finally {
+    if (previousRepository === undefined) {
+      delete process.env.GITHUB_REPOSITORY;
+    } else {
+      process.env.GITHUB_REPOSITORY = previousRepository;
+    }
+  }
 });
