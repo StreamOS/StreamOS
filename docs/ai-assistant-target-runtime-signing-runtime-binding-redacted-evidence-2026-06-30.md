@@ -92,6 +92,9 @@ Observed redacted facts:
 - `automation-service` target-runtime variable ownership path included neither AI Assistant signing variable as a present runtime value
 - no signing mode value other than the required class `hmac_sha256` was observed because both mode variables were absent
 - no signing secret value was copied, printed, or stored
+- the `AUTOMATION_ENTITLEMENT_ASSERTION_*` prefix names the shared internal
+  entitlement-assertion contract, not exclusive ownership by
+  `automation-service`
 
 ## Signing Parity
 
@@ -189,10 +192,18 @@ Conservative result:
 
 Remaining blockers from this artifact:
 
-- `AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE` is not present in `api-gateway`
-- `AUTOMATION_ENTITLEMENT_ASSERTION_SECRET` is not present in `api-gateway`
-- `AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE` is not present in `automation-service`
-- `AUTOMATION_ENTITLEMENT_ASSERTION_SECRET` is not present in `automation-service`
+- canonical shared entitlement assertion signing mode key
+  `AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE` is not present on the
+  `api-gateway` owning runtime service
+- canonical shared entitlement assertion secret key
+  `AUTOMATION_ENTITLEMENT_ASSERTION_SECRET` is not present on the `api-gateway`
+  owning runtime service
+- canonical shared entitlement assertion signing mode key
+  `AUTOMATION_ENTITLEMENT_ASSERTION_SIGNING_MODE` is not present on the
+  `automation-service` owning runtime service
+- canonical shared entitlement assertion secret key
+  `AUTOMATION_ENTITLEMENT_ASSERTION_SECRET` is not present on the
+  `automation-service` owning runtime service
 - same-RC proof is missing for `api-gateway`
 - same-RC proof is missing for `automation-service`
 
