@@ -7,7 +7,6 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-import ai_context_retrieval_adapters as retrieval_adapters
 import ai_trusted_context_client as trusted_context_client
 from ai_assistant_backend_contract import (
     AiAssistantBackendContractRequest,
