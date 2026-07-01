@@ -282,6 +282,7 @@ This runbook does not authorize:
 ## Operator Checklist
 
 Before running this checklist, set `{{RC_SHA}}` to the active release-candidate commit SHA for the evaluation window.
+Placeholder note: `{{RC_SHA}}` is a manual placeholder in this document. Replace it with the real SHA before recording evidence (or use approved tooling that performs the same substitution). Do not leave the literal token `{{RC_SHA}}` in final artifacts.
 
 - confirm the evaluated artifact still references RC SHA `{{RC_SHA}}` only
   Redaction rule: record the SHA only, never any secret-bearing deploy transcript
