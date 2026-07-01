@@ -14,9 +14,9 @@ This runbook is needed after PR #228 because `main` now contains:
 
 Those foundations improve local contract readiness, but they do not provide target-environment proof and they do not allow runtime activation.
 
-Reviewed repository anchor:
+Reviewed repository anchor (historical snapshot as of 2026-06-30):
 
-- current `main` SHA: `6b0355864958fe2bf8bd9b10c1b3a255f90a7bc4`
+- `main` SHA at review time: `6b0355864958fe2bf8bd9b10c1b3a255f90a7bc4`
 
 This runbook is proof-only:
 
