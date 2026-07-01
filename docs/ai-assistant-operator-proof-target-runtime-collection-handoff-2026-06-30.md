@@ -44,7 +44,7 @@ Not done:
 - no route change
 - no UI, env, DB, worker, provider, or OpenAI change
 
-Reviewed on current `main` descendant at `b3335fb9c8355467f04cb2547c70d60b9acab492`.
+Reviewed on current `main` descendant at `<verified-main-descendant-commit-sha>`.
 
 ## Current Fail-Closed State
 
