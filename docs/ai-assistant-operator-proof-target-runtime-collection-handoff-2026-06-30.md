@@ -44,7 +44,7 @@ Not done:
 - no route change
 - no UI, env, DB, worker, provider, or OpenAI change
 
-Reviewed on current `main` descendant at `<verified-main-descendant-commit-sha>`.
+Reviewed on current `main` descendant at `b3335fb9c8355467f04cb2547c70d60b9acab492`.
 
 ## Current Fail-Closed State
 
@@ -111,14 +111,14 @@ The handoff packet must not contain:
 
 The operator receiving the handoff needs only these safe inputs:
 
-| Input                           | Allowed content                                                                                                                                                                                                 | Forbidden content                     |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| `candidate_shell_ref`           | candidate document name only                                                                                                                                                                                    | copied secret-bearing content         |
-| `bundle_contract_ref`           | document name only                                                                                                                                                                                              | improvised contract rewrite           |
+| Input                           | Allowed content                                                                                                                                                                                                              | Forbidden content                     |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `candidate_shell_ref`           | candidate document name only                                                                                                                                                                                                 | copied secret-bearing content         |
+| `bundle_contract_ref`           | document name only                                                                                                                                                                                                           | improvised contract rewrite           |
 | `target_runtime_class`          | `release-gate-runner` or explicitly equivalent proof-capable Railway runtime (equivalent means Railway-hosted runtime boundary, same proof artifact collection capability, and no expansion of activation/route permissions) | local shell, browser, Vercel function |
-| `target_environment_name`       | named environment only                                                                                                                                                                                          | private topology coordinates          |
-| `rc_sha_to_collect`             | exact RC SHA only                                                                                                                                                                                               | deployment transcript                 |
-| `activation_status_requirement` | `activation_not_allowed_now`                                                                                                                                                                                    | any activation-ready wording          |
+| `target_environment_name`       | named environment only                                                                                                                                                                                                       | private topology coordinates          |
+| `rc_sha_to_collect`             | exact RC SHA only                                                                                                                                                                                                            | deployment transcript                 |
+| `activation_status_requirement` | `activation_not_allowed_now`                                                                                                                                                                                                 | any activation-ready wording          |
 
 ## Required Collection Order
 
