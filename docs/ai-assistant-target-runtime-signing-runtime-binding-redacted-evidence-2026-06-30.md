@@ -102,6 +102,24 @@ Interpretation:
 - `signing_secret_presence_parity=aligned` here means both services are aligned on absence, not that they are activation-ready
 - `signing_owner_path_parity=unknown` remains necessary because this collection intentionally did not disclose or compare raw owner-path details beyond server-side service scope
 
+## Signing Evidence Manifest
+
+```yaml
+signing_evidence_manifest:
+  evidence_scope:
+    - target-runtime signing evidence (redacted) for api-gateway
+    - target-runtime signing evidence (redacted) for automation-service
+    - signing parity outcomes
+    - runtime-binding evidence (separately collected)
+  rc_sha: not_fully_proven_in_this_artifact
+  target_environment: production
+  proof_runtime_class: target_runtime
+  collected_at: 2026-06-30T23:00:34.3616319+02:00
+  operator_scope: redacted_evidence_collection_no_secret_extraction
+  activation_status: activation_not_allowed_now
+  secret_safe_review_status: passed_no_secret_values_copied_printed_or_stored
+```
+
 ## Runtime-Binding Evidence
 
 This block is intentionally separate from signing evidence.
