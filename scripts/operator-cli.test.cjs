@@ -359,6 +359,33 @@ test("rollout transcription builder forwards hosted fixture asset configuration"
   ]);
 });
 
+test("rollout transcription builder forwards preflight-resolved gateway URL", () => {
+  const options = parseRolloutArgs([
+    "--mode",
+    "production-gate",
+    "--skip-docker",
+    "--allow-hosted-e2e",
+    "--expect-private-automation",
+  ]);
+
+  assert.deepEqual(
+    buildTranscriptionArgs(options, {
+      apiGatewayUrl: new URL("https://api.example.com"),
+    }),
+    [
+      "scripts/e2e-transcription-job.cjs",
+      "--expect",
+      "done",
+      "--mode",
+      "production-gate",
+      "--allow-hosted",
+      "--api-gateway-url",
+      "https://api.example.com/",
+      "--skip-docker",
+    ],
+  );
+});
+
 test("rollout parser defaults to local diagnostic mode", () => {
   const options = parseRolloutArgs([]);
 
@@ -482,6 +509,7 @@ test("rollout snapshot check reports missing gate files clearly", () => {
     "missing scripts/write-production-gate-proof.cjs",
     "missing scripts/verify-production-gate-proof.cjs",
     "missing packages/redis",
+    "missing packages/utils",
     "missing packages/youtube-websub",
   ]);
 });
@@ -530,12 +558,14 @@ test("rollout gate contract check requires shared package builds before api-gate
     "@streamos/types",
     "@streamos/redis",
     "@streamos/queue",
+    "@streamos/utils",
     "@streamos/youtube-websub",
   ]);
   assert.deepEqual(result.contract.sharedRuntimePackageSteps, [
     "API Gateway runtime package build: @streamos/types",
     "API Gateway runtime package build: @streamos/redis",
     "API Gateway runtime package build: @streamos/queue",
+    "API Gateway runtime package build: @streamos/utils",
     "API Gateway runtime package build: @streamos/youtube-websub",
     "transcription-worker runtime package build: @streamos/types",
     "transcription-worker runtime package build: @streamos/queue",
@@ -595,6 +625,7 @@ test("rollout check builds shared runtime packages before api-gateway tests", ()
       "API Gateway runtime package build: @streamos/types",
       "API Gateway runtime package build: @streamos/redis",
       "API Gateway runtime package build: @streamos/queue",
+      "API Gateway runtime package build: @streamos/utils",
       "API Gateway runtime package build: @streamos/youtube-websub",
     ],
   );
@@ -686,6 +717,7 @@ test("api-gateway runtime package inventory is explicit and includes youtube-web
       "@streamos/types",
       "@streamos/redis",
       "@streamos/queue",
+      "@streamos/utils",
       "@streamos/youtube-websub",
     ],
   );

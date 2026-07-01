@@ -42,6 +42,10 @@ const API_GATEWAY_RUNTIME_WORKSPACE_PACKAGES = [
     path: "packages/queue",
   },
   {
+    name: "@streamos/utils",
+    path: "packages/utils",
+  },
+  {
     name: "@streamos/youtube-websub",
     path: "packages/youtube-websub",
   },
@@ -716,7 +720,11 @@ function buildDeploymentArgs(options) {
   return args;
 }
 
-function buildTranscriptionArgs(options) {
+function formatResolvedUrl(value) {
+  return value instanceof URL ? value.toString() : value;
+}
+
+function buildTranscriptionArgs(options, context = {}) {
   const args = [
     "scripts/e2e-transcription-job.cjs",
     "--expect",
@@ -729,8 +737,10 @@ function buildTranscriptionArgs(options) {
     args.push("--allow-hosted");
   }
 
-  if (options.apiGatewayUrl) {
-    args.push("--api-gateway-url", options.apiGatewayUrl);
+  const apiGatewayUrl = options.apiGatewayUrl || context.apiGatewayUrl;
+
+  if (apiGatewayUrl) {
+    args.push("--api-gateway-url", formatResolvedUrl(apiGatewayUrl));
   }
 
   if (options.dockerBin) {
@@ -927,7 +937,7 @@ async function runModePreflight(options, snapshot) {
   return context;
 }
 
-function getCheckSequence(options) {
+function getCheckSequence(options, context = {}) {
   return [
     {
       args: ["db:validate-security"],
@@ -972,7 +982,7 @@ function getCheckSequence(options) {
       runner: "pnpm",
     },
     {
-      args: buildTranscriptionArgs(options),
+      args: buildTranscriptionArgs(options, context),
       command: process.execPath,
       label: TRANSCRIPTION_E2E_LABEL,
       runner: "node",
@@ -1014,7 +1024,7 @@ async function main() {
 
   const modeContext = await runModePreflight(options, snapshot);
 
-  for (const step of getCheckSequence(options)) {
+  for (const step of getCheckSequence(options, modeContext)) {
     if (step.runner === "pnpm") {
       runPnpm(step.args, step.label);
       continue;
