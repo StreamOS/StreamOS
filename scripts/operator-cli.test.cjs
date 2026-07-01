@@ -43,6 +43,7 @@ const {
   parseArgs: parseApiGatewayProvenanceWriterArgs,
 } = require("./write-api-gateway-runtime-provenance.cjs");
 const {
+  ARGUMENT_FLAG_TO_OPTION_KEY,
   DEFAULT_RUNTIME_PROVENANCE_REPOSITORY:
     DEFAULT_RUNNER_RUNTIME_PROVENANCE_REPOSITORY,
   buildReleaseGateRunnerProvenance,
@@ -969,6 +970,67 @@ test("release-gate-runner provenance writer defaults repository when GitHub env 
       process.env.GITHUB_REPOSITORY = previousRepository;
     }
   }
+});
+
+test("release-gate-runner provenance writer parses all supported split flags without skipping later args", () => {
+  const options = parseProvenanceWriterArgs([
+    "--environment",
+    "production",
+    "--generated-at",
+    "2026-07-01T15:30:00.000Z",
+    "--git-sha",
+    "195c6685282571d9d5017f3a0ec3b197b97cfa1d",
+    "--git-ref",
+    "refs/heads/main",
+    "--output",
+    "scripts/.release-gate-runner-provenance.json",
+    "--repository",
+    "StreamOS/StreamOS",
+    "--run-attempt",
+    "2",
+    "--run-id",
+    "987654321",
+    "--service",
+    "release-gate-runner",
+    "--workflow",
+    "CD - Production Deployment",
+  ]);
+
+  assert.deepEqual(Object.fromEntries(ARGUMENT_FLAG_TO_OPTION_KEY), {
+    environment: "environment",
+    "generated-at": "generatedAt",
+    "git-ref": "gitRef",
+    "git-sha": "gitCommit",
+    output: "output",
+    repository: "repository",
+    "run-attempt": "runAttempt",
+    "run-id": "runId",
+    service: "runnerService",
+    workflow: "workflow",
+  });
+  assert.equal(options.environment, "production");
+  assert.equal(options.generatedAt, "2026-07-01T15:30:00.000Z");
+  assert.equal(options.gitCommit, "195c6685282571d9d5017f3a0ec3b197b97cfa1d");
+  assert.equal(options.gitRef, "refs/heads/main");
+  assert.equal(options.output, "scripts/.release-gate-runner-provenance.json");
+  assert.equal(options.repository, "StreamOS/StreamOS");
+  assert.equal(options.runAttempt, "2");
+  assert.equal(options.runId, "987654321");
+  assert.equal(options.runnerService, "release-gate-runner");
+  assert.equal(options.workflow, "CD - Production Deployment");
+});
+
+test("release-gate-runner provenance writer ignores standalone -- before later flags", () => {
+  const options = parseProvenanceWriterArgs([
+    "--",
+    "--git-sha",
+    "195c6685282571d9d5017f3a0ec3b197b97cfa1d",
+    "--environment",
+    "production",
+  ]);
+
+  assert.equal(options.gitCommit, "195c6685282571d9d5017f3a0ec3b197b97cfa1d");
+  assert.equal(options.environment, "production");
 });
 
 test("api-gateway runtime provenance payload stays non-secret and commit-bound", () => {

@@ -20,6 +20,17 @@ Reviewed repository anchor (historical snapshot as of 2026-06-30):
 
 - `main` SHA at review time: `6b0355864958fe2bf8bd9b10c1b3a255f90a7bc4`
 
+Before using this runbook for recorded evidence, verify that this historical
+review anchor is still reachable from the `main` line you are evaluating. An
+acceptable validation flow is:
+
+- fetch the current `main` ref you intend to evaluate
+- verify the historical review SHA with standard git tooling such as
+  `git merge-base --is-ancestor 6b0355864958fe2bf8bd9b10c1b3a255f90a7bc4 origin/main`
+- if the anchor is no longer reachable from the evaluated `main`, treat the
+  runbook as a historical baseline only and keep recorded evidence blocked or
+  incomplete until a newer reviewed runbook or reviewed snapshot is used
+
 This runbook is proof-only:
 
 - no runtime activation
@@ -305,14 +316,23 @@ This runbook does not authorize:
 
 Placeholder note for `{{RC_SHA}}`:
 
-- `{{RC_SHA}}` is a manual placeholder in this runbook template.
-- The template may retain `{{RC_SHA}}`, but recorded evidence artifacts must replace it with the concrete, verified, non-secret RC SHA.
-- Approved tooling may be used if it performs the same substitution.
+- `{{RC_SHA}}` is a template placeholder in this runbook and may remain in the
+  runbook text itself.
+- Recorded evidence artifacts must not treat the literal token `{{RC_SHA}}` as
+  proof.
+- Recorded evidence artifacts must use one concrete, verified, non-secret RC
+  SHA derived from the evaluated release candidate.
+- The preferred flow is to obtain the RC SHA from an existing validating route
+  such as `git rev-parse <evaluated-ref>` and then bind that same SHA through
+  the existing provenance and proof-writing flow.
 - If the concrete SHA cannot be recorded, mark the evidence blocked or incomplete; do not treat the literal token `{{RC_SHA}}` as proof.
 
-Before running this checklist, set `{{RC_SHA}}` to the active release-candidate commit SHA for the evaluation window.
+Before running this checklist, derive the active release-candidate commit SHA
+for the evaluation window from the evaluated ref, verify it with standard git
+tooling, and only then substitute that concrete SHA into the recorded artifact.
 
-- confirm the evaluated artifact still references RC SHA `{{RC_SHA}}` only
+- confirm the recorded artifact references one concrete, verified RC SHA rather
+  than the literal token `{{RC_SHA}}`
   Redaction rule: record the SHA only, never any secret-bearing deploy transcript
 - confirm the proof runtime is `release-gate-runner` or an equivalent proof-capable Railway runtime
   Redaction rule: record service label only, not private runtime coordinates

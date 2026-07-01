@@ -14,96 +14,50 @@ const {
 } = require("./rollout-check.cjs");
 
 const DEFAULT_RUNTIME_PROVENANCE_REPOSITORY = "StreamOS/StreamOS";
+const ARGUMENT_FLAG_TO_OPTION_KEY = new Map([
+  ["environment", "environment"],
+  ["generated-at", "generatedAt"],
+  ["git-sha", "gitCommit"],
+  ["git-ref", "gitRef"],
+  ["output", "output"],
+  ["repository", "repository"],
+  ["run-attempt", "runAttempt"],
+  ["run-id", "runId"],
+  ["service", "runnerService"],
+  ["workflow", "workflow"],
+]);
 
 function parseArgs(argv) {
   const options = {
     output: RUNNER_PROVENANCE_PATH,
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+
+  while (index < argv.length) {
     const arg = argv[index];
 
     if (arg === "--") {
+      index += 1;
       continue;
     }
 
-    const environmentMatch = consumeValueFlag(argv, index, "environment");
+    let consumedFlag = false;
 
-    if (environmentMatch.matched) {
-      options.environment = environmentMatch.value.trim();
-      index = environmentMatch.nextIndex;
-      continue;
+    for (const [flagName, optionKey] of ARGUMENT_FLAG_TO_OPTION_KEY) {
+      const match = consumeValueFlag(argv, index, flagName);
+
+      if (!match.matched) {
+        continue;
+      }
+
+      options[optionKey] = match.value.trim();
+      index = match.nextIndex + 1;
+      consumedFlag = true;
+      break;
     }
 
-    const generatedAtMatch = consumeValueFlag(argv, index, "generated-at");
-
-    if (generatedAtMatch.matched) {
-      options.generatedAt = generatedAtMatch.value.trim();
-      index = generatedAtMatch.nextIndex;
-      continue;
-    }
-
-    const gitCommitMatch = consumeValueFlag(argv, index, "git-sha");
-
-    if (gitCommitMatch.matched) {
-      options.gitCommit = gitCommitMatch.value.trim();
-      index = gitCommitMatch.nextIndex;
-      continue;
-    }
-
-    const gitRefMatch = consumeValueFlag(argv, index, "git-ref");
-
-    if (gitRefMatch.matched) {
-      options.gitRef = gitRefMatch.value.trim();
-      index = gitRefMatch.nextIndex;
-      continue;
-    }
-
-    const outputMatch = consumeValueFlag(argv, index, "output");
-
-    if (outputMatch.matched) {
-      options.output = outputMatch.value.trim();
-      index = outputMatch.nextIndex;
-      continue;
-    }
-
-    const repositoryMatch = consumeValueFlag(argv, index, "repository");
-
-    if (repositoryMatch.matched) {
-      options.repository = repositoryMatch.value.trim();
-      index = repositoryMatch.nextIndex;
-      continue;
-    }
-
-    const runAttemptMatch = consumeValueFlag(argv, index, "run-attempt");
-
-    if (runAttemptMatch.matched) {
-      options.runAttempt = runAttemptMatch.value.trim();
-      index = runAttemptMatch.nextIndex;
-      continue;
-    }
-
-    const runIdMatch = consumeValueFlag(argv, index, "run-id");
-
-    if (runIdMatch.matched) {
-      options.runId = runIdMatch.value.trim();
-      index = runIdMatch.nextIndex;
-      continue;
-    }
-
-    const serviceMatch = consumeValueFlag(argv, index, "service");
-
-    if (serviceMatch.matched) {
-      options.runnerService = serviceMatch.value.trim();
-      index = serviceMatch.nextIndex;
-      continue;
-    }
-
-    const workflowMatch = consumeValueFlag(argv, index, "workflow");
-
-    if (workflowMatch.matched) {
-      options.workflow = workflowMatch.value.trim();
-      index = workflowMatch.nextIndex;
+    if (consumedFlag) {
       continue;
     }
 
@@ -190,6 +144,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  ARGUMENT_FLAG_TO_OPTION_KEY,
   DEFAULT_RUNTIME_PROVENANCE_REPOSITORY,
   buildReleaseGateRunnerProvenance,
   parseArgs,
