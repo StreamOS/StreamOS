@@ -87,11 +87,11 @@ The reviewed bundle contract also requires:
 
 ## Sources Reviewed
 
-- `docs/ai-assistant-operator-proof-evidence-collection-follow-up-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-evidence-collection-2026-06-30.md`
-- `docs/ai-assistant-private-downstream-reachability-signing-proof-runbook-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-runbook-2026-06-30.md`
-- `docs/ai-assistant-runtime-activation-readiness-audit-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-evidence-collection-follow-up-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-evidence-collection-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-private-downstream-reachability-signing-proof-runbook-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-runbook-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-runtime-activation-readiness-audit-2026-06-30.md`
 
 Repository search result:
 
@@ -159,15 +159,15 @@ Status:
 
 The following repository materials were reviewed and explicitly rejected as operator proof bundle candidates:
 
-- `docs/ai-assistant-operator-proof-evidence-collection-follow-up-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-evidence-collection-follow-up-2026-06-30.md`
   Reason: bundle contract only; not a candidate artifact
-- `docs/ai-assistant-operator-proof-evidence-collection-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-evidence-collection-2026-06-30.md`
   Reason: evidence-gap review only; not a candidate artifact
-- `docs/ai-assistant-private-downstream-reachability-signing-proof-runbook-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-private-downstream-reachability-signing-proof-runbook-2026-06-30.md`
   Reason: proof instructions only; not a candidate artifact
-- `docs/ai-assistant-operator-proof-runbook-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-runbook-2026-06-30.md`
   Reason: gate/runbook guidance only; not a candidate artifact
-- `docs/ai-assistant-runtime-activation-readiness-audit-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-runtime-activation-readiness-audit-2026-06-30.md`
   Reason: readiness audit only; not a candidate artifact
 
 ## Activation Boundary
@@ -215,7 +215,7 @@ Why:
 Executed for this docs-only slice:
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-operator-proof-evidence-collection-follow-up-2026-06-30.md docs/ai-assistant-operator-proof-bundle-review-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-operator-proof-evidence-collection-follow-up-2026-06-30.md docs/ai-assistant/ai-assistant-operator-proof-bundle-review-2026-06-30.md`
 
 Not executed:
 

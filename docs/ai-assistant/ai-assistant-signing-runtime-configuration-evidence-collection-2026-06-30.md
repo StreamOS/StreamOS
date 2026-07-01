@@ -153,15 +153,15 @@ That follow-up must prove, separately and still secret-safe:
 
 ## Context Reviewed
 
-- [ai-assistant-signing-runtime-configuration-operator-action-2026-06-30.md](/C:/Dev/StreamOS/docs/ai-assistant-signing-runtime-configuration-operator-action-2026-06-30.md)
-- [ai-assistant-target-runtime-signing-configuration-evidence-review-2026-06-30.md](/C:/Dev/StreamOS/docs/ai-assistant-target-runtime-signing-configuration-evidence-review-2026-06-30.md)
-- [ai-assistant-target-runtime-signing-runtime-binding-redacted-evidence-2026-06-30.md](/C:/Dev/StreamOS/docs/ai-assistant-target-runtime-signing-runtime-binding-redacted-evidence-2026-06-30.md)
-- [ai-assistant-signing-runtime-configuration-plan-2026-06-30.md](/C:/Dev/StreamOS/docs/ai-assistant-signing-runtime-configuration-plan-2026-06-30.md)
-- [ai-assistant-target-runtime-signing-server-only-binding-evidence-2026-06-30.md](/C:/Dev/StreamOS/docs/ai-assistant-target-runtime-signing-server-only-binding-evidence-2026-06-30.md)
+- [ai-assistant-signing-runtime-configuration-operator-action-2026-06-30.md](./ai-assistant-signing-runtime-configuration-operator-action-2026-06-30.md)
+- [ai-assistant-target-runtime-signing-configuration-evidence-review-2026-06-30.md](./ai-assistant-target-runtime-signing-configuration-evidence-review-2026-06-30.md)
+- [ai-assistant-target-runtime-signing-runtime-binding-redacted-evidence-2026-06-30.md](./ai-assistant-target-runtime-signing-runtime-binding-redacted-evidence-2026-06-30.md)
+- [ai-assistant-signing-runtime-configuration-plan-2026-06-30.md](./ai-assistant-signing-runtime-configuration-plan-2026-06-30.md)
+- [ai-assistant-target-runtime-signing-server-only-binding-evidence-2026-06-30.md](./ai-assistant-target-runtime-signing-server-only-binding-evidence-2026-06-30.md)
 
 ## Validation
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-signing-runtime-configuration-evidence-collection-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-signing-runtime-configuration-evidence-collection-2026-06-30.md`
 
 `pnpm validate` may remain skipped for this slice because the change is docs-only and does not modify code, tests, env files, DB contracts, workers, providers, or deployment scripts.

@@ -70,11 +70,11 @@ Current internal automation endpoints remain unchanged core/internal surfaces:
 
 ## Sources Reviewed
 
-- `docs/ai-assistant-operator-proof-bundle-review-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-bundle-template-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-bundle-candidate-collection-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-bundle-candidate-review-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-target-runtime-collection-handoff-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-bundle-review-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-bundle-template-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-bundle-candidate-collection-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-bundle-candidate-review-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-target-runtime-collection-handoff-2026-06-30.md`
 
 Repository search result:
 
@@ -126,13 +126,13 @@ Interpretation:
 
 The following repository materials were reviewed and explicitly rejected from elevation to filled-candidate proof:
 
-- `docs/ai-assistant-operator-proof-bundle-template-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-bundle-template-2026-06-30.md`
   Reason: template only; not collected evidence
-- `docs/ai-assistant-operator-proof-bundle-candidate-collection-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-bundle-candidate-collection-2026-06-30.md`
   Reason: candidate shell only; still contains `<not_collected>`
-- `docs/ai-assistant-operator-proof-bundle-candidate-review-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-bundle-candidate-review-2026-06-30.md`
   Reason: review of incomplete shell only; not a filled artifact
-- `docs/ai-assistant-operator-proof-target-runtime-collection-handoff-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-target-runtime-collection-handoff-2026-06-30.md`
   Reason: handoff procedure only; not collected evidence
 - all prior AI Assistant docs in `docs/`
   Reason: audits, runbooks, and contract notes only; none contain target-runtime collected bundle evidence
@@ -215,7 +215,7 @@ Why:
 Executed for this docs-only slice:
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-operator-proof-filled-candidate-review-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-operator-proof-filled-candidate-review-2026-06-30.md`
 
 Not executed:
 

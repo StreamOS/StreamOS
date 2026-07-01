@@ -53,10 +53,10 @@ Signing parity review does not change that state. Missing or incompatible signin
 
 ## Evidence Sources Reviewed
 
-- `docs/ai-assistant-activation-proof-collection-report-2026-06-30.md`
-- `docs/ai-assistant-activation-slice-planning-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-runbook-2026-06-30.md`
-- `docs/ai-assistant-runtime-activation-readiness-audit-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-activation-proof-collection-report-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-activation-slice-planning-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-runbook-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-runtime-activation-readiness-audit-2026-06-30.md`
 - `docs/architecture.md`
 - `docs/deployment.md`
 - `packages/types/src/automation-entitlement-assertions.ts`
@@ -236,7 +236,7 @@ Why:
 Executed for this docs-only slice:
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-signing-parity-verification-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-signing-parity-verification-2026-06-30.md`
 
 Not executed:
 

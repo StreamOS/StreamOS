@@ -223,7 +223,7 @@ Redacted source classes used:
 Executed for this docs-only evidence slice:
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-target-runtime-signing-runtime-binding-redacted-evidence-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-target-runtime-signing-runtime-binding-redacted-evidence-2026-06-30.md`
 
 Not executed:
 

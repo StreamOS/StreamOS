@@ -70,10 +70,10 @@ Current internal automation endpoints remain unchanged core/internal surfaces:
 
 ## Sources Reviewed
 
-- `docs/ai-assistant-operator-proof-bundle-candidate-collection-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-bundle-template-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-bundle-review-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-evidence-collection-follow-up-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-bundle-candidate-collection-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-bundle-template-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-bundle-review-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-evidence-collection-follow-up-2026-06-30.md`
 
 ## Candidate Presence Review
 
@@ -234,7 +234,7 @@ Why:
 Executed for this docs-only slice:
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-operator-proof-bundle-candidate-review-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-operator-proof-bundle-candidate-review-2026-06-30.md`
 
 Not executed:
 

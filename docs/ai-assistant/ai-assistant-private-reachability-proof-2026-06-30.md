@@ -50,11 +50,11 @@ Reachability review does not change that state. Missing private Gateway-to-Autom
 
 ## Evidence Sources Reviewed
 
-- `docs/ai-assistant-signing-parity-verification-2026-06-30.md`
-- `docs/ai-assistant-activation-proof-collection-report-2026-06-30.md`
-- `docs/ai-assistant-activation-slice-planning-2026-06-30.md`
-- `docs/ai-assistant-operator-proof-runbook-2026-06-30.md`
-- `docs/ai-assistant-runtime-activation-readiness-audit-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-signing-parity-verification-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-activation-proof-collection-report-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-activation-slice-planning-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-operator-proof-runbook-2026-06-30.md`
+- `docs/ai-assistant/ai-assistant-runtime-activation-readiness-audit-2026-06-30.md`
 - `docs/architecture.md`
 - `docs/deployment.md`
 - `docs/operator-live-env-audit.md`
@@ -220,7 +220,7 @@ Why:
 Executed for this docs-only slice:
 
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-private-reachability-proof-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-private-reachability-proof-2026-06-30.md`
 
 Not executed:
 

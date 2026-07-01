@@ -263,7 +263,7 @@ Executed for this evidence-candidate slice:
 - live `automation-service` signing env presence check
 - live Vercel production env-key presence check
 - `git diff --check`
-- `pnpm exec prettier --check docs/ai-assistant-operator-proof-redacted-evidence-candidate-2026-06-30.md`
+- `pnpm exec prettier --check docs/ai-assistant/ai-assistant-operator-proof-redacted-evidence-candidate-2026-06-30.md`
 
 Not executed:
 
