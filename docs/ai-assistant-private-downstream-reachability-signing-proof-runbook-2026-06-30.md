@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This runbook defines how Thomas can later collect the two remaining operator-owned proof categories that sit directly in front of later AI Assistant gate-transition work:
+This runbook defines how the operator can later collect the two remaining operator-owned proof categories that sit directly in front of later AI Assistant gate-transition work:
 
 - private Gateway-to-Automation downstream reachability proof
 - Gateway-and-Automation signing parity proof
