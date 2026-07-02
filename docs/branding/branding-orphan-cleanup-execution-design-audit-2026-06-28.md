@@ -29,7 +29,7 @@ Current baseline:
 - `main == origin/main`: yes before this docs branch
 - worktree at slice start: clean
 - current orphan evidence report in `main`:
-  [docs/branding-orphan-environment-binding-evidence-2026-06-27.md](../docs/branding-orphan-environment-binding-evidence-2026-06-27.md)
+  [docs/branding/branding-orphan-environment-binding-evidence-2026-06-27.md](./branding-orphan-environment-binding-evidence-2026-06-27.md)
 
 Relevant repo sources reviewed:
 
@@ -39,7 +39,7 @@ Relevant repo sources reviewed:
 - [apps/web/src/app/dashboard/branding/actions.ts](../apps/web/src/app/dashboard/branding/actions.ts)
 - [apps/web/src/app/dashboard/branding/preview.ts](../apps/web/src/app/dashboard/branding/preview.ts)
 - [apps/web/src/app/dashboard/branding/data.ts](../apps/web/src/app/dashboard/branding/data.ts)
-- [docs/p5-branding-closeout.md](../docs/p5-branding-closeout.md)
+- [docs/branding/p5-branding-closeout.md](./p5-branding-closeout.md)
 - [docs/deployment.md](../docs/deployment.md)
 
 ## Bisherige Evidence

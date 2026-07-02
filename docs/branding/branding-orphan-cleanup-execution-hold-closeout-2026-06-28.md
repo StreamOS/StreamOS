@@ -62,24 +62,24 @@ Relevant merged chain leading to this closeout:
    and its tests in
    [scripts/branding-orphan-dry-run.test.cjs](../scripts/branding-orphan-dry-run.test.cjs).
 3. Tenant-scoped evidence was documented in
-   [docs/branding-orphan-tenant-dry-run-evidence-2026-06-27.md](../docs/branding-orphan-tenant-dry-run-evidence-2026-06-27.md).
+   [docs/branding/branding-orphan-tenant-dry-run-evidence-2026-06-27.md](./branding-orphan-tenant-dry-run-evidence-2026-06-27.md).
 4. Production-bound environment evidence was documented in
-   [docs/branding-orphan-environment-binding-evidence-2026-06-27.md](../docs/branding-orphan-environment-binding-evidence-2026-06-27.md).
+   [docs/branding/branding-orphan-environment-binding-evidence-2026-06-27.md](./branding-orphan-environment-binding-evidence-2026-06-27.md).
 5. Execution design constraints were documented in
-   [docs/branding-orphan-cleanup-execution-design-audit-2026-06-28.md](../docs/branding-orphan-cleanup-execution-design-audit-2026-06-28.md).
+   [docs/branding/branding-orphan-cleanup-execution-design-audit-2026-06-28.md](./branding-orphan-cleanup-execution-design-audit-2026-06-28.md).
 6. Execution contract guardrails were documented in
-   [docs/branding-orphan-cleanup-execution-contract-2026-06-28.md](../docs/branding-orphan-cleanup-execution-contract-2026-06-28.md).
+   [docs/branding/branding-orphan-cleanup-execution-contract-2026-06-28.md](./branding-orphan-cleanup-execution-contract-2026-06-28.md).
 7. Execution gate rules were documented in
-   [docs/branding-orphan-cleanup-execution-gate-2026-06-28.md](../docs/branding-orphan-cleanup-execution-gate-2026-06-28.md).
+   [docs/branding/branding-orphan-cleanup-execution-gate-2026-06-28.md](./branding-orphan-cleanup-execution-gate-2026-06-28.md).
 8. A future-only implementation shape was documented in
-   [docs/branding-orphan-cleanup-execution-implementation-plan-2026-06-28.md](../docs/branding-orphan-cleanup-execution-implementation-plan-2026-06-28.md).
+   [docs/branding/branding-orphan-cleanup-execution-implementation-plan-2026-06-28.md](./branding-orphan-cleanup-execution-implementation-plan-2026-06-28.md).
 9. Final preflight requirements were documented in
-   [docs/branding-orphan-cleanup-final-preflight-2026-06-28.md](../docs/branding-orphan-cleanup-final-preflight-2026-06-28.md).
+   [docs/branding/branding-orphan-cleanup-final-preflight-2026-06-28.md](./branding-orphan-cleanup-final-preflight-2026-06-28.md).
 10. Operator approval prerequisites were documented in
-    [docs/branding-orphan-cleanup-execution-approval-package-2026-06-28.md](../docs/branding-orphan-cleanup-execution-approval-package-2026-06-28.md).
+    [docs/branding/branding-orphan-cleanup-execution-approval-package-2026-06-28.md](./branding-orphan-cleanup-execution-approval-package-2026-06-28.md).
 11. The current chain was validated as a non-destructive zero-candidate no-op
     proof in
-    [docs/branding-orphan-cleanup-execution-no-op-proof-2026-06-28.md](../docs/branding-orphan-cleanup-execution-no-op-proof-2026-06-28.md).
+    [docs/branding/branding-orphan-cleanup-execution-no-op-proof-2026-06-28.md](./branding-orphan-cleanup-execution-no-op-proof-2026-06-28.md).
 
 ## Aktuelle Evidence
 

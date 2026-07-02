@@ -94,7 +94,7 @@ The later approval package must require a fresh successful final preflight from
 the non-destructive preflight chain:
 
 - [scripts/branding-orphan-final-preflight.cjs](../scripts/branding-orphan-final-preflight.cjs)
-- [docs/branding-orphan-cleanup-final-preflight-2026-06-28.md](../docs/branding-orphan-cleanup-final-preflight-2026-06-28.md)
+- [docs/branding/branding-orphan-cleanup-final-preflight-2026-06-28.md](./branding-orphan-cleanup-final-preflight-2026-06-28.md)
 
 The preflight must remain:
 
@@ -118,9 +118,9 @@ valid and consistent:
 Relevant artifacts:
 
 - [scripts/branding-orphan-execution-contract.cjs](../scripts/branding-orphan-execution-contract.cjs)
-- [docs/branding-orphan-cleanup-execution-contract-2026-06-28.md](../docs/branding-orphan-cleanup-execution-contract-2026-06-28.md)
-- [docs/branding-orphan-cleanup-execution-implementation-plan-2026-06-28.md](../docs/branding-orphan-cleanup-execution-implementation-plan-2026-06-28.md)
-- [docs/branding-orphan-cleanup-execution-design-audit-2026-06-28.md](../docs/branding-orphan-cleanup-execution-design-audit-2026-06-28.md)
+- [docs/branding/branding-orphan-cleanup-execution-contract-2026-06-28.md](./branding-orphan-cleanup-execution-contract-2026-06-28.md)
+- [docs/branding/branding-orphan-cleanup-execution-implementation-plan-2026-06-28.md](./branding-orphan-cleanup-execution-implementation-plan-2026-06-28.md)
+- [docs/branding/branding-orphan-cleanup-execution-design-audit-2026-06-28.md](./branding-orphan-cleanup-execution-design-audit-2026-06-28.md)
 
 ## Candidate Summary
 
