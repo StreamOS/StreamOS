@@ -51,8 +51,8 @@ configured `SUPABASE_DB_URL` target plus the explicit target-environment flag.
 
 - [docs/branding/p5-branding-closeout.md](./p5-branding-closeout.md)
 - [docs/maintenance-closeout-matrix.md](./maintenance-closeout-matrix.md)
-- [docs/branch-governance-triage-2026-06-27.md](./branch-governance-triage-2026-06-27.md)
-- [docs/branch-unique-history-decision-2026-06-27.md](./branch-unique-history-decision-2026-06-27.md)
+- [docs/governance/branch-governance-triage-2026-06-27.md](../governance/branch-governance-triage-2026-06-27.md)
+- [docs/governance/branch-unique-history-decision-2026-06-27.md](../governance/branch-unique-history-decision-2026-06-27.md)
 - [docs/deployment.md](./deployment.md)
 - [docs/architecture.md](./architecture.md)
 - [docs/operator-live-env-audit.md](./operator-live-env-audit.md)
