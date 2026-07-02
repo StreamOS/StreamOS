@@ -35,7 +35,7 @@ It exists to make later slices testable against one explicit contract:
 - Production-gate trigger blocker:
   [production-gate-trigger-contract-design-audit-2026-07-01.md](./production-gate-trigger-contract-design-audit-2026-07-01.md)
 - Earlier activation sequencing:
-  [ai-assistant-activation-slice-planning-2026-06-30.md](./ai-assistant-activation-slice-planning-2026-06-30.md)
+  [ai-assistant-activation-readiness-status-consolidation-2026-07-01.md](./ai-assistant-activation-readiness-status-consolidation-2026-07-01.md)
 
 ## Current Authoritative State
 
