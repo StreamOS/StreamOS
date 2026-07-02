@@ -65,7 +65,7 @@ Budget and metering review does not change that state. Even complete local evide
 - `docs/ai-assistant/ai-assistant-activation-slice-planning-2026-06-30.md`
 - `docs/ai-assistant/ai-assistant-operator-proof-runbook-2026-06-30.md`
 - `docs/ai-assistant/ai-assistant-runtime-activation-readiness-audit-2026-06-30.md`
-- `docs/ai-usage-budget-rate-limit-source-design-2026-06-29.md`
+- `docs/billing-entitlements/ai-usage-budget-rate-limit-source-design-2026-06-29.md`
 - `docs/architecture.md`
 - `docs/deployment.md`
 - `services/api-gateway/src/lib/ai-assistant-route-contract.ts`
