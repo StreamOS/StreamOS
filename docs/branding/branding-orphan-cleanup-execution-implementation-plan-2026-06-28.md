@@ -34,13 +34,13 @@ Existing orphan-cleanup chain already merged:
 - execution gate tests:
   [scripts/branding-orphan-execution-gate.test.cjs](../scripts/branding-orphan-execution-gate.test.cjs)
 - prior design audit:
-  [docs/branding-orphan-cleanup-execution-design-audit-2026-06-28.md](../docs/branding-orphan-cleanup-execution-design-audit-2026-06-28.md)
+  [docs/branding/branding-orphan-cleanup-execution-design-audit-2026-06-28.md](./branding-orphan-cleanup-execution-design-audit-2026-06-28.md)
 - prior contract report:
-  [docs/branding-orphan-cleanup-execution-contract-2026-06-28.md](../docs/branding-orphan-cleanup-execution-contract-2026-06-28.md)
+  [docs/branding/branding-orphan-cleanup-execution-contract-2026-06-28.md](./branding-orphan-cleanup-execution-contract-2026-06-28.md)
 - prior gate report:
-  [docs/branding-orphan-cleanup-execution-gate-2026-06-28.md](../docs/branding-orphan-cleanup-execution-gate-2026-06-28.md)
+  [docs/branding/branding-orphan-cleanup-execution-gate-2026-06-28.md](./branding-orphan-cleanup-execution-gate-2026-06-28.md)
 - production-bound read-only evidence:
-  [docs/branding-orphan-environment-binding-evidence-2026-06-27.md](../docs/branding-orphan-environment-binding-evidence-2026-06-27.md)
+  [docs/branding/branding-orphan-environment-binding-evidence-2026-06-27.md](./branding-orphan-environment-binding-evidence-2026-06-27.md)
 
 Current evidence baseline remains conservative:
 

@@ -49,7 +49,7 @@ configured `SUPABASE_DB_URL` target plus the explicit target-environment flag.
 
 ## Sources Reviewed
 
-- [docs/p5-branding-closeout.md](./p5-branding-closeout.md)
+- [docs/branding/p5-branding-closeout.md](./p5-branding-closeout.md)
 - [docs/maintenance-closeout-matrix.md](./maintenance-closeout-matrix.md)
 - [docs/branch-governance-triage-2026-06-27.md](./branch-governance-triage-2026-06-27.md)
 - [docs/branch-unique-history-decision-2026-06-27.md](./branch-unique-history-decision-2026-06-27.md)
